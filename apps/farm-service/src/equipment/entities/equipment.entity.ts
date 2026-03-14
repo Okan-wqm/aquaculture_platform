@@ -27,6 +27,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 // Note: Department, SubSystem, EquipmentSystem are referenced via string in decorator to avoid circular dependency
 // Type-only imports for TypeScript type checking
 import type { Department } from '../../department/entities/department.entity';
@@ -205,7 +206,7 @@ export class Equipment {
   @Column({ type: 'date', nullable: true })
   warrantyEndDate?: Date;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   purchasePrice?: number;
 
   @Column({ length: 3, default: 'TRY' })
@@ -238,7 +239,7 @@ export class Equipment {
   @Column({ type: 'int', default: 0 })
   subEquipmentCount: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   operatingHours?: number;
 
   @Column({ type: 'text', nullable: true })
@@ -252,10 +253,10 @@ export class Equipment {
   @Column({ default: false })
   isVisibleInSensor: boolean;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   volume?: number;                   // m³ - tank için
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   currentBiomass?: number;           // kg - tank için, batch'lerden hesaplanır
 
   @Column({ type: 'int', nullable: true })

@@ -16,6 +16,7 @@ import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphq
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
+  RequestContextMiddleware,
   UserContextMiddleware,
   RolesGuard,
   TenantGuard,
@@ -209,6 +210,7 @@ export class AppModule implements NestModule {
     consumer
       .apply(
         CorrelationIdMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware,

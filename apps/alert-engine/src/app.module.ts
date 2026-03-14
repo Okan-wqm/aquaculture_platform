@@ -11,6 +11,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
+  RequestContextMiddleware,
   UserContextMiddleware,
   TenantGuard,
   RolesGuard,
@@ -152,6 +153,7 @@ export class AppModule implements NestModule {
     consumer
       .apply(
         CorrelationIdMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
       )

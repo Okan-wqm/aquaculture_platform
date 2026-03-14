@@ -13,6 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -144,7 +145,7 @@ export class SparePart {
   location?: StorageLocation;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   unitPrice?: number;
 
   @Field()

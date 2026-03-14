@@ -19,6 +19,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -168,11 +169,11 @@ export class MortalityRecord {
   count: number;                         // Ölüm adedi
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   estimatedBiomassLoss?: number;         // Tahmini biomass kaybı (kg)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   dailyMortalityRate?: number;           // Günlük ölüm oranı (%)
 
   // -------------------------------------------------------------------------

@@ -1,17 +1,15 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { StructuredLoggerService } from '@platform/backend-common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const logger = new Logger('NotificationService');
 
-  const isProduction = process.env['NODE_ENV'] === 'production';
   const app = await NestFactory.create(AppModule, {
-    logger: isProduction
-      ? ['error', 'warn', 'log']
-      : ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: new StructuredLoggerService('notification-service'),
   });
 
   const configService = app.get(ConfigService);

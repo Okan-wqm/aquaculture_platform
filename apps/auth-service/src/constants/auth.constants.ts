@@ -91,6 +91,32 @@ export const HTTP_SECURITY = {
 } as const;
 
 /**
+ * MFA (Multi-Factor Authentication) constants
+ */
+export const MFA_CONSTANTS = {
+  /** TOTP time step in seconds (RFC 6238) */
+  TOTP_PERIOD: 30,
+
+  /** Number of periods before/after current to accept (±1 = 30s tolerance) */
+  TOTP_WINDOW: 1,
+
+  /** Number of TOTP digits */
+  TOTP_DIGITS: 6,
+
+  /** Number of recovery codes to generate */
+  RECOVERY_CODE_COUNT: 8,
+
+  /** MFA token (intermediate JWT) TTL in seconds */
+  MFA_TOKEN_TTL_SECONDS: 300, // 5 minutes
+
+  /** Max failed MFA attempts before lockout */
+  MFA_MAX_FAILED_ATTEMPTS: 5,
+
+  /** MFA lockout duration in minutes */
+  MFA_LOCKOUT_DURATION_MINUTES: 15,
+} as const;
+
+/**
  * Role hierarchy levels for permission checks
  */
 export const ROLE_LEVELS = {

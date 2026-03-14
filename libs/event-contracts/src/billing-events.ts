@@ -50,6 +50,24 @@ export interface SubscriptionProvisioningFailedEvent extends BaseEvent {
 }
 
 /**
+ * Subscription Plan Changed Event
+ * Published when a tenant upgrades or downgrades their subscription plan.
+ */
+export interface SubscriptionPlanChangedEvent extends BaseEvent {
+  eventType: 'SubscriptionPlanChanged';
+  subscriptionId: string;
+  previousTier: PlanTier;
+  newTier: PlanTier;
+  previousPlanName: string;
+  newPlanName: string;
+  newPlanId: string;
+  proRataCredit: number;
+  currency: string;
+  isUpgrade: boolean;
+  effectiveDate: Date;
+}
+
+/**
  * Invoice Generated Event
  */
 export interface InvoiceGeneratedEvent extends BaseEvent {
@@ -96,6 +114,22 @@ export interface PaymentFailedEvent extends BaseEvent {
 }
 
 /**
+ * Payment Refunded Event
+ */
+export interface PaymentRefundedEvent extends BaseEvent {
+  eventType: 'PaymentRefunded';
+  paymentId: string;
+  invoiceId: string;
+  refundAmount: number;
+  totalRefunded: number;
+  currency: string;
+  reason: string;
+  refundId?: string;
+  isFullRefund: boolean;
+  refundedAt: Date;
+}
+
+/**
  * Invoice Overdue Event
  */
 export interface InvoiceOverdueEvent extends BaseEvent {
@@ -117,8 +151,10 @@ export type BillingEvent =
   | SubscriptionCreatedEvent
   | SubscriptionUpdatedEvent
   | SubscriptionCancelledEvent
+  | SubscriptionPlanChangedEvent
   | SubscriptionProvisioningFailedEvent
   | InvoiceGeneratedEvent
   | PaymentReceivedEvent
   | PaymentFailedEvent
+  | PaymentRefundedEvent
   | InvoiceOverdueEvent;

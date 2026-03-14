@@ -23,6 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -341,19 +342,19 @@ export class HarvestRecord {
   quantityHarvested: number;         // Adet
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   totalBiomass: number;              // kg (brüt)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   averageWeight: number;             // gram
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   minWeight?: number;                // gram
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   maxWeight?: number;                // gram
 
   // -------------------------------------------------------------------------
@@ -429,11 +430,11 @@ export class HarvestRecord {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   totalRevenue?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   harvestCost?: number;
 
   @Field({ nullable: true })
@@ -449,7 +450,7 @@ export class HarvestRecord {
   mortalityDuringHarvest?: number;   // Hasat sırasında ölen
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   rejectedQuantity?: number;         // Reddedilen kg
 
   @Field({ nullable: true })

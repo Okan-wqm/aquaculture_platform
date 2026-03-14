@@ -2,6 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
   Index, ManyToOne, JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { PurchaseOrder } from './purchase-order.entity';
 
 @Entity('purchase_order_items')
@@ -25,19 +26,19 @@ export class PurchaseOrderItem {
   @Column({ type: 'varchar', length: 50, nullable: true, name: 'item_code' })
   itemCode?: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
   quantity: number;
 
   @Column({ type: 'varchar', length: 20 })
   unit: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'unit_price' })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'unit_price', transformer: new DecimalTransformer() })
   unitPrice?: number;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'total_price' })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'total_price', transformer: new DecimalTransformer() })
   totalPrice?: number;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'quantity_received' })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'quantity_received', transformer: new DecimalTransformer() })
   quantityReceived: number;
 
   @Column({ type: 'boolean', default: false, name: 'is_fully_received' })

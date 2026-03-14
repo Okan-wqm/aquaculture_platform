@@ -22,6 +22,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -133,11 +134,11 @@ export class FeedInventory {
   // -------------------------------------------------------------------------
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   quantityKg: number;                    // Mevcut miktar (kg)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   minStockKg: number;                    // Minimum stok seviyesi (kg)
 
   @Field(() => InventoryStatus)
@@ -173,11 +174,11 @@ export class FeedInventory {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   unitPricePerKg?: number;               // kg başına fiyat
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   totalValue?: number;                   // Toplam değer
 
   @Field({ nullable: true })
@@ -193,7 +194,7 @@ export class FeedInventory {
   storageLocation?: string;              // Depo/Raf konumu
 
   @Field({ nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, transformer: new DecimalTransformer() })
   storageTemperature?: number;           // Depolama sıcaklığı (°C)
 
   // -------------------------------------------------------------------------

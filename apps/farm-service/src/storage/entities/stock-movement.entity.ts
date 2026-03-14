@@ -8,6 +8,7 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { registerEnumType } from '@nestjs/graphql';
 
 export enum MovementType {
@@ -48,7 +49,7 @@ export class StockMovement {
   @Column({ type: 'varchar', length: 255, name: 'item_name' })
   itemName: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
   quantity: number;
 
   @Column({ length: 20 })

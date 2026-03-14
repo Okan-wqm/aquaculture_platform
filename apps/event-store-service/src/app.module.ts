@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER } from '@nestjs/core';
+import { LoggingModule } from '@platform/backend-common';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
 import { HealthModule } from './health/health.module';
@@ -10,6 +11,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 @Module({
   imports: [
+    LoggingModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],

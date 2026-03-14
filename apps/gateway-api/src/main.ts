@@ -1,7 +1,7 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { initTelemetry } from '@platform/backend-common';
+import { initTelemetry, StructuredLoggerService } from '@platform/backend-common';
 import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
@@ -18,6 +18,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     // SECURITY: Disable raw body parsing - we configure it ourselves with limits
     rawBody: false,
+    logger: new StructuredLoggerService('gateway-api'),
   });
 
   const configService = app.get(ConfigService);

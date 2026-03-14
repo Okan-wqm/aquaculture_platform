@@ -2,7 +2,7 @@ import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { initTelemetry } from '@platform/backend-common';
+import { initTelemetry, StructuredLoggerService } from '@platform/backend-common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
@@ -15,7 +15,7 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('SensorService');
 
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: new StructuredLoggerService('sensor-service'),
   });
 
   const configService = app.get(ConfigService);

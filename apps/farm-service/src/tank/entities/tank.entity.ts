@@ -26,6 +26,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -272,42 +273,42 @@ export class Tank {
    * Çap - Sadece CIRCULAR, OVAL tanklar için
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   diameter?: number;
 
   /**
    * Uzunluk - RECTANGULAR, RACEWAY, D_END tanklar için
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   length?: number;
 
   /**
    * Genişlik - RECTANGULAR, RACEWAY, D_END, SQUARE tanklar için
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   width?: number;
 
   /**
    * Derinlik - Tüm tanklar için zorunlu (m)
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   depth: number;
 
   /**
    * Su derinliği - Gerçek su seviyesi (m)
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   waterDepth?: number;
 
   /**
    * Freeboard - Su yüzeyinden tank kenarına mesafe (m)
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   freeboard?: number;
 
   // -------------------------------------------------------------------------
@@ -318,14 +319,14 @@ export class Tank {
    * Toplam hacim (m³) - Otomatik hesaplanır
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
   volume: number;
 
   /**
    * Su hacmi (m³) - waterDepth'e göre hesaplanır
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   waterVolume?: number;
 
   // -------------------------------------------------------------------------
@@ -336,21 +337,21 @@ export class Tank {
    * Maksimum biomass (kg)
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   maxBiomass: number;
 
   /**
    * Mevcut biomass (kg) - Batch'lerden hesaplanır
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   currentBiomass: number;
 
   /**
    * Maksimum yoğunluk (kg/m³)
    */
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 30 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 30, transformer: new DecimalTransformer() })
   maxDensity: number;
 
   /**

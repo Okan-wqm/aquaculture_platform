@@ -28,6 +28,20 @@ export class AuthPayload {
    */
   @Field()
   redirectUrl!: string;
+
+  /**
+   * When true, the user has MFA enabled and must complete MFA verification.
+   * In this case, accessToken/refreshToken are empty and mfaToken is provided.
+   */
+  @Field(() => Boolean, { nullable: true })
+  mfaRequired?: boolean;
+
+  /**
+   * Short-lived JWT token for MFA verification step (5 min TTL).
+   * Only present when mfaRequired=true.
+   */
+  @Field(() => String, { nullable: true })
+  mfaToken?: string;
 }
 
 @ObjectType()

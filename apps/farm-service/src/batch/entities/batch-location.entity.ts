@@ -21,6 +21,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -141,11 +142,11 @@ export class BatchLocation {
   quantity: number;                // Bu lokasyondaki adet
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
   biomass: number;                 // Bu lokasyondaki biomass (kg)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   avgWeight?: number;              // Bu lokasyondaki ortalama ağırlık (g)
 
   // -------------------------------------------------------------------------

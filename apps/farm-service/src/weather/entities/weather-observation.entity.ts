@@ -11,6 +11,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum WeatherDataType {
@@ -55,35 +56,35 @@ export class WeatherObservation {
   dataType!: WeatherDataType;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   temperature?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, name: 'wind_speed' })
+  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, name: 'wind_speed', transformer: new DecimalTransformer() })
   windSpeed?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'wind_direction' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'wind_direction', transformer: new DecimalTransformer() })
   windDirection?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, name: 'wind_gusts' })
+  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, name: 'wind_gusts', transformer: new DecimalTransformer() })
   windGusts?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   precipitation?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'cloud_cover' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'cloud_cover', transformer: new DecimalTransformer() })
   cloudCover?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 7, scale: 2, nullable: true, name: 'pressure_msl' })
+  @Column({ type: 'decimal', precision: 7, scale: 2, nullable: true, name: 'pressure_msl', transformer: new DecimalTransformer() })
   pressureMsl?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'relative_humidity' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'relative_humidity', transformer: new DecimalTransformer() })
   relativeHumidity?: number;
 
   @Field()

@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { StructuredLoggerService } from '@platform/backend-common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -8,7 +9,11 @@ async function bootstrap() {
   const logger = new Logger('BillingService');
 
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: new StructuredLoggerService('billing-service'),
+    // Enable rawBody for Stripe webhook signature verification.
+    // NestJS attaches req.rawBody on routes that need it.
+    rawBody: true,
+    bodyParser: true,
   });
 
   const configService = app.get(ConfigService);

@@ -17,6 +17,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -202,11 +203,11 @@ export class Chemical {
   status: ChemicalStatus;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0, transformer: new DecimalTransformer() })
   quantity: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0, transformer: new DecimalTransformer() })
   minStock: number;
 
   @Field()
@@ -246,19 +247,19 @@ export class Chemical {
   storageRequirements?: string;
 
   @Field(() => Float, { nullable: true, description: 'Minimum storage temperature (°C)' })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_min' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_min', transformer: new DecimalTransformer() })
   storageTempMin?: number;
 
   @Field(() => Float, { nullable: true, description: 'Maximum storage temperature (°C)' })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_max' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_max', transformer: new DecimalTransformer() })
   storageTempMax?: number;
 
   @Field(() => Float, { nullable: true, description: 'Minimum storage humidity (%)' })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_min' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_min', transformer: new DecimalTransformer() })
   storageHumidityMin?: number;
 
   @Field(() => Float, { nullable: true, description: 'Maximum storage humidity (%)' })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_max' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_max', transformer: new DecimalTransformer() })
   storageHumidityMax?: number;
 
   @Field(() => Int, { nullable: true })
@@ -282,7 +283,7 @@ export class Chemical {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   unitPrice?: number;
 
   @Field()

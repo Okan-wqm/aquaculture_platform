@@ -23,6 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -236,11 +237,11 @@ export class FeedingTable {
   // -------------------------------------------------------------------------
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 3 })
+  @Column({ type: 'decimal', precision: 5, scale: 3, transformer: new DecimalTransformer() })
   targetFCR: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 3, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 3, nullable: true, transformer: new DecimalTransformer() })
   actualFCR?: number;              // Gerçekleşen FCR (update edilir)
 
   // -------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import {
   VersionColumn,
   OneToMany,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -161,7 +162,7 @@ export class Supplier {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 2, scale: 1, nullable: true })
+  @Column({ type: 'decimal', precision: 2, scale: 1, nullable: true, transformer: new DecimalTransformer() })
   rating?: number;                     // 1.0 - 5.0 arası
 
   // -------------------------------------------------------------------------

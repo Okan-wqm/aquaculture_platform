@@ -16,6 +16,7 @@ import {
   OneToMany,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -196,15 +197,15 @@ export class Site {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   areaM2?: number;                     // Tesis alanı (m²)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   waterCapacityM3?: number;            // Su kapasitesi (m³)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   maxBiomassKg?: number;               // Maksimum biyokütle kapasitesi (kg)
 
   // -------------------------------------------------------------------------

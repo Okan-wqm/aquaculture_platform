@@ -37,6 +37,9 @@ export * from './database';
 // Redis
 export * from './redis';
 
+// Logging - Structured JSON logger, request context, and middleware
+export * from './logging';
+
 // Telemetry
 export * from './telemetry';
 

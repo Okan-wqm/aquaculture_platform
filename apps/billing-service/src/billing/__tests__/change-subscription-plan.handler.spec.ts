@@ -1,0 +1,274 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { DataSource, EntityManager, Repository } from 'typeorm';
+import { ChangeSubscriptionPlanHandler } from '../handlers/change-subscription-plan.handler';
+import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
+import { Subscription, SubscriptionStatus, PlanTier, BillingCycle } from '../entities/subscription.entity';
+import { Plan } from '../entities/plan.entity';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+
+describe('ChangeSubscriptionPlanHandler', () => {
+  let handler: ChangeSubscriptionPlanHandler;
+  let mockDataSource: Partial<DataSource>;
+  let mockSubscriptionRepo: Partial<Repository<Subscription>>;
+  let mockPlanRepo: Partial<Repository<Plan>>;
+  let mockManager: Partial<EntityManager>;
+
+  const tenantId = '550e8400-e29b-41d4-a716-446655440000';
+  const userId = 'user-123';
+  const now = new Date('2026-03-14T12:00:00Z');
+
+  const createMockSubscription = (overrides: Partial<Subscription> = {}): Subscription => ({
+    id: 'sub-001',
+    tenantId,
+    planTier: PlanTier.STARTER,
+    planName: 'Starter',
+    status: SubscriptionStatus.ACTIVE,
+    billingCycle: BillingCycle.MONTHLY,
+    limits: {
+      maxFarms: 3,
+      maxPonds: 30,
+      maxSensors: 20,
+      maxUsers: 5,
+      dataRetentionDays: 90,
+      alertsEnabled: true,
+      reportsEnabled: false,
+      apiAccessEnabled: false,
+      customIntegrationsEnabled: false,
+    },
+    pricing: {
+      basePrice: 49,
+      perFarmPrice: 10,
+      perSensorPrice: 2,
+      perUserPrice: 5,
+      currency: 'USD',
+    },
+    startDate: new Date('2026-03-01T00:00:00Z'),
+    currentPeriodStart: new Date('2026-03-01T00:00:00Z'),
+    currentPeriodEnd: new Date('2026-03-31T00:00:00Z'),
+    autoRenew: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    version: 1,
+    sanitize: jest.fn(),
+    ...overrides,
+  } as unknown as Subscription);
+
+  const createMockPlan = (overrides: Partial<Plan> = {}): Plan => ({
+    id: 'plan-pro-001',
+    name: 'Professional',
+    tier: PlanTier.PROFESSIONAL,
+    basePrice: 149,
+    currency: 'USD',
+    billingCycle: BillingCycle.MONTHLY,
+    limits: {
+      maxFarms: 10,
+      maxPonds: 100,
+      maxSensors: 100,
+      maxUsers: 25,
+      dataRetentionDays: 365,
+      alertsEnabled: true,
+      reportsEnabled: true,
+      apiAccessEnabled: true,
+      customIntegrationsEnabled: false,
+    },
+    pricing: {
+      basePrice: 149,
+      perFarmPrice: 15,
+      perSensorPrice: 3,
+      perUserPrice: 8,
+      currency: 'USD',
+    },
+    features: ['reports', 'api_access'],
+    isActive: true,
+    isPublic: true,
+    sortOrder: 2,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    version: 1,
+    sanitize: jest.fn(),
+    ...overrides,
+  } as unknown as Plan);
+
+  beforeEach(async () => {
+    mockSubscriptionRepo = {
+      findOne: jest.fn(),
+      save: jest.fn().mockImplementation((sub) => Promise.resolve({ ...sub, version: (sub.version || 0) + 1 })),
+    };
+
+    mockPlanRepo = {
+      findOne: jest.fn(),
+    };
+
+    mockManager = {
+      getRepository: jest.fn().mockImplementation((entity) => {
+        if (entity === Subscription) return mockSubscriptionRepo;
+        if (entity === Plan) return mockPlanRepo;
+        return {};
+      }),
+    };
+
+    mockDataSource = {
+      transaction: jest.fn().mockImplementation((cb) => cb(mockManager)),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ChangeSubscriptionPlanHandler,
+        { provide: DataSource, useValue: mockDataSource },
+      ],
+    }).compile();
+
+    handler = module.get<ChangeSubscriptionPlanHandler>(ChangeSubscriptionPlanHandler);
+
+    // Mock Date.now for consistent pro-rata calculations
+    jest.useFakeTimers();
+    jest.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('should upgrade from Starter to Professional immediately', async () => {
+    const subscription = createMockSubscription();
+    const plan = createMockPlan();
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    const result = await handler.execute(
+      new ChangeSubscriptionPlanCommand(tenantId, {
+        newPlanId: plan.id,
+      }, userId),
+    );
+
+    expect(result.planTier).toBe(PlanTier.PROFESSIONAL);
+    expect(result.planName).toBe('Professional');
+    expect(result.limits.maxFarms).toBe(10);
+    expect(result.pricing.basePrice).toBe(149);
+    expect(result.updatedBy).toBe(userId);
+  });
+
+  it('should throw NotFoundException when subscription not found', async () => {
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+    await expect(
+      handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, {
+          newPlanId: 'plan-001',
+        }, userId),
+      ),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('should throw NotFoundException when plan not found', async () => {
+    const subscription = createMockSubscription();
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+    await expect(
+      handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, {
+          newPlanId: 'nonexistent-plan',
+        }, userId),
+      ),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('should throw BadRequestException when plan is deactivated', async () => {
+    const subscription = createMockSubscription();
+    const plan = createMockPlan({ isActive: false });
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    await expect(
+      handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, {
+          newPlanId: plan.id,
+        }, userId),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('should throw BadRequestException for cancelled subscription', async () => {
+    const subscription = createMockSubscription({
+      status: SubscriptionStatus.CANCELLED,
+    });
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+
+    await expect(
+      handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, {
+          newPlanId: 'plan-001',
+        }, userId),
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('should throw ConflictException when changing to the same plan', async () => {
+    const subscription = createMockSubscription({
+      planTier: PlanTier.PROFESSIONAL,
+      planName: 'Professional',
+    });
+    const plan = createMockPlan();
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    await expect(
+      handler.execute(
+        new ChangeSubscriptionPlanCommand(tenantId, {
+          newPlanId: plan.id,
+        }, userId),
+      ),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('should handle downgrade from Enterprise to Professional', async () => {
+    const subscription = createMockSubscription({
+      planTier: PlanTier.ENTERPRISE,
+      planName: 'Enterprise',
+      pricing: {
+        basePrice: 499,
+        perFarmPrice: 20,
+        perSensorPrice: 5,
+        perUserPrice: 10,
+        currency: 'USD',
+      },
+    });
+    const plan = createMockPlan(); // Professional
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    const result = await handler.execute(
+      new ChangeSubscriptionPlanCommand(tenantId, {
+        newPlanId: plan.id,
+      }, userId),
+    );
+
+    // Downgrade should still apply
+    expect(result.planTier).toBe(PlanTier.PROFESSIONAL);
+    expect(result.planName).toBe('Professional');
+  });
+
+  it('should allow trial subscriptions to change plans', async () => {
+    const subscription = createMockSubscription({
+      status: SubscriptionStatus.TRIAL,
+    });
+    const plan = createMockPlan();
+
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    const result = await handler.execute(
+      new ChangeSubscriptionPlanCommand(tenantId, {
+        newPlanId: plan.id,
+      }, userId),
+    );
+
+    expect(result.planTier).toBe(PlanTier.PROFESSIONAL);
+  });
+});

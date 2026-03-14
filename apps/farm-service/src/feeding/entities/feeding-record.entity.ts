@@ -23,6 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -196,23 +197,23 @@ export class FeedingRecord {
   // -------------------------------------------------------------------------
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 3 })
+  @Column({ type: 'decimal', precision: 10, scale: 3, transformer: new DecimalTransformer() })
   plannedAmount: number;           // Planlanan miktar (kg)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 3 })
+  @Column({ type: 'decimal', precision: 10, scale: 3, transformer: new DecimalTransformer() })
   actualAmount: number;            // Gerçek verilen miktar (kg)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 3, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 3, default: 0, transformer: new DecimalTransformer() })
   variance: number;                // Fark (actual - planned)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0, transformer: new DecimalTransformer() })
   variancePercent: number;         // Fark yüzdesi
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true, transformer: new DecimalTransformer() })
   wasteAmount?: number;            // Yenilmeyen/atık miktar (kg)
 
   // -------------------------------------------------------------------------
@@ -256,7 +257,7 @@ export class FeedingRecord {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   feedCost?: number;               // Yem maliyeti (TL)
 
   @Field({ nullable: true })

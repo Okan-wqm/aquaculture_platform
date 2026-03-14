@@ -2,6 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
   Index, OneToMany, VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { registerEnumType } from '@nestjs/graphql';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
 
@@ -66,7 +67,7 @@ export class PurchaseOrder {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'total_amount' })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'total_amount', transformer: new DecimalTransformer() })
   totalAmount?: number;
 
   @Column({ type: 'varchar', length: 3, default: 'NOK' })

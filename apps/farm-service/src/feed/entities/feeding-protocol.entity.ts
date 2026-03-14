@@ -13,6 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { Feed, FeedType } from './feed.entity';
 
 export interface TemperatureRange {
@@ -104,14 +105,14 @@ export class FeedingProtocol {
   /**
    * Hedef FCR (Feed Conversion Ratio)
    */
-  @Column({ type: 'decimal', precision: 4, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 4, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   targetFcr?: number;
 
   /**
    * Minimum çözünmüş oksijen seviyesi (mg/L)
    * Bu seviyenin altında besleme azaltılır/durdurulur
    */
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   minDissolvedOxygen?: number;
 
   /**

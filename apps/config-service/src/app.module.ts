@@ -7,13 +7,14 @@ import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard } from '@platform/backend-common';
+import { TenantGuard, RolesGuard, LoggingModule } from '@platform/backend-common';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 @Module({
   imports: [
+    LoggingModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '.env.local'],

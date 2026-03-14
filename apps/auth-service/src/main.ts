@@ -2,7 +2,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { initTelemetry } from '@platform/backend-common';
+import { initTelemetry, StructuredLoggerService } from '@platform/backend-common';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
@@ -15,7 +15,9 @@ initTelemetry('auth-service');
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('AuthService');
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: new StructuredLoggerService('auth-service'),
+  });
 
   const configService = app.get(ConfigService);
 

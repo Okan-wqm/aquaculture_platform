@@ -4,18 +4,30 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Subscription } from './entities/subscription.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { Payment, PaymentStatus } from './entities/payment.entity';
+import { Plan } from './entities/plan.entity';
 import { CreateSubscriptionInput } from './dto/create-subscription.input';
 import { CreateInvoiceInput } from './dto/create-invoice.input';
 import { RecordPaymentInput } from './dto/record-payment.input';
+import { RefundPaymentInput } from './dto/refund-payment.input';
+import { CreatePlanInput } from './dto/create-plan.input';
+import { UpdatePlanInput } from './dto/update-plan.input';
+import { ChangeSubscriptionPlanInput } from './dto/change-subscription-plan.input';
 import { CreateSubscriptionCommand } from './commands/create-subscription.command';
 import { CancelSubscriptionCommand } from './commands/cancel-subscription.command';
 import { CreateInvoiceCommand } from './commands/create-invoice.command';
 import { FinalizeInvoiceCommand } from './commands/finalize-invoice.command';
 import { VoidInvoiceCommand } from './commands/void-invoice.command';
 import { RecordPaymentCommand } from './commands/record-payment.command';
+import { RefundPaymentCommand } from './commands/refund-payment.command';
+import { CreatePlanCommand } from './commands/create-plan.command';
+import { UpdatePlanCommand } from './commands/update-plan.command';
+import { DeactivatePlanCommand } from './commands/deactivate-plan.command';
+import { ChangeSubscriptionPlanCommand } from './commands/change-subscription-plan.command';
 import { GetSubscriptionQuery } from './queries/get-subscription.query';
 import { GetInvoicesQuery, InvoiceFilterInput } from './queries/get-invoices.query';
 import { GetPaymentsQuery, PaymentFilterInput } from './queries/get-payments.query';
+import { GetPlansQuery } from './queries/get-plans.query';
+import { GetPlanByIdQuery } from './queries/get-plan-by-id.query';
 
 /**
  * SECURITY: Role-based authorization for billing operations
@@ -46,6 +58,23 @@ const PAYMENT_WRITE_ROLES: string[] = [
   BillingRole.SUPER_ADMIN,
   BillingRole.BILLING_ADMIN,
   BillingRole.FINANCE_MANAGER,
+];
+
+/** Roles allowed to issue refunds (restricted to highest privilege) */
+const REFUND_WRITE_ROLES: string[] = [
+  BillingRole.SUPER_ADMIN,
+  BillingRole.BILLING_ADMIN,
+];
+
+/** Roles allowed to manage plans (CRUD) — SUPER_ADMIN only */
+const PLAN_ADMIN_ROLES: string[] = [
+  BillingRole.SUPER_ADMIN,
+];
+
+/** Roles allowed to change subscription plan (upgrade/downgrade) */
+const PLAN_CHANGE_ROLES: string[] = [
+  BillingRole.SUPER_ADMIN,
+  BillingRole.BILLING_ADMIN,
 ];
 
 /** Roles allowed to read billing data */
@@ -283,6 +312,146 @@ export class BillingResolver {
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new RecordPaymentCommand(tenantId, input, userId),
+    );
+  }
+
+  /**
+   * Refund a payment (full or partial).
+   * Only SUPER_ADMIN or BILLING_ADMIN can issue refunds.
+   * Supports multiple partial refunds up to the original payment amount.
+   */
+  @Mutation(() => Payment)
+  async refundPayment(
+    @Args('input') input: RefundPaymentInput,
+    @Context() context: GraphQLContext,
+  ): Promise<Payment> {
+    const tenantId = extractTenantId(context);
+    requireRoles(context, REFUND_WRITE_ROLES, 'refund payment');
+    const userId = extractUserId(context);
+    return this.commandBus.execute(
+      new RefundPaymentCommand(tenantId, input, userId),
+    );
+  }
+
+  // ==================== Plan Queries ====================
+
+  /**
+   * List all active, public plans.
+   * Available to any authenticated user for plan comparison / upgrade flow.
+   */
+  @Query(() => [Plan], { name: 'plans' })
+  async getPlans(
+    @Context() context: GraphQLContext,
+  ): Promise<Plan[]> {
+    // Any authenticated user can view public plans — no role restriction
+    extractTenantId(context); // Still require valid auth
+    return this.queryBus.execute(new GetPlansQuery(true));
+  }
+
+  /**
+   * List all plans including inactive/private ones.
+   * SUPER_ADMIN only — used in admin panel for plan management.
+   */
+  @Query(() => [Plan], { name: 'allPlans' })
+  async getAllPlans(
+    @Context() context: GraphQLContext,
+  ): Promise<Plan[]> {
+    extractTenantId(context);
+    requireRoles(context, PLAN_ADMIN_ROLES, 'view all plans');
+    return this.queryBus.execute(new GetPlansQuery(false));
+  }
+
+  /**
+   * Get a single plan by ID.
+   */
+  @Query(() => Plan, { name: 'plan', nullable: true })
+  async getPlanById(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<Plan | null> {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('Invalid plan ID format');
+    }
+    extractTenantId(context);
+    requireRoles(context, BILLING_READ_ROLES, 'view plan');
+    return this.queryBus.execute(new GetPlanByIdQuery(id));
+  }
+
+  // ==================== Plan Mutations ====================
+
+  /**
+   * Create a new subscription plan. SUPER_ADMIN only.
+   */
+  @Mutation(() => Plan)
+  async createPlan(
+    @Args('input') input: CreatePlanInput,
+    @Context() context: GraphQLContext,
+  ): Promise<Plan> {
+    extractTenantId(context);
+    requireRoles(context, PLAN_ADMIN_ROLES, 'create plan');
+    const userId = extractUserId(context);
+    return this.commandBus.execute(new CreatePlanCommand(input, userId));
+  }
+
+  /**
+   * Update an existing plan. SUPER_ADMIN only.
+   * Requires expectedVersion for optimistic concurrency control.
+   * SAFETY: Price changes only affect NEW subscriptions — existing ones are not modified.
+   */
+  @Mutation(() => Plan)
+  async updatePlan(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('input') input: UpdatePlanInput,
+    @Context() context: GraphQLContext,
+  ): Promise<Plan> {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('Invalid plan ID format');
+    }
+    extractTenantId(context);
+    requireRoles(context, PLAN_ADMIN_ROLES, 'update plan');
+    const userId = extractUserId(context);
+    return this.commandBus.execute(new UpdatePlanCommand(id, input, userId));
+  }
+
+  /**
+   * Soft-deactivate a plan. SUPER_ADMIN only.
+   * The plan remains in the database for existing subscriptions but is
+   * no longer visible in public listings or selectable for new subscriptions.
+   */
+  @Mutation(() => Plan)
+  async deactivatePlan(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<Plan> {
+    if (!UUID_REGEX.test(id)) {
+      throw new BadRequestException('Invalid plan ID format');
+    }
+    extractTenantId(context);
+    requireRoles(context, PLAN_ADMIN_ROLES, 'deactivate plan');
+    const userId = extractUserId(context);
+    return this.commandBus.execute(new DeactivatePlanCommand(id, userId));
+  }
+
+  // ==================== Subscription Plan Change ====================
+
+  /**
+   * Change a tenant's subscription plan (upgrade or downgrade).
+   *
+   * - Upgrade: Takes effect immediately with pro-rata credit calculation.
+   * - Downgrade: Takes effect at end of current billing period.
+   *
+   * SUPER_ADMIN or BILLING_ADMIN only.
+   */
+  @Mutation(() => Subscription)
+  async changeSubscriptionPlan(
+    @Args('input') input: ChangeSubscriptionPlanInput,
+    @Context() context: GraphQLContext,
+  ): Promise<Subscription> {
+    const tenantId = extractTenantId(context);
+    requireRoles(context, PLAN_CHANGE_ROLES, 'change subscription plan');
+    const userId = extractUserId(context);
+    return this.commandBus.execute(
+      new ChangeSubscriptionPlanCommand(tenantId, input, userId),
     );
   }
 }

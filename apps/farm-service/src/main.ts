@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
+import { StructuredLoggerService } from '@platform/backend-common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -12,7 +13,7 @@ async function bootstrap() {
   const logger = new Logger('FarmService');
 
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: new StructuredLoggerService('farm-service'),
   });
 
   const configService = app.get(ConfigService);

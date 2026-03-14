@@ -13,6 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 // Note: Supplier is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Supplier } from '../../supplier/entities/supplier.entity';
@@ -193,7 +194,7 @@ export class Feed {
   @Column({ length: 100, nullable: true })
   targetSpecies?: string; // Salmon, Trout, Seabass, etc.
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   pelletSize?: number; // mm cinsinden
 
   @Column({
@@ -216,10 +217,10 @@ export class Feed {
   })
   status: FeedStatus;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   quantity: number; // kg cinsinden stok
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   minStock: number;
 
   @Column({ length: 20, default: 'kg' })
@@ -234,6 +235,7 @@ export class Feed {
     scale: 1,
     nullable: true,
     name: 'storage_temp_min',
+    transformer: new DecimalTransformer(),
   })
   storageTempMin?: number;
 
@@ -243,6 +245,7 @@ export class Feed {
     scale: 1,
     nullable: true,
     name: 'storage_temp_max',
+    transformer: new DecimalTransformer(),
   })
   storageTempMax?: number;
 
@@ -252,6 +255,7 @@ export class Feed {
     scale: 1,
     nullable: true,
     name: 'storage_humidity_min',
+    transformer: new DecimalTransformer(),
   })
   storageHumidityMin?: number;
 
@@ -261,6 +265,7 @@ export class Feed {
     scale: 1,
     nullable: true,
     name: 'storage_humidity_max',
+    transformer: new DecimalTransformer(),
   })
   storageHumidityMax?: number;
 
@@ -270,7 +275,7 @@ export class Feed {
   @Column({ type: 'date', nullable: true })
   expiryDate?: Date;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   pricePerKg?: number;
 
   @Column({ length: 3, default: 'TRY' })
@@ -296,7 +301,7 @@ export class Feed {
   @Column({ length: 100, nullable: true })
   unitSize?: string;         // "25kg çuval" gibi
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   unitPrice?: number;        // Birim fiyat
 
   // Yeni alanlar - Çevresel etki ve besleme eğrisi
@@ -318,10 +323,7 @@ export class Feed {
     scale: 2,
     nullable: true,
     name: 'min_fish_weight_g',
-    transformer: {
-      to: (value: number | undefined) => value,
-      from: (value: string | null) => value !== null ? parseFloat(value) : undefined,
-    },
+    transformer: new DecimalTransformer(),
   })
   minFishWeightG?: number;
 
@@ -332,10 +334,7 @@ export class Feed {
     scale: 2,
     nullable: true,
     name: 'max_fish_weight_g',
-    transformer: {
-      to: (value: number | undefined) => value,
-      from: (value: string | null) => value !== null ? parseFloat(value) : undefined,
-    },
+    transformer: new DecimalTransformer(),
   })
   maxFishWeightG?: number;
 

@@ -36,6 +36,9 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 
+// Forward reference type to avoid circular dependency
+import type { MfaService } from './mfa.service';
+
 /**
  * Generic authentication error message
  * SECURITY: Using generic message prevents user enumeration attacks
@@ -107,6 +110,7 @@ export class AuthenticationService {
     @Optional() private readonly timingSafe?: TimingSafeService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
+    @Optional() @Inject('MFA_SERVICE') private readonly mfaService?: MfaService,
   ) {
     this.maxFailedAttempts = this.configService.get<number>(
       'MAX_FAILED_ATTEMPTS',
@@ -333,11 +337,50 @@ export class AuthenticationService {
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
-      // Reset failed attempts on successful login
+      // Reset failed login attempts on successful password validation
       user.failedLoginAttempts = 0;
       user.lockedUntil = null;
-      user.lastLoginAt = new Date();
       user.lastLoginIp = ipAddress ?? null;
+
+      // ----------------------------------------------------------------
+      // MFA Check: If user has MFA enabled, return MFA challenge
+      // instead of full tokens. The user must complete MFA verification
+      // via the verifyMfaLogin mutation to receive full auth tokens.
+      // ----------------------------------------------------------------
+      if (user.mfaEnabled && this.mfaService) {
+        // Save login attempt state but DON'T set lastLoginAt yet
+        // (it will be set after MFA verification succeeds)
+        await this.userRepository.save(user);
+
+        const mfaChallenge = this.mfaService.generateMfaChallenge(user);
+
+        await this.logSecurityEvent('LOGIN_MFA_REQUIRED', {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress,
+          userAgent,
+          success: true,
+          reason: 'Password valid, MFA verification required',
+        });
+
+        await this.ensureMinDuration(startTime);
+
+        // Return a partial AuthPayload with MFA challenge info
+        return {
+          accessToken: '',
+          refreshToken: '',
+          user,
+          expiresIn: 0,
+          tokenType: 'Bearer',
+          redirectUrl: '',
+          mfaRequired: true,
+          mfaToken: mfaChallenge.mfaToken,
+        };
+      }
+
+      // No MFA — proceed with full login
+      user.lastLoginAt = new Date();
       await this.userRepository.save(user);
 
       // Enforce concurrent session limit
@@ -1270,6 +1313,48 @@ export class AuthenticationService {
     ]);
 
     // Generate new tokens so user is immediately logged in
+    return this.generateTokens(user, ipAddress, userAgent);
+  }
+
+  /**
+   * Generate full auth tokens for a user after MFA verification.
+   * This is called by MfaService after successful MFA challenge.
+   *
+   * SECURITY: This method must only be called from MfaService after MFA
+   * verification succeeds. It bypasses password validation (already done in login).
+   */
+  async generateTokensForMfa(
+    user: User,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthPayload> {
+    // Enforce concurrent session limit
+    if (this.sessionManager) {
+      await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
+    }
+
+    this.logger.log(`MFA verified, generating tokens for: ${user.email} (role: ${user.role})`);
+
+    // Audit log + event publish in parallel
+    await Promise.allSettled([
+      this.logSecurityEvent('LOGIN_SUCCESS_MFA', {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        ipAddress,
+        userAgent,
+        success: true,
+      }),
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'UserLoggedIn',
+        timestamp: new Date(),
+        tenantId: user.tenantId ?? 'system',
+        userId: user.id,
+        version: 1,
+      }),
+    ]);
+
     return this.generateTokens(user, ipAddress, userAgent);
   }
 

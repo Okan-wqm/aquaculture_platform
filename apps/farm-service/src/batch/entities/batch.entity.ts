@@ -22,6 +22,7 @@ import {
   OneToMany,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -317,23 +318,23 @@ export class Batch {
   cullCount: number;               // Ayıklama sayısı (cull)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   totalFeedConsumed: number;       // Toplam yem tüketimi (kg)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   totalFeedCost: number;           // Toplam yem maliyeti
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   retentionRate?: number;          // Tutma oranı (%) - mortality + cull dahil
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 4, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 4, nullable: true, transformer: new DecimalTransformer() })
   sgr?: number;                    // Spesifik büyüme oranı (SGR)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   costPerKg?: number;              // kg başına maliyet
 
   // -------------------------------------------------------------------------
@@ -405,7 +406,7 @@ export class Batch {
   supplierBatchNumber?: string;    // Tedarikçi parti numarası
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   purchaseCost?: number;           // Satın alma maliyeti
 
   @Field({ nullable: true })

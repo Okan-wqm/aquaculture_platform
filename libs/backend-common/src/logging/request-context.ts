@@ -1,0 +1,41 @@
+import { AsyncLocalStorage } from 'async_hooks';
+
+/**
+ * Immutable request context carried through the entire async call chain
+ * via Node.js AsyncLocalStorage. Every log entry automatically picks up
+ * these fields without the caller having to pass them explicitly.
+ */
+export interface RequestContext {
+  /** W3C / OpenTelemetry trace ID (32-char hex) */
+  traceId?: string;
+  /** Correlation ID propagated via X-Correlation-Id header */
+  correlationId?: string;
+  /** Resolved tenant ID for multi-tenant isolation */
+  tenantId?: string;
+  /** Authenticated user ID (JWT sub claim) */
+  userId?: string;
+  /** OpenTelemetry span ID (16-char hex) */
+  spanId?: string;
+  /** HTTP method of the incoming request */
+  method?: string;
+  /** Request URL / path */
+  url?: string;
+  /** Client IP address */
+  ip?: string;
+}
+
+/**
+ * Global AsyncLocalStorage instance for request context.
+ * Shared across the entire process so that any code path
+ * (service, repository, logger, etc.) can retrieve the current
+ * request context without injecting a request-scoped provider.
+ */
+export const requestContextStorage = new AsyncLocalStorage<RequestContext>();
+
+/**
+ * Retrieve the current request context, or an empty object if none is set.
+ * Safe to call from any async context (timers, event handlers, etc.).
+ */
+export function getRequestContext(): RequestContext {
+  return requestContextStorage.getStore() ?? {};
+}

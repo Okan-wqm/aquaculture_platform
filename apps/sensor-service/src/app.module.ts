@@ -13,6 +13,7 @@ import {
   UserContextMiddleware,
   TenantContextMiddleware,
   CorrelationIdMiddleware,
+  RequestContextMiddleware,
   MetricsMiddleware,
   TenantGuard,
   RolesGuard,
@@ -336,6 +337,7 @@ export class AppModule implements NestModule {
       .apply(
         MetricsMiddleware,        // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware,   // Sets PostgreSQL search_path to tenant schema

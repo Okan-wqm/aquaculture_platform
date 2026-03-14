@@ -103,6 +103,10 @@ export class Subscription {
   @Index()
   tenantId!: string;
 
+  @Field({ nullable: true })
+  @Column({ type: 'uuid', nullable: true, name: 'plan_id' })
+  planId?: string;
+
   @Field(() => PlanTier)
   @Column({ type: 'enum', enum: PlanTier, name: 'plan_tier' })
   planTier!: PlanTier;

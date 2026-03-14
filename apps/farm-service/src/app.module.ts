@@ -12,6 +12,7 @@ import { Request } from 'express';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
+  RequestContextMiddleware,
   TenantGuard,
   RolesGuard,
   UserContextMiddleware,
@@ -266,6 +267,7 @@ export class AppModule implements NestModule {
     consumer
       .apply(
         CorrelationIdMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
         TenantSchemaMiddleware,

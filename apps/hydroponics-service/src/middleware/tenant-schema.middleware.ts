@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 
 interface TenantRequest extends Request {
   tenantId?: string;
@@ -11,15 +11,20 @@ interface TenantRequest extends Request {
     role?: string;
   };
   schemaName?: string;
+  /** Dedicated QueryRunner pinned to a single pooled connection for this request */
+  tenantQueryRunner?: QueryRunner;
 }
 
 /**
  * Tenant Schema Middleware for Hydroponics Service
  *
  * Sets PostgreSQL search_path to tenant-specific schema at the start of each request.
- * Uses SET LOCAL inside a transaction so the search_path is connection-safe and
- * automatically reset when the transaction ends, preventing cross-tenant data leakage
- * from connection pool reuse.
+ *
+ * Connection Safety (D04-M02):
+ * Uses a dedicated QueryRunner per request to pin a single pooled connection.
+ * SET search_path and RESET search_path are guaranteed to execute on the SAME
+ * physical connection, eliminating the race condition where res.on('finish')
+ * could RESET a different connection than the one that was SET.
  *
  * search_path: "tenant_xxx", hydroponics, public
  */
@@ -35,6 +40,11 @@ export class TenantSchemaMiddleware implements NestMiddleware {
   constructor(private readonly dataSource: DataSource) {}
 
   async use(req: TenantRequest, res: Response, next: NextFunction): Promise<void> {
+    // Create a dedicated QueryRunner to pin a single pooled connection for this request.
+    // This guarantees SET and RESET execute on the same physical connection.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
     try {
       const tenantId = req.tenantId || req.user?.tenantId;
 
@@ -47,33 +57,47 @@ export class TenantSchemaMiddleware implements NestMiddleware {
         const schemaExists = await this.checkSchemaExists(tenantSchema);
 
         if (schemaExists) {
-          await this.setSearchPathSafe(tenantSchema);
+          await this.setSearchPathSafe(queryRunner, tenantSchema);
           req.schemaName = tenantSchema;
         } else {
           this.logger.warn(`Tenant ${tenantId}: schema '${tenantSchema}' does not exist`);
           throw new NotFoundException(`Schema not found for tenant ${tenantId}`);
         }
       } else {
-        await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
+        await this.setSearchPathSafe(queryRunner, this.DEFAULT_SCHEMA);
         req.schemaName = this.DEFAULT_SCHEMA;
       }
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        await this.safeRelease(queryRunner);
         throw error;
       }
       this.logger.error(`Schema middleware error: ${error instanceof Error ? error.message : String(error)}`);
+      await this.safeRelease(queryRunner);
       throw new BadRequestException('Failed to resolve tenant schema');
     }
 
-    const cleanup = () => {
-      res.removeListener('finish', cleanup);
-      res.removeListener('close', cleanup);
-      this.resetSearchPath().catch((err) => {
+    // Store the QueryRunner on the request so handlers can optionally use it
+    req.tenantQueryRunner = queryRunner;
+
+    // CRITICAL: Reset search_path and release the QueryRunner when response finishes.
+    // Because we use the same QueryRunner, RESET is guaranteed to hit the same
+    // physical connection that SET was called on -- eliminating the D04-M02 race.
+    let released = false;
+    const cleanup = async () => {
+      if (released) return;
+      released = true;
+      try {
+        await queryRunner.query('RESET search_path');
+      } catch (err) {
         this.logger.debug(`Failed to reset search_path: ${err instanceof Error ? err.message : String(err)}`);
-      });
+      } finally {
+        await this.safeRelease(queryRunner);
+      }
     };
-    res.on('finish', cleanup);
-    res.on('close', cleanup);
+
+    res.on('finish', () => { cleanup().catch(() => {}); });
+    res.on('close', () => { cleanup().catch(() => {}); });
 
     next();
   }
@@ -136,14 +160,23 @@ export class TenantSchemaMiddleware implements NestMiddleware {
     this.schemaCache.delete(schemaName);
   }
 
-  private async setSearchPathSafe(schemaName: string): Promise<void> {
+  private async setSearchPathSafe(qr: QueryRunner, schemaName: string): Promise<void> {
     if (!/^[a-z0-9_]+$/.test(schemaName)) {
       throw new BadRequestException('Invalid schema name');
     }
-    await this.dataSource.query(`SET search_path TO "${schemaName}", hydroponics, public`);
+    await qr.query(`SET search_path TO "${schemaName}", hydroponics, public`);
   }
 
-  private async resetSearchPath(): Promise<void> {
-    await this.dataSource.query('RESET search_path');
+  /**
+   * Safely release a QueryRunner, ignoring errors if already released
+   */
+  private async safeRelease(qr: QueryRunner): Promise<void> {
+    try {
+      if (!qr.isReleased) {
+        await qr.release();
+      }
+    } catch (err) {
+      this.logger.debug(`QueryRunner release error: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }

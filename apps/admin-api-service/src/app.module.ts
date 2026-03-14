@@ -1,4 +1,4 @@
-import { ThrottlerModule, RedisModule } from '@aquaculture/backend-common';
+import { ThrottlerModule, RedisModule, LoggingModule } from '@aquaculture/backend-common';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -96,6 +96,7 @@ if (isProduction) {
       },
     }),
     CqrsModule,
+    LoggingModule,
     ThrottlerModule,
     // Redis for caching and distributed rate limiting
     RedisModule.forRootAsync({

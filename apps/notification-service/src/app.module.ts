@@ -10,6 +10,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { APP_FILTER } from '@nestjs/core';
 import {
   CorrelationIdMiddleware,
+  RequestContextMiddleware,
   UserContextMiddleware,
   TenantContextMiddleware,
 } from '@platform/backend-common';
@@ -139,6 +140,7 @@ export class AppModule implements NestModule {
     consumer
       .apply(
         CorrelationIdMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
       )

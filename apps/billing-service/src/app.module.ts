@@ -7,7 +7,7 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { RedisModule, TenantGuard, RolesGuard } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -22,6 +22,7 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
 
 @Module({
   imports: [
+    LoggingModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],

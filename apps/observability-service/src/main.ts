@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { StructuredLoggerService } from '@platform/backend-common';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import type { Request, Response, NextFunction } from 'express';
@@ -66,7 +67,9 @@ function createRateLimiter(maxRequests: number, windowMs: number) {
 
 async function bootstrap() {
   const logger = new Logger('ObservabilityService');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: new StructuredLoggerService('observability-service'),
+  });
 
   // Security middleware
   app.use(helmet());

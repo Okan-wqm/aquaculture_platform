@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { registerEnumType } from '@nestjs/graphql';
 
 export enum StorageItemType {
@@ -44,7 +45,7 @@ export class StorageInventory {
   @Column({ type: 'uuid', name: 'item_id' })
   itemId: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   quantity: number;
 
   @Column({ length: 20 })

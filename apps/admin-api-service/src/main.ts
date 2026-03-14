@@ -2,23 +2,17 @@ import { ValidationPipe, Logger, VersioningType, VERSION_NEUTRAL } from '@nestjs
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { StructuredLoggerService } from '@platform/backend-common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
-import { CorrelationIdMiddleware } from './shared/correlation-id.middleware';
-import { StructuredLoggerService } from './shared/structured-logger.service';
 
 async function bootstrap() {
+  const structuredLogger = new StructuredLoggerService('admin-api-service');
   const logger = new Logger('AdminApiService');
-  const app = await NestFactory.create(AppModule);
-
-  // Use structured logger with correlation ID support
-  const structuredLogger = new StructuredLoggerService();
-  app.useLogger(structuredLogger);
-
-  // Apply correlation ID middleware (must be early in the chain)
-  const correlationMiddleware = new CorrelationIdMiddleware();
-  app.use(correlationMiddleware.use.bind(correlationMiddleware));
+  const app = await NestFactory.create(AppModule, {
+    logger: structuredLogger,
+  });
 
   const configService = app.get(ConfigService);
   const isProduction = process.env['NODE_ENV'] === 'production';

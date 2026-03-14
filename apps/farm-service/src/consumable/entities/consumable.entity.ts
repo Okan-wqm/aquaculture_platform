@@ -13,6 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { registerEnumType } from '@nestjs/graphql';
 import type { Supplier } from '../../supplier/entities/supplier.entity';
 
@@ -89,7 +90,7 @@ export class Consumable {
   @JoinColumn({ name: 'supplier_id' })
   supplier?: Supplier;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   quantity: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'min_stock' })
@@ -102,23 +103,23 @@ export class Consumable {
   })
   status: ConsumableStatus;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'unit_price' })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, name: 'unit_price', transformer: new DecimalTransformer() })
   unitPrice?: number;
 
   @Column({ length: 3, default: 'NOK' })
   currency: string;
 
   // Storage conditions
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_min' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_min', transformer: new DecimalTransformer() })
   storageTempMin?: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_max' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_temp_max', transformer: new DecimalTransformer() })
   storageTempMax?: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_min' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_min', transformer: new DecimalTransformer() })
   storageHumidityMin?: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_max' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'storage_humidity_max', transformer: new DecimalTransformer() })
   storageHumidityMax?: number;
 
   @Column({ type: 'text', nullable: true, name: 'storage_requirements' })

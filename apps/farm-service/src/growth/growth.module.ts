@@ -32,7 +32,10 @@ import { GrowthResolvers } from './resolvers';
 
 // Related entities
 import { Batch } from '../batch/entities/batch.entity';
+import { BatchLocation } from '../batch/entities/batch-location.entity';
 import { FeedingRecord } from '../feeding/entities/feeding-record.entity';
+import { FeedingProgram } from '../feeding/entities/feeding-program.entity';
+import { FeedingProgramTank } from '../feeding/entities/feeding-program-tank.entity';
 import { Species } from '../species/entities/species.entity';
 
 @Module({
@@ -40,7 +43,10 @@ import { Species } from '../species/entities/species.entity';
     TypeOrmModule.forFeature([
       GrowthMeasurement,
       Batch,
+      BatchLocation,
       FeedingRecord,
+      FeedingProgram,
+      FeedingProgramTank,
       Species,
     ]),
     CqrsModule,

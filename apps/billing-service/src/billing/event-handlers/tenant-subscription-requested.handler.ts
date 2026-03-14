@@ -6,6 +6,7 @@ import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
+import { Plan } from '../entities/plan.entity';
 
 // UUID v4 regex — matches the same pattern used throughout the billing service
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -212,25 +213,62 @@ export class TenantSubscriptionRequestedHandler
       // Map billing cycle string to BillingCycle enum
       const mappedBillingCycle = this.mapToBillingCycle(billingCycle || 'monthly');
 
-      // Get default limits and pricing for tier
+      // Try to fetch plan from the database first; fall back to hardcoded defaults
+      // if no Plan entity exists for this tier yet (backward compatibility).
       const tierKey = tier.toLowerCase();
-      const limits = DEFAULT_LIMITS[tierKey] ?? {
-        maxFarms: 3,
-        maxPonds: 30,
-        maxSensors: 20,
-        maxUsers: 5,
-        dataRetentionDays: 90,
-        alertsEnabled: true,
-        reportsEnabled: false,
-        apiAccessEnabled: false,
-        customIntegrationsEnabled: false,
-      };
-      const pricing = DEFAULT_PRICING[tierKey] ?? {
-        basePrice: 49,
-        perFarmPrice: 10,
-        perSensorPrice: 2,
-        perUserPrice: 5,
-      };
+      let limits: typeof DEFAULT_LIMITS[string];
+      let pricing: typeof DEFAULT_PRICING[string];
+      let resolvedPlanId: string | undefined;
+
+      const planEntity = await this.dataSource.getRepository(Plan).findOne({
+        where: { tier: planTier, isActive: true },
+        order: { sortOrder: 'ASC' },
+      });
+
+      if (planEntity) {
+        resolvedPlanId = planEntity.id;
+        limits = {
+          maxFarms: planEntity.limits.maxFarms,
+          maxPonds: planEntity.limits.maxPonds,
+          maxSensors: planEntity.limits.maxSensors,
+          maxUsers: planEntity.limits.maxUsers,
+          dataRetentionDays: planEntity.limits.dataRetentionDays,
+          alertsEnabled: planEntity.limits.alertsEnabled,
+          reportsEnabled: planEntity.limits.reportsEnabled,
+          apiAccessEnabled: planEntity.limits.apiAccessEnabled,
+          customIntegrationsEnabled: planEntity.limits.customIntegrationsEnabled,
+        };
+        pricing = {
+          basePrice: Number(planEntity.pricing.basePrice),
+          perFarmPrice: Number(planEntity.pricing.perFarmPrice) || 0,
+          perSensorPrice: Number(planEntity.pricing.perSensorPrice) || 0,
+          perUserPrice: Number(planEntity.pricing.perUserPrice) || 0,
+        };
+        this.logger.log(
+          `Using Plan entity "${planEntity.name}" (${planEntity.id}) for tier ${tier}`,
+        );
+      } else {
+        limits = DEFAULT_LIMITS[tierKey] ?? {
+          maxFarms: 3,
+          maxPonds: 30,
+          maxSensors: 20,
+          maxUsers: 5,
+          dataRetentionDays: 90,
+          alertsEnabled: true,
+          reportsEnabled: false,
+          apiAccessEnabled: false,
+          customIntegrationsEnabled: false,
+        };
+        pricing = DEFAULT_PRICING[tierKey] ?? {
+          basePrice: 49,
+          perFarmPrice: 10,
+          perSensorPrice: 2,
+          perUserPrice: 5,
+        };
+        this.logger.warn(
+          `No Plan entity found for tier ${tier}, using hardcoded defaults`,
+        );
+      }
 
       // Calculate total based on module quantities if provided
       let calculatedBasePrice = pricing.basePrice;
@@ -253,7 +291,7 @@ export class TenantSubscriptionRequestedHandler
       // Create subscription command input
       const subscriptionInput = {
         planTier,
-        planName: `${this.capitalizeFirst(tier)} Plan`,
+        planName: planEntity?.name || `${this.capitalizeFirst(tier)} Plan`,
         billingCycle: mappedBillingCycle,
         trialDays: trialDays || 14, // Default 14-day trial
         limits: {
@@ -287,8 +325,19 @@ export class TenantSubscriptionRequestedHandler
         ),
       );
 
+      // Link the subscription to the Plan entity if one was resolved
+      if (resolvedPlanId) {
+        const { Subscription } = await import('../entities/subscription.entity');
+        await this.dataSource.getRepository(Subscription).update(
+          subscription.id,
+          { planId: resolvedPlanId },
+        );
+        subscription.planId = resolvedPlanId;
+      }
+
       this.logger.log(
-        `Subscription ${subscription.id} created for tenant ${tenantId} with tier ${planTier}`,
+        `Subscription ${subscription.id} created for tenant ${tenantId} with tier ${planTier}` +
+        (resolvedPlanId ? ` (planId: ${resolvedPlanId})` : ''),
       );
 
       // Create subscription module items if modules were assigned

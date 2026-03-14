@@ -11,6 +11,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 @Entity('employees')
 @Index(['tenantId', 'email'], { unique: true })
@@ -62,7 +63,7 @@ export class Worker {
   @Column({ type: 'date' })
   hireDate: Date;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   baseSalary: number;
 
   @Column({ default: 'USD' })

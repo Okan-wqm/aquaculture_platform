@@ -7,7 +7,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, MetricsMiddleware, TenantGuard, RolesGuard } from '@platform/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuditModule } from './audit/audit.module';
@@ -219,6 +219,7 @@ export class AppModule implements NestModule {
       .apply(
         MetricsMiddleware,        // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
         RequestLoggingMiddleware,

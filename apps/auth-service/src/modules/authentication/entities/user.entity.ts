@@ -128,12 +128,34 @@ export class User {
   @Column({ type: 'boolean', default: false })
   mfaEnabled!: boolean;
 
-  // TODO: SECURITY - MFA secret should be encrypted at rest using AES-256
-  // When implementing MFA setup/verify, encrypt this field before storage
-  // and decrypt when verifying OTP codes. Use a secure key from env vars.
+  /**
+   * TOTP secret for MFA - encrypted at rest with AES-256-GCM.
+   * Stored in ENC_V1:{base64} format via MfaService.
+   */
   @HideField()
-  @Column({ type: 'varchar', length: 128, nullable: true }) // Increased for encrypted value
+  @Column({ type: 'varchar', length: 512, nullable: true })
   mfaSecret?: string | null;
+
+  /**
+   * Recovery codes for MFA - stored as SHA-256 hashes, comma-separated.
+   * Each code is single-use; after use, its hash is removed from this list.
+   */
+  @HideField()
+  @Column({ type: 'text', nullable: true })
+  mfaRecoveryCodes?: string | null;
+
+  /**
+   * Count of failed MFA verification attempts.
+   * Resets on successful verification. Lockout at 5 failed attempts.
+   */
+  @Column({ type: 'int', default: 0 })
+  mfaFailedAttempts!: number;
+
+  /**
+   * Timestamp until which MFA verification is locked out.
+   */
+  @Column({ type: 'timestamp', nullable: true })
+  mfaLockedUntil?: Date | null;
 
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamp', nullable: true })

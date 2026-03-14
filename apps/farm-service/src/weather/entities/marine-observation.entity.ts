@@ -11,6 +11,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Float } from '@nestjs/graphql';
 import { WeatherDataType } from './weather-observation.entity';
 
@@ -46,39 +47,39 @@ export class MarineObservation {
   dataType!: WeatherDataType;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, name: 'wave_height' })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer(), name: 'wave_height' })
   waveHeight?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'wave_direction' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, transformer: new DecimalTransformer(), name: 'wave_direction' })
   waveDirection?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, name: 'wave_period' })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer(), name: 'wave_period' })
   wavePeriod?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, name: 'swell_wave_height' })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer(), name: 'swell_wave_height' })
   swellWaveHeight?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'swell_wave_direction' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, transformer: new DecimalTransformer(), name: 'swell_wave_direction' })
   swellWaveDirection?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, name: 'swell_wave_period' })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer(), name: 'swell_wave_period' })
   swellWavePeriod?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 3, nullable: true, name: 'ocean_current_velocity' })
+  @Column({ type: 'decimal', precision: 5, scale: 3, nullable: true, transformer: new DecimalTransformer(), name: 'ocean_current_velocity' })
   oceanCurrentVelocity?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'ocean_current_direction' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, transformer: new DecimalTransformer(), name: 'ocean_current_direction' })
   oceanCurrentDirection?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, name: 'sea_surface_temperature' })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer(), name: 'sea_surface_temperature' })
   seaSurfaceTemperature?: number;
 
   @Field()

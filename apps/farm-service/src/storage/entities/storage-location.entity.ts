@@ -10,6 +10,7 @@ import {
   Index,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { registerEnumType } from '@nestjs/graphql';
 
 export enum StorageLocationType {
@@ -57,25 +58,25 @@ export class StorageLocation {
   @Column({ type: 'text', nullable: true })
   description?: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   capacity?: number;
 
   @Column({ type: 'varchar', length: 20, default: 'm3', name: 'capacity_unit' })
   capacityUnit: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'used_capacity' })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'used_capacity', transformer: new DecimalTransformer() })
   usedCapacity: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'temperature_min' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'temperature_min', transformer: new DecimalTransformer() })
   temperatureMin?: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'temperature_max' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'temperature_max', transformer: new DecimalTransformer() })
   temperatureMax?: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'humidity_min' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'humidity_min', transformer: new DecimalTransformer() })
   humidityMin?: number;
 
-  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'humidity_max' })
+  @Column({ type: 'decimal', precision: 5, scale: 1, nullable: true, name: 'humidity_max', transformer: new DecimalTransformer() })
   humidityMax?: number;
 
   @Column({ default: true, name: 'is_active' })

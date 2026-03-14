@@ -25,6 +25,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -242,23 +243,23 @@ export class WaterQualityMeasurement {
 
   // Quick access fields (sık kullanılanlar)
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   temperature?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   dissolvedOxygen?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 4, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 4, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   pH?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 3, nullable: true })
+  @Column({ type: 'decimal', precision: 6, scale: 3, nullable: true, transformer: new DecimalTransformer() })
   ammonia?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 3, nullable: true })
+  @Column({ type: 'decimal', precision: 6, scale: 3, nullable: true, transformer: new DecimalTransformer() })
   nitrite?: number;
 
   // -------------------------------------------------------------------------

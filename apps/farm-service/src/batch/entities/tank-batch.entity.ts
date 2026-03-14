@@ -21,6 +21,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -118,7 +119,7 @@ export class TankBatch {
   currentQuantity?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   currentBiomassKg?: number;
 
   // -------------------------------------------------------------------------
@@ -147,15 +148,15 @@ export class TankBatch {
   totalQuantity: number;                     // Toplam adet
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
   avgWeightG: number;                        // Ortalama ağırlık (g)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   totalBiomassKg: number;                    // Toplam biomass (kg)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
   densityKgM3: number;                       // Yoğunluk (kg/m³)
 
   // -------------------------------------------------------------------------
@@ -186,7 +187,7 @@ export class TankBatch {
    * Tanktaki cleaner fish toplam biomass (kg)
    */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
   cleanerFishBiomassKg: number;
 
   /**
@@ -218,7 +219,7 @@ export class TankBatch {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   capacityUsedPercent?: number;              // Kapasite kullanım yüzdesi
 
   @Field()

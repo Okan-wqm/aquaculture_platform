@@ -13,9 +13,13 @@
  *
  * @module Feeding
  */
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
+import { NatsEventBus } from '@platform/event-bus';
+import { FeedInventoryLowEvent } from '@platform/event-contracts';
 
 // Entities
 import {
@@ -31,6 +35,7 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 
 // Services
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
@@ -117,6 +122,8 @@ export class DailyFeedingExecutionService {
     private readonly feedRepo: Repository<Feed>,
     private readonly bilinearService: BilinearInterpolationService,
     private readonly dataSource: DataSource,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   // ==========================================================================
@@ -535,9 +542,18 @@ export class DailyFeedingExecutionService {
         tenantId,
       );
 
+      // 9. Otomatik stok düşüm
+      await this.deductFeedInventory(
+        queryRunner.manager,
+        tenantId,
+        execution.calculations.activeFeedId,
+        actualKg,
+        userId,
+      );
+
       await queryRunner.commitTransaction();
 
-      // 9. Audit log for state change
+      // 10. Audit log for state change
       this.logger.log(
         `[AUDIT] Feeding recorded for execution ${executionId}: ` +
         `status ${previousState.status} -> ${execution.status}, ` +
@@ -1154,6 +1170,101 @@ export class DailyFeedingExecutionService {
 
     const weightGap = targetWeightG - currentWeightG;
     return Math.ceil(weightGap / dailyGrowthPerFishG);
+  }
+
+  // ==========================================================================
+  // STOK DÜŞÜM
+  // ==========================================================================
+
+  /**
+   * Stoktan yem düşümü yapar (transaction manager ile).
+   * FIFO mantığıyla en eski AVAILABLE stoktan düşer.
+   * Stok yetersiz olsa bile feeding engellenmez (operasyonel gereklilik).
+   *
+   * @param manager EntityManager from existing transaction
+   * @param tenantId Tenant ID
+   * @param feedId Feed ID
+   * @param actualAmountKg Tüketilen miktar (kg)
+   * @param userId İşlemi yapan kullanıcı
+   */
+  private async deductFeedInventory(
+    manager: import('typeorm').EntityManager,
+    tenantId: string,
+    feedId: string,
+    actualAmountKg: number,
+    userId: string,
+  ): Promise<void> {
+    // FIFO: en eski kullanılabilir stoktan düş
+    const feedInventory = await manager.findOne(FeedInventory, {
+      where: {
+        tenantId,
+        feedId,
+        status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
+      },
+      order: { receivedDate: 'ASC', createdAt: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!feedInventory) {
+      this.logger.warn(
+        `No available feed inventory found for feedId=${feedId}, tenantId=${tenantId}. ` +
+        `Feeding recorded without inventory deduction.`,
+      );
+      return;
+    }
+
+    const currentQuantity = Number(feedInventory.quantityKg);
+    const newQuantity = currentQuantity - actualAmountKg;
+
+    if (newQuantity < 0) {
+      this.logger.warn(
+        `Feed inventory insufficient: ${currentQuantity}kg available, ${actualAmountKg}kg requested. ` +
+        `Setting inventory to 0. inventoryId=${feedInventory.id}`,
+      );
+    }
+
+    feedInventory.quantityKg = Math.max(0, newQuantity);
+    feedInventory.updatedBy = userId;
+
+    // Toplam değeri güncelle
+    if (feedInventory.unitPricePerKg) {
+      feedInventory.totalValue = Number(feedInventory.unitPricePerKg) * feedInventory.quantityKg;
+    }
+
+    // Durumu güncelle
+    feedInventory.updateStatus();
+
+    await manager.save(feedInventory);
+
+    this.logger.debug(
+      `Feed inventory deducted: inventoryId=${feedInventory.id}, ` +
+      `${currentQuantity}kg -> ${feedInventory.quantityKg}kg (used ${actualAmountKg}kg)`,
+    );
+
+    // Low stock event publish
+    if (feedInventory.quantityKg <= feedInventory.minStockKg && this.eventBus) {
+      try {
+        const event: FeedInventoryLowEvent = {
+          eventId: randomUUID(),
+          eventType: 'FeedInventoryLow',
+          tenantId,
+          timestamp: new Date(),
+          inventoryId: feedInventory.id,
+          feedId: feedInventory.feedId,
+          siteId: feedInventory.siteId,
+          currentQuantityKg: feedInventory.quantityKg,
+          reorderPointKg: feedInventory.minStockKg,
+          status: feedInventory.quantityKg <= 0 ? 'critical' : 'low_stock',
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published FeedInventoryLowEvent for inventory ${feedInventory.id}`);
+      } catch (eventError) {
+        this.logger.warn(
+          `Failed to publish FeedInventoryLowEvent: ${(eventError as Error).message}`,
+        );
+      }
+    }
   }
 
   // ==========================================================================

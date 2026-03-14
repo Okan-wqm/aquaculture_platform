@@ -19,8 +19,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
+import { FeedingProgram, FeedingProgramStatus } from '../../feeding/entities/feeding-program.entity';
+import { FeedingProgramTank } from '../../feeding/entities/feeding-program-tank.entity';
+import { BatchLocation } from '../../batch/entities/batch-location.entity';
 import { GrowthMeasurement, FCRAnalysis } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
+import { Species } from '../../species/entities/species.entity';
 
 // ============================================================================
 // INTERFACES
@@ -128,6 +132,14 @@ export class FCRCalculationService {
     private readonly growthMeasurementRepository: Repository<GrowthMeasurement>,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
+    @InjectRepository(Species)
+    private readonly speciesRepository: Repository<Species>,
+    @InjectRepository(BatchLocation)
+    private readonly batchLocationRepository: Repository<BatchLocation>,
+    @InjectRepository(FeedingProgram)
+    private readonly feedingProgramRepository: Repository<FeedingProgram>,
+    @InjectRepository(FeedingProgramTank)
+    private readonly feedingProgramTankRepository: Repository<FeedingProgramTank>,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -528,12 +540,211 @@ export class FCRCalculationService {
 
   /**
    * Target FCR'ı getirir
+   *
+   * Öncelik sırası:
+   * 1. Batch'in kendi FCR hedefi (batch.fcr.target, kullanıcı override)
+   * 2. Batch'in aktif yemleme programındaki FCR tablosundan interpolasyon
+   * 3. Species growthParameters.targetFCR
+   * 4. Species commonName bazlı endüstri ortalaması
+   * 5. Varsayılan 1.5
    */
   private async getTargetFCR(batchId: string): Promise<number> {
-    // Önce batch'in feeding table'ından al
-    // Yoksa species'ten al
-    // Yoksa varsayılan döndür
-    return 1.5; // Varsayılan
+    try {
+      // Batch'i species ilişkisiyle birlikte yükle
+      const batch = await this.batchRepository.findOne({
+        where: { id: batchId },
+        relations: ['species'],
+      });
+
+      if (!batch) {
+        return 1.5;
+      }
+
+      // 1. Batch'in kendi FCR hedefi (kullanıcı tarafından override edilmişse)
+      if (batch.fcr?.isUserOverride && batch.fcr?.target && batch.fcr.target > 0) {
+        return batch.fcr.target;
+      }
+
+      // 2. Batch'in aktif yemleme programındaki FCR tablosundan interpolasyon
+      const fcrFromProgram = await this.getTargetFCRFromFeedingProgram(batch);
+      if (fcrFromProgram !== null) {
+        return fcrFromProgram;
+      }
+
+      // 3. Species growthParameters.targetFCR
+      // species ilişkisi lazy olabilir, yoksa ayrıca sorgula
+      let species = batch.species;
+      if (!species) {
+        species = await this.speciesRepository.findOne({
+          where: { id: batch.speciesId },
+        }) ?? undefined;
+      }
+
+      if (species?.growthParameters?.targetFCR && species.growthParameters.targetFCR > 0) {
+        return species.growthParameters.targetFCR;
+      }
+
+      // 4. Species commonName bazlı endüstri ortalaması
+      if (species?.commonName) {
+        const key = species.commonName.toLowerCase().replace(/\s+/g, '_');
+        const industryFCR = this.industryAverageFCR[key];
+        if (industryFCR) {
+          return industryFCR;
+        }
+      }
+
+      // 5. Varsayılan
+      return 1.5;
+    } catch (error) {
+      this.logger.warn(
+        `Target FCR alınırken hata oluştu (batchId: ${batchId}), varsayılan 1.5 kullanılıyor: ${error instanceof Error ? error.message : error}`,
+      );
+      return 1.5;
+    }
+  }
+
+  /**
+   * Batch'in aktif yemleme programından FCR değerini getirir
+   *
+   * Zincir: Batch -> BatchLocation (aktif tank) -> FeedingProgramTank -> FeedingProgram -> fcrTable
+   * FCR tablosu varsa, batch'in mevcut ortalama ağırlığına göre interpolasyon yapar.
+   */
+  private async getTargetFCRFromFeedingProgram(batch: Batch): Promise<number | null> {
+    try {
+      // Batch'in aktif lokasyonunu bul (hangi tank'ta)
+      const activeLocation = await this.batchLocationRepository.findOne({
+        where: {
+          batchId: batch.id,
+          tenantId: batch.tenantId,
+          isCurrentLocation: true,
+        },
+      });
+
+      if (!activeLocation?.tankId) {
+        return null;
+      }
+
+      // Bu tank'ın aktif yemleme programını bul
+      const programTank = await this.feedingProgramTankRepository.findOne({
+        where: {
+          tenantId: batch.tenantId,
+          equipmentId: activeLocation.tankId,
+          isActive: true,
+        },
+        relations: ['feedingProgram'],
+      });
+
+      if (!programTank?.feedingProgram) {
+        return null;
+      }
+
+      const program = programTank.feedingProgram;
+
+      // Program aktif olmalı ve FCR tablosu olmalı
+      if (program.status !== FeedingProgramStatus.ACTIVE || !program.fcrTable) {
+        return null;
+      }
+
+      const fcrTable = program.fcrTable;
+      if (
+        !fcrTable.temperatures?.length ||
+        !fcrTable.weights?.length ||
+        !fcrTable.fcrValues?.length
+      ) {
+        return null;
+      }
+
+      // Batch'in mevcut ortalama ağırlığını al
+      const avgWeightG = batch.getCurrentAvgWeight();
+      if (avgWeightG <= 0) {
+        return null;
+      }
+
+      // FCR tablosundan ağırlık bazlı interpolasyon yap
+      // (Sıcaklık bilinmiyorsa tüm sıcaklıkların ortalamasını kullan)
+      return this.interpolateFCRFromTable(fcrTable, avgWeightG);
+    } catch (error) {
+      this.logger.debug(
+        `Yemleme programından FCR alınamadı (batchId: ${batch.id}): ${error instanceof Error ? error.message : error}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * FCR tablosundan ağırlık bazlı interpolasyon yapar
+   *
+   * Eğer ağırlık tam bir sütuna denk geliyorsa o değeri döner.
+   * Ara değer ise en yakın iki sütun arasında lineer interpolasyon yapar.
+   * Sıcaklık bilinmediğinden, tüm sıcaklık satırlarının ortalamasını alır.
+   */
+  private interpolateFCRFromTable(
+    fcrTable: { temperatures: number[]; weights: number[]; fcrValues: number[][] },
+    avgWeightG: number,
+  ): number | null {
+    const { weights, fcrValues } = fcrTable;
+
+    // Ağırlık indeksini bul (interpolasyon için)
+    let lowerIdx = 0;
+    let upperIdx = weights.length - 1;
+
+    // Ağırlık aralığın altındaysa ilk sütunu kullan
+    if (avgWeightG <= weights[0]) {
+      lowerIdx = 0;
+      upperIdx = 0;
+    }
+    // Ağırlık aralığın üstündeyse son sütunu kullan
+    else if (avgWeightG >= weights[weights.length - 1]) {
+      lowerIdx = weights.length - 1;
+      upperIdx = weights.length - 1;
+    }
+    // Ara değer: iki sütun arasında bul
+    else {
+      for (let i = 0; i < weights.length - 1; i++) {
+        if (avgWeightG >= weights[i] && avgWeightG < weights[i + 1]) {
+          lowerIdx = i;
+          upperIdx = i + 1;
+          break;
+        }
+      }
+    }
+
+    // Her sıcaklık satırı için interpolasyon yap, sonra ortalama al
+    let totalFCR = 0;
+    let validRows = 0;
+
+    for (let tempIdx = 0; tempIdx < fcrValues.length; tempIdx++) {
+      const row = fcrValues[tempIdx];
+      if (!row || row.length <= lowerIdx || row.length <= upperIdx) {
+        continue;
+      }
+
+      const lowerFCR = row[lowerIdx];
+      const upperFCR = row[upperIdx];
+
+      // 0 değeri kapsanmayan hücre demek, atla
+      if (lowerFCR <= 0 || upperFCR <= 0) {
+        continue;
+      }
+
+      let interpolatedFCR: number;
+      if (lowerIdx === upperIdx) {
+        interpolatedFCR = lowerFCR;
+      } else {
+        // Lineer interpolasyon
+        const ratio = (avgWeightG - weights[lowerIdx]) / (weights[upperIdx] - weights[lowerIdx]);
+        interpolatedFCR = lowerFCR + ratio * (upperFCR - lowerFCR);
+      }
+
+      totalFCR += interpolatedFCR;
+      validRows++;
+    }
+
+    if (validRows === 0) {
+      return null;
+    }
+
+    return totalFCR / validRows;
   }
 
   /**

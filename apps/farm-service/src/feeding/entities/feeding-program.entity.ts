@@ -410,26 +410,7 @@ export function validateProgramSettings(settings: unknown): string[] {
 // TRANSFORMERS
 // ============================================================================
 
-/**
- * Transformer for decimal columns to ensure proper number type conversion.
- * PostgreSQL returns decimal/numeric types as strings, this transformer
- * converts them back to numbers.
- */
-export const DecimalTransformer = {
-  to: (value: number | null | undefined): number | null => {
-    if (value === null || value === undefined) {
-      return null;
-    }
-    return value;
-  },
-  from: (value: string | null | undefined): number | null => {
-    if (value === null || value === undefined) {
-      return null;
-    }
-    const parsed = parseFloat(value);
-    return isNaN(parsed) ? null : parsed;
-  },
-};
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 // ============================================================================
 // FORWARD DECLARATION FOR RELATION TYPE
@@ -665,7 +646,7 @@ export class FeedingProgram {
     precision: 15,
     scale: 2,
     nullable: true,
-    transformer: DecimalTransformer,
+    transformer: new DecimalTransformer(),
   })
   @IsOptional()
   @IsNumber({}, { message: 'totalFeedConsumed must be a number' })

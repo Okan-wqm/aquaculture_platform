@@ -17,6 +17,7 @@ import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
   RequestLoggingMiddleware,
+  RequestContextMiddleware,
   MetricsMiddleware,
   RedisModule,
   RedisService,
@@ -515,6 +516,7 @@ export class AppModule implements NestModule {
         // 6. Log request
         MetricsMiddleware,
         CorrelationIdMiddleware,
+        RequestContextMiddleware,
         JwtMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,

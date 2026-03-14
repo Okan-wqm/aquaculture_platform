@@ -23,6 +23,7 @@ import {
   Unique,
   VersionColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -166,11 +167,11 @@ export class FeedTypeSpecies {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   recommendedWeightMinG?: number;     // Önerilen minimum ağırlık (gram)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   recommendedWeightMaxG?: number;     // Önerilen maksimum ağırlık (gram)
 
   // -------------------------------------------------------------------------
@@ -178,7 +179,7 @@ export class FeedTypeSpecies {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   feedingRatePercent?: number;        // Vücut ağırlığının %'si
 
   @Field(() => Float, { nullable: true })

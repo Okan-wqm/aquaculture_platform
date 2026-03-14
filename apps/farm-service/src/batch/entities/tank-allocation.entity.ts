@@ -19,6 +19,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -133,11 +134,11 @@ export class TankAllocation {
   quantity: number;                        // Dağıtılan adet
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   avgWeightG: number;                      // Ortalama ağırlık (g)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 15, scale: 2, transformer: new DecimalTransformer() })
   biomassKg: number;                       // Toplam biomass (kg)
 
   // -------------------------------------------------------------------------
@@ -162,7 +163,7 @@ export class TankAllocation {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   densityKgM3?: number;                    // Dağıtım sonrası yoğunluk
 
   @Field({ nullable: true })

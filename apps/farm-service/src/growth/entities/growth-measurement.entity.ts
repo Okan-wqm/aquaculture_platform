@@ -25,6 +25,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   ObjectType,
   Field,
@@ -287,7 +288,7 @@ export class GrowthMeasurement {
   populationSize: number;            // Batch toplam adet
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, transformer: new DecimalTransformer() })
   samplePercent: number;             // Örnekleme oranı (%)
 
   // -------------------------------------------------------------------------
@@ -311,19 +312,19 @@ export class GrowthMeasurement {
   // -------------------------------------------------------------------------
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   averageWeight: number;             // Ortalama ağırlık (g)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   averageLength?: number;            // Ortalama boy (cm)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 6, scale: 2 })
+  @Column({ type: 'decimal', precision: 6, scale: 2, transformer: new DecimalTransformer() })
   weightCV: number;                  // Weight CV (%)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 3, nullable: true })
+  @Column({ type: 'decimal', precision: 6, scale: 3, nullable: true, transformer: new DecimalTransformer() })
   conditionFactor?: number;          // Ortalama K faktörü
 
   // -------------------------------------------------------------------------
@@ -355,15 +356,15 @@ export class GrowthMeasurement {
   // -------------------------------------------------------------------------
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   estimatedBiomass: number;          // Tahmini toplam biomass (kg)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   previousBiomass?: number;          // Önceki biomass (kg)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   biomassGain?: number;              // Biomass artışı (kg)
 
   // -------------------------------------------------------------------------

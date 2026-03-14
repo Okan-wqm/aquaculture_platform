@@ -96,7 +96,7 @@ function createLoginResponse(user: AuthUser, redirectUrl = '/dashboard') {
 // AuthProvider wrapper for renderHook
 function createWrapper(autoCheck = false) {
   return ({ children }: { children: React.ReactNode }) =>
-    React.createElement(AuthProvider, { autoCheck }, children);
+    React.createElement(AuthProvider, { autoCheck, children });
 }
 
 // ============================================================================
@@ -104,7 +104,7 @@ function createWrapper(autoCheck = false) {
 // ============================================================================
 
 describe('AuthContext', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mockGetAccessToken.mockReturnValue(null);
     mockSilentRefresh.mockResolvedValue(false);

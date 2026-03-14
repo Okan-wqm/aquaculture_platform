@@ -3,14 +3,7 @@
  * Global mocks and environment configuration for shared-ui tests.
  */
 
-import { vi } from 'vitest';
-
-// ============================================================================
-// import.meta.env mock
-// ============================================================================
-
-// Vitest handles import.meta.env natively in jsdom environment.
-// No manual mock needed.
+import { vi, beforeEach, afterEach } from 'vitest';
 
 // ============================================================================
 // localStorage mock (jsdom provides a basic one, but we ensure it's clean)

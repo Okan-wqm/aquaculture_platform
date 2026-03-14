@@ -262,8 +262,8 @@ services:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/live >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 120s
 
   auth-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:latest
@@ -273,7 +273,7 @@ services:
       SERVICE_NAME: auth-service
       NODE_ENV: production
       AUTH_SERVICE_PORT: 3000
-      NODE_OPTIONS: '--max-old-space-size=256'
+      NODE_OPTIONS: '--max-old-space-size=384'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432

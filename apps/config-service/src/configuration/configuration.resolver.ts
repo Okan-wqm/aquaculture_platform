@@ -223,7 +223,7 @@ export class ConfigurationResolver {
     })
     environment: ConfigEnvironment,
     @Args('isSecret', { nullable: true, defaultValue: false }) isSecret: boolean,
-    @Args('reason', { nullable: true }) reason: string | undefined,
+    @Args('reason', { type: () => String, nullable: true }) reason: string | undefined,
     @Context() context: GraphQLContext,
   ): Promise<Configuration> {
     const tenantId = this.getTenantId(context);

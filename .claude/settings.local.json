@@ -484,7 +484,13 @@
       "Bash(do cp:*)",
       "Bash(wait:*)",
       "Bash(timeout 180 npx tsc:*)",
-      "Bash(for dir:*)"
+      "Bash(for dir:*)",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(if grep:*)",
+      "Bash(then)",
+      "Bash(sed -i 's|mkdir -p /var/cache/nginx|mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp \\\\&\\\\& chown -R nginx:nginx /var/cache/nginx|; t done; s|chown -R nginx:nginx /var/cache/nginx|# already done above|; :done' \"$f\")",
+      "Read(//var/aqua-saas/**)"
     ],
     "deny": [],
     "ask": []

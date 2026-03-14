@@ -7,9 +7,8 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import { useAsyncData } from '../hooks';
-import { analyticsApi, RevenueAnalytics } from '../services/adminApi';
+import { analyticsApi, billingApi, RevenueAnalytics } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -325,20 +324,9 @@ const BillingDashboardPage: React.FC = () => {
   const fetchTransactions = useCallback(async () => {
     // Use billing API to get recent invoices as transactions
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_ADMIN_API_URL || '/api'}/billing/invoices?limit=5`,
-        {
-          credentials: 'include',
-          headers: {
-            'Authorization': `Bearer ${getAccessToken()}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      if (!response.ok) throw new Error('Failed to fetch transactions');
-      const data = await response.json();
+      const data = await billingApi.getInvoices({ limit: 5 });
       // Transform invoices to transactions format
-      return (data.data || []).map((invoice: { id: string; tenantName?: string; amount: number; status: string; createdAt: string }) => ({
+      return (data.invoices || []).map((invoice: { id: string; tenantName?: string; amount: number; status: string; createdAt: string }) => ({
         id: invoice.id,
         tenant: invoice.tenantName || 'Unknown',
         amount: invoice.amount,

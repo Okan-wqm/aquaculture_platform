@@ -1,4 +1,4 @@
-import { UseGuards, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -13,8 +13,6 @@ import {
   SuperAdminOnly,
   ConsentType,
 } from '@platform/backend-common';
-
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   RecordConsentInput,
   RecordBulkConsentInput,
@@ -70,7 +68,6 @@ interface GraphQLRequest {
  * - userConsentHistory: View any user's consent history
  */
 @Resolver()
-@UseGuards(JwtAuthGuard)
 export class UserConsentResolver {
   private readonly logger = new Logger(UserConsentResolver.name);
 

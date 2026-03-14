@@ -17,6 +17,7 @@ import {
   Star,
   Palette,
 } from 'lucide-react';
+import { useAuthContext } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
 import { RoleCard as SharedRoleCard } from '../components/roles/RoleCard';
 import { useFocusTrap } from '../hooks';
@@ -514,6 +515,10 @@ const RoleCard = SharedRoleCard;
 // ============================================================================
 
 const TenantRolesPage: React.FC = () => {
+  // SEC-007: Check if current user has TENANT_ADMIN privileges for CRUD actions
+  const { hasRoleOrHigher } = useAuthContext();
+  const canManageRoles = hasRoleOrHigher('TENANT_ADMIN');
+
   // State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<TenantRole | null>(null);
@@ -625,27 +630,32 @@ const TenantRolesPage: React.FC = () => {
           >
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
-          {roles.length === 0 && (
-            <button
-              onClick={handleSeedRoles}
-              disabled={seedMutation.isPending}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              {seedMutation.isPending ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Shield className="w-4 h-4" />
+          {/* SEC-007: Only TENANT_ADMIN+ can seed/create roles */}
+          {canManageRoles && (
+            <>
+              {roles.length === 0 && (
+                <button
+                  onClick={handleSeedRoles}
+                  disabled={seedMutation.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  {seedMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Shield className="w-4 h-4" />
+                  )}
+                  Seed Default Roles
+                </button>
               )}
-              Seed Default Roles
-            </button>
+              <button
+                onClick={handleOpenCreate}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Create Role
+              </button>
+            </>
           )}
-          <button
-            onClick={handleOpenCreate}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Create Role
-          </button>
         </div>
       </div>
 
@@ -675,8 +685,8 @@ const TenantRolesPage: React.FC = () => {
             <RoleCard
               key={role.id}
               role={role}
-              onEdit={handleOpenEdit}
-              onDelete={handleDeleteRole}
+              onEdit={canManageRoles ? handleOpenEdit : undefined}
+              onDelete={canManageRoles ? handleDeleteRole : undefined}
             />
           ))}
         </div>
@@ -691,27 +701,30 @@ const TenantRolesPage: React.FC = () => {
             Create custom roles to manage user permissions. You can also seed
             default roles to get started quickly.
           </p>
-          <div className="mt-6 flex items-center justify-center gap-3">
-            <button
-              onClick={handleSeedRoles}
-              disabled={seedMutation.isPending}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              {seedMutation.isPending ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Shield className="w-4 h-4" />
-              )}
-              Seed Default Roles
-            </button>
-            <button
-              onClick={handleOpenCreate}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Create Role
-            </button>
-          </div>
+          {/* SEC-007: Only TENANT_ADMIN+ can seed/create roles */}
+          {canManageRoles && (
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <button
+                onClick={handleSeedRoles}
+                disabled={seedMutation.isPending}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                {seedMutation.isPending ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Shield className="w-4 h-4" />
+                )}
+                Seed Default Roles
+              </button>
+              <button
+                onClick={handleOpenCreate}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Create Role
+              </button>
+            </div>
+          )}
         </div>
       )}
 

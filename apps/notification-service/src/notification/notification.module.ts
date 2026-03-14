@@ -14,10 +14,11 @@ import { NotificationDispatcherService } from './services/notification-dispatche
 import { NotificationRetentionService } from './services/notification-retention.service';
 import { RetrySchedulerService } from './services/retry-scheduler.service';
 import { InAppNotificationService } from './services/in-app.service';
+import { DeadLetterQueueService } from './services/dead-letter-queue.service';
 
 // Event Handlers
 import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.handler';
-import { TaskAssignedEventHandler } from './event-handlers/task-assigned.handler';
+import { TaskEventHandler } from './event-handlers/task-event.handler';
 
 // Resolvers
 import { NotificationResolver } from './resolvers/notification.resolver';
@@ -44,6 +45,7 @@ import { NotificationResolver } from './resolvers/notification.resolver';
     PushService,
     NotificationDispatcherService,
     InAppNotificationService,
+    DeadLetterQueueService,
 
     // Scheduled jobs
     NotificationRetentionService,
@@ -51,11 +53,11 @@ import { NotificationResolver } from './resolvers/notification.resolver';
 
     // Event Handlers
     AlertTriggeredEventHandler,
-    TaskAssignedEventHandler,
+    TaskEventHandler,
 
     // Resolvers
     NotificationResolver,
   ],
-  exports: [NotificationDispatcherService, EmailService, SmsService, PushService, InAppNotificationService],
+  exports: [NotificationDispatcherService, EmailService, SmsService, PushService, InAppNotificationService, DeadLetterQueueService],
 })
 export class NotificationModule {}

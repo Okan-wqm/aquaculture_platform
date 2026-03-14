@@ -453,6 +453,11 @@ export class ImpersonationService {
       throw new BadRequestException(`Session is not active: ${session.status}`);
     }
 
+    // H26 fix: Session ownership check -- only the admin who started the session can end it
+    if (endedBy && session.superAdminId !== endedBy) {
+      throw new ForbiddenException('Bu oturumu sonlandırma yetkiniz yok');
+    }
+
     session.status = ImpersonationStatus.ENDED;
     session.endedAt = new Date();
     session.endReason = endReason || (endedBy ? 'Ended by user' : 'Manual termination');
@@ -483,6 +488,76 @@ export class ImpersonationService {
     this.activeSessions.delete(sessionId);
 
     this.logger.warn(`Terminated impersonation session: ${sessionId} - ${reason}`);
+
+    return saved;
+  }
+
+  /**
+   * Extend an active impersonation session
+   * Fix: H21 -- extend session endpoint
+   */
+  async extendSession(
+    sessionId: string,
+    additionalMinutes: number,
+    extendedBy: string,
+  ): Promise<ImpersonationSession> {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException(`Session not found: ${sessionId}`);
+    }
+
+    if (session.status !== ImpersonationStatus.ACTIVE) {
+      throw new BadRequestException(`Session is not active: ${session.status}`);
+    }
+
+    // Session ownership check -- only the admin who started the session can extend it
+    if (session.superAdminId !== extendedBy) {
+      throw new ForbiddenException('Bu oturumu uzatma yetkiniz yok');
+    }
+
+    // Check permission to validate max session duration
+    const permission = await this.permissionRepo.findOne({
+      where: { superAdminId: session.superAdminId, isActive: true },
+    });
+
+    const maxDurationMinutes = permission?.maxSessionDurationMinutes || 60;
+    const sessionStartTime = session.createdAt.getTime();
+    const currentExpiresAt = session.expiresAt.getTime();
+    const newExpiresAt = currentExpiresAt + additionalMinutes * 60000;
+    const totalDurationMinutes = (newExpiresAt - sessionStartTime) / 60000;
+
+    if (totalDurationMinutes > maxDurationMinutes) {
+      throw new BadRequestException(
+        `Toplam oturum suresi maksimum ${maxDurationMinutes} dakikayi asamaz`,
+      );
+    }
+
+    session.expiresAt = new Date(newExpiresAt);
+
+    // Log the extension as an action
+    const actions = session.actionsPerformed || [];
+    actions.push({
+      action: 'session_extended',
+      resource: 'impersonation_session',
+      resourceId: sessionId,
+      timestamp: new Date(),
+      details: {
+        additionalMinutes,
+        newExpiresAt: session.expiresAt.toISOString(),
+        extendedBy,
+      },
+    });
+    session.actionsPerformed = actions;
+    session.actionCount = (session.actionCount || 0) + 1;
+
+    const saved = await this.sessionRepo.save(session);
+
+    // Update in-memory cache
+    this.activeSessions.set(sessionId, saved);
+
+    this.logger.log(
+      `Extended impersonation session ${sessionId} by ${additionalMinutes} minutes`,
+    );
 
     return saved;
   }

@@ -3,11 +3,14 @@
  *
  * Enterprise-grade error tracking and monitoring with real API integration.
  * Provides comprehensive error management, filtering, and resolution workflows.
+ *
+ * Sprint 3 Fix (Grup Q / H27-35): Import fixed (systemApi -> systemSettingsApi),
+ * all commented API calls activated.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
-import { systemApi } from '../../services/adminApi';
+import { systemSettingsApi } from '../../services/adminApi';
 import type { ErrorGroup, ErrorOccurrence } from '../../services/adminApi';
 
 // ============================================================================
@@ -64,23 +67,26 @@ export const ErrorTrackingPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // TODO: Implement API call when backend is ready
-      // const data = await systemApi.getErrorGroups({
-      //   status: filterStatus !== 'all' ? filterStatus : undefined,
-      //   severity: filterSeverity !== 'all' ? filterSeverity : undefined,
-      //   service: filterService !== 'all' ? filterService : undefined,
-      //   search: searchTerm || undefined,
-      //   startDate: dateRange.start || undefined,
-      //   endDate: dateRange.end || undefined,
-      // });
+      const [groupsData, dashboardData] = await Promise.all([
+        systemSettingsApi.getErrorGroups({
+          status: filterStatus !== 'all' ? filterStatus : undefined,
+          severity: filterSeverity !== 'all' ? filterSeverity : undefined,
+          service: filterService !== 'all' ? filterService : undefined,
+          search: searchTerm || undefined,
+          startDate: dateRange.start || undefined,
+          endDate: dateRange.end || undefined,
+        }),
+        systemSettingsApi.getErrorDashboard(),
+      ]);
 
-      // For now, set empty state until API is implemented
-      setErrorGroups([]);
+      setErrorGroups(groupsData.data);
       setStats({
-        totalErrors: 0,
-        unresolvedErrors: 0,
-        criticalErrors: 0,
-        todayErrors: 0,
+        totalErrors: dashboardData.totalErrors,
+        unresolvedErrors: dashboardData.unresolvedErrors,
+        criticalErrors: dashboardData.criticalErrors,
+        todayErrors: dashboardData.errorTrend?.length > 0
+          ? dashboardData.errorTrend[dashboardData.errorTrend.length - 1]?.count || 0
+          : 0,
       });
     } catch (err) {
       console.error('Failed to load error tracking data:', err);
@@ -109,12 +115,8 @@ export const ErrorTrackingPage: React.FC = () => {
     setSelectedError(errorGroup);
     setLoadingOccurrences(true);
     try {
-      // TODO: Implement API call when backend is ready
-      // const occurrences = await systemApi.getErrorOccurrences(errorGroup.id);
-      // setErrorOccurrences(occurrences);
-
-      // For now, set empty state until API is implemented
-      setErrorOccurrences([]);
+      const occurrencesData = await systemSettingsApi.getErrorOccurrences(errorGroup.id);
+      setErrorOccurrences(occurrencesData.data);
     } catch (err) {
       console.error('Failed to load error occurrences:', err);
       setErrorOccurrences([]);
@@ -127,9 +129,9 @@ export const ErrorTrackingPage: React.FC = () => {
     if (!selectedError) return;
 
     try {
-      // API method not yet implemented - using optimistic update
-      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? { ...e, status: 'resolved' as const } : e)));
-      setSelectedError({ ...selectedError, status: 'resolved' });
+      const updated = await systemSettingsApi.resolveError(selectedError.id, 'admin');
+      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
+      setSelectedError(updated);
       setStats((prev) => ({ ...prev, unresolvedErrors: prev.unresolvedErrors - 1 }));
     } catch (err) {
       console.error('Failed to resolve error:', err);
@@ -140,9 +142,9 @@ export const ErrorTrackingPage: React.FC = () => {
     if (!selectedError) return;
 
     try {
-      // API method not yet implemented - using optimistic update
-      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? { ...e, status: 'ignored' as const } : e)));
-      setSelectedError({ ...selectedError, status: 'ignored' });
+      const updated = await systemSettingsApi.ignoreError(selectedError.id);
+      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
+      setSelectedError(updated);
       setStats((prev) => ({ ...prev, unresolvedErrors: prev.unresolvedErrors - 1 }));
     } catch (err) {
       console.error('Failed to ignore error:', err);
@@ -153,9 +155,9 @@ export const ErrorTrackingPage: React.FC = () => {
     if (!selectedError) return;
 
     try {
-      // API method not yet implemented - using optimistic update
-      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? { ...e, status: 'acknowledged' as const } : e)));
-      setSelectedError({ ...selectedError, status: 'acknowledged' });
+      const updated = await systemSettingsApi.updateErrorStatus(selectedError.id, 'acknowledged');
+      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
+      setSelectedError(updated);
     } catch (err) {
       console.error('Failed to acknowledge error:', err);
     }

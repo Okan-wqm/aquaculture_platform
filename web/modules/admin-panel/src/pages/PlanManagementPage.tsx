@@ -277,7 +277,7 @@ const PlanManagementPage: React.FC = () => {
 
             {/* Pricing Details - Monthly Only */}
             <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Aylik Fiyat</h3>
+              <h3 className="text-lg font-semibold mb-3">Monthly Price</h3>
               <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex items-center justify-between">
                   <div>

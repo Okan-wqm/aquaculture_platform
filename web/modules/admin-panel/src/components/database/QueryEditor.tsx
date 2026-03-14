@@ -68,8 +68,9 @@ async function fetchSchemas(): Promise<string[]> {
   return json && json.data ? json.data : json;
 }
 
+// Fix: C13 -- backend ExecuteQueryDto expects { sql, params }, not { schema, query }
 async function executeQuery(
-  schema: string,
+  _schema: string,
   query: string
 ): Promise<{ rows: Record<string, unknown>[]; rowCount: number; columns: string[] }> {
   const response = await fetch(`${API_BASE}/query`, {
@@ -79,7 +80,8 @@ async function executeQuery(
       'Content-Type': 'application/json',
       ...getAuthHeader(),
     },
-    body: JSON.stringify({ schema, query }),
+    // Fix: C13 -- backend ExecuteQueryDto.sql ile uyumlu
+    body: JSON.stringify({ sql: query }),
   });
 
   if (!response.ok) {
@@ -163,7 +165,11 @@ const isSelectOnlyQuery = (query: string): boolean => {
 };
 
 const exportToCSV = (columns: string[], rows: Record<string, unknown>[]): void => {
+  // Fix: Review feedback -- formula injection koruması eklendi
   const escapeCsvValue = (value: string): string => {
+    if (/^[=+\-@\t\r]/.test(value)) {
+      return `"'${value.replace(/"/g, '""')}"`;
+    }
     if (value.includes(',') || value.includes('"') || value.includes('\n')) {
       return `"${value.replace(/"/g, '""')}"`;
     }

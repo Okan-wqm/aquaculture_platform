@@ -1,5 +1,5 @@
 import { ThrottlerModule, RedisModule } from '@aquaculture/backend-common';
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -10,6 +10,8 @@ import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
+// Fix: H15 -- DebugToolsModule ayrı modüle çıkarıldı, conditional import ile sadece non-production'da yüklenir
+import { DebugToolsModule } from './debug-tools/debug-tools.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
 import { HealthModule } from './health/health.module';
@@ -24,6 +26,13 @@ import { SupportModule } from './support/support.module';
 import { SystemManagementModule } from './system-management/system-management.module';
 import { TenantManagementModule } from './tenant/tenant.module';
 import { UsersModule } from './users/users.module';
+
+// Fix: H15 -- DebugToolsModule production'da yüklenmez
+const isProduction = process.env['NODE_ENV'] === 'production';
+const conditionalModules = isProduction ? [] : [DebugToolsModule];
+if (isProduction) {
+  new Logger('AppModule').log('Production mode: DebugToolsModule disabled');
+}
 
 @Module({
   imports: [
@@ -115,6 +124,8 @@ import { UsersModule } from './users/users.module';
     SystemManagementModule,
     ImpersonationModule,
     PasswordResetModule,
+    // Fix: H15 -- DebugToolsModule sadece development/staging'de yüklenir
+    ...conditionalModules,
   ],
   providers: [
     {

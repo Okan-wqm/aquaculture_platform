@@ -146,6 +146,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly topicNegativeCache = new Map<string, number>(); // topic -> expiresAt
   private readonly NEGATIVE_CACHE_TTL_MS = 30_000; // 30 seconds
 
+  // Legacy edge/ topic support (D04 SEC-M01)
+  // Set LEGACY_EDGE_TOPICS_ENABLED=false to disable legacy edge/{deviceCode}/... topics
+  // and force all devices to use tenant-prefixed tenants/{tenantId}/devices/{deviceCode}/... pattern
+  private readonly legacyEdgeTopicsEnabled: boolean;
+
+  // MQTT payload size limit (D04 SEC-L02)
+  // Reject messages larger than 256KB to prevent memory abuse
+  private static readonly MAX_PAYLOAD_SIZE = 256 * 1024; // 256KB
+
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(Sensor)
@@ -178,6 +187,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Inject(ScadaDeployLogService)
     private readonly scadaDeployLogService: ScadaDeployLogService | null,
   ) {
+    // Legacy edge/ topic flag (default: true for backward compatibility)
+    this.legacyEdgeTopicsEnabled = this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
+
     // Bind message handler to this instance
     this.messageHandler = (topic: string, message: Buffer) => {
       this.handleMessage(topic, message).catch((error: Error) => {
@@ -260,13 +272,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'aquaculture/+/sensors/#',      // Tenant-specific sensors
       '+/+/+/temperature-array',      // Array sensor pattern
 
-      // Edge device topics - Legacy pattern (backward compatibility)
-      'edge/+/heartbeat',             // Device heartbeat (health metrics)
-      'edge/+/birth',                 // Device birth certificate
-      'edge/+/death',                 // Device death (LWT - Last Will Testament)
-      'edge/+/response',              // Command response from device (legacy singular)
-      'edge/+/responses',             // Command response from device (plural - Edge Agent v2.0+)
-
       // Edge device topics - Tenant-prefixed pattern (Edge Agent v2.0 default)
       // Pattern: tenants/{tenantId}/devices/{deviceCode}/{messageType}
       'tenants/+/devices/+/telemetry',  // Device telemetry (CPU, RAM, Disk, Temp)
@@ -278,6 +283,28 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
       'tenants/+/devices/+/lora_events',   // LoRaWAN events (join_accept, uplink_summary)
     ];
+
+    // Legacy edge/ topics (D04 SEC-M01): only subscribe when explicitly enabled
+    // These topics lack tenant enforcement — migrate devices to tenant-prefixed topics
+    if (this.legacyEdgeTopicsEnabled) {
+      topics.push(
+        'edge/+/heartbeat',             // Device heartbeat (health metrics)
+        'edge/+/birth',                 // Device birth certificate
+        'edge/+/death',                 // Device death (LWT - Last Will Testament)
+        'edge/+/response',              // Command response from device (legacy singular)
+        'edge/+/responses',             // Command response from device (plural - Edge Agent v2.0+)
+      );
+      this.logger.warn(
+        'Legacy edge/ topic subscriptions are ENABLED. ' +
+        'These topics lack tenant enforcement. ' +
+        'Set LEGACY_EDGE_TOPICS_ENABLED=false after migrating all devices to tenant-prefixed topics.',
+      );
+    } else {
+      this.logger.log(
+        'Legacy edge/ topic subscriptions are DISABLED. ' +
+        'Only tenant-prefixed topics (tenants/{tenantId}/devices/{deviceCode}/...) are active.',
+      );
+    }
 
     try {
       await this.mqttClient.subscribe(topics);
@@ -291,11 +318,33 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   private async handleMessage(topic: string, message: Buffer): Promise<void> {
     try {
+      // D04 SEC-L02: Reject oversized payloads before any processing
+      if (message.length > MqttListenerService.MAX_PAYLOAD_SIZE) {
+        this.logger.warn(
+          `Payload too large: ${message.length} bytes from topic ${topic} ` +
+          `(limit: ${MqttListenerService.MAX_PAYLOAD_SIZE} bytes). Message dropped.`,
+        );
+        return;
+      }
+
       const payload = message.toString();
       this.logger.debug(`Received message on ${topic}: ${payload.substring(0, 100)}`);
 
       // Route edge device messages - Legacy pattern (edge/{deviceCode}/{type})
+      // D04 SEC-M01: Legacy topics lack tenant enforcement — log deprecation warning
       if (topic.startsWith('edge/')) {
+        if (!this.legacyEdgeTopicsEnabled) {
+          this.logger.warn(
+            `Message received on disabled legacy topic ${topic}. ` +
+            'Legacy edge/ topics are disabled (LEGACY_EDGE_TOPICS_ENABLED=false). Message dropped.',
+          );
+          return;
+        }
+        this.logger.warn(
+          `[DEPRECATED] Message received on legacy topic ${topic}. ` +
+          'Legacy edge/ topics lack tenant enforcement and will be removed in a future release. ' +
+          'Migrate device to tenant-prefixed topic: tenants/{tenantId}/devices/{deviceCode}/...',
+        );
         await this.handleEdgeDeviceMessage(topic, message);
         return;
       }

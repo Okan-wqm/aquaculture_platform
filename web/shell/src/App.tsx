@@ -61,14 +61,15 @@ const TenantAdminModule = lazy(() => import('tenantAdmin/Module'));
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRoles?: string[];
+  requiredModule?: string;
 }
 
 /**
  * Protected route component
  * Handles authentication and role checks
  */
-const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(({ children, requiredRoles }) => {
-  const { isAuthenticated, isLoading, user, isSuperAdmin } = useAuthContext();
+const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(({ children, requiredRoles, requiredModule }) => {
+  const { isAuthenticated, isLoading, user, isSuperAdmin, hasRoleOrHigher, hasModuleAccess } = useAuthContext();
 
   // Loading state
   if (isLoading) {
@@ -80,10 +81,17 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(({ children, required
     return <Navigate to="/login" replace />;
   }
 
-  // Role check
+  // Role check — use hierarchy so SUPER_ADMIN can access TENANT_ADMIN routes etc.
   if (requiredRoles && requiredRoles.length > 0) {
-    const hasRequiredRole = requiredRoles.some(role => user?.role === role);
+    const hasRequiredRole = requiredRoles.some(role => hasRoleOrHigher(role as any));
     if (!hasRequiredRole) {
+      return <Navigate to="/unauthorized" replace />;
+    }
+  }
+
+  // Module access check — SUPER_ADMIN bypasses (system-level access)
+  if (requiredModule && !isSuperAdmin()) {
+    if (!hasModuleAccess(requiredModule)) {
       return <Navigate to="/unauthorized" replace />;
     }
   }
@@ -169,11 +177,13 @@ const App: React.FC = () => {
         <Route
           path="/sites/*"
           element={
-            <ErrorBoundary moduleName="Sites">
-              <Suspense fallback={<RemoteModuleLoader moduleName="Sites" />}>
-                <FarmModule />
-              </Suspense>
-            </ErrorBoundary>
+            <ProtectedRoute requiredModule="farm">
+              <ErrorBoundary moduleName="Sites">
+                <Suspense fallback={<RemoteModuleLoader moduleName="Sites" />}>
+                  <FarmModule />
+                </Suspense>
+              </ErrorBoundary>
+            </ProtectedRoute>
           }
         />
 
@@ -181,11 +191,13 @@ const App: React.FC = () => {
         <Route
           path="/hr/*"
           element={
-            <ErrorBoundary moduleName="HR">
-              <Suspense fallback={<RemoteModuleLoader moduleName="HR" />}>
-                <HRModule />
-              </Suspense>
-            </ErrorBoundary>
+            <ProtectedRoute requiredModule="hr">
+              <ErrorBoundary moduleName="HR">
+                <Suspense fallback={<RemoteModuleLoader moduleName="HR" />}>
+                  <HRModule />
+                </Suspense>
+              </ErrorBoundary>
+            </ProtectedRoute>
           }
         />
 
@@ -193,11 +205,13 @@ const App: React.FC = () => {
         <Route
           path="/sensor/*"
           element={
-            <ErrorBoundary moduleName="Sensor">
-              <Suspense fallback={<RemoteModuleLoader moduleName="Sensor" />}>
-                <SensorModule />
-              </Suspense>
-            </ErrorBoundary>
+            <ProtectedRoute requiredModule="sensor">
+              <ErrorBoundary moduleName="Sensor">
+                <Suspense fallback={<RemoteModuleLoader moduleName="Sensor" />}>
+                  <SensorModule />
+                </Suspense>
+              </ErrorBoundary>
+            </ProtectedRoute>
           }
         />
 
@@ -205,11 +219,13 @@ const App: React.FC = () => {
         <Route
           path="/hydroponics/*"
           element={
-            <ErrorBoundary moduleName="Hydroponics">
-              <Suspense fallback={<RemoteModuleLoader moduleName="Hydroponics" />}>
-                <HydroponicsModule />
-              </Suspense>
-            </ErrorBoundary>
+            <ProtectedRoute requiredModule="hydroponics">
+              <ErrorBoundary moduleName="Hydroponics">
+                <Suspense fallback={<RemoteModuleLoader moduleName="Hydroponics" />}>
+                  <HydroponicsModule />
+                </Suspense>
+              </ErrorBoundary>
+            </ProtectedRoute>
           }
         />
 

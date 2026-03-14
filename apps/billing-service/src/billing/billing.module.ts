@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { BillingResolver } from './billing.resolver';
+import { BillingSchedulerService } from './billing-scheduler.service';
 
 // Entities
 import { Subscription } from './entities/subscription.entity';
@@ -50,10 +51,11 @@ const EventHandlers = [
   imports: [
     TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics]),
     CqrsModule,
-    EventEmitterModule,
+    ScheduleModule.forRoot(),
   ],
   providers: [
     BillingResolver,
+    BillingSchedulerService,
     ...CommandHandlers,
     ...QueryHandlers,
     ...EventHandlers,

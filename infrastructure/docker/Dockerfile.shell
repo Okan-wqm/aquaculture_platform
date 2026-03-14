@@ -30,6 +30,15 @@ ENV TENANT_ADMIN_URL=http://tenant-admin:80
 COPY infrastructure/docker/scripts/40-create-runtime-config.sh /docker-entrypoint.d/40-create-runtime-config.sh
 RUN chmod +x /docker-entrypoint.d/40-create-runtime-config.sh
 
+# D17-DF-001: Run as non-root (aligned with Dockerfile.frontend pattern)
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx && \
+    touch /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/run/nginx.pid
+
+USER nginx
+
 # Health check - use 127.0.0.1 to avoid IPv6 issues
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:80/ || exit 1

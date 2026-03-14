@@ -16,9 +16,12 @@ import {
   Res,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, Min, Max } from 'class-validator';
 import { Response } from 'express';
 
@@ -179,6 +182,7 @@ class CreateAlertRuleDto {
 
 @ApiTags('Security')
 @Controller('security/audit')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class AuditTrailController {
   constructor(private readonly auditService: AuditTrailService) {}
 

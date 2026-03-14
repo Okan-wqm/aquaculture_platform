@@ -16,6 +16,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { DatabaseMonitoringService } from '../services/database-monitoring.service';
@@ -25,7 +26,12 @@ import { DatabaseMonitoringService } from '../services/database-monitoring.servi
 // ============================================================================
 
 class AnalyzeQueryDto {
+  @IsString()
+  @IsNotEmpty()
   query!: string;
+
+  @IsOptional()
+  @IsString()
   schemaName?: string;
 }
 

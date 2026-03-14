@@ -139,7 +139,7 @@ describe('PermissionGuard', () => {
 
     it('should allow user with all required permissions', () => {
       const context = createMockExecutionContext({
-        roles: ['manager'],
+        roles: ['MODULE_MANAGER'],
         permissions: ['farms:read', 'sensors:read'],
       });
 
@@ -215,7 +215,7 @@ describe('PermissionGuard', () => {
 
     it('should allow system admin with wildcard permission', () => {
       const context = createMockExecutionContext({
-        roles: ['system_admin'],
+        roles: ['SUPER_ADMIN'],
         permissions: ['*'],
       });
 
@@ -247,14 +247,14 @@ describe('PermissionGuard', () => {
   describe('Role-Based Access', () => {
     beforeEach(() => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === ROLES_KEY) return ['manager'];
+        if (key === ROLES_KEY) return ['MODULE_MANAGER'];
         return undefined;
       });
     });
 
     it('should allow user with exact required role', () => {
       const context = createMockExecutionContext({
-        roles: ['manager'],
+        roles: ['MODULE_MANAGER'],
       });
 
       const result = guard.canActivate(context);
@@ -263,7 +263,7 @@ describe('PermissionGuard', () => {
 
     it('should allow user with higher role in hierarchy', () => {
       const context = createMockExecutionContext({
-        roles: ['tenant_admin'], // Higher than manager
+        roles: ['TENANT_ADMIN'], // Higher than MODULE_MANAGER
       });
 
       const result = guard.canActivate(context);
@@ -272,7 +272,7 @@ describe('PermissionGuard', () => {
 
     it('should allow system admin for any role requirement', () => {
       const context = createMockExecutionContext({
-        roles: ['system_admin'],
+        roles: ['SUPER_ADMIN'],
       });
 
       const result = guard.canActivate(context);
@@ -281,7 +281,7 @@ describe('PermissionGuard', () => {
 
     it('should reject user with lower role', () => {
       const context = createMockExecutionContext({
-        roles: ['operator'], // Lower than manager
+        roles: ['MODULE_USER'], // Lower than MODULE_MANAGER
       });
 
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
@@ -289,7 +289,7 @@ describe('PermissionGuard', () => {
 
     it('should reject user with no matching roles', () => {
       const context = createMockExecutionContext({
-        roles: ['viewer'],
+        roles: ['MODULE_USER'],
       });
 
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
@@ -297,56 +297,56 @@ describe('PermissionGuard', () => {
   });
 
   describe('Role Hierarchy', () => {
-    it('should inherit permissions from system_admin', () => {
+    it('should inherit permissions from SUPER_ADMIN', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['any:permission'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['system_admin'],
+        roles: ['SUPER_ADMIN'],
       });
 
       const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should allow tenant_admin to access manager resources', () => {
+    it('should allow TENANT_ADMIN to access MODULE_MANAGER resources', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === ROLES_KEY) return ['manager'];
+        if (key === ROLES_KEY) return ['MODULE_MANAGER'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['tenant_admin'],
+        roles: ['TENANT_ADMIN'],
       });
 
       const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should allow manager to access operator resources', () => {
+    it('should allow MODULE_MANAGER to access MODULE_USER resources', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === ROLES_KEY) return ['operator'];
+        if (key === ROLES_KEY) return ['MODULE_USER'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['manager'],
+        roles: ['MODULE_MANAGER'],
       });
 
       const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should not allow operator to access manager resources', () => {
+    it('should not allow MODULE_USER to access MODULE_MANAGER resources', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === ROLES_KEY) return ['manager'];
+        if (key === ROLES_KEY) return ['MODULE_MANAGER'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['operator'],
+        roles: ['MODULE_USER'],
       });
 
       expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
@@ -459,13 +459,13 @@ describe('PermissionGuard', () => {
   describe('Combined Checks', () => {
     it('should check both roles and permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === ROLES_KEY) return ['manager'];
+        if (key === ROLES_KEY) return ['MODULE_MANAGER'];
         if (key === PERMISSIONS_KEY) return ['reports:view'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['manager'],
+        roles: ['MODULE_MANAGER'],
         permissions: ['reports:view'],
       });
 
@@ -475,13 +475,13 @@ describe('PermissionGuard', () => {
 
     it('should reject if role check fails even with permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === ROLES_KEY) return ['tenant_admin'];
+        if (key === ROLES_KEY) return ['TENANT_ADMIN'];
         if (key === PERMISSIONS_KEY) return ['reports:view'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['operator'], // Lower than required
+        roles: ['MODULE_USER'], // Lower than required
         permissions: ['reports:view'],
       });
 
@@ -490,14 +490,14 @@ describe('PermissionGuard', () => {
   });
 
   describe('Role-Based Default Permissions', () => {
-    it('should grant tenant_admin role-based permissions', () => {
+    it('should grant TENANT_ADMIN role-based permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['users:manage'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['tenant_admin'],
+        roles: ['TENANT_ADMIN'],
         permissions: [], // No explicit permissions, relies on role
       });
 
@@ -505,14 +505,14 @@ describe('PermissionGuard', () => {
       expect(result).toBe(true);
     });
 
-    it('should grant manager role-based permissions', () => {
+    it('should grant MODULE_MANAGER role-based permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['manager'],
+        roles: ['MODULE_MANAGER'],
         permissions: [],
       });
 
@@ -520,14 +520,14 @@ describe('PermissionGuard', () => {
       expect(result).toBe(true);
     });
 
-    it('should grant operator role-based permissions', () => {
+    it('should grant MODULE_USER role-based permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['alerts:read'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['operator'],
+        roles: ['MODULE_USER'],
         permissions: [],
       });
 
@@ -535,14 +535,14 @@ describe('PermissionGuard', () => {
       expect(result).toBe(true);
     });
 
-    it('should grant viewer role-based permissions', () => {
+    it('should grant MODULE_USER reports:view via merged permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['viewer'],
+        roles: ['MODULE_USER'],
         permissions: [],
       });
 
@@ -561,7 +561,7 @@ describe('PermissionGuard', () => {
       const context = createMockExecutionContext({
         sub: 'cached-user',
         tenantId: 'tenant-1',
-        roles: ['viewer'],
+        roles: ['MODULE_USER'],
       });
 
       // First call
@@ -593,7 +593,7 @@ describe('PermissionGuard', () => {
       });
 
       const context = createMockExecutionContext({
-        roles: ['viewer'],
+        roles: ['MODULE_USER'],
         permissions: ['farms:read'],
       });
 
@@ -611,7 +611,7 @@ describe('PermissionGuard', () => {
       });
 
       const context = createMockExecutionContext({
-        roles: ['viewer'],
+        roles: ['MODULE_USER'],
         permissions: [],
       });
 
@@ -645,7 +645,7 @@ describe('PermissionGuard', () => {
         const user: JwtPayload = {
           sub: 'user-1',
           tenantId: 'tenant-1',
-          roles: ['system_admin'],
+          roles: ['SUPER_ADMIN'],
           permissions: ['*'],
           type: 'access',
           iat: 0,
@@ -689,39 +689,39 @@ describe('PermissionGuard', () => {
         const user: JwtPayload = {
           sub: 'user-1',
           tenantId: 'tenant-1',
-          roles: ['manager'],
+          roles: ['MODULE_MANAGER'],
           type: 'access',
           iat: 0,
           exp: 0,
         };
 
-        expect(userHasRole(user, 'manager')).toBe(true);
+        expect(userHasRole(user, 'MODULE_MANAGER')).toBe(true);
       });
 
       it('should return true for inherited role', () => {
         const user: JwtPayload = {
           sub: 'user-1',
           tenantId: 'tenant-1',
-          roles: ['system_admin'],
+          roles: ['SUPER_ADMIN'],
           type: 'access',
           iat: 0,
           exp: 0,
         };
 
-        expect(userHasRole(user, 'operator')).toBe(true);
+        expect(userHasRole(user, 'MODULE_USER')).toBe(true);
       });
 
       it('should return false for higher role', () => {
         const user: JwtPayload = {
           sub: 'user-1',
           tenantId: 'tenant-1',
-          roles: ['operator'],
+          roles: ['MODULE_USER'],
           type: 'access',
           iat: 0,
           exp: 0,
         };
 
-        expect(userHasRole(user, 'manager')).toBe(false);
+        expect(userHasRole(user, 'MODULE_MANAGER')).toBe(false);
       });
     });
   });
@@ -734,7 +734,7 @@ describe('PermissionGuard', () => {
       });
 
       const context = createMockExecutionContext({
-        roles: ['viewer'], // Has role-based permissions
+        roles: ['MODULE_USER'], // Has role-based permissions
         permissions: [],
       });
 
@@ -749,7 +749,7 @@ describe('PermissionGuard', () => {
       });
 
       const context = createMockExecutionContext({
-        roles: ['viewer'],
+        roles: ['MODULE_USER'],
         permissions: undefined,
       } as Partial<JwtPayload>);
 
@@ -764,7 +764,7 @@ describe('PermissionGuard', () => {
       });
 
       const context = createMockExecutionContext({
-        roles: ['manager', 'tenant_admin'],
+        roles: ['MODULE_MANAGER', 'TENANT_ADMIN'],
         permissions: [],
       });
 
@@ -799,7 +799,7 @@ describe('PermissionGuard', () => {
       for (let i = 0; i < 1000; i++) {
         const context = createMockExecutionContext({
           sub: `user-${i}`,
-          roles: ['viewer'],
+          roles: ['MODULE_USER'],
           permissions: ['farms:read'],
         });
 

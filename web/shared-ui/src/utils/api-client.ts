@@ -78,16 +78,43 @@ let tenantId: string | null = null;
 let tokenRefreshPromise: Promise<void> | null = null;
 
 /**
+ * Install a tamper-proof auth getter on window for Module Federation cross-bundle access.
+ * SEC-016: Uses Object.defineProperty with writable:false + configurable:false so
+ * malicious scripts cannot overwrite the getter with a token-stealing shim.
+ * The frozen object always delegates to the closure-scoped getAccessToken, which
+ * reads the in-memory accessToken variable — so it stays up-to-date after refresh.
+ */
+let authGlobalInstalled = false;
+
+function installAuthGlobal(): void {
+  if (typeof window === 'undefined') return;
+  if (authGlobalInstalled) return;
+
+  const authObj = Object.freeze({ getAccessToken });
+
+  try {
+    Object.defineProperty(window, '__AQUACULTURE_AUTH__', {
+      value: authObj,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+    authGlobalInstalled = true;
+  } catch {
+    // Property already defined as non-configurable (from a previous bundle load) — safe to ignore.
+    // The existing frozen getter already delegates to the correct getAccessToken.
+  }
+}
+
+/**
  * Set access token (in-memory only).
  * The refresh token is managed via httpOnly cookie - not stored in JS.
  */
 export function setTokens(access: string, _refresh?: string): void {
   accessToken = access;
 
-  // SECURITY: Expose getter on window for Module Federation cross-bundle access
-  if (typeof window !== 'undefined') {
-    (window as any).__AQUACULTURE_AUTH__ = { getAccessToken };
-  }
+  // SECURITY: Expose frozen getter on window for Module Federation cross-bundle access
+  installAuthGlobal();
 }
 
 /**
@@ -103,9 +130,8 @@ export function clearTokens(): void {
     // Ignore
   }
 
-  if (typeof window !== 'undefined') {
-    (window as any).__AQUACULTURE_AUTH__ = { getAccessToken };
-  }
+  // Re-install auth global in case it wasn't set yet
+  installAuthGlobal();
 }
 
 /**
@@ -141,9 +167,8 @@ export async function silentRefresh(): Promise<boolean> {
 
     accessToken = result.data.refreshToken.accessToken;
 
-    if (typeof window !== 'undefined') {
-      (window as any).__AQUACULTURE_AUTH__ = { getAccessToken };
-    }
+    // Re-install auth global in case it wasn't set yet
+    installAuthGlobal();
 
     return true;
   } catch {
@@ -454,7 +479,8 @@ class RestClient {
       params?: Record<string, string | number | boolean>;
       headers?: Record<string, string>;
       timeout?: number;
-    }
+    },
+    retryCount = 0
   ): Promise<T> {
     const { body, params, headers: customHeaders, timeout } = options || {};
 
@@ -474,8 +500,10 @@ class RestClient {
       ...customHeaders,
     };
 
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
+    // Access token from in-memory store (with Module Federation window fallback)
+    const currentToken = getAccessToken();
+    if (currentToken) {
+      headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
     // Attach tenant ID (from memory or localStorage)
@@ -502,6 +530,19 @@ class RestClient {
 
       clearTimeout(timeoutId);
 
+      // 401 — attempt a single token refresh, then retry.
+      // retryCount === 0 caps the retry to exactly one attempt (no infinite loop).
+      if (response.status === 401 && retryCount === 0) {
+        try {
+          await this.handleUnauthorized();
+        } catch {
+          // Refresh failed — clear session and throw
+          clearTokens();
+          throw new RestClientError('Session expired', 401);
+        }
+        return this.request(method, path, options, retryCount + 1);
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new RestClientError(
@@ -519,6 +560,60 @@ class RestClient {
       return await response.json();
     } catch (error) {
       clearTimeout(timeoutId);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle 401 Unauthorized — refresh token and dedup concurrent refresh calls
+   */
+  private async handleUnauthorized(): Promise<void> {
+    // If a refresh is already in progress, wait for it
+    if (tokenRefreshPromise) {
+      await tokenRefreshPromise;
+      return;
+    }
+
+    // Refresh token via httpOnly cookie (sent automatically by browser)
+    tokenRefreshPromise = this.refreshAccessToken();
+
+    try {
+      await tokenRefreshPromise;
+    } finally {
+      tokenRefreshPromise = null;
+    }
+  }
+
+  /**
+   * Refresh access token via httpOnly cookie.
+   * The refresh token cookie is sent automatically by the browser.
+   */
+  private async refreshAccessToken(): Promise<void> {
+    try {
+      const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
+      const response = await fetch(graphqlUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken } }`,
+        }),
+      });
+
+      if (!response.ok) {
+        clearTokens();
+        throw new RestClientError('Token refresh failed', response.status);
+      }
+
+      const result = await response.json();
+      if (result.errors || !result.data?.refreshToken?.accessToken) {
+        clearTokens();
+        throw new RestClientError('Token refresh failed', 401);
+      }
+
+      setTokens(result.data.refreshToken.accessToken);
+    } catch (error) {
+      clearTokens();
       throw error;
     }
   }

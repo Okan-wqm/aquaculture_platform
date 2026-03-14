@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { DataSource } from 'typeorm';
 
@@ -104,10 +104,8 @@ export class TenantSchemaMiddleware implements NestMiddleware {
           await this.setSearchPathSafe(tenantSchema);
           req.schemaName = tenantSchema;
         } else {
-          // Fallback for existing tenants without dedicated schema
-          await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
-          req.schemaName = this.DEFAULT_SCHEMA;
-          this.logger.warn(`Tenant ${tenantId}: schema "${tenantSchema}" not found, using fallback "${this.DEFAULT_SCHEMA}". Writes may target shared schema.`);
+          // D05-H1: No fallback to shared schema -- cross-tenant data leak risk
+          throw new UnauthorizedException(`Tenant schema not found for tenant ${tenantId}`);
         }
       } else {
         await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
@@ -117,9 +115,14 @@ export class TenantSchemaMiddleware implements NestMiddleware {
       this.logger.debug(`Schema: ${req.schemaName} (${Date.now() - startTime}ms)`);
 
     } catch (error) {
+      // D05-H1: Re-throw auth/validation errors -- no silent fallback to shared schema
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
+
       this.logger.error(`Schema middleware error: ${(error as Error).message}`);
 
-      // Attempt fallback
+      // Attempt fallback only for unexpected infrastructure errors (DB connection, etc.)
       try {
         await this.setSearchPathSafe(this.DEFAULT_SCHEMA);
         req.schemaName = this.DEFAULT_SCHEMA;

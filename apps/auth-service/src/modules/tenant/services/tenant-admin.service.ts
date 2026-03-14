@@ -10,6 +10,8 @@ import { Role } from '@platform/backend-common';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
@@ -69,6 +71,7 @@ export class TenantAdminService {
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -265,7 +268,9 @@ export class TenantAdminService {
           input.role === 'manager' ? Role.MODULE_MANAGER : Role.MODULE_USER;
 
         // Generate invitation token for the new user
-        const invitationToken = crypto.randomBytes(32).toString('hex');
+        const plainInvitationToken = crypto.randomBytes(32).toString('hex');
+        // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
+        const invitationTokenHash = crypto.createHash('sha256').update(plainInvitationToken).digest('hex');
         const invitationExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
         user = userRepo.create({
@@ -277,7 +282,7 @@ export class TenantAdminService {
           role,
           isActive: true,
           isEmailVerified: false,
-          invitationToken,
+          invitationToken: invitationTokenHash, // Store hash, not plain token
           invitationExpiresAt: invitationExpiry,
           invitedBy: tenantAdminId,
         });
@@ -353,6 +358,11 @@ export class TenantAdminService {
     userId: string,
     moduleId: string,
   ): Promise<boolean> {
+    // SECURITY: Prevent self-removal from module (SEC-008)
+    if (tenantAdminId === userId) {
+      throw new BadRequestException('Cannot remove your own module access');
+    }
+
     const admin = await this.userRepository.findOne({
       where: { id: tenantAdminId },
     });
@@ -398,6 +408,11 @@ export class TenantAdminService {
    * Deactivate a user in tenant
    */
   async deactivateUser(tenantAdminId: string, userId: string): Promise<User> {
+    // SECURITY: Prevent self-deactivation (SEC-008)
+    if (tenantAdminId === userId) {
+      throw new BadRequestException('Cannot deactivate your own account');
+    }
+
     const admin = await this.userRepository.findOne({
       where: { id: tenantAdminId },
     });
@@ -429,6 +444,27 @@ export class TenantAdminService {
     );
 
     this.logger.log(`Deactivated user ${user.email} and revoked all refresh tokens`);
+
+    // SECURITY AUDIT: Log user deactivation (BULGU-016)
+    try {
+      await this.auditLogService.log({
+        tenantId: admin.tenantId,
+        performedBy: tenantAdminId,
+        performedByEmail: admin.email,
+        action: 'USER_DEACTIVATED',
+        entityType: 'User',
+        entityId: userId,
+        details: {
+          targetEmail: user.email,
+          targetRole: user.role,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.WARNING,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log audit event USER_DEACTIVATED: ${(error as Error).message}`);
+    }
+
     return saved;
   }
 
@@ -456,6 +492,27 @@ export class TenantAdminService {
     const saved = await this.userRepository.save(user);
 
     this.logger.log(`Activated user ${user.email}`);
+
+    // SECURITY AUDIT: Log user activation (BULGU-016)
+    try {
+      await this.auditLogService.log({
+        tenantId: admin.tenantId,
+        performedBy: tenantAdminId,
+        performedByEmail: admin.email,
+        action: 'USER_ACTIVATED',
+        entityType: 'User',
+        entityId: userId,
+        details: {
+          targetEmail: user.email,
+          targetRole: user.role,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.INFO,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log audit event USER_ACTIVATED: ${(error as Error).message}`);
+    }
+
     return saved;
   }
 

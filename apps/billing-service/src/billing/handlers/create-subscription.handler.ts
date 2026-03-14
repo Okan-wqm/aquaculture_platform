@@ -1,9 +1,11 @@
-import { Injectable, ConflictException, Logger, InternalServerErrorException, Optional } from '@nestjs/common';
+import { Injectable, ConflictException, Logger, InternalServerErrorException, Optional, Inject } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
-import { Subscription, SubscriptionStatus, BillingCycle } from '../entities/subscription.entity';
+import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 
 @Injectable()
 @CommandHandler(CreateSubscriptionCommand)
@@ -14,8 +16,22 @@ export class CreateSubscriptionHandler
 
   constructor(
     private readonly dataSource: DataSource,
+    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
     @Optional() private readonly redisService?: RedisService,
   ) {}
+
+  /**
+   * D09-F01: Minimum base price per plan tier.
+   * Prevents clients from submitting arbitrarily low prices via the GraphQL mutation.
+   * CUSTOM tier has no minimum — pricing is negotiated externally.
+   * The NATS event handler (TenantSubscriptionRequestedHandler) uses its own
+   * DEFAULT_PRICING and is not subject to this validation.
+   */
+  private static readonly MIN_PRICES: Partial<Record<PlanTier, number>> = {
+    [PlanTier.STARTER]: 49,
+    [PlanTier.PROFESSIONAL]: 149,
+    [PlanTier.ENTERPRISE]: 499,
+  };
 
   async execute(command: CreateSubscriptionCommand): Promise<Subscription> {
     const { tenantId, input, userId } = command;
@@ -25,6 +41,14 @@ export class CreateSubscriptionHandler
     // exhaustion under burst provisioning (LOW-004).
     if (input.pricing.basePrice < 0) {
       throw new ConflictException('Base price cannot be negative');
+    }
+
+    // D09-F01: Enforce minimum base price per plan tier
+    const minPrice = CreateSubscriptionHandler.MIN_PRICES[input.planTier];
+    if (minPrice !== undefined && input.pricing.basePrice < minPrice) {
+      throw new ConflictException(
+        `Minimum base price for ${input.planTier.toUpperCase()} tier is $${minPrice}`,
+      );
     }
 
     const startDate = input.startDate ? new Date(input.startDate) : new Date();
@@ -119,6 +143,31 @@ export class CreateSubscriptionHandler
       this.logger.log(
         `Subscription created: ${savedSubscription.id} for tenant ${tenantId} with plan ${input.planTier} by user ${userId}`,
       );
+
+      // Publish NATS event so other services can react to the new subscription
+      try {
+        const event: SubscriptionCreatedEvent = {
+          ...createBaseEvent<SubscriptionCreatedEvent>('SubscriptionCreated', tenantId, { userId }),
+          subscriptionId: savedSubscription.id,
+          tier: savedSubscription.planTier as SubscriptionCreatedEvent['tier'],
+          monthlyPrice: input.pricing.basePrice,
+          currency: input.pricing.currency || 'USD',
+          startDate: savedSubscription.startDate,
+          features: {
+            limits: savedSubscription.limits,
+            billingCycle: savedSubscription.billingCycle,
+            autoRenew: savedSubscription.autoRenew,
+          },
+        };
+        await this.eventBus?.publish(event);
+      } catch (eventError) {
+        // Event publish failure must not block the main operation
+        this.logger.warn(
+          `Failed to publish SubscriptionCreated event for ${savedSubscription.id}: ${
+            eventError instanceof Error ? eventError.message : 'Unknown error'
+          }`,
+        );
+      }
 
       return savedSubscription;
     } catch (error) {

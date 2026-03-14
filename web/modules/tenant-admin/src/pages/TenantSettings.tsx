@@ -12,8 +12,10 @@ import {
   Check,
   RefreshCw,
   AlertCircle,
+  Lock,
 } from 'lucide-react';
 import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { useAuthContext } from '@aquaculture/shared-ui';
 import { useMyTenant, useUpdateTenantSettings } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 
@@ -182,8 +184,15 @@ const FEATURE_COLUMNS = [
 
 /**
  * TenantSettings Page
+ *
+ * SEC-007: Only TENANT_ADMIN (or higher) can modify settings.
+ * Lower roles see a read-only view with editing controls disabled.
  */
 const TenantSettings: React.FC = () => {
+  // SEC-007: Check if current user has TENANT_ADMIN privileges for editing
+  const { hasRoleOrHigher } = useAuthContext();
+  const canEditSettings = hasRoleOrHigher('TENANT_ADMIN');
+
   const [activeSection, setActiveSection] = useState('general');
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -426,7 +435,8 @@ const TenantSettings: React.FC = () => {
                 type="text"
                 value={tenantName}
                 onChange={(e) => setTenantName(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                disabled={!canEditSettings}
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>
             <div>
@@ -437,7 +447,8 @@ const TenantSettings: React.FC = () => {
                 type="email"
                 value={contactEmail}
                 onChange={(e) => setContactEmail(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                disabled={!canEditSettings}
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>
             <div>
@@ -448,7 +459,8 @@ const TenantSettings: React.FC = () => {
                 type="tel"
                 value={contactPhone}
                 onChange={(e) => setContactPhone(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                disabled={!canEditSettings}
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>
             <div>
@@ -459,7 +471,8 @@ const TenantSettings: React.FC = () => {
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 rows={3}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent resize-none"
+                disabled={!canEditSettings}
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent resize-none disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -779,7 +792,16 @@ const TenantSettings: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
+          {/* SEC-007: Read-only notice for non-admin users */}
+          {!canEditSettings && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg border border-amber-200">
+              <Lock className="w-3.5 h-3.5" />
+              Read-only access
+            </div>
+          )}
           {/* SEC-005: Disable Save for sections not yet persisted to the backend */}
+          {/* SEC-007: Hide Save button entirely for non-admin users */}
+          {canEditSettings && (
           <button
             onClick={handleSave}
             disabled={
@@ -812,7 +834,8 @@ const TenantSettings: React.FC = () => {
               </>
             )}
           </button>
-          {saveError && (
+          )}
+          {saveError && canEditSettings && (
             <p className="text-xs text-red-600 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" />
               {saveError}

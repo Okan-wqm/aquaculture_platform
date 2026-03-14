@@ -88,21 +88,22 @@ interface GqlContext {
 
 /**
  * Role hierarchy definition
+ * Keys match the Role enum values from JWT tokens (uppercase)
  */
 const ROLE_HIERARCHY: Record<string, string[]> = {
-  system_admin: ['tenant_admin', 'manager', 'operator', 'viewer'],
-  tenant_admin: ['manager', 'operator', 'viewer'],
-  manager: ['operator', 'viewer'],
-  operator: ['viewer'],
-  viewer: [],
+  SUPER_ADMIN: ['TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER'],
+  TENANT_ADMIN: ['MODULE_MANAGER', 'MODULE_USER'],
+  MODULE_MANAGER: ['MODULE_USER'],
+  MODULE_USER: [],
 };
 
 /**
  * Default role permissions
+ * Keys match the Role enum values from JWT tokens (uppercase)
  */
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  system_admin: ['*'],
-  tenant_admin: [
+  SUPER_ADMIN: ['*'],
+  TENANT_ADMIN: [
     'users:manage',
     'farms:manage',
     'sensors:manage',
@@ -110,7 +111,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports:view',
     'settings:manage',
   ],
-  manager: [
+  MODULE_MANAGER: [
     'users:view',
     'farms:read',
     'farms:update',
@@ -120,14 +121,14 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'alerts:acknowledge',
     'reports:view',
   ],
-  operator: [
+  MODULE_USER: [
     'farms:read',
     'sensors:read',
     'sensors:update',
     'alerts:read',
     'alerts:acknowledge',
+    'reports:view',
   ],
-  viewer: ['farms:read', 'sensors:read', 'alerts:read', 'reports:view'],
 };
 
 /**

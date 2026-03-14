@@ -16,6 +16,17 @@ services:
       POSTGRES_DB: aquaculture
       # Removed POSTGRES_HOST_AUTH_METHOD: trust — password auth is required.
       # The dev password is set via DB_PASSWORD env var (defaults to 'devpassword').
+      # SEC-015: Per-service DB passwords (passed to 00-init-schemas.sh)
+      AUTH_SERVICE_DB_PASS: ${AUTH_SERVICE_DB_PASS:-}
+      FARM_SERVICE_DB_PASS: ${FARM_SERVICE_DB_PASS:-}
+      SENSOR_SERVICE_DB_PASS: ${SENSOR_SERVICE_DB_PASS:-}
+      BILLING_SERVICE_DB_PASS: ${BILLING_SERVICE_DB_PASS:-}
+      HR_SERVICE_DB_PASS: ${HR_SERVICE_DB_PASS:-}
+      ALERT_SERVICE_DB_PASS: ${ALERT_SERVICE_DB_PASS:-}
+      ADMIN_SERVICE_DB_PASS: ${ADMIN_SERVICE_DB_PASS:-}
+      GATEWAY_SERVICE_DB_PASS: ${GATEWAY_SERVICE_DB_PASS:-}
+      NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
+      HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
     ports:
       - "5433:5432"
     volumes:

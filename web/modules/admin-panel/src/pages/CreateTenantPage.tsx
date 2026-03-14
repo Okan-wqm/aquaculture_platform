@@ -105,7 +105,7 @@ const metricLabels: Record<PricingMetricType, string> = {
   [PricingMetricType.PER_USER]: 'Per User',
   [PricingMetricType.PER_FARM]: 'Per Farm',
   [PricingMetricType.PER_POND]: 'Per Pond',
-  [PricingMetricType.PER_SENSOR]: 'Per Sensor',
+  [PricingMetricType.PER_SENSOR]: 'Per Sensors',
   [PricingMetricType.PER_DEVICE]: 'Per Device',
   [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
   [PricingMetricType.PER_API_CALL]: 'Per API Call',
@@ -235,7 +235,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
           </div>
         </div>
         {config.enabled && (
-          <Badge variant="success" size="sm">Aktif</Badge>
+          <Badge variant="success" size="sm">Active</Badge>
         )}
       </div>
 
@@ -251,7 +251,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                 <div key={metric.type} className="flex items-center justify-between py-1">
                   <span className="text-sm text-gray-600">{getMetricLabel(metric.type)}</span>
                   <span className="text-sm font-semibold text-indigo-600">
-                    ${(metric.price || 0).toFixed(2)}/ay
+                    ${(metric.price || 0).toFixed(2)}/mo
                   </span>
                 </div>
               );
@@ -271,10 +271,10 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                   <label className="text-sm text-gray-600">
                     {getMetricLabel(metric.type)}
                     {includedQty > 0 && (
-                      <span className="text-xs text-green-600 ml-1">({includedQty} dahil)</span>
+                      <span className="text-xs text-green-600 ml-1">({includedQty} included)</span>
                     )}
                   </label>
-                  <span className="text-xs text-gray-500">${unitPrice.toFixed(2)}/adet</span>
+                  <span className="text-xs text-gray-500">${unitPrice.toFixed(2)}/unit</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -288,7 +288,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                     }}
                     className="w-24 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
-                  <span className="text-sm text-gray-500">adet</span>
+                  <span className="text-sm text-gray-500">units</span>
                   {extraQty > 0 && (
                     <span className="text-sm font-medium text-indigo-600 ml-auto">
                       +${(extraQty * unitPrice).toFixed(2)}
@@ -304,7 +304,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
       {/* No pricing info message */}
       {config.enabled && metrics.length === 0 && (
         <p className="text-xs text-gray-400 pt-2 border-t">
-          Bu modul icin fiyatlandirma henuz tanimlanmamis
+          Pricing not yet defined for this module
         </p>
       )}
     </Card>
@@ -331,10 +331,10 @@ const CreateTenantPage: React.FC = () => {
   const [createdTenantId, setCreatedTenantId] = useState<string | null>(null);
 
   const steps = [
-    { label: 'Temel Bilgiler', description: 'Sirket bilgileri' },
-    { label: 'Iletisim', description: 'Yonetici bilgileri' },
-    { label: 'Moduller & Fiyat', description: 'Modul secimi' },
-    { label: 'Onay', description: 'Son kontrol' },
+    { label: 'Basic Info', description: 'Company details' },
+    { label: 'Contact', description: 'Admin details' },
+    { label: 'Modules & Pricing', description: 'Module selection' },
+    { label: 'Confirmation', description: 'Final review' },
   ];
 
   // Load module pricings
@@ -667,7 +667,7 @@ const CreateTenantPage: React.FC = () => {
 
       setSuccess(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Tenant olusturulamadi');
+      setError(err instanceof Error ? err.message : 'Failed to create tenant');
     } finally {
       setLoading(false);
     }
@@ -716,31 +716,31 @@ const CreateTenantPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tenant Basariyla Olusturuldu!</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tenant Created Successfully!</h2>
           <p className="text-gray-600 mb-4">
-            <strong>{formData.name}</strong> tenant'i olusturuldu.
+            Tenant <strong>{formData.name}</strong> has been created.
           </p>
           {enabledModules.length > 0 && (
             <div className="bg-indigo-50 rounded-lg p-4 mb-6">
-              <p className="text-sm text-gray-600">Aylik Fiyat</p>
+              <p className="text-sm text-gray-600">Monthly Price</p>
               <p className="text-3xl font-bold text-indigo-600">
                 ${calculatedTotal.toFixed(2)}
-                <span className="text-sm font-normal text-gray-500">/ay</span>
+                <span className="text-sm font-normal text-gray-500">/mo</span>
               </p>
-              <p className="text-xs text-gray-500 mt-1">{enabledModules.length} modul aktif</p>
+              <p className="text-xs text-gray-500 mt-1">{enabledModules.length} modules active</p>
             </div>
           )}
           {formData.primaryContact.email && (
             <p className="text-sm text-gray-500 mb-6">
-              Admin kullanicisi icin <strong>{formData.primaryContact.email}</strong> adresine davet e-postasi gonderildi.
+              An invitation email has been sent to <strong>{formData.primaryContact.email}</strong> for the admin user.
             </p>
           )}
           <div className="flex justify-center gap-4">
             <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
-              Tenant Listesi
+              Tenant List
             </Button>
             <Button onClick={() => navigate(`/admin/tenants/${createdTenantId}`)}>
-              Tenant Detayi
+              Tenant Details
             </Button>
           </div>
         </Card>
@@ -753,11 +753,11 @@ const CreateTenantPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Yeni Tenant Olustur</h1>
-          <p className="text-gray-500 mt-1">Modul bazli fiyatlandirma ile ozel paket olusturun</p>
+          <h1 className="text-2xl font-bold text-gray-900">Create New Tenant</h1>
+          <p className="text-gray-500 mt-1">Create a custom package with module-based pricing</p>
         </div>
         <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
-          Iptal
+          Cancel
         </Button>
       </div>
 
@@ -778,29 +778,29 @@ const CreateTenantPage: React.FC = () => {
           {/* Step 1: Basic Info */}
           {currentStep === 0 && (
             <div className="space-y-6">
-              <h3 className="text-lg font-semibold border-b pb-2">Temel Bilgiler</h3>
+              <h3 className="text-lg font-semibold border-b pb-2">Basic Information</h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Sirket Adi *"
+                  label="Company Name *"
                   value={formData.name}
                   onChange={handleNameChange}
-                  placeholder="Ornek: Deniz Ciftligi A.S."
+                  placeholder="Example: Ocean Farm Inc."
                 />
                 <Input
                   label="Slug (URL)"
                   value={formData.slug}
                   onChange={(e) => updateFormData('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  placeholder="deniz-ciftligi"
-                  helperText="URL'de kullanilacak kisa ad"
+                  placeholder="ocean-farm"
+                  helperText="Short name to be used in URLs"
                 />
               </div>
 
               <Input
-                label="Aciklama"
+                label="Description"
                 value={formData.description}
                 onChange={(e) => updateFormData('description', e.target.value)}
-                placeholder="Sirket hakkinda kisa aciklama..."
+                placeholder="Brief description about the company..."
               />
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -808,17 +808,17 @@ const CreateTenantPage: React.FC = () => {
                   label="Domain"
                   value={formData.domain}
                   onChange={(e) => updateFormData('domain', e.target.value)}
-                  placeholder="deniz-ciftligi.aquaculture.io"
+                  placeholder="ocean-farm.aquaculture.io"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <Input
-                    label="Ulke"
+                    label="Country"
                     value={formData.country}
                     onChange={(e) => updateFormData('country', e.target.value)}
-                    placeholder="Turkiye"
+                    placeholder="Turkey"
                   />
                   <Input
-                    label="Bolge"
+                    label="Region"
                     value={formData.region}
                     onChange={(e) => updateFormData('region', e.target.value)}
                     placeholder="Ege"
@@ -828,21 +828,21 @@ const CreateTenantPage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Deneme Suresi (Gun)"
+                  label="Trial Period (Days)"
                   type="number"
                   value={String(formData.trialDays)}
                   onChange={(e) => updateFormData('trialDays', parseInt(e.target.value) || 0)}
                   min={0}
                   max={90}
-                  helperText="0 = Deneme suresi yok"
+                  helperText="0 = No trial period"
                 />
                 <Input
-                  label="Depolama Limiti (GB)"
+                  label="Storage Limit (GB)"
                   type="number"
                   value={String(formData.maxStorage)}
                   onChange={(e) => updateFormData('maxStorage', parseInt(e.target.value) || -1)}
                   min={-1}
-                  helperText="-1 = Sinirsiz depolama"
+                  helperText="-1 = Unlimited storage"
                 />
               </div>
             </div>
@@ -851,44 +851,44 @@ const CreateTenantPage: React.FC = () => {
           {/* Step 2: Contact Info */}
           {currentStep === 1 && (
             <div className="space-y-6">
-              <h3 className="text-lg font-semibold border-b pb-2">Yonetici Bilgileri</h3>
+              <h3 className="text-lg font-semibold border-b pb-2">Admin Information</h3>
               <p className="text-sm text-gray-600">
-                Bu bilgiler tenant'in ilk admin kullanicisini olusturmak icin kullanilacak.
+                This information will be used to create the tenant's first admin user.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Ad Soyad *"
+                  label="Full Name *"
                   value={formData.primaryContact.name}
                   onChange={(e) => updateContactField('name', e.target.value)}
-                  placeholder="Ahmet Yilmaz"
+                  placeholder="John Doe"
                 />
                 <Input
                   label="E-posta *"
                   type="email"
                   value={formData.primaryContact.email}
                   onChange={(e) => updateContactField('email', e.target.value)}
-                  placeholder="ahmet@sirket.com"
-                  helperText="Davet bu adrese gonderilecek"
+                  placeholder="admin@company.com"
+                  helperText="Invitation will be sent to this address"
                 />
               </div>
 
               <Input
-                label="Telefon"
+                label="Phone"
                 value={formData.primaryContact.phone}
                 onChange={(e) => updateContactField('phone', e.target.value)}
                 placeholder="+90 555 123 4567"
               />
 
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-md font-medium text-gray-700 mb-3">Fatura Bilgileri</h4>
+                <h4 className="text-md font-medium text-gray-700 mb-3">Billing Information</h4>
                 <Input
-                  label="Fatura E-posta"
+                  label="Billing Email"
                   type="email"
                   value={formData.billingEmail}
                   onChange={(e) => updateFormData('billingEmail', e.target.value)}
-                  placeholder="muhasebe@sirket.com"
-                  helperText="Bos birakilirsa yonetici e-postasi kullanilir"
+                  placeholder="billing@company.com"
+                  helperText="If left empty, admin email will be used"
                 />
               </div>
             </div>
@@ -899,8 +899,8 @@ const CreateTenantPage: React.FC = () => {
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b pb-2">
                 <div>
-                  <h3 className="text-lg font-semibold">Modul Secimi & Fiyatlandirma</h3>
-                  <p className="text-sm text-gray-500">Her modul icin ihtiyac duyulan metrikleri belirleyin</p>
+                  <h3 className="text-lg font-semibold">Module Selection & Pricing</h3>
+                  <p className="text-sm text-gray-500">Define the required metrics for each module</p>
                 </div>
               </div>
 
@@ -925,9 +925,9 @@ const CreateTenantPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-gray-500">Modul bulunamadi</p>
+                  <p className="text-gray-500">No modules found</p>
                   <p className="text-sm text-gray-400 mt-1">
-                    Oncesinde Billing &gt; Module Pricing sayfasindan modulleri tanimlayin
+                    Please define modules in Billing &gt; Module Pricing page first
                   </p>
                 </div>
               )}
@@ -937,12 +937,12 @@ const CreateTenantPage: React.FC = () => {
           {/* Step 4: Review */}
           {currentStep === 3 && (
             <div className="space-y-6">
-              <h3 className="text-lg font-semibold border-b pb-2">Onay</h3>
+              <h3 className="text-lg font-semibold border-b pb-2">Confirmation</h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Basic Info Summary */}
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-medium text-gray-700 mb-3">Sirket Bilgileri</h4>
+                  <h4 className="font-medium text-gray-700 mb-3">Company Information</h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <dt className="text-gray-500">Ad:</dt>
@@ -954,17 +954,17 @@ const CreateTenantPage: React.FC = () => {
                     </div>
                     {formData.trialDays > 0 && (
                       <div className="flex justify-between">
-                        <dt className="text-gray-500">Deneme:</dt>
-                        <dd>{formData.trialDays} gun</dd>
+                        <dt className="text-gray-500">Trial:</dt>
+                        <dd>{formData.trialDays} days</dd>
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <dt className="text-gray-500">Depolama:</dt>
-                      <dd>{formData.maxStorage === -1 ? 'Sinirsiz' : `${formData.maxStorage} GB`}</dd>
+                      <dt className="text-gray-500">Storage:</dt>
+                      <dd>{formData.maxStorage === -1 ? 'Unlimited' : `${formData.maxStorage} GB`}</dd>
                     </div>
                     {formData.country && (
                       <div className="flex justify-between">
-                        <dt className="text-gray-500">Konum:</dt>
+                        <dt className="text-gray-500">Location:</dt>
                         <dd>{formData.country} {formData.region && `/ ${formData.region}`}</dd>
                       </div>
                     )}
@@ -973,7 +973,7 @@ const CreateTenantPage: React.FC = () => {
 
                 {/* Contact Summary */}
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-medium text-gray-700 mb-3">Yonetici Bilgileri</h4>
+                  <h4 className="font-medium text-gray-700 mb-3">Admin Information</h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <dt className="text-gray-500">Ad:</dt>
@@ -995,7 +995,7 @@ const CreateTenantPage: React.FC = () => {
 
               {/* Modules Summary */}
               <div className="p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-medium text-gray-700 mb-3">Secili Moduller</h4>
+                <h4 className="font-medium text-gray-700 mb-3">Selected Modules</h4>
                 <div className="space-y-3">
                   {enabledModules.map((config) => {
                     const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
@@ -1004,23 +1004,23 @@ const CreateTenantPage: React.FC = () => {
                       <div key={config.moduleId} className="p-3 bg-white rounded border">
                         <div className="flex items-center justify-between">
                           <span className="font-medium">{config.moduleName}</span>
-                          <Badge variant="success" size="sm">Aktif</Badge>
+                          <Badge variant="success" size="sm">Active</Badge>
                         </div>
                         {hasQuantities && (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {config.quantities.users && config.quantities.users > 0 && (
                               <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
-                                {config.quantities.users} Kullanici
+                                {config.quantities.users} Users
                               </span>
                             )}
                             {config.quantities.farms && config.quantities.farms > 0 && (
                               <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
-                                {config.quantities.farms} Ciftlik
+                                {config.quantities.farms} Farms
                               </span>
                             )}
                             {config.quantities.sensors && config.quantities.sensors > 0 && (
                               <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">
-                                {config.quantities.sensors} Sensor
+                                {config.quantities.sensors} Sensors
                               </span>
                             )}
                             {config.quantities.storageGb && config.quantities.storageGb > 0 && (
@@ -1037,7 +1037,7 @@ const CreateTenantPage: React.FC = () => {
               </div>
 
               <Alert type="info">
-                Tenant olusturuldugunda, <strong>{formData.primaryContact.email}</strong> adresine davet e-postasi gonderilecektir.
+                When the tenant is created, an invitation email will be sent to <strong>{formData.primaryContact.email}</strong>.
               </Alert>
             </div>
           )}
@@ -1049,16 +1049,16 @@ const CreateTenantPage: React.FC = () => {
               onClick={handlePrevious}
               disabled={currentStep === 0}
             >
-              Geri
+              Back
             </Button>
 
             {currentStep < steps.length - 1 ? (
               <Button onClick={handleNext} disabled={!validateStep(currentStep)}>
-                Devam
+                Continue
               </Button>
             ) : (
               <Button onClick={handleSubmit} loading={loading}>
-                Tenant Olustur
+                Create Tenant
               </Button>
             )}
           </div>
@@ -1068,10 +1068,10 @@ const CreateTenantPage: React.FC = () => {
         {currentStep === 2 && (
           <div className="w-80 flex-shrink-0">
             <Card className="p-5 sticky top-4 bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
-              <h4 className="font-semibold text-gray-900 mb-4">Fiyat Ozeti</h4>
+              <h4 className="font-semibold text-gray-900 mb-4">Price Summary</h4>
 
               {enabledModules.length === 0 ? (
-                <p className="text-sm text-gray-500">Modul secin...</p>
+                <p className="text-sm text-gray-500">Select modules...</p>
               ) : (
                 <div className="space-y-4">
                   {/* Selected Modules */}
@@ -1079,7 +1079,7 @@ const CreateTenantPage: React.FC = () => {
                     {enabledModules.map((config) => (
                       <div key={config.moduleId} className="flex items-center justify-between text-sm">
                         <span className="text-gray-600 truncate">{config.moduleName}</span>
-                        <Badge variant="info" size="sm">Aktif</Badge>
+                        <Badge variant="info" size="sm">Active</Badge>
                       </div>
                     ))}
                   </div>
@@ -1087,34 +1087,34 @@ const CreateTenantPage: React.FC = () => {
                   <div className="border-t border-indigo-200 pt-4">
                     {/* Always show calculated total - no loading state needed */}
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-500">Ara Toplam</span>
+                      <span className="text-gray-500">Subtotal</span>
                       <span>${calculatedTotal.toFixed(2)}</span>
                     </div>
                     {priceCalculation && (priceCalculation.tierDiscount || 0) > 0 && (
                       <div className="flex justify-between text-sm text-green-600 mb-1">
-                        <span>Tier Indirimi</span>
+                        <span>Tier Discount</span>
                         <span>-${priceCalculation.tierDiscount.toFixed(2)}</span>
                       </div>
                     )}
                     {priceCalculation?.discount && priceCalculation.discount.amount > 0 && (
                       <div className="flex justify-between text-sm text-green-600 mb-1">
-                        <span>{priceCalculation.discount.description || 'Indirim'}</span>
+                        <span>{priceCalculation.discount.description || 'Discount'}</span>
                         <span>-${priceCalculation.discount.amount.toFixed(2)}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-baseline pt-3 border-t border-indigo-200 mt-3">
-                      <span className="font-semibold text-gray-900">Aylik Toplam</span>
+                      <span className="font-semibold text-gray-900">Monthly Total</span>
                       <div className="text-right">
                         <span className="text-2xl font-bold text-indigo-600">
                           ${calculatedTotal.toFixed(2)}
                         </span>
-                        <span className="text-sm text-gray-500">/ay</span>
+                        <span className="text-sm text-gray-500">/mo</span>
                       </div>
                     </div>
                   </div>
 
                   <p className="text-xs text-gray-400 pt-2">
-                    * Fiyatlar KDV haric gosterilmektedir
+                    * Prices are shown excluding taxes
                   </p>
                 </div>
               )}

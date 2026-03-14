@@ -2,11 +2,14 @@
  * Delete Site Command Handler
  * Supports cascade soft delete of all related items
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { SiteDeletedEvent } from '@platform/event-contracts';
 import { DeleteSiteCommand } from '../commands/delete-site.command';
 import { Site } from '../entities/site.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -168,14 +171,26 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand> {
 
     this.logger.log(`Site ${siteId} marked as deleted`);
 
-    // Domain event: SiteDeleted
-    // await this.eventBus?.publish(new SiteDeletedEvent({
-    //   tenantId,
-    //   siteId: site.id,
-    //   name: site.name,
-    //   cascade,
-    //   deletedBy: userId,
-    // }));
+    // Publish domain event: SiteDeleted
+    if (this.eventBus) {
+      try {
+        const event: SiteDeletedEvent = {
+          eventId: randomUUID(),
+          eventType: 'SiteDeleted',
+          tenantId,
+          timestamp: new Date(),
+          siteId: site.id,
+          name: site.name,
+          code: site.code,
+          deletedAt: new Date(),
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published SiteDeletedEvent for site ${site.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish SiteDeletedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return true;
   }

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditModule } from '../../audit/audit.module';
+import { Tenant } from '../tenant/entities/tenant.entity';
 
 import { Invitation } from './entities/invitation.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -18,6 +19,7 @@ import { AuthenticationService } from './services/authentication.service';
       RefreshToken,
       Invitation,
       UserModuleAssignment,
+      Tenant,
     ]),
     AuditModule,
   ],

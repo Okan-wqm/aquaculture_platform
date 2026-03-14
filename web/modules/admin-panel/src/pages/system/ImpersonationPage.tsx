@@ -116,12 +116,14 @@ export const ImpersonationPage: React.FC = () => {
     const now = Date.now();
 
     // Use cached tenant list if still fresh (PERF-003)
-    const tenantsPromise: Promise<{ data: SimpleTenant[] }> =
+    // apiFetch unwraps the API envelope, so tenantsApi.search() returns Tenant[] directly
+    const tenantsPromise: Promise<SimpleTenant[]> =
       tenantCacheRef.current && now - tenantCacheRef.current.fetchedAt < TENANT_CACHE_TTL
-        ? Promise.resolve({ data: tenantCacheRef.current.data })
+        ? Promise.resolve(tenantCacheRef.current.data)
         : tenantsApi.search('', 100).then((res) => {
-            tenantCacheRef.current = { data: res.data, fetchedAt: Date.now() };
-            return res;
+            const mapped = res.map((t) => ({ id: t.id, name: t.name, slug: t.slug, status: t.status, tier: t.tier }));
+            tenantCacheRef.current = { data: mapped, fetchedAt: Date.now() };
+            return mapped;
           });
 
     try {
@@ -145,7 +147,7 @@ export const ImpersonationPage: React.FC = () => {
       setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
       setTenants(
         tenantsRes.status === 'fulfilled'
-          ? tenantsRes.value.map((t) => ({ id: t.id, name: t.name, slug: t.slug, status: t.status, tier: t.tier }))
+          ? tenantsRes.value
           : []
       );
     } catch (error) {

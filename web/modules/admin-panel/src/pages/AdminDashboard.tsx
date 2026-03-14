@@ -4,7 +4,7 @@
  * SUPER_ADMIN paneli ana sayfası - Sistem metrikleri ve hızlı erişim.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, MetricCard, formatNumber, Alert, Badge } from '@aquaculture/shared-ui';
 import {
@@ -48,11 +48,11 @@ interface DashboardData {
 // ============================================================================
 
 const quickLinks = [
-  { id: 'tenants', label: 'Tenant Yonetimi', path: '/admin/tenants', icon: '🏢', description: 'Tenant olustur, modul ata' },
-  { id: 'users', label: 'Kullanici Yonetimi', path: '/admin/users', icon: '👥', description: 'Tum kullanicilari yonet' },
-  { id: 'modules', label: 'Modul Yonetimi', path: '/admin/modules', icon: '📦', description: 'Sistem modullerini yonet' },
-  { id: 'settings', label: 'Sistem Ayarlari', path: '/admin/settings', icon: '⚙️', description: 'Platform ayarlari' },
-  { id: 'audit', label: 'Denetim Loglari', path: '/admin/audit-log', icon: '📋', description: 'Sistem aktiviteleri' },
+  { id: 'tenants', label: 'Tenant Management', path: '/admin/tenants', icon: '🏢', description: 'Create tenants, assign modules' },
+  { id: 'users', label: 'User Management', path: '/admin/users', icon: '👥', description: 'Manage all users' },
+  { id: 'modules', label: 'Module Management', path: '/admin/modules', icon: '📦', description: 'Manage system modules' },
+  { id: 'settings', label: 'System Settings', path: '/admin/settings', icon: '⚙️', description: 'Platform settings' },
+  { id: 'audit', label: 'Audit Logs', path: '/admin/audit-log', icon: '📋', description: 'System activities' },
 ];
 
 // ============================================================================
@@ -67,11 +67,11 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
   return (
     <Card>
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Servis Durumu</h3>
+        <h3 className="text-lg font-semibold text-gray-900">Service Status</h3>
         <div className="flex items-center space-x-2 text-sm">
-          <span className="text-green-600">{healthyCount} Saglikli</span>
-          {degradedCount > 0 && <span className="text-yellow-600">{degradedCount} Bozuk</span>}
-          {unhealthyCount > 0 && <span className="text-red-600">{unhealthyCount} Sorunlu</span>}
+          <span className="text-green-600">{healthyCount} Healthy</span>
+          {degradedCount > 0 && <span className="text-yellow-600">{degradedCount} Degraded</span>}
+          {unhealthyCount > 0 && <span className="text-red-600">{unhealthyCount} Unhealthy</span>}
         </div>
       </div>
       <div className="p-4">
@@ -120,24 +120,24 @@ const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefi
   return (
     <Card>
       <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Veritabani</h3>
+        <h3 className="text-lg font-semibold text-gray-900">Database</h3>
       </div>
       <div className="p-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-xs text-gray-500">Boyut</p>
+            <p className="text-xs text-gray-500">Size</p>
             <p className="text-lg font-semibold text-gray-900">{database.databaseSize}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Tablo Sayisi</p>
+            <p className="text-xs text-gray-500">Table Count</p>
             <p className="text-lg font-semibold text-gray-900">{database.tablesCount}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Aktif Baglanti</p>
+            <p className="text-xs text-gray-500">Active Connections</p>
             <p className="text-lg font-semibold text-gray-900">{database.activeConnections}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Toplam Baglanti</p>
+            <p className="text-xs text-gray-500">Total Connections</p>
             <p className="text-lg font-semibold text-gray-900">{database.totalConnections}</p>
           </div>
         </div>
@@ -171,23 +171,23 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
 
-    if (diffMins < 1) return 'Az once';
-    if (diffMins < 60) return `${diffMins} dk once`;
-    if (diffHours < 24) return `${diffHours} saat once`;
-    return date.toLocaleDateString('tr-TR');
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString('en-US');
   };
 
   return (
     <Card>
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Son Aktiviteler</h3>
+        <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
         <Link to="/admin/audit-log" className="text-sm text-primary-600 hover:text-primary-700">
-          Tumunu Gor
+          View All
         </Link>
       </div>
       <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
         {logs.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">Aktivite bulunamadi</div>
+          <div className="p-4 text-center text-gray-500">No activity found</div>
         ) : (
           logs.map((log) => (
             <div key={log.id} className="px-4 py-3 hover:bg-gray-50">
@@ -377,7 +377,18 @@ const AdminDashboard: React.FC = () => {
   });
   const [resettingBreaker, setResettingBreaker] = useState<string | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fetchDashboardData = useCallback(async () => {
+    // Abort any in-flight request before starting a new one
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setData((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
@@ -388,6 +399,9 @@ const AdminDashboard: React.FC = () => {
         auditApi.query({ limit: 10 }),
         systemApi.getCircuitBreakers(),
       ]);
+
+      // If this request was aborted while awaiting, discard results
+      if (controller.signal.aborted) return;
 
       setData({
         metrics: metrics.status === 'fulfilled' ? metrics.value : null,
@@ -400,10 +414,12 @@ const AdminDashboard: React.FC = () => {
         error: null,
       });
     } catch (error) {
+      if (controller.signal.aborted) return;
+
       setData((prev) => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Veri yuklenirken hata olustu',
+        error: error instanceof Error ? error.message : 'An error occurred while loading data',
       }));
     }
   }, []);
@@ -426,10 +442,27 @@ const AdminDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchDashboardData();
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const scheduleFetch = async () => {
+      await fetchDashboardData();
+
+      // Only schedule next refresh if the effect has not been cleaned up
+      if (!controller.signal.aborted) {
+        refreshTimeoutRef.current = setTimeout(scheduleFetch, 30000);
+      }
+    };
+
+    scheduleFetch();
+
+    return () => {
+      controller.abort();
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+    };
   }, [fetchDashboardData]);
 
   const [clearingCache, setClearingCache] = useState(false);
@@ -465,8 +498,8 @@ const AdminDashboard: React.FC = () => {
       {/* Sayfa Basligi */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Yonetim Paneli</h1>
-          <p className="mt-1 text-sm text-gray-500">Sistem yonetimi ve izleme</p>
+          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+          <p className="mt-1 text-sm text-gray-500">System management and monitoring</p>
         </div>
         <button
           onClick={fetchDashboardData}
@@ -486,7 +519,7 @@ const AdminDashboard: React.FC = () => {
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
             />
           </svg>
-          Yenile
+          Refresh
         </button>
       </div>
 
@@ -499,7 +532,7 @@ const AdminDashboard: React.FC = () => {
       {/* Ana Metrikler */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          title="Toplam Kullanici"
+          title="Total Users"
           value={formatNumber(userStats?.totalUsers || platformMetrics.totalUsers)}
           change={userStats?.newUsersLast30Days ? ((userStats.newUsersLast30Days / (userStats.totalUsers || 1)) * 100) : 0}
           icon={
@@ -509,7 +542,7 @@ const AdminDashboard: React.FC = () => {
           }
         />
         <MetricCard
-          title="Aktif Tenant"
+          title="Active Tenants"
           value={
             platformMetrics.activeTenants === 0 && platformMetrics.totalTenants === 0
               ? '\u2014'
@@ -522,7 +555,7 @@ const AdminDashboard: React.FC = () => {
           }
         />
         <MetricCard
-          title="Son 24 Saat Giris"
+          title="Logins (Last 24h)"
           value={formatNumber(userStats?.loginsLast24Hours || 0)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -531,7 +564,7 @@ const AdminDashboard: React.FC = () => {
           }
         />
         <MetricCard
-          title="API Islemleri (24h)"
+          title="API Calls (24h)"
           value={formatNumber(platformMetrics.apiCallsLast24h)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -543,7 +576,7 @@ const AdminDashboard: React.FC = () => {
 
       {/* Hizli Erisim */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Hizli Erisim</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Access</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {quickLinks.map((link) => (
             <Link key={link.id} to={link.path}>
@@ -578,7 +611,7 @@ const AdminDashboard: React.FC = () => {
       {userStats && userStats.usersByRole.length > 0 && (
         <Card>
           <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Kullanici Dagilimi</h3>
+            <h3 className="text-lg font-semibold text-gray-900">User Distribution</h3>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -597,12 +630,12 @@ const AdminDashboard: React.FC = () => {
       {metrics?.resources && (
         <Card>
           <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Sistem Kaynaklari</h3>
+            <h3 className="text-lg font-semibold text-gray-900">System Resources</h3>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Heap Kullanimi</p>
+                <p className="text-xs text-gray-500">Heap Usage</p>
                 <p className="text-lg font-semibold text-gray-900">
                   {Math.round(metrics.resources.memoryUsage.heapUsed / (1024 * 1024))} MB
                 </p>
@@ -611,7 +644,7 @@ const AdminDashboard: React.FC = () => {
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">RSS Bellek</p>
+                <p className="text-xs text-gray-500">RSS Memory</p>
                 <p className="text-lg font-semibold text-gray-900">
                   {Math.round(metrics.resources.memoryUsage.rss / (1024 * 1024))} MB
                 </p>
@@ -619,7 +652,7 @@ const AdminDashboard: React.FC = () => {
               <div>
                 <p className="text-xs text-gray-500">Uptime</p>
                 <p className="text-lg font-semibold text-gray-900">
-                  {Math.round(metrics.resources.uptime / 3600)} saat
+                  {Math.round(metrics.resources.uptime / 3600)}h
                 </p>
               </div>
               <div>

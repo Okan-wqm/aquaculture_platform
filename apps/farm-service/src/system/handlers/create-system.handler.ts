@@ -1,11 +1,14 @@
 /**
  * Create System Command Handler
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { SystemCreatedEvent } from '@platform/event-contracts';
 import { CreateSystemCommand } from '../commands/create-system.command';
 import { System, SystemStatus } from '../entities/system.entity';
 import { Site } from '../../site/entities/site.entity';
@@ -112,16 +115,29 @@ export class CreateSystemHandler implements ICommandHandler<CreateSystemCommand>
 
     this.logger.log(`System "${savedSystem.name}" created with ID ${savedSystem.id}`);
 
-    // Domain event: SystemCreated
-    // await this.eventBus?.publish(new SystemCreatedEvent({
-    //   tenantId,
-    //   systemId: savedSystem.id,
-    //   name: savedSystem.name,
-    //   code: savedSystem.code,
-    //   siteId: savedSystem.siteId,
-    //   type: savedSystem.type,
-    //   createdBy: userId,
-    // }));
+    // Publish domain event: SystemCreated
+    if (this.eventBus) {
+      try {
+        const event: SystemCreatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'SystemCreated',
+          tenantId,
+          timestamp: new Date(),
+          systemId: savedSystem.id,
+          siteId: savedSystem.siteId,
+          departmentId: savedSystem.departmentId,
+          name: savedSystem.name,
+          code: savedSystem.code,
+          type: savedSystem.type,
+          status: savedSystem.status,
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published SystemCreatedEvent for system ${savedSystem.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish SystemCreatedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return savedSystem;
   }

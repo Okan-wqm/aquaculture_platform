@@ -97,6 +97,7 @@ services:
     container_name: aqua-gateway
     restart: unless-stopped
     environment:
+      SERVICE_NAME: gateway-api
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -133,6 +134,7 @@ services:
     container_name: aqua-auth
     restart: unless-stopped
     environment:
+      SERVICE_NAME: auth-service
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -156,6 +158,7 @@ services:
     container_name: aqua-farm
     restart: unless-stopped
     environment:
+      SERVICE_NAME: farm-service
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -179,6 +182,7 @@ services:
     container_name: aqua-sensor
     restart: unless-stopped
     environment:
+      SERVICE_NAME: sensor-service
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -201,6 +205,7 @@ services:
     container_name: aqua-hr
     restart: unless-stopped
     environment:
+      SERVICE_NAME: hr-service
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -223,6 +228,7 @@ services:
     container_name: aqua-billing
     restart: unless-stopped
     environment:
+      SERVICE_NAME: billing-service
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -245,6 +251,7 @@ services:
     container_name: aqua-alert
     restart: unless-stopped
     environment:
+      SERVICE_NAME: alert-engine
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -268,6 +275,7 @@ services:
     container_name: aqua-notification
     restart: unless-stopped
     environment:
+      SERVICE_NAME: notification-service
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -296,6 +304,7 @@ services:
     container_name: aqua-admin-api
     restart: unless-stopped
     environment:
+      SERVICE_NAME: admin-api-service
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
@@ -318,6 +327,7 @@ services:
     container_name: aqua-observability
     restart: unless-stopped
     environment:
+      SERVICE_NAME: observability-service
       NODE_ENV: production
       PORT: 3009
       # INTERNAL_API_KEY must be set; guard rejects all requests in production without it

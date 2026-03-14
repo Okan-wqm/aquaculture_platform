@@ -1,8 +1,8 @@
-import { UseGuards, UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
-import { CurrentUser, Public } from '@platform/backend-common';
+import { CurrentUser, Public, SkipTenantGuard } from '@platform/backend-common';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
@@ -16,8 +16,8 @@ import {
 import { LoginInput } from '../dto/login.dto';
 import { RefreshTokenInput } from '../dto/refresh-token.dto';
 import { RegisterInput } from '../dto/register.dto';
+import { ForgotPasswordInput, ResetPasswordInput } from '../dto/reset-password.dto';
 import { User } from '../entities/user.entity';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { AuthenticationService } from '../services/authentication.service';
 
 /**
@@ -166,6 +166,58 @@ export class AuthResolver {
   }
 
   /**
+   * Forgot password - initiates password reset flow.
+   *
+   * SECURITY:
+   * - Always returns true regardless of whether the email exists (user enumeration prevention)
+   * - Rate limited at gateway level (3/hour for password reset - D08)
+   * - Timing-safe: takes the same amount of time whether user exists or not
+   * - If the email exists, publishes PasswordResetRequestedEvent for notification service
+   */
+  @Public()
+  @Mutation(() => Boolean)
+  async forgotPassword(
+    @Args('input') input: ForgotPasswordInput,
+    @Context() context: GqlContext,
+  ): Promise<boolean> {
+    const forwarded = context.req?.headers?.['x-forwarded-for'];
+    const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
+    // SECURITY: Always return true to prevent user enumeration
+    await this.authService.initiatePasswordReset(input.email, ipAddress);
+    return true;
+  }
+
+  /**
+   * Reset password using a valid reset token.
+   *
+   * SECURITY:
+   * - @Public() - unauthenticated access required (user forgot their password)
+   * - Token is validated and single-use (cleared after successful reset)
+   * - All existing sessions and refresh tokens are revoked
+   * - Returns new auth tokens so user is immediately logged in
+   * - Password validation: min 8, uppercase, lowercase, digit, special char (via DTO)
+   * - Refresh token is set as httpOnly cookie
+   */
+  @Public()
+  @Mutation(() => AuthPayload)
+  async resetPassword(
+    @Args('input') input: ResetPasswordInput,
+    @Context() context: GqlContext,
+  ): Promise<AuthPayload> {
+    const forwarded = context.req?.headers?.['x-forwarded-for'];
+    const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
+    const userAgent = context.req?.headers?.['user-agent'] as string | undefined;
+    const result = await this.authService.resetPassword(
+      input.token,
+      input.newPassword,
+      ipAddress,
+      userAgent,
+    );
+    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    return this.stripRefreshToken(result);
+  }
+
+  /**
    * Validate invitation token (to show accept form)
    */
   @Public()
@@ -174,7 +226,7 @@ export class AuthResolver {
     return this.authService.validateInvitation(token);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @SkipTenantGuard()
   @Mutation(() => LogoutResponse)
   async logout(
     @CurrentUser('sub') userId: string,
@@ -193,7 +245,7 @@ export class AuthResolver {
   /**
    * Get current user profile with accessible modules and redirect path
    */
-  @UseGuards(JwtAuthGuard)
+  @SkipTenantGuard()
   @Query(() => MePayload)
   async me(@CurrentUser('sub') userId: string): Promise<MePayload> {
     return this.authService.me(userId);
@@ -202,7 +254,7 @@ export class AuthResolver {
   /**
    * Get current user entity only (simplified version)
    */
-  @UseGuards(JwtAuthGuard)
+  @SkipTenantGuard()
   @Query(() => User)
   async currentUser(@CurrentUser('sub') userId: string): Promise<User> {
     const user = await this.authService.getUserById(userId);
@@ -213,7 +265,7 @@ export class AuthResolver {
     return user;
   }
 
-  @UseGuards(JwtAuthGuard)
+  @SkipTenantGuard()
   @Query(() => TokenValidationResponse)
   async validateToken(@Args('token') token: string): Promise<TokenValidationResponse> {
     const result = await this.authService.validateToken(token);

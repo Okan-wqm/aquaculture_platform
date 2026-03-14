@@ -92,6 +92,9 @@ export class CheckInHistoryEntry {
 @Index(['tenantId', 'status', 'startDate'])
 @Index(['tenantId', 'workAreaId', 'startDate'])
 @Index(['tenantId', 'rotationType'])
+// Prevent duplicate rotations: same employee cannot have two active rotations starting on the same date.
+// Full date-range overlap prevention requires application-level checks (see D06-H3).
+@Index(['tenantId', 'employeeId', 'startDate', 'endDate'], { unique: true })
 export class WorkRotation {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

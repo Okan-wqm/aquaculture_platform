@@ -104,6 +104,37 @@ export class ModulePricingService implements OnModuleInit {
   }
 
   /**
+   * Get pricing for multiple module codes in a single query
+   */
+  async getModulePricingByCodes(moduleCodes: string[]): Promise<Map<string, ModulePricing>> {
+    if (moduleCodes.length === 0) {
+      return new Map();
+    }
+
+    const now = new Date();
+
+    const pricings = await this.pricingRepo
+      .createQueryBuilder('mp')
+      .where('mp."moduleCode" = ANY(:moduleCodes)', { moduleCodes })
+      .andWhere('mp."isActive" = :isActive', { isActive: true })
+      .andWhere('mp."effectiveFrom" <= :now', { now })
+      .andWhere('(mp."effectiveTo" IS NULL OR mp."effectiveTo" >= :now)', { now })
+      .orderBy('mp."moduleCode"', 'ASC')
+      .addOrderBy('mp."effectiveFrom"', 'DESC')
+      .getMany();
+
+    // Deduplicate by module code (keep latest effective)
+    const result = new Map<string, ModulePricing>();
+    for (const pricing of pricings) {
+      if (!result.has(pricing.moduleCode)) {
+        result.set(pricing.moduleCode, pricing);
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Get all active module pricings
    */
   async getAllModulePricings(): Promise<ModulePricing[]> {

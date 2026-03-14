@@ -14,6 +14,7 @@ import { AlertRuleService } from './services/alert-rule.service';
 // Escalation services
 import { EscalationManagerService } from '../escalation/escalation-manager.service';
 import { EscalationPolicyService } from '../escalation/escalation-policy.service';
+import { AcknowledgmentTrackerService } from '../escalation/acknowledgment-tracker.service';
 
 // Event Handlers
 import { SensorReadingEventHandler } from './event-handlers/sensor-reading.handler';
@@ -47,6 +48,7 @@ import { AlertResolver } from './resolvers/alert.resolver';
     // Escalation services
     EscalationPolicyService,
     EscalationManagerService,
+    AcknowledgmentTrackerService,
 
     // Event Handlers
     SensorReadingEventHandler,
@@ -54,6 +56,6 @@ import { AlertResolver } from './resolvers/alert.resolver';
     // Resolvers
     AlertResolver,
   ],
-  exports: [AlertEvaluationService, AlertRuleService, EscalationManagerService],
+  exports: [AlertEvaluationService, AlertRuleService, EscalationManagerService, AcknowledgmentTrackerService],
 })
 export class AlertModule {}

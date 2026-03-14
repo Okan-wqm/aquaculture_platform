@@ -1,8 +1,5 @@
-import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@platform/backend-common';
-
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   CreateThreadInput,
   SendMessageInput,
@@ -20,7 +17,6 @@ import { MessagingService } from '../services/messaging.service';
  * GraphQL resolver for messaging between SuperAdmin and TenantAdmin.
  */
 @Resolver()
-@UseGuards(JwtAuthGuard)
 export class MessagingResolver {
   constructor(private readonly messagingService: MessagingService) {}
 

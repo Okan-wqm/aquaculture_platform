@@ -71,10 +71,10 @@ const formatRelativeTime = (dateStr: string): string => {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return 'Az once';
-  if (diffMins < 60) return `${diffMins} dk once`;
-  if (diffHours < 24) return `${diffHours} saat once`;
-  if (diffDays < 7) return `${diffDays} gun once`;
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
   return formatDate(date, 'short');
 };
 
@@ -125,7 +125,7 @@ const ProgressBar: React.FC<{ value: number; max: number; label?: string }> = ({
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">{label}</span>
           <span className="text-gray-900 font-medium">
-            {value} / {max === -1 ? 'Sinirsiz' : max}
+            {value} / {max === -1 ? 'Unlimited' : max}
           </span>
         </div>
       )}
@@ -299,9 +299,9 @@ const TenantDetailPage: React.FC = () => {
   if (error || !tenant) {
     return (
       <Card className="p-6 text-center">
-        <p className="text-red-600">{error || 'Tenant bulunamadi'}</p>
+        <p className="text-red-600">{error || 'Tenant not found'}</p>
         <Button variant="outline" onClick={() => navigate('/admin/tenants')} className="mt-4">
-          Geri Don
+          Go Back
         </Button>
       </Card>
     );
@@ -333,15 +333,15 @@ const TenantDetailPage: React.FC = () => {
         </div>
         <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setIsEditModalOpen(true)}>
-            Duzenle
+            Edit
           </Button>
           {tenant.status === 'active' ? (
             <Button variant="danger" onClick={() => setIsSuspendModalOpen(true)}>
-              Askiya Al
+              Suspend
             </Button>
           ) : (
             <Button variant="outline" onClick={handleActivate}>
-              Aktif Yap
+              Activate
             </Button>
           )}
         </div>
@@ -350,13 +350,13 @@ const TenantDetailPage: React.FC = () => {
       {/* Tabs */}
       <SimpleTabs
         tabs={[
-          { value: 'overview', label: 'Genel Bakis' },
-          { value: 'users', label: 'Kullanicilar' },
-          { value: 'modules', label: 'Moduller' },
-          { value: 'usage', label: 'Kullanim' },
-          { value: 'activity', label: 'Aktivite' },
-          { value: 'billing', label: 'Faturalama' },
-          { value: 'notes', label: 'Notlar' },
+          { value: 'overview', label: 'Overview' },
+          { value: 'users', label: 'Users' },
+          { value: 'modules', label: 'Modules' },
+          { value: 'usage', label: 'Usage' },
+          { value: 'activity', label: 'Activity' },
+          { value: 'billing', label: 'Billing' },
+          { value: 'notes', label: 'Notes' },
         ]}
         activeTab={activeTab}
         onChange={setActiveTab}
@@ -367,10 +367,10 @@ const TenantDetailPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Basic Info */}
           <Card className="p-6 lg:col-span-2">
-            <h3 className="text-lg font-semibold mb-4">Genel Bilgiler</h3>
+            <h3 className="text-lg font-semibold mb-4">General Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-500">Sirket Adi</label>
+                <label className="text-xs text-gray-500">Company Name</label>
                 <p className="font-medium">{tenant.name}</p>
               </div>
               <div>
@@ -382,21 +382,21 @@ const TenantDetailPage: React.FC = () => {
                 <p className="font-medium">{tenant.domain || '-'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Ulke / Bolge</label>
+                <label className="text-xs text-gray-500">Country / Region</label>
                 <p className="font-medium">
                   {tenant.country || '-'} {tenant.region && `/ ${tenant.region}`}
                 </p>
               </div>
               <div className="col-span-2">
-                <label className="text-xs text-gray-500">Aciklama</label>
+                <label className="text-xs text-gray-500">Description</label>
                 <p className="text-gray-600">{tenant.description || '-'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Olusturulma</label>
+                <label className="text-xs text-gray-500">Created</label>
                 <p className="font-medium">{formatDate(new Date(tenant.createdAt), 'long')}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Son Aktivite</label>
+                <label className="text-xs text-gray-500">Last Activity</label>
                 <p className="font-medium">
                   {tenant.lastActivityAt ? formatRelativeTime(tenant.lastActivityAt) : '-'}
                 </p>
@@ -404,10 +404,10 @@ const TenantDetailPage: React.FC = () => {
             </div>
 
             {/* Contacts */}
-            <h4 className="text-md font-semibold mt-6 mb-3">Iletisim Bilgileri</h4>
+            <h4 className="text-md font-semibold mt-6 mb-3">Contact Information</h4>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 bg-gray-50 rounded-lg">
-                <label className="text-xs text-gray-500">Birincil Iletisim</label>
+                <label className="text-xs text-gray-500">Primary Contact</label>
                 {tenant.primaryContact ? (
                   <>
                     <p className="font-medium">{tenant.primaryContact.name}</p>
@@ -415,18 +415,18 @@ const TenantDetailPage: React.FC = () => {
                     <p className="text-sm text-gray-500">{tenant.primaryContact.role}</p>
                   </>
                 ) : (
-                  <p className="text-gray-400">Belirtilmemis</p>
+                  <p className="text-gray-400">Not specified</p>
                 )}
               </div>
               <div className="p-3 bg-gray-50 rounded-lg">
-                <label className="text-xs text-gray-500">Fatura Iletisimi</label>
+                <label className="text-xs text-gray-500">Billing Contact</label>
                 {tenant.billingContact ? (
                   <>
                     <p className="font-medium">{tenant.billingContact.name}</p>
                     <p className="text-sm text-gray-600">{tenant.billingContact.email}</p>
                   </>
                 ) : (
-                  <p className="text-gray-400">Belirtilmemis</p>
+                  <p className="text-gray-400">Not specified</p>
                 )}
               </div>
             </div>
@@ -435,41 +435,41 @@ const TenantDetailPage: React.FC = () => {
           {/* Quick Stats */}
           <div className="space-y-4">
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Kullanicilar</h4>
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Users</h4>
               <p className="text-3xl font-bold text-gray-900">{tenant.userStats?.total || 0}</p>
               <p className="text-sm text-green-600">
-                {tenant.userStats?.active || 0} aktif
+                {tenant.userStats?.active || 0} active
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Ciftlikler</h4>
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Farms</h4>
               <p className="text-3xl font-bold text-gray-900">{tenant.farmCount || 0}</p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Sensorler</h4>
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Sensors</h4>
               <p className="text-3xl font-bold text-gray-900">{tenant.sensorCount || 0}</p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Aktif Moduller</h4>
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Active Modules</h4>
               <p className="text-3xl font-bold text-gray-900">
                 {tenant.modules?.filter((m) => m.isActive).length || 0}
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Depolama Limiti</h4>
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Storage Limit</h4>
               <p className="text-3xl font-bold text-gray-900">
                 {tenant.maxStorage === undefined || tenant.maxStorage === -1
-                  ? 'Sinirsiz'
+                  ? 'Unlimited'
                   : `${tenant.maxStorage} GB`}
               </p>
             </Card>
             {tenant.isTrialActive && (
               <Card className="p-4 border-l-4 border-l-yellow-400">
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Deneme Durumu</h4>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Trial Status</h4>
                 <Badge variant="warning">Trial Active</Badge>
                 {tenant.trialEndsAt && (
                   <p className="text-sm text-gray-500 mt-1">
-                    Bitis: {formatDate(new Date(tenant.trialEndsAt), 'short')}
+                    Ends: {formatDate(new Date(tenant.trialEndsAt), 'short')}
                   </p>
                 )}
               </Card>
@@ -482,26 +482,26 @@ const TenantDetailPage: React.FC = () => {
       {activeTab === 'users' && tenant.userStats && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Kullanici Istatistikleri</h3>
+            <h3 className="text-lg font-semibold mb-4">User Statistics</h3>
             <div className="space-y-4">
               <div className="flex justify-between">
-                <span>Toplam Kullanici</span>
+                <span>Total Users</span>
                 <span className="font-bold">{tenant.userStats.total}</span>
               </div>
               <div className="flex justify-between">
-                <span>Aktif</span>
+                <span>Active</span>
                 <span className="font-bold text-green-600">{tenant.userStats.active}</span>
               </div>
               <div className="flex justify-between">
-                <span>Pasif</span>
+                <span>Inactive</span>
                 <span className="font-bold text-gray-500">{tenant.userStats.inactive}</span>
               </div>
               <div className="flex justify-between">
-                <span>Son 7 Gunde Aktif</span>
+                <span>Active in Last 7 Days</span>
                 <span className="font-bold">{tenant.userStats.recentlyActive}</span>
               </div>
               <div className="flex justify-between">
-                <span>Son 30 Gunde Yeni</span>
+                <span>New in Last 30 Days</span>
                 <span className="font-bold text-blue-600">
                   {tenant.userStats.newUsersLast30Days}
                 </span>
@@ -509,7 +509,7 @@ const TenantDetailPage: React.FC = () => {
             </div>
           </Card>
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Role Gore Dagilim</h3>
+            <h3 className="text-lg font-semibold mb-4">Distribution by Role</h3>
             <div className="space-y-3">
               {Object.entries(tenant.userStats.byRole).map(([role, count]) => (
                 <div key={role} className="flex justify-between items-center">
@@ -526,7 +526,7 @@ const TenantDetailPage: React.FC = () => {
       {activeTab === 'modules' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Atanmis Moduller</h3>
+            <h3 className="text-lg font-semibold mb-4">Assigned Modules</h3>
             {tenant.modules && tenant.modules.length > 0 ? (
               <div className="space-y-3">
                 {tenant.modules.map((mod) => (
@@ -540,25 +540,25 @@ const TenantDetailPage: React.FC = () => {
                     </div>
                     <div className="flex items-center space-x-2">
                       <Badge variant={mod.isActive ? 'success' : 'default'}>
-                        {mod.isActive ? 'Aktif' : 'Pasif'}
+                        {mod.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => handleRemoveModule(mod.moduleId)}
                       >
-                        Kaldir
+                        Remove
                       </Button>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">Atanmis modul yok</p>
+              <p className="text-gray-500">No modules assigned</p>
             )}
           </Card>
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Mevcut Moduller</h3>
+            <h3 className="text-lg font-semibold mb-4">Available Modules</h3>
             <div className="space-y-3">
               {modules
                 .filter((m) => !tenant.modules?.find((tm) => tm.moduleId === m.id))
@@ -572,7 +572,7 @@ const TenantDetailPage: React.FC = () => {
                       <p className="text-xs text-gray-500">{mod.code}</p>
                     </div>
                     <Button size="sm" onClick={() => handleAssignModule(mod.id)}>
-                      Ata
+                      Assign
                     </Button>
                   </div>
                 ))}
@@ -585,41 +585,41 @@ const TenantDetailPage: React.FC = () => {
       {activeTab === 'usage' && tenant.resourceUsage && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Kaynak Kullanimi</h3>
+            <h3 className="text-lg font-semibold mb-4">Resource Usage</h3>
             <div className="space-y-4">
               <ProgressBar
-                label="Kullanicilar"
+                label="Users"
                 value={tenant.resourceUsage.users.count}
                 max={tenant.resourceUsage.users.limit}
               />
               <ProgressBar
-                label="Ciftlikler"
+                label="Farms"
                 value={tenant.resourceUsage.farms.count}
                 max={tenant.resourceUsage.farms.limit}
               />
               <ProgressBar
-                label="Sensorler"
+                label="Sensors"
                 value={tenant.resourceUsage.sensors.count}
                 max={tenant.resourceUsage.sensors.limit}
               />
               <ProgressBar
-                label="Depolama (GB)"
+                label="Storage (GB)"
                 value={tenant.resourceUsage.storage.usedGb}
                 max={tenant.resourceUsage.storage.limitGb}
               />
             </div>
           </Card>
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">API Kullanimi</h3>
+            <h3 className="text-lg font-semibold mb-4">API Usage</h3>
             <div className="space-y-4">
               <div className="flex justify-between">
-                <span>Son 24 Saat</span>
+                <span>Last 24 Hours</span>
                 <span className="font-bold">
                   {formatNumber(tenant.resourceUsage.apiCalls.last24h)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Son 7 Gun</span>
+                <span>Last 7 Days</span>
                 <span className="font-bold">
                   {formatNumber(tenant.resourceUsage.apiCalls.last7d)}
                 </span>
@@ -627,7 +627,7 @@ const TenantDetailPage: React.FC = () => {
               <div className="flex justify-between">
                 <span>Rate Limit</span>
                 <span className="font-bold">
-                  {tenant.resourceUsage.apiCalls.limit}/dk
+                  {tenant.resourceUsage.apiCalls.limit}/min
                 </span>
               </div>
             </div>
@@ -638,7 +638,7 @@ const TenantDetailPage: React.FC = () => {
       {/* Activity Tab */}
       {activeTab === 'activity' && (
         <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Aktivite Timeline</h3>
+          <h3 className="text-lg font-semibold mb-4">Activity Timeline</h3>
           {tenant.recentActivities && tenant.recentActivities.length > 0 ? (
             <div className="space-y-4">
               {tenant.recentActivities.map((activity) => (
@@ -649,7 +649,7 @@ const TenantDetailPage: React.FC = () => {
                       <p className="text-sm text-gray-600">{activity.description}</p>
                     )}
                     <p className="text-xs text-gray-500 mt-1">
-                      {activity.performedByEmail || 'Sistem'} •{' '}
+                      {activity.performedByEmail || 'System'} •{' '}
                       {formatRelativeTime(activity.createdAt)}
                     </p>
                   </div>
@@ -658,7 +658,7 @@ const TenantDetailPage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500">Aktivite kaydi yok</p>
+            <p className="text-gray-500">No activity records</p>
           )}
         </Card>
       )}
@@ -667,7 +667,7 @@ const TenantDetailPage: React.FC = () => {
       {activeTab === 'billing' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Fatura Bilgileri</h3>
+            <h3 className="text-lg font-semibold mb-4">Billing Information</h3>
             {tenant.billing ? (
               <div className="space-y-4">
                 <div className="flex justify-between">
@@ -677,17 +677,17 @@ const TenantDetailPage: React.FC = () => {
                   </Badge>
                 </div>
                 <div className="flex justify-between">
-                  <span>Aylik Ucret</span>
+                  <span>Monthly Fee</span>
                   <span className="font-bold">
                     {tenant.billing.currency} {tenant.billing.monthlyAmount}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Fatura Dongusu</span>
+                  <span>Billing Cycle</span>
                   <span>{tenant.billing.billingCycle}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Odeme Durumu</span>
+                  <span>Payment Status</span>
                   <Badge
                     variant={
                       tenant.billing.paymentStatus === 'active' ? 'success' : 'warning'
@@ -697,7 +697,7 @@ const TenantDetailPage: React.FC = () => {
                   </Badge>
                 </div>
                 <div className="flex justify-between">
-                  <span>Sonraki Fatura</span>
+                  <span>Next Invoice</span>
                   <span>
                     {tenant.billing.nextBillingDate
                       ? formatDate(new Date(tenant.billing.nextBillingDate), 'short')
@@ -706,26 +706,26 @@ const TenantDetailPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500">Fatura bilgisi yok</p>
+              <p className="text-gray-500">No billing information</p>
             )}
           </Card>
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Son Odeme</h3>
+            <h3 className="text-lg font-semibold mb-4">Last Payment</h3>
             {tenant.billing?.lastPaymentDate ? (
               <div className="space-y-4">
                 <div className="flex justify-between">
-                  <span>Tarih</span>
+                  <span>Date</span>
                   <span>{formatDate(new Date(tenant.billing.lastPaymentDate), 'long')}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Tutar</span>
+                  <span>Amount</span>
                   <span className="font-bold text-green-600">
                     {tenant.billing.currency} {tenant.billing.lastPaymentAmount}
                   </span>
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500">Odeme kaydi yok</p>
+              <p className="text-gray-500">No payment records</p>
             )}
           </Card>
         </div>
@@ -735,8 +735,8 @@ const TenantDetailPage: React.FC = () => {
       {activeTab === 'notes' && (
         <Card className="p-6">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold">Notlar</h3>
-            <Button onClick={() => setIsNoteModalOpen(true)}>Not Ekle</Button>
+            <h3 className="text-lg font-semibold">Notes</h3>
+            <Button onClick={() => setIsNoteModalOpen(true)}>Add Note</Button>
           </div>
           {tenant.notes && tenant.notes.length > 0 ? (
             <div className="space-y-4">
@@ -761,14 +761,14 @@ const TenantDetailPage: React.FC = () => {
                       variant="ghost"
                       onClick={() => handleDeleteNote(note.id)}
                     >
-                      Sil
+                      Delete
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500">Not yok</p>
+            <p className="text-gray-500">No notes</p>
           )}
         </Card>
       )}
@@ -777,12 +777,12 @@ const TenantDetailPage: React.FC = () => {
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        title="Tenant Duzenle"
+        title="Edit Tenant"
         size="lg"
       >
         <div className="space-y-4">
           <Input
-            label="Sirket Adi"
+            label="Company Name"
             value={editForm.name || ''}
             onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
           />
@@ -792,18 +792,18 @@ const TenantDetailPage: React.FC = () => {
             onChange={(e) => setEditForm({ ...editForm, domain: e.target.value })}
           />
           <Input
-            label="Aciklama"
+            label="Description"
             value={editForm.description || ''}
             onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
           />
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Ulke"
+              label="Country"
               value={editForm.country || ''}
               onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
             />
             <Input
-              label="Bolge"
+              label="Region"
               value={editForm.region || ''}
               onChange={(e) => setEditForm({ ...editForm, region: e.target.value })}
             />
@@ -820,7 +820,7 @@ const TenantDetailPage: React.FC = () => {
             ]}
           />
           <Input
-            label="Fatura E-posta"
+            label="Billing Email"
             type="email"
             value={editForm.billingEmail || ''}
             onChange={(e) => setEditForm({ ...editForm, billingEmail: e.target.value })}
@@ -828,10 +828,10 @@ const TenantDetailPage: React.FC = () => {
         </div>
         <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
           <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>
-            Iptal
+            Cancel
           </Button>
           <Button onClick={handleUpdate} loading={saving}>
-            Kaydet
+            Save
           </Button>
         </div>
       </Modal>
@@ -840,36 +840,36 @@ const TenantDetailPage: React.FC = () => {
       <Modal
         isOpen={isNoteModalOpen}
         onClose={() => setIsNoteModalOpen(false)}
-        title="Not Ekle"
+        title="Add Note"
       >
         <div className="space-y-4">
           <Select
-            label="Kategori"
+            label="Category"
             value={newNote.category}
             onChange={(e) => setNewNote({ ...newNote, category: e.target.value })}
             options={[
-              { value: 'general', label: 'Genel' },
-              { value: 'support', label: 'Destek' },
-              { value: 'billing', label: 'Fatura' },
-              { value: 'technical', label: 'Teknik' },
+              { value: 'general', label: 'General' },
+              { value: 'support', label: 'Support' },
+              { value: 'billing', label: 'Billing' },
+              { value: 'technical', label: 'Technical' },
             ]}
           />
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Not</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Note</label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[120px]"
               value={newNote.content}
               onChange={(e) => setNewNote({ ...newNote, content: e.target.value })}
-              placeholder="Not icerigi..."
+              placeholder="Note content..."
             />
           </div>
         </div>
         <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
           <Button variant="outline" onClick={() => setIsNoteModalOpen(false)}>
-            Iptal
+            Cancel
           </Button>
           <Button onClick={handleAddNote} loading={saving} disabled={!newNote.content.trim()}>
-            Kaydet
+            Save
           </Button>
         </div>
       </Modal>
@@ -878,23 +878,23 @@ const TenantDetailPage: React.FC = () => {
       <Modal
         isOpen={isSuspendModalOpen}
         onClose={() => setIsSuspendModalOpen(false)}
-        title="Tenant'i Askiya Al"
+        title="Suspend Tenant"
       >
         <Alert type="warning" className="mb-4">
-          Bu islem tenant'in tum kullanilarinin erisimini engelleyecektir.
+          This action will block access for all users of this tenant.
         </Alert>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Sebep</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
           <textarea
             className="w-full border rounded-lg p-3 min-h-[100px]"
             value={suspendReason}
             onChange={(e) => setSuspendReason(e.target.value)}
-            placeholder="Askiya alma sebebi..."
+            placeholder="Enter reason for suspension..."
           />
         </div>
         <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
           <Button variant="outline" onClick={() => setIsSuspendModalOpen(false)}>
-            Iptal
+            Cancel
           </Button>
           <Button
             variant="danger"
@@ -902,7 +902,7 @@ const TenantDetailPage: React.FC = () => {
             loading={saving}
             disabled={!suspendReason.trim()}
           >
-            Askiya Al
+            Suspend
           </Button>
         </div>
       </Modal>

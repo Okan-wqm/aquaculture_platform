@@ -223,6 +223,7 @@ export class ConfigurationResolver {
     })
     environment: ConfigEnvironment,
     @Args('isSecret', { nullable: true, defaultValue: false }) isSecret: boolean,
+    @Args('reason', { nullable: true }) reason: string | undefined,
     @Context() context: GraphQLContext,
   ): Promise<Configuration> {
     const tenantId = this.getTenantId(context);
@@ -230,7 +231,7 @@ export class ConfigurationResolver {
     this.checkAdminAccess(context);
 
     return this.commandBus.execute(
-      new UpsertConfigurationCommand(tenantId, service, key, value, environment, userId, isSecret),
+      new UpsertConfigurationCommand(tenantId, service, key, value, environment, userId, isSecret, reason),
     );
   }
 }

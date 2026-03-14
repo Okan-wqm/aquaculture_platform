@@ -24,14 +24,14 @@ export abstract class CertificationEvent {
  * Event published when a certification is added to an employee
  */
 export class CertificationAddedEvent extends CertificationEvent {
-  readonly eventType = 'certification.added';
+  readonly eventType = 'CertificationAdded';
 }
 
 /**
  * Event published when a certification is revoked
  */
 export class CertificationRevokedEvent extends CertificationEvent {
-  readonly eventType = 'certification.revoked';
+  readonly eventType = 'CertificationRevoked';
 }
 
 /**
@@ -57,7 +57,7 @@ export abstract class TrainingEvent {
  * Event published when an employee completes a training course
  */
 export class TrainingCompletedEvent extends TrainingEvent {
-  readonly eventType = 'training.completed';
+  readonly eventType = 'TrainingCompleted';
 
   get passed(): boolean {
     return this.enrollment.status === EnrollmentStatus.PASSED || this.enrollment.status === EnrollmentStatus.COMPLETED;

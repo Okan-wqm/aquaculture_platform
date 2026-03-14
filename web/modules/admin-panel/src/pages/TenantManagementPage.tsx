@@ -181,7 +181,7 @@ const TenantManagementPage: React.FC = () => {
       fetchTenants();
       fetchInitialData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Toplu askiya alma basarisiz');
+      setError(err instanceof Error ? err.message : 'Bulk suspension failed');
     } finally {
       setSaving(false);
     }
@@ -273,7 +273,7 @@ const TenantManagementPage: React.FC = () => {
     },
     {
       key: 'status',
-      header: 'Durum',
+      header: 'Status',
       sortable: true,
       render: (tenant) => (
         <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
@@ -281,18 +281,18 @@ const TenantManagementPage: React.FC = () => {
     },
     {
       key: 'stats',
-      header: 'Kullanim',
+      header: 'Usage',
       render: (tenant) => (
         <div className="text-sm">
-          <span className="text-gray-600">{tenant.userCount || 0} kullanici</span>
+          <span className="text-gray-600">{tenant.userCount || 0} users</span>
           <span className="mx-1 text-gray-300">|</span>
-          <span className="text-gray-600">{tenant.farmCount || 0} ciftlik</span>
+          <span className="text-gray-600">{tenant.farmCount || 0} farms</span>
         </div>
       ),
     },
     {
       key: 'lastActivity',
-      header: 'Son Aktivite',
+      header: 'Last Activity',
       render: (tenant) => (
         <span className="text-sm text-gray-600">
           {tenant.lastActivityAt
@@ -303,7 +303,7 @@ const TenantManagementPage: React.FC = () => {
     },
     {
       key: 'createdAt',
-      header: 'Olusturulma',
+      header: 'Created',
       sortable: true,
       render: (tenant) => formatDate(new Date(tenant.createdAt), 'short'),
     },
@@ -318,7 +318,7 @@ const TenantManagementPage: React.FC = () => {
             size="sm"
             onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
           >
-            Detay
+            Details
           </Button>
         </div>
       ),
@@ -330,9 +330,9 @@ const TenantManagementPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tenant Yonetimi</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Tenant Management</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Toplam {totalTenants} tenant
+            Total {totalTenants} tenants
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
@@ -343,18 +343,18 @@ const TenantManagementPage: React.FC = () => {
                 onClick={handleBulkActivate}
                 disabled={saving}
               >
-                Secilenleri Aktif Yap ({selectedIds.size})
+                Activate Selected ({selectedIds.size})
               </Button>
               <Button
                 variant="danger"
                 onClick={() => setIsBulkSuspendModalOpen(true)}
               >
-                Secilenleri Askiya Al ({selectedIds.size})
+                Suspend Selected ({selectedIds.size})
               </Button>
             </>
           )}
           <Button variant="outline" onClick={fetchTenants} disabled={loading}>
-            Yenile
+            Refresh
           </Button>
         </div>
       </div>
@@ -369,19 +369,19 @@ const TenantManagementPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Toplam</p>
+            <p className="text-sm text-gray-500">Total</p>
             <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Aktif</p>
+            <p className="text-sm text-gray-500">Active</p>
             <p className="text-2xl font-bold text-green-600">{stats.active}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Beklemede</p>
+            <p className="text-sm text-gray-500">Pending</p>
             <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Askida</p>
+            <p className="text-sm text-gray-500">Suspended</p>
             <p className="text-2xl font-bold text-red-600">{stats.suspended}</p>
           </Card>
         </div>
@@ -392,7 +392,7 @@ const TenantManagementPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div className="sm:col-span-2">
             <Input
-              placeholder="Tenant ara..."
+              placeholder="Search tenants..."
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               leftIcon={
@@ -406,17 +406,17 @@ const TenantManagementPage: React.FC = () => {
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             options={[
-              { value: '', label: 'Tum Durumlar' },
-              { value: 'active', label: 'Aktif' },
-              { value: 'pending', label: 'Beklemede' },
-              { value: 'suspended', label: 'Askida' },
+              { value: '', label: 'All Statuses' },
+              { value: 'active', label: 'Active' },
+              { value: 'pending', label: 'Pending' },
+              { value: 'suspended', label: 'Suspended' },
             ]}
           />
           <Select
             value={tierFilter}
             onChange={(e) => { setTierFilter(e.target.value); setPage(1); }}
             options={[
-              { value: '', label: 'Tum Tier\'lar' },
+              { value: '', label: 'All Tiers' },
               { value: TenantTier.FREE, label: 'Free' },
               { value: TenantTier.STARTER, label: 'Starter' },
               { value: TenantTier.PROFESSIONAL, label: 'Professional' },
@@ -430,14 +430,14 @@ const TenantManagementPage: React.FC = () => {
       {loading ? (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-2 text-gray-500">Yukleniyor...</p>
+          <p className="mt-2 text-gray-500">Loading...</p>
         </div>
       ) : (
         <Table
           data={tenants}
           columns={columns}
           keyExtractor={(tenant) => tenant.id}
-          emptyMessage="Tenant bulunamadi"
+          emptyMessage="No tenants found"
         />
       )}
 
@@ -445,13 +445,13 @@ const TenantManagementPage: React.FC = () => {
       {totalTenants > limit && (
         <div className="flex justify-center space-x-2">
           <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
-            Onceki
+            Previous
           </Button>
           <span className="py-2 px-4 text-sm text-gray-600">
-            Sayfa {page} / {Math.ceil(totalTenants / limit)}
+            Page {page} / {Math.ceil(totalTenants / limit)}
           </span>
           <Button variant="outline" size="sm" disabled={page >= Math.ceil(totalTenants / limit)} onClick={() => setPage(page + 1)}>
-            Sonraki
+            Next
           </Button>
         </div>
       )}
@@ -460,7 +460,7 @@ const TenantManagementPage: React.FC = () => {
       <Modal
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
-        title={selectedTenant?.name || 'Tenant Detayi'}
+        title={selectedTenant?.name || 'Tenant Details'}
         size="lg"
       >
         {selectedTenant && (
@@ -475,11 +475,11 @@ const TenantManagementPage: React.FC = () => {
                 <Badge variant={getTierVariant(selectedTenant.tier)}>{selectedTenant.tier}</Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Durum</p>
+                <p className="text-xs text-gray-500">Status</p>
                 <Badge variant={getStatusVariant(selectedTenant.status)}>{selectedTenant.status}</Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Kullanici</p>
+                <p className="text-xs text-gray-500">Users</p>
                 <p className="font-medium">{selectedTenant.userCount}</p>
               </div>
               <div>
@@ -487,7 +487,7 @@ const TenantManagementPage: React.FC = () => {
                 <p className="font-medium">{selectedTenant.farmCount}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Olusturulma</p>
+                <p className="text-xs text-gray-500">Created</p>
                 <p className="font-medium">{formatDate(new Date(selectedTenant.createdAt), 'long')}</p>
               </div>
             </div>
@@ -499,7 +499,7 @@ const TenantManagementPage: React.FC = () => {
                   size="sm"
                   onClick={() => handleToggleStatus(selectedTenant, 'suspend')}
                 >
-                  Askiya Al
+                  Suspend
                 </Button>
               ) : (
                 <Button
@@ -507,11 +507,11 @@ const TenantManagementPage: React.FC = () => {
                   size="sm"
                   onClick={() => handleToggleStatus(selectedTenant, 'activate')}
                 >
-                  Aktif Yap
+                  Activate
                 </Button>
               )}
               <Button variant="outline" onClick={() => setIsDetailModalOpen(false)}>
-                Kapat
+                Close
               </Button>
             </div>
           </div>
@@ -522,25 +522,25 @@ const TenantManagementPage: React.FC = () => {
       <Modal
         isOpen={isBulkSuspendModalOpen}
         onClose={() => setIsBulkSuspendModalOpen(false)}
-        title="Toplu Askiya Alma"
+        title="Bulk Suspend"
       >
         <div className="space-y-4">
           <Alert type="warning">
-            {selectedIds.size} tenant askiya alinacak. Bu islem tum kullanilarinin erisimini engelleyecektir.
+            {selectedIds.size} tenant(s) will be suspended. This action will block all their users' access.
           </Alert>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Askiya Alma Sebebi</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Suspension Reason</label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[100px]"
               value={bulkSuspendReason}
               onChange={(e) => setBulkSuspendReason(e.target.value)}
-              placeholder="Askiya alma sebebini girin..."
+              placeholder="Enter the reason for suspension..."
             />
           </div>
         </div>
         <div className="flex justify-end space-x-2 mt-6 pt-4 border-t">
           <Button variant="outline" onClick={() => setIsBulkSuspendModalOpen(false)}>
-            Iptal
+            Cancel
           </Button>
           <Button
             variant="danger"
@@ -548,7 +548,7 @@ const TenantManagementPage: React.FC = () => {
             loading={saving}
             disabled={!bulkSuspendReason.trim()}
           >
-            Askiya Al ({selectedIds.size})
+            Suspend ({selectedIds.size})
           </Button>
         </div>
       </Modal>

@@ -127,6 +127,24 @@ const getSeverityBadgeVariant = (severity: string): 'default' | 'info' | 'warnin
   return variants[severity] || 'default';
 };
 
+/**
+ * Escape a CSV cell value to prevent formula injection and handle special characters.
+ * Prefixes cells starting with =, +, -, @, \t, \r with a single quote inside double quotes.
+ * Wraps cells containing commas, double quotes, or newlines in double quotes.
+ */
+function escapeCsvCell(value: unknown): string {
+  const str = String(value ?? '');
+  // Formula injection protection
+  if (/^[=+\-@\t\r]/.test(str)) {
+    return `"'${str.replace(/"/g, '""')}"`;
+  }
+  // Quote cells containing comma, double quote, or newline
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 // ============================================================================
 // Sub-components
 // ============================================================================
@@ -325,6 +343,7 @@ const AuditLogPage: React.FC = () => {
       if (filters.severity) params.severity = filters.severity;
       if (filters.entityType) params.entityType = filters.entityType;
       if (filters.tenantId) params.tenantId = filters.tenantId;
+      if (filters.search) params.search = filters.search; // Fix: H22 -- include search filter
       if (filters.startDate) params.startDate = filters.startDate;
       if (filters.endDate) params.endDate = filters.endDate;
 
@@ -332,21 +351,23 @@ const AuditLogPage: React.FC = () => {
 
       const headers = ['Date', 'Action', 'Entity', 'Entity ID', 'User', 'Severity', 'IP Address'];
       const rows = result.data.map((log) => [
-        formatDateTime(log.createdAt),
-        log.action,
-        log.entityType,
-        log.entityId,
-        log.performedByEmail,
-        log.severity,
-        log.ipAddress,
+        escapeCsvCell(formatDateTime(log.createdAt)),
+        escapeCsvCell(log.action),
+        escapeCsvCell(log.entityType),
+        escapeCsvCell(log.entityId),
+        escapeCsvCell(log.performedByEmail),
+        escapeCsvCell(log.severity),
+        escapeCsvCell(log.ipAddress),
       ]);
 
       const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
+      link.href = url;
       link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
+      URL.revokeObjectURL(url); // Fix: H22 -- prevent memory leak
     } catch (err) {
       setExportError('Export failed: ' + (err as Error).message);
     }

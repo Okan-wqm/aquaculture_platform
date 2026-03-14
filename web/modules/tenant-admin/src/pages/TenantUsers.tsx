@@ -13,7 +13,9 @@ import {
   Download,
   RefreshCw,
   AlertCircle,
+  UserMinus,
 } from 'lucide-react';
+import { useAuthContext } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
 import { graphqlRequest } from '../services/tenant-api.service';
@@ -195,10 +197,28 @@ const CREATE_TENANT_USER_MUTATION = `
   }
 `;
 
+const DEACTIVATE_TENANT_USER_MUTATION = `
+  mutation DeactivateTenantUser($userId: ID!) {
+    deactivateTenantUser(userId: $userId) {
+      id
+      isActive
+    }
+  }
+`;
+
 /**
  * TenantUsers Page
+ *
+ * SEC-007: Permission-based UI filtering.
+ * - Only TENANT_ADMIN (or higher) can see Add User, Edit, Delete, and Deactivate buttons.
+ * - The route-level guard in Module.tsx already blocks unauthorized access, but
+ *   this page-level filtering provides defense-in-depth for individual actions.
  */
 const TenantUsers: React.FC = () => {
+  // SEC-007: Check if current user has TENANT_ADMIN privileges for action visibility
+  const { hasRoleOrHigher } = useAuthContext();
+  const canManageUsers = hasRoleOrHigher('TENANT_ADMIN');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -220,6 +240,10 @@ const TenantUsers: React.FC = () => {
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // SEC-011: Bulk deactivation state
+  const [isDeactivating, setIsDeactivating] = useState(false);
+  const [deactivateError, setDeactivateError] = useState<string | null>(null);
 
   // Roles for the modal
   const { data: roles = [], isLoading: rolesLoading } = useTenantRoles();
@@ -311,6 +335,27 @@ const TenantUsers: React.FC = () => {
     }
   };
 
+  // SEC-011: Handle bulk deactivation of selected users
+  const handleBulkDeactivate = async () => {
+    if (selectedUsers.length === 0 || !canManageUsers) return;
+    setIsDeactivating(true);
+    setDeactivateError(null);
+    try {
+      await Promise.all(
+        selectedUsers.map((userId) =>
+          graphqlRequest(DEACTIVATE_TENANT_USER_MUTATION, { userId })
+        )
+      );
+      setSelectedUsers([]);
+      await loadUsers();
+    } catch (err) {
+      logError('TenantUsers.handleBulkDeactivate', err);
+      setDeactivateError((err as Error).message);
+    } finally {
+      setIsDeactivating(false);
+    }
+  };
+
   // Filter users based on search and filters
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
@@ -363,13 +408,16 @@ const TenantUsers: React.FC = () => {
             <Download className="w-4 h-4" />
             Export
           </button>
-          <button
-            onClick={() => { setSaveError(null); setEditingUser(null); setIsModalOpen(true); }}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-          >
-            <UserPlus className="w-4 h-4" />
-            Add User
-          </button>
+          {/* SEC-007: Only TENANT_ADMIN+ can add users */}
+          {canManageUsers && (
+            <button
+              onClick={() => { setSaveError(null); setEditingUser(null); setIsModalOpen(true); }}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add User
+            </button>
+          )}
         </div>
       </div>
 
@@ -423,17 +471,30 @@ const TenantUsers: React.FC = () => {
         </div>
       </div>
 
-      {/* Bulk Actions (SEC-013: no unimplemented actions exposed) */}
-      {selectedUsers.length > 0 && (
+      {/* Bulk Actions (SEC-011: bulk deactivate enabled for TENANT_ADMIN+) */}
+      {selectedUsers.length > 0 && canManageUsers && (
         <div className="bg-tenant-50 rounded-xl p-4 flex items-center justify-between">
           <span className="text-sm text-tenant-700">{selectedUsers.length} user(s) selected</span>
           <div className="flex items-center gap-2">
+            {deactivateError && (
+              <span className="text-sm text-red-600 mr-2">{deactivateError}</span>
+            )}
             <button
-              disabled
-              title="Coming soon"
-              className="px-3 py-1.5 text-sm text-tenant-400 bg-tenant-100 rounded-lg cursor-not-allowed opacity-50"
+              onClick={handleBulkDeactivate}
+              disabled={isDeactivating}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Deactivate
+              {isDeactivating ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Deactivating...
+                </>
+              ) : (
+                <>
+                  <UserMinus className="w-3.5 h-3.5" />
+                  Deactivate
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -491,26 +552,33 @@ const TenantUsers: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => { setEditingUser(user); setSaveError(null); setIsModalOpen(true); }}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
-                        title="Edit user"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => { setDeletingUser(user); setDeleteError(null); }}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        title="Delete user"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                        title="More options"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
+                      {/* SEC-007: Only TENANT_ADMIN+ can edit/delete users */}
+                      {canManageUsers ? (
+                        <>
+                          <button
+                            onClick={() => { setEditingUser(user); setSaveError(null); setIsModalOpen(true); }}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                            title="Edit user"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => { setDeletingUser(user); setDeleteError(null); }}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete user"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                            title="More options"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-gray-400">View only</span>
+                      )}
                     </div>
                   </td>
                 </tr>

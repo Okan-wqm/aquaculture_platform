@@ -1,7 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
 import { CurrentUser } from '@platform/backend-common';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { MobileSettingsService } from '../services/mobile-settings.service';
 import { UpdateMobileUserSettingsInput, BulkUpdateMobileSettingsInput } from '../dto/mobile-settings.dto';
@@ -14,7 +12,6 @@ export class MobileSettingsResolver {
    * Get mobile settings for a specific user (admin use)
    */
   @Query(() => MobileUserSettings, { name: 'getMobileUserSettings' })
-  @UseGuards(JwtAuthGuard)
   async getMobileUserSettings(
     @Args('userId', { type: () => ID }) userId: string,
     @CurrentUser() currentUser: { tenantId: string },
@@ -26,7 +23,6 @@ export class MobileSettingsResolver {
    * Get current user's own mobile settings (mobile app use)
    */
   @Query(() => MobileUserSettings, { name: 'getMyMobileSettings' })
-  @UseGuards(JwtAuthGuard)
   async getMyMobileSettings(
     @CurrentUser() currentUser: { id: string; tenantId: string },
   ): Promise<MobileUserSettings> {
@@ -37,7 +33,6 @@ export class MobileSettingsResolver {
    * Get all mobile settings for the tenant (admin settings page)
    */
   @Query(() => [MobileUserSettings], { name: 'getMobileUsersSettings' })
-  @UseGuards(JwtAuthGuard)
   async getMobileUsersSettings(
     @CurrentUser() currentUser: { tenantId: string },
   ): Promise<MobileUserSettings[]> {
@@ -48,7 +43,6 @@ export class MobileSettingsResolver {
    * Update mobile settings for a specific user
    */
   @Mutation(() => MobileUserSettings, { name: 'updateMobileUserSettings' })
-  @UseGuards(JwtAuthGuard)
   async updateMobileUserSettings(
     @Args('input') input: UpdateMobileUserSettingsInput,
     @CurrentUser() currentUser: { tenantId: string },
@@ -72,7 +66,6 @@ export class MobileSettingsResolver {
    * Bulk update mobile settings for multiple users
    */
   @Mutation(() => [MobileUserSettings], { name: 'bulkUpdateMobileSettings' })
-  @UseGuards(JwtAuthGuard)
   async bulkUpdateMobileSettings(
     @Args('input') input: BulkUpdateMobileSettingsInput,
     @CurrentUser() currentUser: { tenantId: string },

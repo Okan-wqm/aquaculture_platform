@@ -14,6 +14,8 @@ import { SchemaManagerService, Role } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent } from '@platform/event-contracts';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant } from '../entities/tenant.entity';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
@@ -87,6 +89,7 @@ export class TenantUserManagementService {
     private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -132,10 +135,15 @@ export class TenantUserManagementService {
 
     // Generate invitation token if not providing password
     // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
-    const invitationToken = sendInvitation && !input.password
+    const plainInvitationToken = sendInvitation && !input.password
       ? crypto.randomBytes(32).toString('hex')
       : null;
-    const invitationExpiry = invitationToken
+    // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
+    // Plain token is sent to user via email, hash is stored in DB for verification
+    const invitationTokenHash = plainInvitationToken
+      ? crypto.createHash('sha256').update(plainInvitationToken).digest('hex')
+      : null;
+    const invitationExpiry = plainInvitationToken
       ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
       : null;
 
@@ -149,7 +157,7 @@ export class TenantUserManagementService {
       tenantId,
       isActive: true,
       isEmailVerified: false,
-      invitationToken,
+      invitationToken: invitationTokenHash, // Store hash, not plain token
       invitationExpiresAt: invitationExpiry,
       invitedBy: createdBy,
     });
@@ -167,11 +175,11 @@ export class TenantUserManagementService {
       createdBy,
     );
 
-    // Send invitation email if requested
+    // Send invitation email if requested — use plain token (not hash) for user link
     let invitationSent = false;
-    if (sendInvitation && invitationToken) {
+    if (sendInvitation && plainInvitationToken) {
       try {
-        await this.sendInvitationEmail(tenant, savedUser, invitationToken);
+        await this.sendInvitationEmail(tenant, savedUser, plainInvitationToken);
         invitationSent = true;
       } catch (error) {
         this.logger.error(`Failed to send invitation email to ${savedUser.email}: ${(error as Error).message}`);
@@ -332,6 +340,32 @@ export class TenantUserManagementService {
     );
 
     this.logger.log(`Updated role assignment for user ${userId} in tenant ${tenantId}`);
+
+    // SECURITY AUDIT: Log role change (BULGU-016)
+    try {
+      await this.auditLogService.log({
+        tenantId,
+        performedBy: updatedBy,
+        action: 'USER_ROLE_CHANGED',
+        entityType: 'UserRoleAssignment',
+        entityId: userId,
+        previousValue: {
+          roleId: existing.role_id,
+        },
+        newValue: {
+          roleId: input.roleId ?? existing.role_id,
+          isActive: input.isActive ?? true,
+          permissionOverrides: input.permissionOverrides,
+        },
+        details: {
+          assignmentId,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.WARNING,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log audit event USER_ROLE_CHANGED: ${(error as Error).message}`);
+    }
 
     // Return updated assignment
     return this.getUserRoleAssignment(schemaName, userId);

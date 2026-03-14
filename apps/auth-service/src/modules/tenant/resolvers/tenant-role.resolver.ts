@@ -1,9 +1,7 @@
-import { UseGuards, BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { CurrentUser, TenantAdminOrHigher, RolesGuard, Roles, Role } from '@platform/backend-common';
+import { CurrentUser, TenantAdminOrHigher, Roles, Role } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
-
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 
 /**
  * UUID v4 regex for parameter validation
@@ -68,7 +66,6 @@ import { TenantRoleService, PERMISSION_CATEGORIES } from '../services/tenant-rol
 import { TenantUserManagementService, UserRoleAssignmentResult } from '../services/tenant-user-management.service';
 
 @Resolver(() => TenantRole)
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class TenantRoleResolver {
   constructor(
     private readonly tenantRoleService: TenantRoleService,

@@ -5,8 +5,9 @@ import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
+import { TenantGuard, RolesGuard } from '@platform/backend-common';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -86,6 +87,16 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    // SECURITY: Tenant guard - ensures tenant isolation (defense-in-depth)
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+    // SECURITY: Roles guard - enforces @Roles() decorator authorization
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })

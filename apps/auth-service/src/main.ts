@@ -2,11 +2,16 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { initTelemetry } from '@platform/backend-common';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { HTTP_SECURITY } from './constants/auth.constants';
+
+// Initialize OpenTelemetry tracing BEFORE NestFactory.create()
+// Only active when ENABLE_TRACING=true environment variable is set.
+initTelemetry('auth-service');
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('AuthService');
@@ -101,9 +106,9 @@ async function bootstrap(): Promise<void> {
     ],
   });
 
-  // API prefix - exclude health endpoints for kubernetes probes
+  // API prefix - exclude health and metrics endpoints for kubernetes probes and Prometheus
   app.setGlobalPrefix('api/v1', {
-    exclude: ['health', 'health/live', 'health/ready'],
+    exclude: ['health', 'health/live', 'health/ready', 'metrics'],
   });
 
   // Enable graceful shutdown hooks

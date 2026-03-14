@@ -3,15 +3,18 @@ import { readFileSync } from 'fs';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware } from '@platform/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, MetricsMiddleware, TenantGuard, RolesGuard } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuditModule } from './audit/audit.module';
 import { SECURITY_CONSTANTS } from './constants/auth.constants';
 import { HealthModule } from './health/health.module';
+import { AuthMetricsModule } from './metrics/metrics.module';
+import { JwtAuthGuard } from './modules/authentication/guards/jwt-auth.guard';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { AuthenticationModule } from './modules/authentication/authentication.module';
 import { GdprModule } from './modules/gdpr/gdpr.module';
@@ -187,12 +190,34 @@ import { TenantModule } from './modules/tenant/tenant.module';
     GdprModule,
     AuditModule,
     HealthModule,
+
+    // Prometheus metrics (per-service /metrics endpoint)
+    AuthMetricsModule,
+  ],
+  providers: [
+    // SECURITY: Global JWT auth guard - requires authentication on all endpoints
+    // Endpoints that should be publicly accessible must use @Public() decorator
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    // SECURITY: Global tenant guard - ensures tenant isolation
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+    // SECURITY: Roles guard - enforces @Roles() decorator authorization
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
+        MetricsMiddleware,        // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,

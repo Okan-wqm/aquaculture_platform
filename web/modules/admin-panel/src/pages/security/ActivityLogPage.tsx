@@ -27,7 +27,6 @@ import {
   AlertCircle,
   XCircle,
 } from 'lucide-react';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import { securityApi } from '../../services/adminApi';
 
 // ============================================================================
@@ -136,18 +135,7 @@ async function fetchActivities(params: {
 }
 
 async function fetchActivityStats(): Promise<ActivityStats> {
-  const token = getAccessToken();
-  const response = await fetch('/api/security/activities/stats/overview', {
-    credentials: 'include',
-    headers: {
-      Authorization: token ? `Bearer ${token}` : '',
-      'Content-Type': 'application/json',
-    },
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch activity stats');
-  }
-  return response.json();
+  return securityApi.getActivityStatsOverview();
 }
 
 // ============================================================================

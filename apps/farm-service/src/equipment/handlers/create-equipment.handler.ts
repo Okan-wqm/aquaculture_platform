@@ -1,11 +1,14 @@
 /**
  * Create Equipment Command Handler
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { EquipmentCreatedEvent } from '@platform/event-contracts';
 import { CreateEquipmentCommand } from '../commands/create-equipment.command';
 import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
 import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
@@ -218,16 +221,31 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
 
     this.logger.log(`Equipment "${savedEquipment.name}" created with ID ${savedEquipment.id}, linked to ${systems.length} system(s)`);
 
-    // Domain event: EquipmentCreated
-    // await this.eventBus?.publish(new EquipmentCreatedEvent({
-    //   tenantId,
-    //   equipmentId: savedEquipment.id,
-    //   name: savedEquipment.name,
-    //   code: savedEquipment.code,
-    //   departmentId: savedEquipment.departmentId,
-    //   equipmentTypeId: savedEquipment.equipmentTypeId,
-    //   createdBy: userId,
-    // }));
+    // Publish domain event: EquipmentCreated
+    if (this.eventBus) {
+      try {
+        const event: EquipmentCreatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'EquipmentCreated',
+          tenantId,
+          timestamp: new Date(),
+          equipmentId: savedEquipment.id,
+          siteId: department.siteId,
+          systemId: systems[0]?.id,
+          departmentId: savedEquipment.departmentId,
+          name: savedEquipment.name,
+          code: savedEquipment.code,
+          typeId: savedEquipment.equipmentTypeId,
+          category: equipmentType.category,
+          status: savedEquipment.status,
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published EquipmentCreatedEvent for equipment ${savedEquipment.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish EquipmentCreatedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     // Return equipment with systems
     savedEquipment.equipmentSystems = equipmentSystems;

@@ -23,7 +23,7 @@ export abstract class AttendanceEvent {
  * Event published when an employee clocks in
  */
 export class EmployeeClockedInEvent extends AttendanceEvent {
-  readonly eventType = 'attendance.clocked_in';
+  readonly eventType = 'EmployeeClockedIn';
 
   get clockInTime(): Date | undefined {
     return this.attendanceRecord.clockIn;
@@ -38,7 +38,7 @@ export class EmployeeClockedInEvent extends AttendanceEvent {
  * Event published when an employee clocks out
  */
 export class EmployeeClockedOutEvent extends AttendanceEvent {
-  readonly eventType = 'attendance.clocked_out';
+  readonly eventType = 'EmployeeClockedOut';
 
   get clockOutTime(): Date | undefined {
     return this.attendanceRecord.clockOut;

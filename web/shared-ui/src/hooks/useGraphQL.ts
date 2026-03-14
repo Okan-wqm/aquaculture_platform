@@ -169,36 +169,36 @@ export function useGraphQLMutation<TData, TVariables extends Record<string, unkn
 }
 
 // ============================================================================
-// Cache Utilities (Placeholder)
+// Cache Utilities (Placeholder — @deprecated)
 // ============================================================================
 
 /**
- * Sorgu önbelleğini prefetch et (placeholder)
+ * Sorgu önbelleğini prefetch et.
+ * @deprecated Placeholder only — no-op. Use @tanstack/react-query's useQueryClient().prefetchQuery() directly.
  */
 export function usePrefetchQuery() {
-  return useCallback(async (key: string, query: string, variables?: unknown) => {
-    // Placeholder - can be implemented with react-query
-    console.log('Prefetch:', key, query, variables);
+  return useCallback(async (_key: string, _query: string, _variables?: unknown) => {
+    // No-op placeholder — use @tanstack/react-query directly
   }, []);
 }
 
 /**
- * Sorgu önbelleğini güncelle (placeholder)
+ * Sorgu önbelleğini güncelle.
+ * @deprecated Placeholder only — no-op. Use @tanstack/react-query's useQueryClient().setQueryData() directly.
  */
 export function useUpdateQueryCache() {
-  return useCallback((key: string, updater: (oldData: unknown) => unknown) => {
-    // Placeholder - can be implemented with react-query
-    console.log('Update cache:', key, updater);
+  return useCallback((_key: string, _updater: (oldData: unknown) => unknown) => {
+    // No-op placeholder — use @tanstack/react-query directly
   }, []);
 }
 
 /**
- * Sorgu önbelleğini geçersiz kıl (placeholder)
+ * Sorgu önbelleğini geçersiz kıl.
+ * @deprecated Placeholder only — no-op. Use @tanstack/react-query's useQueryClient().invalidateQueries() directly.
  */
 export function useInvalidateQueries() {
-  return useCallback((key: string | string[]) => {
-    // Placeholder - can be implemented with react-query
-    console.log('Invalidate:', key);
+  return useCallback((_key: string | string[]) => {
+    // No-op placeholder — use @tanstack/react-query directly
   }, []);
 }
 

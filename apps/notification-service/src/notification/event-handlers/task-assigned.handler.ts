@@ -75,7 +75,15 @@ interface TaskOverdueEvent {
 }
 
 /**
- * Task Assigned Event Handler
+ * @deprecated This handler is superseded by TaskEventHandler which handles all task events
+ * (TaskCreated, TaskAssigned, TaskStatusChanged, TaskCompleted, TaskOverdue) with both
+ * in-app and push notification support. This handler has been removed from the
+ * NotificationModule providers to prevent duplicate notifications for TaskAssigned
+ * and TaskOverdue events. See D11 audit report.
+ *
+ * DO NOT re-register this handler in any module. Use TaskEventHandler instead.
+ *
+ * Original description:
  * Listens to TaskAssigned and TaskOverdue events and creates in-app notifications.
  *
  * Backpressure: A semaphore caps the number of concurrently processed

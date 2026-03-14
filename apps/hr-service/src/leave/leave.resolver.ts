@@ -1,9 +1,12 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { Employee } from '../hr/entities/employee.entity';
 import { LeaveType, LeaveCategory } from './entities/leave-type.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveRequest, LeaveRequestStatus } from './entities/leave-request.entity';
@@ -81,6 +84,8 @@ export class LeaveResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
@@ -99,6 +104,24 @@ export class LeaveResolver {
       throw new UnauthorizedException('User ID is required - authentication required');
     }
     return userId;
+  }
+
+  /**
+   * Resolve auth userId (JWT sub) to HR employeeId.
+   * The userId is the auth-service UUID, while employeeId is the HR-service UUID.
+   * These are different: Employee.userId links the two.
+   */
+  private async resolveEmployeeId(userId: string, tenantId: string): Promise<string> {
+    const employee = await this.employeeRepository.findOne({
+      where: { userId, tenantId, isDeleted: false },
+      select: ['id'],
+    });
+    if (!employee) {
+      throw new NotFoundException(
+        'Employee record not found for current user. Please contact your administrator.',
+      );
+    }
+    return employee.id;
   }
 
   // =====================
@@ -139,8 +162,9 @@ export class LeaveResolver {
   ): Promise<LeaveBalance[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+    const employeeId = await this.resolveEmployeeId(userId, tenantId);
     return this.queryBus.execute(
-      new GetLeaveBalancesQuery(tenantId, userId, year),
+      new GetLeaveBalancesQuery(tenantId, employeeId, year),
     );
   }
 
@@ -195,10 +219,11 @@ export class LeaveResolver {
   ): Promise<LeaveRequest[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+    const employeeId = await this.resolveEmployeeId(userId, tenantId);
     const result = await this.queryBus.execute(
       new GetLeaveRequestsQuery(
         tenantId,
-        userId,
+        employeeId,
         status,
         undefined,
         undefined,
@@ -221,8 +246,9 @@ export class LeaveResolver {
   ): Promise<PaginatedPendingApprovals> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+    const employeeId = await this.resolveEmployeeId(userId, tenantId);
     return this.queryBus.execute(
-      new GetPendingApprovalsQuery(tenantId, userId, departmentId, limit, offset),
+      new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, offset),
     );
   }
 
@@ -249,11 +275,12 @@ export class LeaveResolver {
   ): Promise<LeaveRequest> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+    const myEmployeeId = await this.resolveEmployeeId(userId, tenantId);
 
     // SECURITY: Users can only create leave requests for themselves unless they have elevated role
-    // For self-service, employeeId should match userId or be omitted
-    const employeeId = input.employeeId || userId;
-    if (employeeId !== userId) {
+    // For self-service, employeeId should match the caller's employee record or be omitted
+    const employeeId = input.employeeId || myEmployeeId;
+    if (employeeId !== myEmployeeId) {
       // Only managers can create leave requests for others - this should be handled by a separate mutation
       throw new ForbiddenException('You can only create leave requests for yourself');
     }

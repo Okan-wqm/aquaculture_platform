@@ -7,11 +7,17 @@ import {
   Body,
   Param,
   Query,
+  Req,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { Request } from 'express';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   IsUUID,
   IsEnum,
@@ -354,6 +360,7 @@ class InvalidateCachePatternDto {
 
 @ApiTags('Impersonation')
 @Controller('debug')
+@UseGuards(PlatformAdminGuard)
 export class DebugToolsController {
   constructor(private readonly debugToolsService: DebugToolsService) {}
 
@@ -390,8 +397,13 @@ export class DebugToolsController {
   @Post('sessions')
   async startDebugSession(
     @Body() dto: StartDebugSessionDto,
-    @Query('adminId') adminId: string,
+    // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
+    @Req() req: Request,
   ) {
+    const adminId = (req as any).user?.id;
+    if (!adminId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     return this.debugToolsService.startDebugSession({
       adminId,
       tenantId: dto.tenantId,
@@ -603,8 +615,13 @@ export class DebugToolsController {
   @Post('feature-overrides')
   async createFeatureFlagOverride(
     @Body() dto: CreateFeatureFlagOverrideDto,
-    @Query('adminId') adminId: string,
+    // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
+    @Req() req: Request,
   ) {
+    const adminId = (req as any).user?.id;
+    if (!adminId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     return this.debugToolsService.createFeatureFlagOverride({
       ...dto,
       adminId,
@@ -615,8 +632,13 @@ export class DebugToolsController {
   @Post('feature-overrides/:id/revert')
   async revertFeatureFlagOverride(
     @Param('id') overrideId: string,
-    @Query('adminId') revertedBy: string,
+    // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
+    @Req() req: Request,
   ) {
+    const revertedBy = (req as any).user?.id;
+    if (!revertedBy) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     return this.debugToolsService.revertFeatureFlagOverride(overrideId, revertedBy);
   }
 
@@ -641,10 +663,23 @@ export class DebugToolsController {
     @Query('featureKey') featureKey: string,
     @Query('defaultValue') defaultValue: string,
   ) {
+    // H24 fix: Sanitize JSON.parse to prevent prototype pollution
+    // Only accept primitive values (string, number, boolean, null)
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(defaultValue);
+    } catch {
+      parsed = defaultValue; // fallback to raw string if not valid JSON
+    }
+    if (parsed !== null && typeof parsed === 'object') {
+      // Reject objects/arrays to prevent prototype pollution
+      parsed = String(defaultValue);
+    }
+
     const value = await this.debugToolsService.getFeatureFlagValue(
       tenantId,
       featureKey,
-      JSON.parse(defaultValue),
+      parsed,
     );
     return { value };
   }
@@ -652,12 +687,14 @@ export class DebugToolsController {
   @Get('feature-overrides')
   async queryOverrides(
     @Query('tenantId') tenantId?: string,
-    @Query('adminId') adminId?: string,
     @Query('featureKey') featureKey?: string,
     @Query('isActive') isActive?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
+    @Req() req?: Request,
   ) {
+    const adminId = (req as any)?.user?.id;
     return this.debugToolsService.queryOverrides({
       tenantId,
       adminId,

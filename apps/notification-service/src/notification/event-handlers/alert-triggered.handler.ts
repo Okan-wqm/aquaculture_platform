@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
+import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -11,7 +12,7 @@ const MAX_MESSAGE_LENGTH = 5000;
 const MAX_RECIPIENTS = 50;
 
 // Allowed severity values to prevent header injection and ensure data integrity
-const ALLOWED_SEVERITIES = ['info', 'warning', 'critical'];
+const ALLOWED_SEVERITIES = ['info', 'low', 'warning', 'medium', 'high', 'critical'];
 
 /**
  * Maximum number of alert events processed concurrently (L1 backpressure).
@@ -72,6 +73,7 @@ interface AlertTriggeredEvent {
   message: string;
   channels: string[];
   recipients: string[];
+  retryCount?: number;
   triggeringData?: {
     sensorId?: string;
     farmId?: string;
@@ -99,6 +101,7 @@ export class AlertTriggeredEventHandler
 
   constructor(
     private readonly dispatcher: NotificationDispatcherService,
+    private readonly dlqService: DeadLetterQueueService,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
   ) {}
@@ -195,6 +198,31 @@ export class AlertTriggeredEventHandler
         `Error dispatching alert notifications: ${(error as Error).message}`,
         (error as Error).stack,
       );
+
+      // DLQ: Determine whether to retry or dead-letter this event
+      try {
+        const dlqResult = await this.dlqService.handleFailedEvent(
+          event as unknown as Record<string, unknown>,
+          error,
+        );
+
+        if (dlqResult.retry) {
+          // Re-publish with incremented retryCount and a fresh eventId
+          // to bypass NATS deduplication window
+          await this.eventBus.publish({
+            ...event,
+            retryCount: dlqResult.retryCount,
+            eventId: crypto.randomUUID(),
+          });
+          this.logger.warn(
+            `Alert ${event.alertId} re-published for retry attempt ${dlqResult.retryCount}`,
+          );
+        }
+      } catch (dlqError) {
+        this.logger.error(
+          `DLQ handling failed for alert ${event.alertId}: ${(dlqError as Error).message}`,
+        );
+      }
     } finally {
       this.semaphore.release();
     }

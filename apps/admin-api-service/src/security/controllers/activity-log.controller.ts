@@ -13,9 +13,12 @@ import {
   Body,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max } from 'class-validator';
 
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
@@ -204,6 +207,7 @@ class ActivityStatsQueryDto {
 
 @ApiTags('Security')
 @Controller('security/activities')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class ActivityLogController {
   constructor(private readonly activityService: ActivityLoggingService) {}
 

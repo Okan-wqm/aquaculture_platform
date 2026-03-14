@@ -5,21 +5,22 @@ import * as fs from 'fs';
 
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
+/**
+ * Flat NATS event structure matching sensor-service publisher format.
+ * sensor-service publishes flat events via NatsEventBus.publish() which
+ * serializes the event object as-is to the `events.<eventType>` subject.
+ */
 interface NatsEvent {
   eventId: string;
   eventType: string;
-  timestamp: string;
-  payload: {
-    sensorId: string;
-    sensorName: string;
-    tenantId: string;
-    readings: Record<string, number>;
-    timestamp: string;
-  };
-  metadata: {
-    tenantId: string;
-    source: string;
-  };
+  timestamp: string | Date;
+  tenantId: string;
+  sensorId?: string;
+  sensorName?: string;
+  readings?: Record<string, number>;
+  farmId?: string;
+  pondId?: string;
+  version?: number;
 }
 
 /**
@@ -124,8 +125,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     if (!this.connection) return;
 
     // Subscribe to all sensor reading events
-    // Pattern: events.SensorReadingReceived.>
-    this.subscription = this.connection.subscribe('events.SensorReadingReceived.>');
+    // sensor-service publishes to subject: events.SensorReading (no trailing tokens)
+    this.subscription = this.connection.subscribe('events.SensorReading');
 
     this.logger.log('Subscribed to sensor reading events');
 
@@ -164,7 +165,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToEdgeIoEvents(): void {
     if (!this.connection) return;
 
-    const sub = this.connection.subscribe('events.EdgeDeviceIoData.>');
+    // sensor-service publishes to subject: events.EdgeDeviceIoData (no trailing tokens)
+    const sub = this.connection.subscribe('events.EdgeDeviceIoData');
     this.logger.log('Subscribed to edge device I/O data events');
 
     (async () => {
@@ -191,7 +193,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToEdgeAlarmEvents(): void {
     if (!this.connection) return;
 
-    const sub = this.connection.subscribe('events.EdgeDeviceAlarm.>');
+    // sensor-service publishes to subject: events.EdgeDeviceAlarm (no trailing tokens)
+    const sub = this.connection.subscribe('events.EdgeDeviceAlarm');
     this.logger.log('Subscribed to edge device alarm events');
 
     (async () => {
@@ -216,35 +219,28 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   private handleSensorReadingEvent(event: NatsEvent): void {
-    if (event.eventType !== 'SensorReadingReceived') {
-      return;
-    }
-
-    // SECURITY: Validate metadata.tenantId matches payload.tenantId
-    // A crafted event from any publisher could inject data into the wrong tenant's feed
-    if (event.metadata?.tenantId && event.payload?.tenantId &&
-        event.metadata.tenantId !== event.payload.tenantId) {
-      this.logger.warn(
-        `SECURITY: NATS event tenant ID mismatch - metadata: ${event.metadata.tenantId}, ` +
-        `payload: ${event.payload.tenantId}. Dropping event.`,
-      );
+    if (event.eventType !== 'SensorReading') {
       return;
     }
 
     // SECURITY: Validate tenantId is a valid UUID format
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!event.payload?.tenantId || !uuidRegex.test(event.payload.tenantId)) {
+    if (!event.tenantId || !uuidRegex.test(event.tenantId)) {
       this.logger.warn('NATS event with invalid tenantId format, dropping');
       return;
     }
 
-    // Forward to WebSocket gateway
+    // Forward to WebSocket gateway (flat event structure)
+    const timestamp = event.timestamp instanceof Date
+      ? event.timestamp.toISOString()
+      : String(event.timestamp);
+
     this.sensorGateway.broadcastSensorReading({
-      sensorId: event.payload.sensorId,
-      sensorName: event.payload.sensorName,
-      tenantId: event.payload.tenantId,
-      readings: event.payload.readings,
-      timestamp: event.payload.timestamp,
+      sensorId: event.sensorId ?? '',
+      sensorName: event.sensorName ?? '',
+      tenantId: event.tenantId,
+      readings: event.readings ?? {},
+      timestamp,
     });
   }
 
@@ -291,20 +287,15 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   /**
    * Validate that a parsed NATS event has all required fields.
    * JSON.parse + `as NatsEvent` is only a type cast, not runtime validation.
+   * Validates flat event structure matching sensor-service publisher format.
    */
   private isValidNatsEvent(event: NatsEvent): boolean {
     return (
       typeof event === 'object' &&
       event !== null &&
       typeof event.eventType === 'string' &&
-      typeof event.payload === 'object' &&
-      event.payload !== null &&
-      typeof event.payload.sensorId === 'string' &&
-      typeof event.payload.tenantId === 'string' &&
-      typeof event.payload.timestamp === 'string' &&
-      typeof event.metadata === 'object' &&
-      event.metadata !== null &&
-      typeof event.metadata.tenantId === 'string'
+      typeof event.tenantId === 'string' &&
+      (typeof event.timestamp === 'string' || event.timestamp instanceof Date)
     );
   }
 

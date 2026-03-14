@@ -6,14 +6,64 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import {
+  IsOptional,
+  IsInt,
+  IsBoolean,
+  Min,
+  Max,
+} from 'class-validator';
+import { Request } from 'express';
 
+// Fix: MEDIUM-002 -- rate-limit sensitive PUT endpoints
+import { ThrottleSensitive } from '@aquaculture/backend-common';
 import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 
 import { SettingCategory } from './entities/system-setting.entity';
 import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
+
+// ============================================================================
+// DTOs with Validation (Fix: MEDIUM-001)
+// ============================================================================
+
+class UpdateSecurityConfigDto {
+  @IsOptional() @IsInt() @Min(5) @Max(1440)
+  sessionTimeoutMinutes?: number;
+
+  @IsOptional() @IsInt() @Min(1) @Max(20)
+  maxLoginAttempts?: number;
+
+  @IsOptional() @IsInt() @Min(1) @Max(1440)
+  lockoutDurationMinutes?: number;
+
+  @IsOptional() @IsInt() @Min(8) @Max(128)
+  passwordMinLength?: number;
+
+  @IsOptional() @IsBoolean()
+  mfaEnabled?: boolean;
+
+  @IsOptional() @IsBoolean()
+  enforceHttps?: boolean;
+}
+
+class UpdateRateLimitConfigDto {
+  @IsOptional() @IsInt() @Min(10) @Max(10000)
+  globalRpm?: number;
+
+  @IsOptional() @IsInt() @Min(5) @Max(5000)
+  perUserRpm?: number;
+
+  @IsOptional() @IsInt() @Min(10) @Max(10000)
+  perTenantRpm?: number;
+
+  @IsOptional() @IsInt() @Min(5) @Max(5000)
+  apiKeyRpm?: number;
+}
 
 @ApiTags('Settings')
 @Controller('settings')
@@ -57,31 +107,42 @@ export class SettingsController {
 
   /**
    * Update a setting
+   * Fix: C6 -- JWT-based identity
    */
   @Put('key/:key')
   async updateSetting(
     @Param('key') key: string,
     @Body() dto: UpdateSystemSettingDto,
+    @Req() req: Request,
   ) {
-    return this.settingsService.updateSetting(key, dto);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.settingsService.updateSetting(key, { ...dto, updatedBy: userId });
   }
 
   /**
    * Reset setting to default
+   * Fix: MEDIUM-003 -- audit trail with updatedBy from JWT
    */
   @Post('key/:key/reset')
-  async resetToDefault(@Param('key') key: string) {
-    return this.settingsService.resetToDefault(key);
+  async resetToDefault(@Param('key') key: string, @Req() req: Request) {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.settingsService.resetToDefault(key, userId);
   }
 
   /**
    * Bulk update settings
+   * Fix: C6 -- JWT-based identity
    */
   @Put('bulk')
   async bulkUpdate(
-    @Body() body: { updates: { key: string; value: string }[]; updatedBy?: string },
+    @Body() body: { updates: { key: string; value: string }[] },
+    @Req() req: Request,
   ) {
-    return this.settingsService.bulkUpdate(body.updates, body.updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.settingsService.bulkUpdate(body.updates, userId);
   }
 
   // ============================================================================
@@ -98,6 +159,7 @@ export class SettingsController {
 
   /**
    * Update email configuration
+   * Fix: C6 -- JWT-based identity
    */
   @Put('config/email')
   async updateEmailConfig(
@@ -110,11 +172,12 @@ export class SettingsController {
       smtpPassword?: string;
       fromAddress?: string;
       fromName?: string;
-      updatedBy?: string;
     },
+    @Req() req: Request,
   ) {
-    const { updatedBy, ...config } = body;
-    await this.settingsService.updateEmailConfig(config, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    await this.settingsService.updateEmailConfig(body, userId);
     return this.settingsService.getEmailConfig();
   }
 
@@ -127,10 +190,46 @@ export class SettingsController {
   }
 
   /**
+   * Update security configuration
+   * Fix: H20 -- PUT security endpoint for SystemSettingsPage
+   * Fix: MEDIUM-001 -- proper DTO with class-validator
+   * Fix: MEDIUM-002 -- rate-limit sensitive endpoint
+   */
+  @ThrottleSensitive()
+  @Put('config/security')
+  async updateSecurityConfig(
+    @Body() body: UpdateSecurityConfigDto,
+    @Req() req: Request,
+  ) {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    await this.settingsService.updateSecurityConfig(body, userId);
+    return this.settingsService.getSecurityConfig();
+  }
+
+  /**
    * Get rate limit configuration
    */
   @Get('config/rate-limits')
   async getRateLimitConfig() {
+    return this.settingsService.getRateLimitConfig();
+  }
+
+  /**
+   * Update rate limit configuration
+   * Fix: H20 -- PUT rate-limits endpoint for SystemSettingsPage
+   * Fix: MEDIUM-001 -- proper DTO with class-validator
+   * Fix: MEDIUM-002 -- rate-limit sensitive endpoint
+   */
+  @ThrottleSensitive()
+  @Put('config/rate-limits')
+  async updateRateLimitConfig(
+    @Body() body: UpdateRateLimitConfigDto,
+    @Req() req: Request,
+  ) {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    await this.settingsService.updateRateLimitConfig(body, userId);
     return this.settingsService.getRateLimitConfig();
   }
 
@@ -144,6 +243,7 @@ export class SettingsController {
 
   /**
    * Toggle maintenance mode
+   * Fix: C6 -- JWT-based identity
    */
   @Put('config/maintenance')
   async setMaintenanceMode(
@@ -152,14 +252,16 @@ export class SettingsController {
       enabled: boolean;
       message?: string;
       allowedIps?: string[];
-      updatedBy?: string;
     },
+    @Req() req: Request,
   ) {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.setMaintenanceMode(
       body.enabled,
       body.message,
       body.allowedIps,
-      body.updatedBy,
+      userId,
     );
     return this.settingsService.getMaintenanceStatus();
   }
@@ -174,6 +276,7 @@ export class SettingsController {
 
   /**
    * Update billing configuration
+   * Fix: C6 -- JWT-based identity
    */
   @Put('config/billing')
   async updateBillingConfig(
@@ -183,11 +286,12 @@ export class SettingsController {
       defaultCurrency?: string;
       taxRate?: number;
       invoiceDueDays?: number;
-      updatedBy?: string;
     },
+    @Req() req: Request,
   ) {
-    const { updatedBy, ...config } = body;
-    await this.settingsService.updateBillingConfig(config, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    await this.settingsService.updateBillingConfig(body, userId);
     return this.settingsService.getBillingConfig();
   }
 
@@ -224,12 +328,16 @@ export class SettingsController {
 
   /**
    * Import settings
+   * Fix: C6 -- JWT-based identity
    */
   @Post('import')
   async importSettings(
-    @Body() body: { data: Record<string, unknown>; updatedBy?: string },
+    @Body() body: { data: Record<string, unknown> },
+    @Req() req: Request,
   ) {
-    return this.settingsService.importSettings(body.data, body.updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.settingsService.importSettings(body.data, userId);
   }
 
   // ============================================================================

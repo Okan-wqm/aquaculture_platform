@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
@@ -10,34 +11,54 @@ import { SubscriptionModuleItem } from '../entities/subscription-module-item.ent
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Event payload structure for TenantSubscriptionRequested
+ * Module quantity configuration for subscription pricing
  */
-interface TenantSubscriptionRequestedPayload {
-  tenantId: string;
-  tenantName: string;
-  moduleIds: string[];
-  moduleQuantities?: Array<{
-    moduleId: string;
-    users?: number;
-    farms?: number;
-    ponds?: number;
-    sensors?: number;
-    employees?: number;
-  }>;
-  trialDays?: number;
-  tier: string;
-  billingCycle: string;
-  billingEmail?: string;
-  createdBy: string;
+interface ModuleQuantityConfig {
+  moduleId: string;
+  users?: number;
+  farms?: number;
+  ponds?: number;
+  sensors?: number;
+  employees?: number;
 }
 
 /**
- * Event class for @EventsHandler registration
+ * Event class for @EventsHandler registration.
+ *
+ * Flat structure matching the canonical TenantSubscriptionRequestedEvent
+ * contract from @platform/event-contracts.
+ *
+ * Backward compatibility: the handler also supports a legacy `payload`
+ * wrapper so that in-flight events serialised with the old shape are
+ * still processed correctly.
  */
 export class TenantSubscriptionRequestedEvent {
   eventType!: 'TenantSubscriptionRequested';
-  payload!: TenantSubscriptionRequestedPayload;
   timestamp!: Date;
+
+  // Flat fields (canonical contract)
+  tenantId!: string;
+  tenantName!: string;
+  moduleIds!: string[];
+  moduleQuantities?: ModuleQuantityConfig[];
+  trialDays?: number;
+  tier!: string;
+  billingCycle!: string;
+  billingEmail?: string;
+  createdBy!: string;
+
+  // Legacy nested payload (backward compat)
+  payload?: {
+    tenantId: string;
+    tenantName: string;
+    moduleIds: string[];
+    moduleQuantities?: ModuleQuantityConfig[];
+    trialDays?: number;
+    tier: string;
+    billingCycle: string;
+    billingEmail?: string;
+    createdBy: string;
+  };
 }
 
 /**
@@ -134,7 +155,7 @@ export class TenantSubscriptionRequestedHandler
   constructor(
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
-    private readonly eventEmitter: EventEmitter2,
+    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
   ) {}
 
   async handle(event: TenantSubscriptionRequestedEvent): Promise<void> {
@@ -143,42 +164,56 @@ export class TenantSubscriptionRequestedHandler
       return;
     }
 
-    const { payload } = event;
-    this.logger.log(`Processing subscription request for tenant ${payload.tenantId}`);
+    // Backward compatibility: support both flat events (canonical contract)
+    // and legacy nested-payload events.  Flat fields take precedence.
+    const tenantId = event.tenantId || event.payload?.tenantId;
+    const tenantName = event.tenantName || event.payload?.tenantName;
+    const moduleIds = event.moduleIds || event.payload?.moduleIds || [];
+    const moduleQuantities = event.moduleQuantities || event.payload?.moduleQuantities;
+    const trialDays = event.trialDays ?? event.payload?.trialDays;
+    const tier = event.tier || event.payload?.tier;
+    const billingCycle = event.billingCycle || event.payload?.billingCycle;
+    const billingEmail = event.billingEmail || event.payload?.billingEmail;
+    const createdBy = event.createdBy || event.payload?.createdBy;
+
+    this.logger.log(`Processing subscription request for tenant ${tenantId}`);
 
     // SECURITY: Validate tenantId is a proper UUID before any DB operation
-    if (!UUID_REGEX.test(payload.tenantId)) {
-      this.logger.error(`Invalid tenantId in NATS payload: ${payload.tenantId}`);
+    if (!tenantId || !UUID_REGEX.test(tenantId)) {
+      this.logger.error(`Invalid tenantId in NATS payload: ${tenantId}`);
       return;
     }
 
     // SECURITY: Validate all moduleIds are valid UUIDs before any DB operation.
     // moduleIds arrive from an untrusted NATS event payload; a malformed value could
     // cause DoS-style errors or information leakage via DB error messages.
-    if (payload.moduleIds && payload.moduleIds.length > 0) {
-      const invalidIds = payload.moduleIds.filter((id) => !UUID_REGEX.test(id));
+    if (moduleIds && moduleIds.length > 0) {
+      const invalidIds = moduleIds.filter((id) => !UUID_REGEX.test(id));
       if (invalidIds.length > 0) {
         this.logger.error(
-          `Invalid moduleId(s) in NATS payload for tenant ${payload.tenantId}: ${invalidIds.join(', ')}`,
+          `Invalid moduleId(s) in NATS payload for tenant ${tenantId}: ${invalidIds.join(', ')}`,
         );
-        this.eventEmitter.emit('subscription.creation.failed', {
-          tenantId: payload.tenantId,
-          reason: 'Invalid moduleId format in event payload',
-          timestamp: new Date(),
-        });
+        await this.publishProvisioningFailed(tenantId, 'Invalid moduleId format in event payload', moduleIds);
         return;
       }
     }
 
+    // Validate required tier field
+    if (!tier) {
+      this.logger.error(`Missing tier in NATS payload for tenant ${tenantId}`);
+      await this.publishProvisioningFailed(tenantId, 'Missing tier in event payload');
+      return;
+    }
+
     try {
       // Map tier string to PlanTier enum
-      const planTier = this.mapToPlanTier(payload.tier);
+      const planTier = this.mapToPlanTier(tier);
 
       // Map billing cycle string to BillingCycle enum
-      const billingCycle = this.mapToBillingCycle(payload.billingCycle);
+      const mappedBillingCycle = this.mapToBillingCycle(billingCycle || 'monthly');
 
       // Get default limits and pricing for tier
-      const tierKey = payload.tier.toLowerCase();
+      const tierKey = tier.toLowerCase();
       const limits = DEFAULT_LIMITS[tierKey] ?? {
         maxFarms: 3,
         maxPonds: 30,
@@ -199,15 +234,15 @@ export class TenantSubscriptionRequestedHandler
 
       // Calculate total based on module quantities if provided
       let calculatedBasePrice = pricing.basePrice;
-      if (payload.moduleIds && payload.moduleIds.length > 0) {
+      if (moduleIds && moduleIds.length > 0) {
         // Add per-module pricing
-        const moduleCount = payload.moduleIds.length;
+        const moduleCount = moduleIds.length;
         // Each module adds to base price
         calculatedBasePrice += moduleCount * 25; // $25 per module base
 
         // Add quantity-based pricing
-        if (payload.moduleQuantities) {
-          for (const mq of payload.moduleQuantities) {
+        if (moduleQuantities) {
+          for (const mq of moduleQuantities) {
             if (mq.farms) calculatedBasePrice += mq.farms * pricing.perFarmPrice;
             if (mq.sensors) calculatedBasePrice += mq.sensors * pricing.perSensorPrice;
             if (mq.users) calculatedBasePrice += mq.users * pricing.perUserPrice;
@@ -218,9 +253,9 @@ export class TenantSubscriptionRequestedHandler
       // Create subscription command input
       const subscriptionInput = {
         planTier,
-        planName: `${this.capitalizeFirst(payload.tier)} Plan`,
-        billingCycle,
-        trialDays: payload.trialDays || 14, // Default 14-day trial
+        planName: `${this.capitalizeFirst(tier)} Plan`,
+        billingCycle: mappedBillingCycle,
+        trialDays: trialDays || 14, // Default 14-day trial
         limits: {
           maxFarms: limits.maxFarms,
           maxPonds: limits.maxPonds,
@@ -246,37 +281,33 @@ export class TenantSubscriptionRequestedHandler
       // Execute create subscription command
       const subscription = await this.commandBus.execute(
         new CreateSubscriptionCommand(
-          payload.tenantId,
+          tenantId,
           subscriptionInput,
-          payload.createdBy || 'system',
+          createdBy || 'system',
         ),
       );
 
       this.logger.log(
-        `Subscription ${subscription.id} created for tenant ${payload.tenantId} with tier ${planTier}`,
+        `Subscription ${subscription.id} created for tenant ${tenantId} with tier ${planTier}`,
       );
 
       // Create subscription module items if modules were assigned
-      if (payload.moduleIds && payload.moduleIds.length > 0) {
+      if (moduleIds && moduleIds.length > 0) {
         await this.createSubscriptionModuleItems(
           subscription.id,
-          payload.tenantId,
-          payload.moduleIds,
-          payload.moduleQuantities,
+          tenantId,
+          moduleIds,
+          moduleQuantities,
         );
       }
     } catch (error) {
       this.logger.error(
-        `Failed to create subscription for tenant ${payload.tenantId}: ${(error as Error).message}`,
+        `Failed to create subscription for tenant ${tenantId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      // MED-05: Emit a failure event so admin-api-service or alerting can detect and
+      // MED-05: Publish a failure event so admin-api-service or alerting can detect and
       // remediate the orphaned tenant (a tenant with no subscription has no plan limits).
-      this.eventEmitter.emit('subscription.creation.failed', {
-        tenantId: payload.tenantId,
-        reason: (error as Error).message,
-        timestamp: new Date(),
-      });
+      await this.publishProvisioningFailed(tenantId, (error as Error).message, moduleIds, tier);
       // Don't re-throw — we don't want to fail the entire tenant creation flow.
       // The subscription can be created manually; the failure event signals the discrepancy.
     }
@@ -374,5 +405,35 @@ export class TenantSubscriptionRequestedHandler
 
   private capitalizeFirst(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+  }
+
+  /**
+   * Publish a SubscriptionProvisioningFailed event via NATS.
+   * Errors are caught and logged — a failure to publish must never mask the original error.
+   */
+  private async publishProvisioningFailed(
+    tenantId: string,
+    error: string,
+    moduleIds?: string[],
+    tier?: string,
+  ): Promise<void> {
+    try {
+      const event: SubscriptionProvisioningFailedEvent = {
+        ...createBaseEvent<SubscriptionProvisioningFailedEvent>(
+          'SubscriptionProvisioningFailed',
+          tenantId,
+        ),
+        error,
+        tier: tier as SubscriptionProvisioningFailedEvent['tier'],
+        moduleIds,
+      };
+      await this.eventBus?.publish(event);
+    } catch (publishError) {
+      this.logger.warn(
+        `Failed to publish SubscriptionProvisioningFailed event for tenant ${tenantId}: ${
+          publishError instanceof Error ? publishError.message : 'Unknown error'
+        }`,
+      );
+    }
   }
 }

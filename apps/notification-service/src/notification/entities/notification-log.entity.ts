@@ -15,6 +15,7 @@ export enum NotificationStatus {
   FAILED = 'failed',
   RETRYING = 'retrying',
   BOUNCED = 'bounced',
+  DEAD_LETTER = 'dead_letter',
 }
 
 /**
@@ -26,6 +27,7 @@ export enum NotificationChannel {
   PUSH = 'push',
   WEBHOOK = 'webhook',
   IN_APP = 'in_app',
+  SYSTEM = 'system',
 }
 
 /**

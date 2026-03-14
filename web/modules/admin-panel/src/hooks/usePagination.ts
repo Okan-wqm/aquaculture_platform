@@ -118,17 +118,19 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
   const canPrev = page > 1;
   const canNext = page < totalPages;
 
-  // Update URL when syncing
+  // Update URL when syncing (H2: functional update to avoid stale closure)
   const updateUrl = useCallback(
     (newPage: number, newLimit: number) => {
       if (syncUrl) {
-        const newParams = new URLSearchParams(searchParams);
-        newParams.set('page', String(newPage));
-        newParams.set('limit', String(newLimit));
-        setSearchParams(newParams, { replace: true });
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.set('page', String(newPage));
+          next.set('limit', String(newLimit));
+          return next;
+        }, { replace: true });
       }
     },
-    [syncUrl, searchParams, setSearchParams]
+    [syncUrl, setSearchParams]
   );
 
   const goToPage = useCallback(
@@ -170,9 +172,14 @@ export function usePagination(options: UsePaginationOptions = {}): UsePagination
     [updateUrl]
   );
 
+  // M4: clamp current page when total changes to avoid out-of-bounds
   const setTotal = useCallback((newTotal: number) => {
     setTotalState(newTotal);
-  }, []);
+    setPage(prev => {
+      const maxPage = Math.max(1, Math.ceil(newTotal / limit));
+      return Math.min(prev, maxPage);
+    });
+  }, [limit]);
 
   const reset = useCallback(() => {
     setPage(initialPage);

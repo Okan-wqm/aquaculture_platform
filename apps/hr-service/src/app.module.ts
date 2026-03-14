@@ -16,6 +16,7 @@ import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
   UserContextMiddleware,
+  TenantGuard,
   RolesGuard,
   SourceSchemaBootstrapService,
 } from '@platform/backend-common';
@@ -226,6 +227,12 @@ import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.han
     HealthModule,
   ],
   providers: [
+    // SECURITY: Tenant guard - ensures tenant isolation
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+    // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
       useClass: RolesGuard,

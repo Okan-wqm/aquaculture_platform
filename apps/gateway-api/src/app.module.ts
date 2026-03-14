@@ -17,6 +17,7 @@ import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
   RequestLoggingMiddleware,
+  MetricsMiddleware,
   RedisModule,
   RedisService,
 } from '@platform/backend-common';
@@ -34,6 +35,7 @@ import {
 } from './guards/redis-token-blacklist.store';
 import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
+import { GatewayMetricsModule } from './metrics/metrics.module';
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
@@ -429,6 +431,9 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     // Health check module
     HealthModule,
 
+    // Prometheus metrics (per-service /metrics endpoint)
+    GatewayMetricsModule,
+
     // File upload module
     UploadModule,
 
@@ -502,11 +507,13 @@ export class AppModule implements NestModule {
     consumer
       .apply(
         // Order matters:
-        // 1. Set correlation id for tracing
-        // 2. Decode JWT and set req.user (needed for willSendRequest to forward headers)
-        // 3. Hydrate user from x-user-payload header (for inter-service calls)
-        // 4. Set tenant context
-        // 5. Log request
+        // 1. Record request metrics (before everything else for accurate duration)
+        // 2. Set correlation id for tracing
+        // 3. Decode JWT and set req.user (needed for willSendRequest to forward headers)
+        // 4. Hydrate user from x-user-payload header (for inter-service calls)
+        // 5. Set tenant context
+        // 6. Log request
+        MetricsMiddleware,
         CorrelationIdMiddleware,
         JwtMiddleware,
         UserContextMiddleware,

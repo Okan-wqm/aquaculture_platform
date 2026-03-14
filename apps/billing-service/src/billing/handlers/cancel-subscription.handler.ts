@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent, SubscriptionCancelledEvent } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common';
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
@@ -17,7 +18,7 @@ export class CancelSubscriptionHandler
 
   constructor(
     private readonly dataSource: DataSource,
-    private readonly eventEmitter: EventEmitter2,
+    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
     @Optional() private readonly redisService?: RedisService,
   ) {}
 
@@ -74,12 +75,25 @@ export class CancelSubscriptionHandler
         await this.redisService.del(`subscription:${tenantId}`).catch(() => { /* non-fatal */ });
       }
 
-      // Emit event so MeteredBillingService can evict any cached billing calculations
-      // for this subscription (H-03: stale cache after plan change / cancellation).
-      this.eventEmitter.emit('subscription.cancelled', {
-        subscriptionId: savedSubscription.id,
-        tenantId,
-      });
+      // Publish NATS event so other services (metering, notification, etc.)
+      // can react to the cancellation.
+      try {
+        const event: SubscriptionCancelledEvent = {
+          ...createBaseEvent<SubscriptionCancelledEvent>('SubscriptionCancelled', tenantId, { userId }),
+          subscriptionId: savedSubscription.id,
+          cancellationDate: savedSubscription.cancelledAt!,
+          effectiveEndDate: savedSubscription.endDate!,
+          reason,
+        };
+        await this.eventBus?.publish(event);
+      } catch (eventError) {
+        // Event publish failure must not block the main operation
+        this.logger.warn(
+          `Failed to publish SubscriptionCancelled event for ${savedSubscription.id}: ${
+            eventError instanceof Error ? eventError.message : 'Unknown error'
+          }`,
+        );
+      }
 
       return savedSubscription;
     });

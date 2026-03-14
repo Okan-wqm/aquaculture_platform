@@ -1,9 +1,7 @@
-import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, CurrentUser } from '@platform/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   AssignUserToModuleInput,
   AssignmentResult,
@@ -22,7 +20,6 @@ import { TenantAdminService } from '../services/tenant-admin.service';
  * All operations require TENANT_ADMIN role or higher.
  */
 @Resolver()
-@UseGuards(JwtAuthGuard)
 export class TenantAdminResolver {
   constructor(private readonly tenantAdminService: TenantAdminService) {}
 

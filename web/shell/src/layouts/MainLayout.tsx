@@ -188,6 +188,24 @@ const tenantAdminBaseNavigation: NavigationItem[] = [
     icon: 'database',
   },
   {
+    id: 'tenant-audit-log',
+    label: 'Audit Log',
+    path: '/tenant/audit-log',
+    icon: 'security',
+  },
+  {
+    id: 'tenant-billing',
+    label: 'Billing',
+    path: '/tenant/billing',
+    icon: 'billing',
+  },
+  {
+    id: 'tenant-activity',
+    label: 'Activity',
+    path: '/tenant/activity',
+    icon: 'activity',
+  },
+  {
     id: 'tenant-settings',
     label: 'Settings',
     path: '/tenant/settings',

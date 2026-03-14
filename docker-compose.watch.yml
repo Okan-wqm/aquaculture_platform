@@ -45,6 +45,7 @@ services:
       args:
         SERVICE_NAME: auth-service
     environment:
+      - SERVICE_NAME=auth-service
       - NODE_ENV=development
       - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
@@ -81,6 +82,7 @@ services:
       args:
         SERVICE_NAME: farm-service
     environment:
+      - SERVICE_NAME=farm-service
       - NODE_ENV=development
       - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
       - NATS_URL=nats://nats:4222
@@ -115,6 +117,7 @@ services:
       args:
         SERVICE_NAME: sensor-service
     environment:
+      - SERVICE_NAME=sensor-service
       - NODE_ENV=development
       - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
@@ -150,6 +153,7 @@ services:
       args:
         SERVICE_NAME: hr-service
     environment:
+      - SERVICE_NAME=hr-service
       - NODE_ENV=development
       - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
       - NATS_URL=nats://nats:4222
@@ -182,6 +186,7 @@ services:
       args:
         SERVICE_NAME: gateway-api
     environment:
+      - SERVICE_NAME=gateway-api
       - NODE_ENV=development
       - AUTH_SERVICE_URL=http://auth-service:3000/graphql
       - FARM_SERVICE_URL=http://farm-service:3000/graphql

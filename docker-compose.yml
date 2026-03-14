@@ -15,6 +15,17 @@ services:
       POSTGRES_USER: aquaculture
       POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
       POSTGRES_DB: aquaculture
+      # SEC-015: Per-service DB passwords (passed to 00-init-schemas.sh)
+      AUTH_SERVICE_DB_PASS: ${AUTH_SERVICE_DB_PASS:-}
+      FARM_SERVICE_DB_PASS: ${FARM_SERVICE_DB_PASS:-}
+      SENSOR_SERVICE_DB_PASS: ${SENSOR_SERVICE_DB_PASS:-}
+      BILLING_SERVICE_DB_PASS: ${BILLING_SERVICE_DB_PASS:-}
+      HR_SERVICE_DB_PASS: ${HR_SERVICE_DB_PASS:-}
+      ALERT_SERVICE_DB_PASS: ${ALERT_SERVICE_DB_PASS:-}
+      ADMIN_SERVICE_DB_PASS: ${ADMIN_SERVICE_DB_PASS:-}
+      GATEWAY_SERVICE_DB_PASS: ${GATEWAY_SERVICE_DB_PASS:-}
+      NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
+      HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
     ports:
       - "5432:5432"
     volumes:
@@ -98,6 +109,7 @@ services:
         SERVICE_NAME: gateway-api
     container_name: aqua-gateway
     environment:
+      SERVICE_NAME: gateway-api
       NODE_ENV: development
       PORT: 3000
       GATEWAY_PORT: 3000
@@ -121,6 +133,9 @@ services:
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
+      # OpenTelemetry Tracing
+      ENABLE_TRACING: ${ENABLE_TRACING:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "3000:3000"
     depends_on:
@@ -168,6 +183,7 @@ services:
         SERVICE_NAME: auth-service
     container_name: aqua-auth
     environment:
+      SERVICE_NAME: auth-service
       NODE_ENV: development
       PORT: 3000
       AUTH_SERVICE_PORT: 3000
@@ -182,6 +198,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
+      # OpenTelemetry Tracing
+      ENABLE_TRACING: ${ENABLE_TRACING:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "3001:3000"
     healthcheck:
@@ -215,6 +234,7 @@ services:
         SERVICE_NAME: farm-service
     container_name: aqua-farm
     environment:
+      SERVICE_NAME: farm-service
       NODE_ENV: development
       PORT: 3000
       FARM_SERVICE_PORT: 3000
@@ -259,6 +279,7 @@ services:
         SERVICE_NAME: sensor-service
     container_name: aqua-sensor
     environment:
+      SERVICE_NAME: sensor-service
       NODE_ENV: development
       PORT: 3000
       SENSOR_SERVICE_PORT: 3000
@@ -275,6 +296,9 @@ services:
       # Requires simulator stack to be on the same Docker network (aqua-network)
       # Start simulators: docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d
       MQTT_BROKER_URL: mqtt://aqua-mosquitto:1883
+      # OpenTelemetry Tracing
+      ENABLE_TRACING: ${ENABLE_TRACING:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -306,6 +330,7 @@ services:
         SERVICE_NAME: alert-engine
     container_name: aqua-alert
     environment:
+      SERVICE_NAME: alert-engine
       NODE_ENV: development
       PORT: 3000
       ALERT_ENGINE_PORT: 3000
@@ -348,6 +373,7 @@ services:
         SERVICE_NAME: billing-service
     container_name: aqua-billing
     environment:
+      SERVICE_NAME: billing-service
       NODE_ENV: development
       PORT: 3000
       BILLING_SERVICE_PORT: 3000
@@ -388,6 +414,7 @@ services:
         SERVICE_NAME: hr-service
     container_name: aqua-hr
     environment:
+      SERVICE_NAME: hr-service
       NODE_ENV: development
       PORT: 3000
       HR_SERVICE_PORT: 3000
@@ -428,6 +455,7 @@ services:
         SERVICE_NAME: hydroponics-service
     container_name: aqua-hydroponics
     environment:
+      SERVICE_NAME: hydroponics-service
       NODE_ENV: development
       PORT: 3000
       HYDROPONICS_SERVICE_PORT: 3000
@@ -469,6 +497,7 @@ services:
         SERVICE_NAME: notification-service
     container_name: aqua-notification
     environment:
+      SERVICE_NAME: notification-service
       NODE_ENV: development
       PORT: 3000
       NOTIFICATION_SERVICE_PORT: 3000
@@ -505,6 +534,7 @@ services:
         SERVICE_NAME: admin-api-service
     container_name: aqua-admin-api
     environment:
+      SERVICE_NAME: admin-api-service
       NODE_ENV: development
       PORT: 3000
       DATABASE_HOST: postgres
@@ -664,6 +694,29 @@ services:
     networks:
       - aqua-network
     restart: unless-stopped
+
+  # ===========================================================================
+  # Observability
+  # ===========================================================================
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.54
+    container_name: aqua-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      # Jaeger UI
+      - "16686:16686"
+      # OTLP HTTP receiver (used by OpenTelemetry SDK in services)
+      - "4318:4318"
+    networks:
+      - aqua-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
 
   # ===========================================================================
   # Development Tools

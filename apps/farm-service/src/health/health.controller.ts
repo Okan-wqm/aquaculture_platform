@@ -1,13 +1,14 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { SkipTenantGuard } from '@platform/backend-common';
+import { Public, SkipTenantGuard } from '@platform/backend-common';
 
 /**
  * Health Controller
  * Provides health check endpoints for kubernetes probes
  */
 @Controller('health')
+@Public()
 @SkipTenantGuard()
 export class HealthController {
   constructor(

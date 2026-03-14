@@ -1,9 +1,10 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { SkipTenantGuard } from '@platform/backend-common';
+import { Public, SkipTenantGuard } from '@platform/backend-common';
 import { DataSource } from 'typeorm';
 
 @Controller('health')
+@Public()
 @SkipTenantGuard()
 export class HealthController {
   constructor(

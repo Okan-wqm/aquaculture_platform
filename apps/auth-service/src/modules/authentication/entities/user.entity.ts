@@ -33,6 +33,7 @@ registerEnumType(Role, {
 @Index('IDX_users_tenant', ['tenantId'])
 @Index('IDX_users_role', ['role'])
 @Index('IDX_users_invitation_token', ['invitationToken'], { unique: true, where: '"invitationToken" IS NOT NULL' })
+@Index('IDX_users_password_reset_token', ['passwordResetToken'], { where: '"passwordResetToken" IS NOT NULL' })
 export class User {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

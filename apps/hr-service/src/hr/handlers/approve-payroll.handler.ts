@@ -31,6 +31,11 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
         throw new NotFoundException(`Payroll with id ${payrollId} not found`);
       }
 
+      // Prevent self-approval: the user who created the payroll cannot approve it
+      if (payroll.createdBy === userId) {
+        throw new BadRequestException('Cannot approve your own payroll entry');
+      }
+
       // Validate status transition
       const validStatuses = [PayrollStatus.DRAFT, PayrollStatus.PENDING_APPROVAL];
       if (!validStatuses.includes(payroll.status)) {

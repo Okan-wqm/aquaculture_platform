@@ -9,6 +9,9 @@
  * - Data access control
  * - Rate limiting
  * - CSRF protection
+ *
+ * NOTE: Tests marked with it.todo() are placeholders for Sprint 3 implementation.
+ * They require guard/middleware integration tests that are out of scope for unit tests.
  */
 
 import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
@@ -17,6 +20,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
 import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { TenantActivityService } from '../services/tenant-activity.service';
 import { TenantDetailService } from '../services/tenant-detail.service';
 import { TenantProvisioningService } from '../services/tenant-provisioning.service';
@@ -79,7 +83,10 @@ describe('Tenant Security Tests', () => {
         { provide: TenantActivityService, useValue: mockActivityService },
         { provide: TenantProvisioningService, useValue: mockProvisioningService },
       ],
-    }).compile();
+    })
+      .overrideGuard(PlatformAdminGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
@@ -96,61 +103,16 @@ describe('Tenant Security Tests', () => {
 
   describe('1. Tenant Isolation Tests', () => {
     describe('Cross-Tenant Access Prevention', () => {
-      it('should prevent tenant admin from accessing other tenant data', async () => {
-        // Tenant Admin trying to access different tenant's data
-        mockQueryBus.execute.mockImplementation(() => {
-          throw new Error('Forbidden: Cannot access other tenant data');
-        });
-
-        // This would be blocked by guards in real implementation
-        // The test verifies the expected behavior
-        expect(true).toBe(true);
-      });
-
-      it('should prevent tenant admin from modifying other tenant', async () => {
-        // Tenant Admin trying to update different tenant
-        mockCommandBus.execute.mockImplementation(() => {
-          throw new Error('Forbidden: Cannot modify other tenant');
-        });
-
-        expect(true).toBe(true);
-      });
-
-      it('should prevent data leakage between tenants in list queries', async () => {
-        // Query should only return data for authorized tenant
-        mockQueryBus.execute.mockResolvedValue({
-          data: [], // Only tenant's own data
-          total: 0,
-        });
-
-        // Verify no cross-tenant data
-        expect(true).toBe(true);
-      });
-
-      it('should prevent bulk operations on other tenants', async () => {
-        // Bulk suspend should only work on own tenant
-        mockDetailService.bulkSuspend.mockImplementation((ids) => {
-          // Check all IDs belong to caller's tenant
-          return { success: [], failed: ids };
-        });
-
-        expect(true).toBe(true);
-      });
+      // These tests require real guard integration (JWT + tenant context middleware)
+      it.todo('should prevent tenant admin from accessing other tenant data');
+      it.todo('should prevent tenant admin from modifying other tenant');
+      it.todo('should prevent data leakage between tenants in list queries');
+      it.todo('should prevent bulk operations on other tenants');
     });
 
     describe('Schema-Level Isolation', () => {
-      it('should use tenant-specific schema for queries', async () => {
-        // Verify queries go to tenant schema, not shared
-        expect(true).toBe(true);
-      });
-
-      it('should prevent schema escape attacks', async () => {
-        // Attempt to reference other schema
-        const maliciousSlug = "tenant'; DROP SCHEMA public CASCADE; --";
-
-        // This should be sanitized
-        expect(true).toBe(true);
-      });
+      it.todo('should use tenant-specific schema for queries');
+      it.todo('should prevent schema escape attacks');
     });
   });
 
@@ -172,21 +134,25 @@ describe('Tenant Security Tests', () => {
         it(`should sanitize SQL injection payload #${index + 1}`, async () => {
           mockQueryBus.execute.mockResolvedValue({ data: [], total: 0 });
 
-          // The validation pipe should strip or reject malicious input
-          // If it reaches the service, it should be parameterized
           const response = await request(app.getHttpServer())
             .get('/tenants')
             .query({ search: payload })
             .set(superAdminHeaders);
 
-          // Should not execute SQL injection - either rejected or sanitized
-          // Status should be 200 (sanitized) or 400 (rejected)
+          // Must return success (200) -- injection payloads are treated as plain search text
+          // by parameterized queries, not as executable SQL. A 400 is also acceptable if
+          // input validation explicitly rejects the pattern. 500 is NEVER acceptable.
+          expect(response.status).not.toBe(HttpStatus.INTERNAL_SERVER_ERROR);
           expect([200, 400]).toContain(response.status);
+
+          // Verify the query bus was called (search was passed safely through parameterized query)
+          if (response.status === 200) {
+            expect(mockQueryBus.execute).toHaveBeenCalled();
+          }
         });
       });
 
       it('should use parameterized queries', async () => {
-        // Verify the query builder uses parameters, not string interpolation
         mockQueryBus.execute.mockResolvedValue({ data: [], total: 0 });
 
         await request(app.getHttpServer())
@@ -194,7 +160,6 @@ describe('Tenant Security Tests', () => {
           .query({ search: "test' OR '1'='1" })
           .set(superAdminHeaders);
 
-        // The search should be passed as parameter, not interpolated
         expect(mockQueryBus.execute).toHaveBeenCalled();
       });
     });
@@ -213,6 +178,7 @@ describe('Tenant Security Tests', () => {
 
       xssPayloads.forEach((payload, index) => {
         it(`should sanitize XSS payload #${index + 1}`, async () => {
+          // Mock returns the payload as-is to test whether the controller/pipe sanitizes it
           mockCommandBus.execute.mockResolvedValue({ id: 'test', name: payload });
 
           const response = await request(app.getHttpServer())
@@ -225,9 +191,14 @@ describe('Tenant Security Tests', () => {
               primaryContact: { name: 'Test', email: 'test@test.com' },
             });
 
-          // Input should be sanitized or rejected
+          // The request must not cause a server error
+          expect(response.status).not.toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+
+          // If the tenant was created (201), verify the response does not contain raw script tags.
+          // If validation rejected it (400), that is also acceptable (input was blocked).
+          // Any other status is unexpected.
+          expect([201, 400]).toContain(response.status);
           if (response.status === 201) {
-            // If accepted, it should be sanitized
             expect(response.body.name).not.toContain('<script>');
           }
         });
@@ -244,119 +215,47 @@ describe('Tenant Security Tests', () => {
 
       pathTraversalPayloads.forEach((payload, index) => {
         it(`should prevent path traversal #${index + 1}`, async () => {
-          // In a mock setup, the slug endpoint accepts any string param
-          // and the queryBus mock returns the mock result. In production,
-          // the DB would return no match, resulting in 404.
-          // Here we verify the request does not crash the server.
           mockQueryBus.execute.mockRejectedValueOnce({ name: 'NotFoundException', message: 'Not found' });
 
           const response = await request(app.getHttpServer())
             .get(`/tenants/slug/${encodeURIComponent(payload)}`)
             .set(superAdminHeaders);
 
-          // Should not expose internal errors or paths
-          expect([200, 400, 404, 500]).toContain(response.status);
+          // Path traversal payloads must never cause a 200 (data leak) or 500 (unhandled error).
+          // Acceptable outcomes: 400 (rejected by validation) or 404 (slug not found).
+          expect(response.status).not.toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+          expect(response.status).not.toBe(HttpStatus.OK);
+          expect([400, 404]).toContain(response.status);
         });
       });
     });
 
     describe('LDAP Injection Prevention', () => {
-      it('should sanitize LDAP injection in search', async () => {
-        const ldapPayload = '*)(&(objectclass=*)';
-        mockQueryBus.execute.mockResolvedValue({ data: [], total: 0 });
-
-        await request(app.getHttpServer())
-          .get('/tenants/search')
-          .query({ q: ldapPayload })
-          .set(superAdminHeaders);
-
-        // Should be sanitized
-        expect(true).toBe(true);
-      });
+      it.todo('should sanitize LDAP injection in search');
     });
   });
 
   describe('3. Authentication/Authorization Tests', () => {
     describe('Missing Authentication', () => {
-      it('should reject requests without authentication', async () => {
-        // In a real app with guards, this would return 401
-        // For mock test, we verify the expected behavior
-        expect(true).toBe(true);
-      });
+      it.todo('should reject requests without authentication');
     });
 
     describe('Invalid Token Handling', () => {
-      it('should reject expired tokens', async () => {
-        // Token expiration check
-        expect(true).toBe(true);
-      });
-
-      it('should reject malformed tokens', async () => {
-        const malformedTokenHeaders = {
-          Authorization: 'Bearer malformed.token.here',
-        };
-
-        // Should reject
-        expect(true).toBe(true);
-      });
-
-      it('should reject tampered tokens', async () => {
-        const tamperedTokenHeaders = {
-          Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXX0.tampered',
-        };
-
-        // Should reject
-        expect(true).toBe(true);
-      });
+      it.todo('should reject expired tokens');
+      it.todo('should reject malformed tokens');
+      it.todo('should reject tampered tokens');
     });
 
     describe('Role-Based Access Control', () => {
-      it('should prevent regular users from creating tenants', async () => {
-        mockCommandBus.execute.mockImplementation(() => {
-          throw new Error('Forbidden');
-        });
-
-        // Regular user should not be able to create tenant
-        expect(true).toBe(true);
-      });
-
-      it('should prevent tenant admins from creating new tenants', async () => {
-        // Only SUPER_ADMIN should be able to create tenants
-        expect(true).toBe(true);
-      });
-
-      it('should allow only SUPER_ADMIN to suspend tenants', async () => {
-        // Verify role check
-        expect(true).toBe(true);
-      });
-
-      it('should prevent role escalation', async () => {
-        // User cannot upgrade their own role
-        expect(true).toBe(true);
-      });
+      it.todo('should prevent regular users from creating tenants');
+      it.todo('should prevent tenant admins from creating new tenants');
+      it.todo('should allow only SUPER_ADMIN to suspend tenants');
+      it.todo('should prevent role escalation');
     });
 
     describe('Authorization Bypass Attempts', () => {
-      it('should reject header manipulation for role escalation', async () => {
-        const manipulatedHeaders = {
-          'x-user-id': 'regular-user',
-          'x-user-roles': JSON.stringify(['SUPER_ADMIN']), // Attempted escalation
-        };
-
-        // In real app, JWT claims should be verified, not headers
-        expect(true).toBe(true);
-      });
-
-      it('should reject parameter pollution attempts', async () => {
-        // Multiple tenant IDs in query params
-        const response = await request(app.getHttpServer())
-          .get('/tenants')
-          .query({ 'tenant-id': 'tenant-1', 'tenant-id[]': 'tenant-2' })
-          .set(superAdminHeaders);
-
-        // Should handle gracefully
-        expect(true).toBe(true);
-      });
+      it.todo('should reject header manipulation for role escalation');
+      it.todo('should reject parameter pollution attempts');
     });
   });
 
@@ -369,116 +268,58 @@ describe('Tenant Security Tests', () => {
           .get('/tenants/00000000-0000-0000-0000-000000000000')
           .set(superAdminHeaders);
 
-        // Error message should not contain sensitive info
-        if (response.body.message) {
-          expect(response.body.message).not.toMatch(/uuid|postgres|database/i);
-        }
+        // Error response must exist and must not leak internal details
+        expect(response.status).toBeGreaterThanOrEqual(400);
+        const body = response.body;
+        const bodyStr = JSON.stringify(body);
+        expect(bodyStr).not.toMatch(/postgres/i);
+        expect(bodyStr).not.toMatch(/database/i);
+        expect(bodyStr).not.toMatch(/typeorm/i);
       });
 
-      it('should not expose internal paths in error messages', async () => {
-        mockQueryBus.execute.mockRejectedValue(new Error('Internal error at /app/src/...'));
-
-        // Should sanitize error messages
-        expect(true).toBe(true);
-      });
+      it.todo('should not expose internal paths in error messages');
 
       it('should not return password fields', async () => {
+        // Even if the underlying data layer accidentally includes sensitive fields,
+        // the API response must never expose them. We mock WITH these fields to verify
+        // the controller/serializer strips them.
         mockQueryBus.execute.mockResolvedValue({
           id: 'test',
           name: 'Test',
-          // password should never be included
+          password: 'should-be-stripped',
+          passwordHash: '$2b$10$fakehash',
+          apiSecret: 'secret-key-123',
         });
 
         const response = await request(app.getHttpServer())
           .get('/tenants/test-uuid')
           .set(superAdminHeaders);
 
-        if (response.body) {
-          expect(response.body.password).toBeUndefined();
-          expect(response.body.passwordHash).toBeUndefined();
-          expect(response.body.apiSecret).toBeUndefined();
-        }
+        // Unconditional assertion: response body must not contain sensitive fields
+        expect(response.body).toBeDefined();
+        expect(response.body.password).toBeUndefined();
+        expect(response.body.passwordHash).toBeUndefined();
+        expect(response.body.apiSecret).toBeUndefined();
       });
     });
 
     describe('Audit Trail', () => {
-      it('should log sensitive operations', async () => {
-        // Creating tenant should be logged
-        mockCommandBus.execute.mockResolvedValue({ id: 'new-tenant' });
-
-        await request(app.getHttpServer())
-          .post('/tenants')
-          .set(superAdminHeaders)
-          .send({
-            name: 'Audit Test',
-            slug: 'audit-test',
-            tier: 'FREE',
-            primaryContact: { name: 'Test', email: 'test@test.com' },
-          });
-
-        // Verify audit log was created (would check mock in real test)
-        expect(true).toBe(true);
-      });
-
-      it('should log failed authentication attempts', async () => {
-        // Failed auth should be logged
-        expect(true).toBe(true);
-      });
-
-      it('should log bulk operations', async () => {
-        mockDetailService.bulkSuspend.mockResolvedValue({ success: [], failed: [] });
-
-        await request(app.getHttpServer())
-          .post('/tenants/bulk/suspend')
-          .set(superAdminHeaders)
-          .send({ tenantIds: ['t1', 't2'], reason: 'test' });
-
-        // Bulk operation should be audited
-        expect(true).toBe(true);
-      });
+      it.todo('should log sensitive operations');
+      it.todo('should log failed authentication attempts');
+      it.todo('should log bulk operations');
     });
   });
 
   describe('5. Rate Limiting Tests', () => {
-    it('should enforce rate limits on API endpoints', async () => {
-      // Make a smaller number of concurrent requests to avoid ECONNRESET
-      mockQueryBus.execute.mockResolvedValue({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
-
-      const requests = Array.from({ length: 10 }, () =>
-        request(app.getHttpServer())
-          .get('/tenants')
-          .set(superAdminHeaders)
-      );
-
-      const responses = await Promise.all(requests);
-
-      // Some should be rate limited (429) in production
-      // For unit test, we just verify the endpoint handles concurrent requests
-      expect(responses.every(r => [200, 429].includes(r.status))).toBe(true);
-    });
-
-    it('should rate limit login attempts', async () => {
-      // Multiple failed attempts should trigger rate limit
-      expect(true).toBe(true);
-    });
+    // Rate limiting requires middleware integration, not testable in unit test context
+    // Concurrent request tests cause ECONNRESET in NestJS test environment
+    it.todo('should enforce rate limits on API endpoints');
+    it.todo('should rate limit login attempts');
   });
 
   describe('6. CSRF and Request Forgery Protection', () => {
-    it('should require proper content-type for POST/PUT/PATCH', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/tenants')
-        .set(superAdminHeaders)
-        .set('Content-Type', 'text/plain')
-        .send('name=test&slug=test');
-
-      // Should reject non-JSON content type
-      expect(true).toBe(true);
-    });
-
-    it('should validate origin header', async () => {
-      // Cross-origin requests should be validated
-      expect(true).toBe(true);
-    });
+    it.todo('should require proper content-type for POST/PUT/PATCH');
+    it.todo('should validate origin header');
   });
 
   describe('7. Mass Assignment Protection', () => {
@@ -486,7 +327,7 @@ describe('Tenant Security Tests', () => {
       mockCommandBus.execute.mockResolvedValue({
         id: 'new-id',
         name: 'Test',
-        status: 'PENDING', // Should be set by system, not user input
+        status: 'PENDING',
       });
 
       const response = await request(app.getHttpServer())
@@ -497,92 +338,44 @@ describe('Tenant Security Tests', () => {
           slug: 'test',
           tier: 'FREE',
           primaryContact: { name: 'Test', email: 'test@test.com' },
-          // Attempting to set internal fields:
           id: 'hacked-id',
-          status: 'ACTIVE', // Should be ignored
+          status: 'ACTIVE',
           createdAt: '2020-01-01',
           isSystemTenant: true,
         });
 
-      // Internal fields should not be set
+      // ValidationPipe with forbidNonWhitelisted should reject unknown fields (400)
+      // or the command bus should ignore them and use server-generated values (201).
+      // Either way, the response must not contain the attacker-supplied id.
+      expect(response.status).not.toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect([201, 400]).toContain(response.status);
       if (response.status === 201) {
         expect(response.body.id).not.toBe('hacked-id');
+        expect(response.body.status).not.toBe('ACTIVE');
+      }
+      // If 400 is returned, the ValidationPipe correctly rejected the non-whitelisted fields
+      if (response.status === 400) {
+        expect(response.body.message).toBeDefined();
       }
     });
 
-    it('should whitelist allowed update fields', async () => {
-      mockCommandBus.execute.mockResolvedValue({ id: 'test', name: 'Updated' });
-
-      await request(app.getHttpServer())
-        .put('/tenants/test-uuid')
-        .set(superAdminHeaders)
-        .send({
-          name: 'Updated',
-          // These should be ignored:
-          tier: 'ENTERPRISE', // May require special process
-          maxStorage: 999999,
-          isTrialActive: false,
-        });
-
-      // Only whitelisted fields should be updated
-      expect(true).toBe(true);
-    });
+    it.todo('should whitelist allowed update fields');
   });
 
   describe('8. Insecure Direct Object Reference (IDOR)', () => {
-    it('should verify ownership before access', async () => {
-      // Accessing tenant notes without proper authorization
-      mockActivityService.getNotes.mockImplementation((tenantId) => {
-        // Should check if user has access to this tenant
-        throw new Error('Forbidden');
-      });
-
-      expect(true).toBe(true);
-    });
-
-    it('should not expose sequential IDs', async () => {
-      mockQueryBus.execute.mockResolvedValue({
-        id: 'uuid-format', // Should be UUID, not sequential
-      });
-
-      // IDs should be UUIDs to prevent enumeration
-      expect(true).toBe(true);
-    });
+    it.todo('should verify ownership before access');
+    it.todo('should not expose sequential IDs');
   });
 
   describe('9. Business Logic Security', () => {
-    it('should prevent reactivating archived tenants', async () => {
-      mockCommandBus.execute.mockImplementation(() => {
-        throw new Error('Cannot activate archived tenant');
-      });
-
-      // Archived tenants cannot be reactivated through normal API
-      expect(true).toBe(true);
-    });
-
-    it('should enforce tier-based limits', async () => {
-      // Cannot set maxUsers beyond tier limit
-      expect(true).toBe(true);
-    });
-
-    it('should prevent self-suspension for tenant admins', async () => {
-      // Users should not be able to lock themselves out
-      expect(true).toBe(true);
-    });
+    it.todo('should prevent reactivating archived tenants');
+    it.todo('should enforce tier-based limits');
+    it.todo('should prevent self-suspension for tenant admins');
   });
 
   describe('10. Information Disclosure Prevention', () => {
-    it('should not reveal existence of other tenants', async () => {
-      mockQueryBus.execute.mockRejectedValue(new Error('Not found'));
-
-      // 404 vs 403 should be consistent to prevent enumeration
-      expect(true).toBe(true);
-    });
-
-    it('should redact sensitive data in logs', async () => {
-      // Passwords, tokens, PII should be masked in logs
-      expect(true).toBe(true);
-    });
+    it.todo('should not reveal existence of other tenants');
+    it.todo('should redact sensitive data in logs');
 
     it('should not expose version info in headers', async () => {
       mockQueryBus.execute.mockResolvedValue({ data: [], total: 0 });
@@ -591,9 +384,6 @@ describe('Tenant Security Tests', () => {
         .get('/tenants')
         .set(superAdminHeaders);
 
-      // In production, helmet or app.disable('x-powered-by') should hide this.
-      // In test, Express exposes it by default - this documents the expectation.
-      // Verify no custom version headers are exposed.
       expect(response.headers['x-app-version']).toBeUndefined();
       expect(response.headers['server']).toBeUndefined();
     });

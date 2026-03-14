@@ -1,11 +1,14 @@
 /**
  * Create Department Command Handler
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { DepartmentCreatedEvent } from '@platform/event-contracts';
 import { CreateDepartmentCommand } from '../commands/create-department.command';
 import { Department, DepartmentStatus } from '../entities/department.entity';
 import { Site } from '../../site/entities/site.entity';
@@ -74,15 +77,27 @@ export class CreateDepartmentHandler implements ICommandHandler<CreateDepartment
 
     this.logger.log(`Department "${savedDepartment.name}" created with ID ${savedDepartment.id}`);
 
-    // Domain event: DepartmentCreated
-    // await this.eventBus?.publish(new DepartmentCreatedEvent({
-    //   tenantId,
-    //   departmentId: savedDepartment.id,
-    //   name: savedDepartment.name,
-    //   code: savedDepartment.code,
-    //   siteId: savedDepartment.siteId,
-    //   createdBy: userId,
-    // }));
+    // Publish domain event: DepartmentCreated
+    if (this.eventBus) {
+      try {
+        const event: DepartmentCreatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'DepartmentCreated',
+          tenantId,
+          timestamp: new Date(),
+          departmentId: savedDepartment.id,
+          siteId: savedDepartment.siteId,
+          name: savedDepartment.name,
+          code: savedDepartment.code,
+          type: savedDepartment.type,
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published DepartmentCreatedEvent for department ${savedDepartment.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish DepartmentCreatedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return savedDepartment;
   }

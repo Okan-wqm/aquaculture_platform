@@ -21,6 +21,7 @@ import {
   ConnectionOptions,
 } from 'nats';
 import * as fs from 'fs';
+import * as os from 'os';
 import {
   IEventBus,
   IEvent,
@@ -81,9 +82,17 @@ export class NatsEventBus
       'NATS_STREAM_NAME',
       'AQUACULTURE_EVENTS',
     );
+    // ARCH-020: Use SERVICE_NAME for stable consumer identity across pod restarts.
+    // PID-based names caused orphan consumers and duplicate message processing.
+    // Same SERVICE_NAME across scaled instances enables JetStream queue-group
+    // semantics: messages are load-balanced, not duplicated.
+    const serviceName = this.configService.get<string>(
+      'SERVICE_NAME',
+      os.hostname(),
+    );
     this.clientId = this.configService.get<string>(
       'NATS_CLIENT_ID',
-      `aquaculture-${process.pid}`,
+      `aquaculture-${serviceName}`,
     );
     this.maxReconnectAttempts = this.configService.get<number>(
       'NATS_MAX_RECONNECT_ATTEMPTS',
@@ -443,14 +452,10 @@ export class NatsEventBus
         filter_subject: subject,
       };
 
-      // First, try to delete any existing consumer with same name
-      try {
-        await this.jetStreamManager.consumers.delete(this.streamName, consumerName);
-      } catch {
-        // Consumer doesn't exist, that's fine
-      }
-
-      // Create a new consumer
+      // ARCH-020: Use add() which creates OR updates the durable consumer.
+      // Previous approach deleted and recreated, losing ack position on every restart.
+      // With stable consumer names (SERVICE_NAME-based), the same durable consumer
+      // survives across restarts and scaled replicas share it for load-balanced delivery.
       await this.jetStreamManager.consumers.add(this.streamName, consumerConfig);
 
       // Get the consumer and create a pull subscription

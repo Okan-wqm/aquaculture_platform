@@ -2,6 +2,7 @@
 export * from './base-event';
 
 // Domain events by module
+export * from './auth-events';
 export * from './tenant-events';
 export * from './farm-events';
 export * from './sensor-events';
@@ -14,6 +15,7 @@ export * from './task-events';
 export * from './edge-device-events';
 
 // Re-export all domain union types for convenience
+import type { AuthEvent } from './auth-events';
 import type { TenantEvent } from './tenant-events';
 import type { FarmEvent } from './farm-events';
 import type { SensorEvent } from './sensor-events';
@@ -30,6 +32,7 @@ import type { EdgeDeviceEvent } from './edge-device-events';
  * Useful for generic event handlers and middleware.
  */
 export type AnyPlatformEvent =
+  | AuthEvent
   | TenantEvent
   | FarmEvent
   | SensorEvent

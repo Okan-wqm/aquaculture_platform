@@ -220,9 +220,18 @@ export class MqttAuthService implements OnModuleInit {
     }
 
     // Legacy edge topics: edge/{device_username}/...
+    // D04 SEC-M01: These topics lack tenant enforcement — log deprecation warning
     if (topic.startsWith('edge/')) {
       const legacyMatch = topic.match(/^edge\/([^/]+)\//);
-      return legacyMatch !== null && legacyMatch[1] === username;
+      const allowed = legacyMatch !== null && legacyMatch[1] === username;
+      if (allowed) {
+        this.logger.warn(
+          `[DEPRECATED] ACL granted on legacy topic ${topic} for ${username}. ` +
+          'Legacy edge/ topics lack tenant enforcement and will be removed in a future release. ' +
+          'Migrate device to tenant-prefixed topic: tenants/{tenantId}/devices/{deviceCode}/...',
+        );
+      }
+      return allowed;
     }
 
     // Deny everything else

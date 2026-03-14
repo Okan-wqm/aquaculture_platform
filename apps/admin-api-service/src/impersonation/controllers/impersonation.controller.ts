@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  UnauthorizedException,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -32,6 +33,8 @@ import {
 } from 'class-validator';
 import { Request } from 'express';
 
+// Fix: H8 -- per-route throttle for sensitive impersonation endpoints
+import { ThrottleSensitive } from '@aquaculture/backend-common';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   ImpersonationStatus,
@@ -165,6 +168,13 @@ class LogActionDto {
   details?: Record<string, unknown>;
 }
 
+class ExtendSessionDto {
+  @IsInt()
+  @Min(5, { message: 'Minimum extension is 5 minutes' })
+  @Max(120, { message: 'Maximum extension is 120 minutes' })
+  additionalMinutes!: number;
+}
+
 class QueryPermissionsDto {
   @IsOptional()
   @IsUUID('4')
@@ -264,7 +274,7 @@ export class ImpersonationController {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
     const user = (req as any).user;
     if (!user?.id) {
-      throw new Error('User not authenticated');
+      throw new UnauthorizedException('User not authenticated');
     }
     return this.impersonationService.grantImpersonationPermission({
       ...dto,
@@ -296,6 +306,8 @@ export class ImpersonationController {
   // Session Management
   // ============================================================================
 
+  // Fix: H8 -- per-route throttle: impersonation start is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('sessions/start')
   async startImpersonation(
     @Body() dto: StartImpersonationDto,
@@ -304,7 +316,7 @@ export class ImpersonationController {
     // SECURITY FIX: Get admin identity from verified JWT token, not client-supplied headers
     const user = (req as any).user;
     if (!user?.id || !user?.email) {
-      throw new Error('User not authenticated');
+      throw new UnauthorizedException('User not authenticated');
     }
     const request: StartImpersonationRequest = {
       superAdminId: user.id,
@@ -317,6 +329,8 @@ export class ImpersonationController {
     return this.impersonationService.startImpersonation(request);
   }
 
+  // Fix: H8 -- per-route throttle: impersonation end is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('sessions/:id/end')
   async endImpersonation(
     @Param('id') sessionId: string,
@@ -326,11 +340,13 @@ export class ImpersonationController {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
     const user = (req as any).user;
     if (!user?.id) {
-      throw new Error('User not authenticated');
+      throw new UnauthorizedException('User not authenticated');
     }
     return this.impersonationService.endImpersonation(sessionId, dto.reason, user.id);
   }
 
+  // Fix: H8 -- per-route throttle: session terminate is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('sessions/:id/terminate')
   async terminateSession(
     @Param('id') sessionId: string,
@@ -340,9 +356,28 @@ export class ImpersonationController {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
     const user = (req as any).user;
     if (!user?.id) {
-      throw new Error('User not authenticated');
+      throw new UnauthorizedException('User not authenticated');
     }
     return this.impersonationService.terminateSession(sessionId, user.id, dto.reason);
+  }
+
+  // Fix: H21 -- extend session endpoint
+  @ThrottleSensitive()
+  @Post('sessions/:id/extend')
+  async extendSession(
+    @Param('id') sessionId: string,
+    @Body() dto: ExtendSessionDto,
+    @Req() req: Request,
+  ) {
+    const user = (req as any).user;
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return this.impersonationService.extendSession(
+      sessionId,
+      dto.additionalMinutes,
+      user.id,
+    );
   }
 
   @Get('sessions/validate')

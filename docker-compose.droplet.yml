@@ -46,6 +46,18 @@ services:
       POSTGRES_EFFECTIVE_CACHE_SIZE: 1536MB
       POSTGRES_WORK_MEM: 16MB
       POSTGRES_MAINTENANCE_WORK_MEM: 128MB
+      # SEC-015: Per-service DB passwords (passed to 00-init-schemas.sh)
+      # If not set, random passwords are generated at first init.
+      AUTH_SERVICE_DB_PASS: ${AUTH_SERVICE_DB_PASS:-}
+      FARM_SERVICE_DB_PASS: ${FARM_SERVICE_DB_PASS:-}
+      SENSOR_SERVICE_DB_PASS: ${SENSOR_SERVICE_DB_PASS:-}
+      BILLING_SERVICE_DB_PASS: ${BILLING_SERVICE_DB_PASS:-}
+      HR_SERVICE_DB_PASS: ${HR_SERVICE_DB_PASS:-}
+      ALERT_SERVICE_DB_PASS: ${ALERT_SERVICE_DB_PASS:-}
+      ADMIN_SERVICE_DB_PASS: ${ADMIN_SERVICE_DB_PASS:-}
+      GATEWAY_SERVICE_DB_PASS: ${GATEWAY_SERVICE_DB_PASS:-}
+      NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
+      HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
     command: >
       postgres
       -c max_connections=300
@@ -167,6 +179,7 @@ services:
     container_name: aqua-gateway
     restart: unless-stopped
     environment:
+      SERVICE_NAME: gateway-api
       NODE_ENV: production
       GATEWAY_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
@@ -257,6 +270,7 @@ services:
     container_name: aqua-auth
     restart: unless-stopped
     environment:
+      SERVICE_NAME: auth-service
       NODE_ENV: production
       AUTH_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -297,6 +311,7 @@ services:
     container_name: aqua-farm
     restart: unless-stopped
     environment:
+      SERVICE_NAME: farm-service
       NODE_ENV: production
       FARM_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -335,6 +350,7 @@ services:
     container_name: aqua-sensor
     restart: unless-stopped
     environment:
+      SERVICE_NAME: sensor-service
       NODE_ENV: production
       SENSOR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -387,6 +403,7 @@ services:
     container_name: aqua-admin-api
     restart: unless-stopped
     environment:
+      SERVICE_NAME: admin-api-service
       NODE_ENV: production
       PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -432,6 +449,7 @@ services:
     container_name: aqua-alert
     restart: unless-stopped
     environment:
+      SERVICE_NAME: alert-engine
       NODE_ENV: production
       ALERT_ENGINE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -469,6 +487,7 @@ services:
     container_name: aqua-billing
     restart: unless-stopped
     environment:
+      SERVICE_NAME: billing-service
       NODE_ENV: production
       BILLING_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -506,6 +525,7 @@ services:
     container_name: aqua-hr
     restart: unless-stopped
     environment:
+      SERVICE_NAME: hr-service
       NODE_ENV: production
       HR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -543,6 +563,7 @@ services:
     container_name: aqua-hydroponics
     restart: unless-stopped
     environment:
+      SERVICE_NAME: hydroponics-service
       NODE_ENV: production
       HYDROPONICS_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -580,6 +601,7 @@ services:
     container_name: aqua-notification
     restart: unless-stopped
     environment:
+      SERVICE_NAME: notification-service
       NODE_ENV: production
       NOTIFICATION_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -622,6 +644,7 @@ services:
     container_name: aqua-observability
     restart: unless-stopped
     environment:
+      SERVICE_NAME: observability-service
       NODE_ENV: production
       PORT: 3009
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -657,6 +680,7 @@ services:
     container_name: aqua-config
     restart: unless-stopped
     environment:
+      SERVICE_NAME: config-service
       NODE_ENV: production
       PORT: 3000
       CONFIG_SERVICE_PORT: 3000

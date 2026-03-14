@@ -30,7 +30,6 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import {
   supportApi,
   type Announcement,
@@ -88,17 +87,8 @@ export const AnnouncementsPage: React.FC = () => {
   // Fetch stats from API
   const fetchStats = useCallback(async () => {
     try {
-      // Note: stats endpoint may not exist in supportApi, keeping direct fetch as fallback
-      const response = await fetch('/api/support/announcements/stats', {
-        credentials: 'include',
-        headers: {
-          Authorization: `Bearer ${getAccessToken()}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setStats(data);
-      }
+      const data = await supportApi.getAnnouncementStats();
+      setStats(data);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
     }
@@ -700,16 +690,8 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
   useEffect(() => {
     const fetchAcknowledgments = async () => {
       try {
-        const response = await fetch(`/api/support/announcements/${announcement.id}/acknowledgments`, {
-          credentials: 'include',
-          headers: {
-            Authorization: `Bearer ${getAccessToken()}`,
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setAcknowledgments(data.acknowledgments || []);
-        }
+        const data = await supportApi.getAnnouncementAcknowledgments(announcement.id);
+        setAcknowledgments(data.acknowledgments || []);
       } catch (err) {
         console.error('Failed to fetch acknowledgments:', err);
       } finally {

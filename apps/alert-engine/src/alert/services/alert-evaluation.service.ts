@@ -89,11 +89,17 @@ export class AlertEvaluationService {
         }))
         .filter((r): r is { rule: AlertRule; condition: AlertCondition } => r.condition !== null);
 
-      await Promise.all(
-        triggered.map(({ rule, condition }) =>
-          this.atomicCheckCooldownAndTrigger(rule, reading, condition),
-        ),
-      );
+      if (triggered.length > 0) {
+        await Promise.all(
+          triggered.map(({ rule, condition }) =>
+            this.atomicCheckCooldownAndTrigger(rule, reading, condition),
+          ),
+        );
+      } else {
+        // No conditions matched -- sensor is back in normal range.
+        // Auto-resolve any active incidents for this sensor (INFO/LOW only).
+        await this.autoResolveIfNormal(reading);
+      }
     } catch (error) {
       this.logger.error(
         `Error evaluating sensor reading: ${(error as Error).message}`,
@@ -245,12 +251,15 @@ export class AlertEvaluationService {
       // SET NX succeeds (returns 'OK') only if the key does not exist.
       if (rule.cooldownMinutes > 0) {
         const cooldownKey = `cooldown:${reading.tenantId}:${rule.id}`;
-        const existing = await this.redisService.get(cooldownKey);
-        if (existing !== null) {
+        const wasSet = await this.redisService.setNx(
+          cooldownKey,
+          '1',
+          rule.cooldownMinutes * 60,
+        );
+        if (!wasSet) {
           this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
           return;
         }
-        await this.redisService.set(cooldownKey, '1', rule.cooldownMinutes * 60);
       }
 
       // Cooldown cleared – save the alert history record.
@@ -459,6 +468,77 @@ export class AlertEvaluationService {
         return 'equal to';
       default:
         return operator;
+    }
+  }
+
+  /**
+   * Severities eligible for automatic resolution when the sensor value
+   * returns to normal range.  Only low-severity incidents are auto-resolved;
+   * higher severities (WARNING+) require explicit human acknowledgement.
+   */
+  private static readonly AUTO_RESOLVE_SEVERITIES: Set<string> = new Set([
+    AlertSeverity.INFO,
+    AlertSeverity.LOW,
+  ]);
+
+  /**
+   * Check whether an incident's severity allows automatic resolution.
+   */
+  private isAutoResolvable(severity: AlertSeverity | string): boolean {
+    return AlertEvaluationService.AUTO_RESOLVE_SEVERITIES.has(severity);
+  }
+
+  /**
+   * When no alert conditions matched for a sensor reading, check for any
+   * active incidents tied to this sensor + tenant and auto-resolve those
+   * whose severity is INFO or LOW.
+   */
+  private async autoResolveIfNormal(reading: SensorReadingData): Promise<void> {
+    try {
+      const activeStatuses: IncidentStatus[] = [
+        IncidentStatus.NEW,
+        IncidentStatus.ACKNOWLEDGED,
+        IncidentStatus.INVESTIGATING,
+      ];
+
+      const activeIncidents = await this.incidentRepository.find({
+        where: {
+          sensorId: reading.sensorId,
+          tenantId: reading.tenantId,
+          status: In(activeStatuses),
+        },
+      });
+
+      for (const incident of activeIncidents) {
+        if (!this.isAutoResolvable(incident.severity)) {
+          continue;
+        }
+
+        incident.status = IncidentStatus.RESOLVED;
+        incident.resolvedAt = new Date();
+        incident.resolvedBy = 'SYSTEM_AUTO_RESOLVE';
+        incident.resolutionNotes =
+          'Automatically resolved: sensor readings returned to normal range.';
+
+        incident.addTimelineEvent({
+          type: TimelineEventType.RESOLVED,
+          description:
+            'Auto-resolved: all sensor readings within normal thresholds.',
+        });
+
+        await this.incidentRepository.save(incident);
+
+        this.logger.log(
+          `Auto-resolved incident ${incident.id} (severity: ${incident.severity}) ` +
+          `for sensor ${reading.sensorId}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to auto-resolve incidents for sensor ${reading.sensorId}: ` +
+        `${(error as Error).message}`,
+        (error as Error).stack,
+      );
     }
   }
 }

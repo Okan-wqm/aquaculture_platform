@@ -548,10 +548,10 @@ const AnalyticsDashboardPage: React.FC = () => {
             ))}
           </div>
           <Button variant="secondary" onClick={loadData}>
-            Yenile
+            Refresh
           </Button>
           <Link to="/admin/reports">
-            <Button variant="primary">Raporlar</Button>
+            <Button variant="primary">Reports</Button>
           </Link>
         </div>
       </div>
@@ -559,7 +559,7 @@ const AnalyticsDashboardPage: React.FC = () => {
       {/* Main KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="Toplam Tenant"
+          title="Total Tenants"
           value={formatNumber(data.tenants.total)}
           subtitle={`${data.tenants.active} aktif`}
           change={data.tenants.growthRate}
@@ -572,7 +572,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           }
         />
         <KpiCard
-          title="Toplam Kullanici"
+          title="Total Users"
           value={formatNumber(data.users.total)}
           subtitle={`${formatNumber(data.users.activeLastDay)} DAU`}
           change={data.users.growthRate}
@@ -664,7 +664,7 @@ const AnalyticsDashboardPage: React.FC = () => {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Tenant Growth Chart */}
-        <Card title="Tenant Buyumesi">
+        <Card title="Tenant Growth">
           <div className="h-32 mb-4 relative">
             <MiniChart data={tenantTrend} height={100} color="#3B82F6" />
             {(tenantTrend.length === 0 || tenantTrend.every(d => d.value === 0)) && (
@@ -680,7 +680,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         </Card>
 
         {/* Revenue Trend Chart */}
-        <Card title="Gelir Trendi">
+        <Card title="Revenue Trend">
           <div className="h-32 mb-4 relative">
             <MiniChart data={revenueTrend} height={100} color="#8B5CF6" />
             {(revenueTrend.length === 0 || revenueTrend.every(d => d.value === 0)) && (
@@ -696,7 +696,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         </Card>
 
         {/* Daily Active Users Chart */}
-        <Card title="Gunluk Aktif Kullanicilar">
+        <Card title="Daily Active Users">
           <div className="h-32 mb-4 relative">
             <MiniChart data={userTrend} height={100} color="#10B981" />
             {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
@@ -706,7 +706,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Ortalama: {data.usage.avgDailyActiveUsers}</span>
+            <span className="text-gray-500">Average: {data.usage.avgDailyActiveUsers}</span>
             <span className="text-green-600 font-medium">+{data.users.growthRate}%</span>
           </div>
         </Card>
@@ -725,7 +725,7 @@ const AnalyticsDashboardPage: React.FC = () => {
                 { label: 'Trial', value: data.tenants.byPlan.trial || 0, color: '#F59E0B' },
               ]}
               centerValue={data.tenants.total.toString()}
-              centerLabel="Toplam"
+              centerLabel="Total"
             />
             <div className="flex-1 ml-8 space-y-3">
               <div className="flex items-center justify-between">
@@ -761,7 +761,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         </Card>
 
         {/* Revenue by Plan */}
-        <Card title="Plan Bazli Gelir">
+        <Card title="Revenue by Plan">
           <div className="h-40">
             <BarChart
               data={[
@@ -792,7 +792,7 @@ const AnalyticsDashboardPage: React.FC = () => {
       {/* Module Usage & Feature Adoption */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Module Usage */}
-        <Card title="Modul Kullanimi">
+        <Card title="Module Usage">
           {Object.keys(data.usage.moduleUsage).length === 0 && (
             <div className="flex items-center justify-center py-8">
               <p className="text-sm text-gray-400">No analytics data available yet</p>
@@ -848,7 +848,7 @@ const AnalyticsDashboardPage: React.FC = () => {
       </div>
 
       {/* System Metrics */}
-      <Card title="Sistem Metrikleri">
+      <Card title="System Metrics">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
           <div className="text-center p-4 bg-gray-50 rounded-lg">
             <p className="text-2xl font-bold text-gray-900">{data.system.uptimePercent}%</p>
@@ -892,7 +892,7 @@ const AnalyticsDashboardPage: React.FC = () => {
 
       {/* Footer */}
       <div className="text-center text-sm text-gray-400">
-        Son guncelleme: {new Date(data.generatedAt).toLocaleString('tr-TR')}
+        Last updated: {new Date(data.generatedAt).toLocaleString('en-US')}
       </div>
     </div>
   );

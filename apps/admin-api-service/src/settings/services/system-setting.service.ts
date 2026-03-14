@@ -291,8 +291,9 @@ export class SystemSettingService {
 
   /**
    * Reset setting to default value
+   * Fix: MEDIUM-003 -- audit trail with updatedBy
    */
-  async resetToDefault(key: string): Promise<SystemSettingResponse> {
+  async resetToDefault(key: string, updatedBy?: string): Promise<SystemSettingResponse> {
     const setting = await this.settingRepository.findOne({ where: { key } });
 
     if (!setting) {
@@ -308,9 +309,12 @@ export class SystemSettingService {
     }
 
     setting.value = setting.defaultValue;
+    if (updatedBy) {
+      setting.updatedBy = updatedBy;
+    }
     const saved = await this.settingRepository.save(setting);
 
-    this.logger.log(`Reset setting to default: ${key}`);
+    this.logger.log(`Reset setting to default: ${key}${updatedBy ? ` by ${updatedBy}` : ''}`);
     return this.toResponse(saved);
   }
 
@@ -863,6 +867,68 @@ export class SystemSettingService {
         updatedBy,
       });
     }
+  }
+
+  /**
+   * Update security configuration
+   */
+  async updateSecurityConfig(
+    config: {
+      sessionTimeoutMinutes?: number;
+      maxLoginAttempts?: number;
+      lockoutDurationMinutes?: number;
+      passwordMinLength?: number;
+      mfaEnabled?: boolean;
+      enforceHttps?: boolean;
+    },
+    updatedBy?: string,
+  ): Promise<void> {
+    const keyMap: Record<string, string> = {
+      sessionTimeoutMinutes: 'security.session_timeout_minutes',
+      maxLoginAttempts: 'security.max_login_attempts',
+      lockoutDurationMinutes: 'security.lockout_duration_minutes',
+      passwordMinLength: 'security.password_min_length',
+      mfaEnabled: 'security.mfa_enabled',
+      enforceHttps: 'security.enforce_https',
+    };
+
+    for (const [field, key] of Object.entries(keyMap)) {
+      const value = config[field as keyof typeof config];
+      if (value !== undefined) {
+        await this.upsertSetting(key, value, updatedBy);
+      }
+    }
+
+    this.logger.log('Security configuration updated');
+  }
+
+  /**
+   * Update rate limit configuration
+   */
+  async updateRateLimitConfig(
+    config: {
+      globalRpm?: number;
+      perUserRpm?: number;
+      perTenantRpm?: number;
+      apiKeyRpm?: number;
+    },
+    updatedBy?: string,
+  ): Promise<void> {
+    const keyMap: Record<string, string> = {
+      globalRpm: 'rate_limit.global_rpm',
+      perUserRpm: 'rate_limit.per_user_rpm',
+      perTenantRpm: 'rate_limit.per_tenant_rpm',
+      apiKeyRpm: 'rate_limit.api_key_rpm',
+    };
+
+    for (const [field, key] of Object.entries(keyMap)) {
+      const value = config[field as keyof typeof config];
+      if (value !== undefined) {
+        await this.upsertSetting(key, value, updatedBy);
+      }
+    }
+
+    this.logger.log('Rate limit configuration updated');
   }
 
   /**

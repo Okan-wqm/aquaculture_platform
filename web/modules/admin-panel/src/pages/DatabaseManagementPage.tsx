@@ -1,10 +1,19 @@
 /**
  * Database Management Page
  *
- * Schema yönetimi, migration, backup ve monitoring ana sayfası.
+ * Schema yonetimi, migration, backup ve monitoring ana sayfasi.
+ * Sprint 4 Fix: Mock data kaldirildi, gercek API entegrasyonu yapildi.
+ *
+ * Backend controller'lar:
+ *   - schema.controller.ts: /database/schemas
+ *   - migration.controller.ts: /database/migrations
+ *   - backup.controller.ts: /database/backups
+ *   - monitoring.controller.ts: /database/monitoring
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useAsyncData } from '../hooks';
+import { databaseApi } from '../services/api/database';
 
 // ============================================================================
 // Types
@@ -12,40 +21,25 @@ import React, { useState, useEffect } from 'react';
 
 type TabType = 'schemas' | 'migrations' | 'backups' | 'monitoring';
 
-interface TenantSchema {
-  id: string;
+interface SchemaItem {
   tenantId: string;
+  tenantName?: string;
   schemaName: string;
-  status: 'creating' | 'active' | 'migrating' | 'suspended' | 'deleted';
+  status: string;
   currentVersion: string;
   sizeBytes: number;
   tableCount: number;
-  connectionCount: number;
-  maxConnections: number;
-  lastMigrationAt: string | null;
-  lastBackupAt: string | null;
+  rowCount?: number;
+  connectionCount?: number;
+  maxConnections?: number;
+  lastMigrationAt?: string | null;
+  lastBackupAt?: string | null;
   createdAt: string;
-}
-
-interface Migration {
-  id: string;
-  tenantId: string | null;
-  schemaName: string;
-  migrationName: string;
-  version: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'rolled_back';
-  executionTimeMs: number;
-  isDryRun: boolean;
-  executedBy: string | null;
-  createdAt: string;
-  completedAt: string | null;
-  errorMessage: string | null;
 }
 
 interface MigrationPlan {
-  id: string;
-  name: string;
   version: string;
+  name: string;
   description: string;
   affectedTables: string[];
   estimatedDuration: number;
@@ -53,27 +47,56 @@ interface MigrationPlan {
   requiresDowntime: boolean;
 }
 
-interface Backup {
+interface MigrationHistoryItem {
   id: string;
-  tenantId: string | null;
-  schemaName: string;
-  backupType: 'full' | 'incremental' | 'differential';
-  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'expired';
-  fileName: string;
-  sizeBytes: number;
-  isCompressed: boolean;
-  isEncrypted: boolean;
+  version: string;
+  name: string;
+  status: string;
+  appliedToSchemas?: string[];
+  failedSchemas?: string[];
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  createdBy: string;
   createdAt: string;
-  completedAt: string | null;
-  expiresAt: string | null;
+  // Fields from inline type fallback
+  tenantId?: string | null;
+  schemaName?: string;
+  migrationName?: string;
+  executionTimeMs?: number;
+  isDryRun?: boolean;
+  executedBy?: string | null;
+  errorMessage?: string | null;
+}
+
+interface BackupItem {
+  id: string;
+  type?: string;
+  backupType?: string;
+  status: string;
+  tenantId?: string | null;
+  schemaName?: string;
+  sizeBytes?: number;
+  location?: string;
+  fileName?: string;
+  compressionType?: string;
+  isCompressed?: boolean;
+  encryptionKey?: string;
+  isEncrypted?: boolean;
+  startedAt?: string;
+  createdAt?: string;
+  completedAt?: string | null;
+  expiresAt?: string | null;
+  error?: string;
+  createdBy?: string;
 }
 
 interface DatabaseHealth {
-  status: 'healthy' | 'warning' | 'critical';
+  status: string;
   score: number;
   checks: Array<{
     name: string;
-    status: 'pass' | 'warn' | 'fail';
+    status: string;
     value: string | number;
     message: string;
   }>;
@@ -98,10 +121,12 @@ interface StorageInfo {
   tableCount: number;
 }
 
-interface SlowQuery {
+interface SlowQueryItem {
   query: string;
   count: number;
   avgTime: number;
+  maxTime?: number;
+  schema?: string;
 }
 
 interface IndexRecommendation {
@@ -109,245 +134,9 @@ interface IndexRecommendation {
   columns: string[];
   indexType: string;
   reason: string;
-  estimatedImpact: 'high' | 'medium' | 'low';
+  estimatedImpact: string;
   createStatement: string;
 }
-
-// ============================================================================
-// Mock Data
-// ============================================================================
-
-const mockSchemas: TenantSchema[] = [
-  {
-    id: '1',
-    tenantId: 'tenant-001',
-    schemaName: 'tenant_abc123_schema',
-    status: 'active',
-    currentVersion: '1.3.0',
-    sizeBytes: 256000000,
-    tableCount: 24,
-    connectionCount: 5,
-    maxConnections: 10,
-    lastMigrationAt: '2024-01-15T10:30:00Z',
-    lastBackupAt: '2024-01-20T02:00:00Z',
-    createdAt: '2023-06-01T00:00:00Z',
-  },
-  {
-    id: '2',
-    tenantId: 'tenant-002',
-    schemaName: 'tenant_def456_schema',
-    status: 'active',
-    currentVersion: '1.2.0',
-    sizeBytes: 512000000,
-    tableCount: 24,
-    connectionCount: 8,
-    maxConnections: 10,
-    lastMigrationAt: '2024-01-10T08:00:00Z',
-    lastBackupAt: '2024-01-20T02:00:00Z',
-    createdAt: '2023-07-15T00:00:00Z',
-  },
-  {
-    id: '3',
-    tenantId: 'tenant-003',
-    schemaName: 'tenant_ghi789_schema',
-    status: 'suspended',
-    currentVersion: '1.1.0',
-    sizeBytes: 128000000,
-    tableCount: 18,
-    connectionCount: 0,
-    maxConnections: 10,
-    lastMigrationAt: '2023-12-01T00:00:00Z',
-    lastBackupAt: '2024-01-15T02:00:00Z',
-    createdAt: '2023-08-20T00:00:00Z',
-  },
-];
-
-const mockMigrationPlans: MigrationPlan[] = [
-  {
-    id: 'migration_1_0_0',
-    name: 'initial_schema',
-    version: '1.0.0',
-    description: 'Initial schema setup with metadata and audit tables',
-    affectedTables: ['_metadata', '_audit_log'],
-    estimatedDuration: 5000,
-    isDestructive: false,
-    requiresDowntime: false,
-  },
-  {
-    id: 'migration_1_1_0',
-    name: 'add_tenant_settings',
-    version: '1.1.0',
-    description: 'Add tenant-specific settings table',
-    affectedTables: ['tenant_settings'],
-    estimatedDuration: 7000,
-    isDestructive: false,
-    requiresDowntime: false,
-  },
-  {
-    id: 'migration_1_2_0',
-    name: 'add_data_export_logs',
-    version: '1.2.0',
-    description: 'Add data export tracking table',
-    affectedTables: ['data_exports'],
-    estimatedDuration: 7000,
-    isDestructive: false,
-    requiresDowntime: false,
-  },
-  {
-    id: 'migration_1_3_0',
-    name: 'add_activity_tracking',
-    version: '1.3.0',
-    description: 'Add user activity tracking table',
-    affectedTables: ['user_activities'],
-    estimatedDuration: 9000,
-    isDestructive: false,
-    requiresDowntime: false,
-  },
-];
-
-const mockMigrations: Migration[] = [
-  {
-    id: '1',
-    tenantId: 'tenant-001',
-    schemaName: 'tenant_abc123_schema',
-    migrationName: 'add_activity_tracking',
-    version: '1.3.0',
-    status: 'completed',
-    executionTimeMs: 8500,
-    isDryRun: false,
-    executedBy: 'admin@example.com',
-    createdAt: '2024-01-15T10:30:00Z',
-    completedAt: '2024-01-15T10:30:08Z',
-    errorMessage: null,
-  },
-  {
-    id: '2',
-    tenantId: 'tenant-002',
-    schemaName: 'tenant_def456_schema',
-    migrationName: 'add_data_export_logs',
-    version: '1.2.0',
-    status: 'completed',
-    executionTimeMs: 6200,
-    isDryRun: false,
-    executedBy: 'admin@example.com',
-    createdAt: '2024-01-10T08:00:00Z',
-    completedAt: '2024-01-10T08:00:06Z',
-    errorMessage: null,
-  },
-  {
-    id: '3',
-    tenantId: null,
-    schemaName: 'all',
-    migrationName: 'batch_migration_1.1.0',
-    version: '1.1.0',
-    status: 'completed',
-    executionTimeMs: 45000,
-    isDryRun: false,
-    executedBy: 'admin@example.com',
-    createdAt: '2024-01-05T00:00:00Z',
-    completedAt: '2024-01-05T00:00:45Z',
-    errorMessage: null,
-  },
-];
-
-const mockBackups: Backup[] = [
-  {
-    id: '1',
-    tenantId: 'tenant-001',
-    schemaName: 'tenant_abc123_schema',
-    backupType: 'full',
-    status: 'completed',
-    fileName: 'backup_tenant_abc123_full_2024-01-20.sql.gz',
-    sizeBytes: 45000000,
-    isCompressed: true,
-    isEncrypted: false,
-    createdAt: '2024-01-20T02:00:00Z',
-    completedAt: '2024-01-20T02:05:00Z',
-    expiresAt: '2024-02-19T02:00:00Z',
-  },
-  {
-    id: '2',
-    tenantId: 'tenant-002',
-    schemaName: 'tenant_def456_schema',
-    backupType: 'incremental',
-    status: 'completed',
-    fileName: 'backup_tenant_def456_incr_2024-01-20.sql.gz',
-    sizeBytes: 12000000,
-    isCompressed: true,
-    isEncrypted: false,
-    createdAt: '2024-01-20T02:00:00Z',
-    completedAt: '2024-01-20T02:02:00Z',
-    expiresAt: '2024-01-27T02:00:00Z',
-  },
-  {
-    id: '3',
-    tenantId: null,
-    schemaName: 'all',
-    backupType: 'full',
-    status: 'in_progress',
-    fileName: 'backup_all_full_2024-01-21.sql.gz',
-    sizeBytes: 0,
-    isCompressed: true,
-    isEncrypted: true,
-    createdAt: '2024-01-21T02:00:00Z',
-    completedAt: null,
-    expiresAt: null,
-  },
-];
-
-const mockHealth: DatabaseHealth = {
-  status: 'healthy',
-  score: 92,
-  checks: [
-    { name: 'Connection Pool', status: 'pass', value: '35%', message: 'Connection pool healthy' },
-    { name: 'Cache Hit Ratio', status: 'pass', value: '97.2%', message: 'Cache performing well' },
-    { name: 'Slow Queries', status: 'warn', value: 15, message: 'Elevated slow query count' },
-    { name: 'Replication', status: 'pass', value: 'N/A', message: 'Single node configuration' },
-  ],
-  recommendations: [
-    'Review slow queries and add appropriate indexes',
-  ],
-};
-
-const mockConnections: ConnectionStats = {
-  total: 35,
-  active: 12,
-  idle: 23,
-  waiting: 0,
-  maxConnections: 100,
-  utilizationPercent: 35,
-};
-
-const mockStorage: StorageInfo[] = [
-  { tenantId: 'tenant-001', schemaName: 'tenant_abc123_schema', totalSizeBytes: 256000000, dataSizeBytes: 180000000, indexSizeBytes: 76000000, tableCount: 24 },
-  { tenantId: 'tenant-002', schemaName: 'tenant_def456_schema', totalSizeBytes: 512000000, dataSizeBytes: 380000000, indexSizeBytes: 132000000, tableCount: 24 },
-  { tenantId: 'tenant-003', schemaName: 'tenant_ghi789_schema', totalSizeBytes: 128000000, dataSizeBytes: 95000000, indexSizeBytes: 33000000, tableCount: 18 },
-];
-
-const mockSlowQueries: SlowQuery[] = [
-  { query: 'SELECT * FROM sensor_readings WHERE recorded_at >= ? AND recorded_at <= ?', count: 45, avgTime: 2500 },
-  { query: 'SELECT * FROM user_activities WHERE user_id = ?', count: 23, avgTime: 1800 },
-  { query: 'SELECT * FROM audit_log WHERE created_at >= ?', count: 18, avgTime: 1500 },
-];
-
-const mockIndexRecommendations: IndexRecommendation[] = [
-  {
-    tableName: 'tenant_abc123_schema.sensor_readings',
-    columns: ['recorded_at', 'sensor_id'],
-    indexType: 'btree',
-    reason: 'High sequential scan count (45000) with 1500000 rows',
-    estimatedImpact: 'high',
-    createStatement: 'CREATE INDEX idx_sensor_readings_recorded_sensor ON "tenant_abc123_schema"."sensor_readings" ("recorded_at", "sensor_id")',
-  },
-  {
-    tableName: 'tenant_def456_schema.user_activities',
-    columns: ['user_id', 'created_at'],
-    indexType: 'btree',
-    reason: 'High sequential scan count (12000) with 500000 rows',
-    estimatedImpact: 'medium',
-    createStatement: 'CREATE INDEX idx_user_activities_user_created ON "tenant_def456_schema"."user_activities" ("user_id", "created_at")',
-  },
-];
 
 // ============================================================================
 // Helper Functions
@@ -367,7 +156,7 @@ const formatDuration = (ms: number): string => {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 };
 
-const formatDate = (dateStr: string | null): string => {
+const formatDate = (dateStr: string | null | undefined): string => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('tr-TR');
 };
@@ -383,6 +172,7 @@ const getStatusColor = (status: string): string => {
     case 'running':
     case 'in_progress':
     case 'pending':
+    case 'migration_pending':
       return 'text-blue-600 bg-blue-100';
     case 'suspended':
     case 'warn':
@@ -393,6 +183,7 @@ const getStatusColor = (status: string): string => {
     case 'critical':
     case 'deleted':
     case 'expired':
+    case 'archived':
       return 'text-red-600 bg-red-100';
     case 'rolled_back':
       return 'text-purple-600 bg-purple-100';
@@ -402,7 +193,7 @@ const getStatusColor = (status: string): string => {
 };
 
 // ============================================================================
-// Components
+// Shared UI Components
 // ============================================================================
 
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
@@ -427,9 +218,74 @@ const ProgressBar: React.FC<{ value: number; max: number; color?: string }> = ({
   );
 };
 
+const LoadingSpinner: React.FC<{ message?: string }> = ({ message = 'Loading...' }) => (
+  <div className="flex items-center justify-center py-12">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3" />
+      <p className="text-sm text-gray-500">{message}</p>
+    </div>
+  </div>
+);
+
+const ErrorState: React.FC<{ error: string; onRetry?: () => void }> = ({ error, onRetry }) => (
+  <div className="flex items-center justify-center py-12">
+    <div className="text-center">
+      <div className="text-red-500 mb-3">
+        <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+        </svg>
+      </div>
+      <p className="text-sm text-red-600 mb-3">{error}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+const EmptyState: React.FC<{ message: string }> = ({ message }) => (
+  <div className="flex items-center justify-center py-12">
+    <p className="text-sm text-gray-500">{message}</p>
+  </div>
+);
+
+// ============================================================================
 // Schema Tab Component
-const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
-  const [selectedSchema, setSelectedSchema] = useState<TenantSchema | null>(null);
+// ============================================================================
+
+const SchemasTab: React.FC = () => {
+  const [selectedSchema, setSelectedSchema] = useState<SchemaItem | null>(null);
+
+  const schemasState = useAsyncData<SchemaItem[]>(
+    useCallback(() => databaseApi.getSchemas({ page: 1, limit: 100 }).then(res => {
+      // PaginatedResult -> data array, veya dogrudan array olabilir
+      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
+        return (res as { data: SchemaItem[] }).data;
+      }
+      if (Array.isArray(res)) return res as unknown as SchemaItem[];
+      return [];
+    }), []),
+    { initialData: [] }
+  );
+
+  const schemas = schemasState.data || [];
+
+  if (schemasState.loading && schemasState.isInitialLoad) {
+    return <LoadingSpinner message="Loading schemas..." />;
+  }
+
+  if (schemasState.error) {
+    return <ErrorState error={schemasState.error} onRetry={schemasState.retry} />;
+  }
+
+  if (schemas.length === 0) {
+    return <EmptyState message="No tenant schemas found." />;
+  }
 
   return (
     <div className="space-y-6">
@@ -448,13 +304,13 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Size</div>
           <div className="text-2xl font-bold text-blue-600">
-            {formatBytes(schemas.reduce((sum, s) => sum + s.sizeBytes, 0))}
+            {formatBytes(schemas.reduce((sum, s) => sum + (s.sizeBytes || 0), 0))}
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Tables</div>
           <div className="text-2xl font-bold text-purple-600">
-            {schemas.reduce((sum, s) => sum + s.tableCount, 0)}
+            {schemas.reduce((sum, s) => sum + (s.tableCount || 0), 0)}
           </div>
         </div>
       </div>
@@ -463,9 +319,17 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Tenant Schemas</h3>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-            Create Schema
-          </button>
+          <div className="flex space-x-3">
+            <button
+              onClick={() => schemasState.refresh()}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+            >
+              Refresh
+            </button>
+            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+              Create Schema
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -476,14 +340,13 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Connections</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Backup</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {schemas.map((schema) => (
-                <tr key={schema.id} className="hover:bg-gray-50">
+                <tr key={schema.tenantId} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-gray-900">{schema.schemaName}</div>
                     <div className="text-xs text-gray-500">Tenant: {schema.tenantId}</div>
@@ -492,20 +355,8 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
                     <StatusBadge status={schema.status} />
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{schema.currentVersion}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{formatBytes(schema.sizeBytes)}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{schema.tableCount}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-500">
-                        {schema.connectionCount}/{schema.maxConnections}
-                      </span>
-                      <ProgressBar
-                        value={schema.connectionCount}
-                        max={schema.maxConnections}
-                        color={schema.connectionCount > schema.maxConnections * 0.8 ? 'bg-red-500' : 'bg-green-500'}
-                      />
-                    </div>
-                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{formatBytes(schema.sizeBytes || 0)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{schema.tableCount || 0}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {formatDate(schema.lastBackupAt)}
                   </td>
@@ -518,11 +369,23 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
                         View
                       </button>
                       {schema.status === 'active' ? (
-                        <button className="text-yellow-600 hover:text-yellow-800 text-sm">
+                        <button
+                          onClick={() => {
+                            if (confirm('Are you sure you want to suspend this schema?')) {
+                              databaseApi.suspendSchema(schema.tenantId).then(() => schemasState.refresh());
+                            }
+                          }}
+                          className="text-yellow-600 hover:text-yellow-800 text-sm"
+                        >
                           Suspend
                         </button>
                       ) : schema.status === 'suspended' ? (
-                        <button className="text-green-600 hover:text-green-800 text-sm">
+                        <button
+                          onClick={() => {
+                            databaseApi.activateSchema(schema.tenantId).then(() => schemasState.refresh());
+                          }}
+                          className="text-green-600 hover:text-green-800 text-sm"
+                        >
                           Activate
                         </button>
                       ) : null}
@@ -567,11 +430,11 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
                 </div>
                 <div>
                   <div className="text-sm text-gray-500">Size</div>
-                  <div className="font-medium">{formatBytes(selectedSchema.sizeBytes)}</div>
+                  <div className="font-medium">{formatBytes(selectedSchema.sizeBytes || 0)}</div>
                 </div>
                 <div>
                   <div className="text-sm text-gray-500">Tables</div>
-                  <div className="font-medium">{selectedSchema.tableCount}</div>
+                  <div className="font-medium">{selectedSchema.tableCount || 0}</div>
                 </div>
                 <div>
                   <div className="text-sm text-gray-500">Last Migration</div>
@@ -587,14 +450,30 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
                 </div>
               </div>
               <div className="flex space-x-3 pt-4">
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-                  Run Migration
-                </button>
-                <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
-                  Create Backup
-                </button>
-                <button className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm">
+                <button
+                  onClick={() => {
+                    databaseApi.validateSchemaIsolation(selectedSchema.tenantId)
+                      .then(result => {
+                        alert(result.valid ? 'Schema isolation is valid.' : `Issues found: ${result.issues.join(', ')}`);
+                      })
+                      .catch(err => alert(`Validation failed: ${err.message}`));
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                >
                   Validate Isolation
+                </button>
+                <button
+                  onClick={() => {
+                    databaseApi.refreshSchemaStats(selectedSchema.tenantId)
+                      .then(() => {
+                        schemasState.refresh();
+                        setSelectedSchema(null);
+                      })
+                      .catch(err => alert(`Refresh failed: ${err.message}`));
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                >
+                  Refresh Stats
                 </button>
               </div>
             </div>
@@ -605,13 +484,64 @@ const SchemasTab: React.FC<{ schemas: TenantSchema[] }> = ({ schemas }) => {
   );
 };
 
+// ============================================================================
 // Migrations Tab Component
-const MigrationsTab: React.FC<{
-  plans: MigrationPlan[];
-  history: Migration[];
-}> = ({ plans, history }) => {
+// ============================================================================
+
+const MigrationsTab: React.FC = () => {
   const [showBatchModal, setShowBatchModal] = useState(false);
-  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const [batchVersion, setBatchVersion] = useState('');
+  const [batchDryRun, setBatchDryRun] = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
+
+  const plansState = useAsyncData<MigrationPlan[]>(
+    useCallback(() => databaseApi.getAvailableMigrations(), []),
+    { initialData: [] }
+  );
+
+  const historyState = useAsyncData<MigrationHistoryItem[]>(
+    useCallback(() => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then(res => {
+      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
+        return (res as { data: MigrationHistoryItem[] }).data;
+      }
+      if (Array.isArray(res)) return res as unknown as MigrationHistoryItem[];
+      return [];
+    }), []),
+    { initialData: [] }
+  );
+
+  const plans = plansState.data || [];
+  const history = historyState.data || [];
+
+  const isLoading = (plansState.loading && plansState.isInitialLoad) || (historyState.loading && historyState.isInitialLoad);
+  const error = plansState.error || historyState.error;
+
+  if (isLoading) {
+    return <LoadingSpinner message="Loading migrations..." />;
+  }
+
+  if (error) {
+    return <ErrorState error={error} onRetry={() => { plansState.retry(); historyState.retry(); }} />;
+  }
+
+  const handleBatchMigration = async () => {
+    if (!batchVersion) return;
+    setBatchRunning(true);
+    try {
+      await databaseApi.runBatchMigration({
+        version: batchVersion,
+        isDryRun: batchDryRun,
+      });
+      setShowBatchModal(false);
+      setBatchVersion('');
+      setBatchDryRun(false);
+      historyState.refresh();
+    } catch (err) {
+      alert(`Batch migration failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setBatchRunning(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -619,115 +549,119 @@ const MigrationsTab: React.FC<{
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Available Migrations</h3>
-          <button
-            onClick={() => setShowBatchModal(true)}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
-          >
-            Batch Migration
-          </button>
-        </div>
-        <div className="p-6 space-y-4">
-          {plans.map((plan) => (
-            <div
-              key={plan.id}
-              className="border border-gray-200 rounded-lg p-4 hover:border-blue-300"
+          <div className="flex space-x-3">
+            <button
+              onClick={() => plansState.refresh()}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="flex items-center space-x-3">
-                    <span className="text-lg font-medium text-gray-900">{plan.version}</span>
-                    <span className="text-sm text-gray-500">{plan.name}</span>
-                    {plan.isDestructive && (
-                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-600">
-                        Destructive
-                      </span>
-                    )}
-                    {plan.requiresDowntime && (
-                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-600">
-                        Requires Downtime
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
-                  <div className="flex items-center space-x-4 mt-2 text-xs text-gray-400">
-                    <span>Tables: {plan.affectedTables.join(', ')}</span>
-                    <span>Est. Duration: {formatDuration(plan.estimatedDuration)}</span>
+              Refresh
+            </button>
+            <button
+              onClick={() => {
+                if (plans.length > 0) {
+                  setBatchVersion(plans[plans.length - 1].version);
+                }
+                setShowBatchModal(true);
+              }}
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
+            >
+              Batch Migration
+            </button>
+          </div>
+        </div>
+        {plans.length === 0 ? (
+          <EmptyState message="No available migrations." />
+        ) : (
+          <div className="p-6 space-y-4">
+            {plans.map((plan) => (
+              <div
+                key={plan.version}
+                className="border border-gray-200 rounded-lg p-4 hover:border-blue-300"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center space-x-3">
+                      <span className="text-lg font-medium text-gray-900">{plan.version}</span>
+                      <span className="text-sm text-gray-500">{plan.name}</span>
+                      {plan.isDestructive && (
+                        <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-600">
+                          Destructive
+                        </span>
+                      )}
+                      {plan.requiresDowntime && (
+                        <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-600">
+                          Requires Downtime
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
+                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-400">
+                      <span>Tables: {plan.affectedTables.join(', ')}</span>
+                      <span>Est. Duration: {formatDuration(plan.estimatedDuration)}</span>
+                    </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedVersion(plan.version)}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-                >
-                  Run
-                </button>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Migration History */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Migration History</h3>
+          <button
+            onClick={() => historyState.refresh()}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+          >
+            Refresh
+          </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Migration</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schema</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Executed By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {history.map((migration) => (
-                <tr key={migration.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">{migration.version}</div>
-                    <div className="text-xs text-gray-500">{migration.migrationName}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {migration.tenantId ? migration.schemaName : 'All Schemas'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={migration.status} />
-                    {migration.isDryRun && (
-                      <span className="ml-2 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600">
-                        Dry Run
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDuration(migration.executionTimeMs)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {migration.executedBy || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDate(migration.createdAt)}
-                  </td>
-                  <td className="px-6 py-4">
-                    {migration.status === 'completed' && (
-                      <button className="text-red-600 hover:text-red-800 text-sm">
-                        Rollback
-                      </button>
-                    )}
-                    {migration.status === 'failed' && migration.errorMessage && (
-                      <button className="text-blue-600 hover:text-blue-800 text-sm">
-                        View Error
-                      </button>
-                    )}
-                  </td>
+        {history.length === 0 ? (
+          <EmptyState message="No migration history found." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Migration</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schemas</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created By</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {history.map((migration) => (
+                  <tr key={migration.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">{migration.version}</div>
+                      <div className="text-xs text-gray-500">{migration.name || migration.migrationName}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={migration.status} />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {migration.appliedToSchemas
+                        ? `${migration.appliedToSchemas.length} applied`
+                        : migration.schemaName || '-'}
+                      {migration.failedSchemas && migration.failedSchemas.length > 0 && (
+                        <span className="ml-1 text-red-500">({migration.failedSchemas.length} failed)</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {migration.createdBy || migration.executedBy || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {formatDate(migration.createdAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Batch Migration Modal */}
@@ -747,7 +681,12 @@ const MigrationsTab: React.FC<{
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Select Migration Version
                 </label>
-                <select className="w-full border border-gray-300 rounded-lg px-3 py-2">
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  value={batchVersion}
+                  onChange={(e) => setBatchVersion(e.target.value)}
+                >
+                  <option value="">Select version...</option>
                   {plans.map((plan) => (
                     <option key={plan.version} value={plan.version}>
                       {plan.version} - {plan.name}
@@ -756,7 +695,13 @@ const MigrationsTab: React.FC<{
                 </select>
               </div>
               <div className="flex items-center space-x-2">
-                <input type="checkbox" id="dryRun" className="rounded border-gray-300" />
+                <input
+                  type="checkbox"
+                  id="dryRun"
+                  className="rounded border-gray-300"
+                  checked={batchDryRun}
+                  onChange={(e) => setBatchDryRun(e.target.checked)}
+                />
                 <label htmlFor="dryRun" className="text-sm text-gray-700">
                   Dry Run (test without applying changes)
                 </label>
@@ -771,11 +716,16 @@ const MigrationsTab: React.FC<{
                 <button
                   onClick={() => setShowBatchModal(false)}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                  disabled={batchRunning}
                 >
                   Cancel
                 </button>
-                <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-                  Start Batch Migration
+                <button
+                  onClick={handleBatchMigration}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                  disabled={!batchVersion || batchRunning}
+                >
+                  {batchRunning ? 'Running...' : 'Start Batch Migration'}
                 </button>
               </div>
             </div>
@@ -786,11 +736,91 @@ const MigrationsTab: React.FC<{
   );
 };
 
+// ============================================================================
 // Backups Tab Component
-const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
+// ============================================================================
+
+const BackupsTab: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
-  const [selectedBackup, setSelectedBackup] = useState<Backup | null>(null);
+  const [selectedBackup, setSelectedBackup] = useState<BackupItem | null>(null);
+  const [createForm, setCreateForm] = useState({
+    tenantId: '',
+    backupType: 'full' as string,
+    retentionDays: 30,
+    compress: true,
+    encrypt: false,
+  });
+  const [creating, setCreating] = useState(false);
+
+  const backupsState = useAsyncData<BackupItem[]>(
+    useCallback(() => databaseApi.getBackups({ page: 1, limit: 50 }).then(res => {
+      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
+        return (res as { data: BackupItem[] }).data;
+      }
+      if (Array.isArray(res)) return res as unknown as BackupItem[];
+      return [];
+    }), []),
+    { initialData: [] }
+  );
+
+  const scheduleState = useAsyncData(
+    useCallback(() => databaseApi.getBackupScheduleStatus(), []),
+    { initialData: null }
+  );
+
+  const backups = backupsState.data || [];
+
+  if (backupsState.loading && backupsState.isInitialLoad) {
+    return <LoadingSpinner message="Loading backups..." />;
+  }
+
+  if (backupsState.error) {
+    return <ErrorState error={backupsState.error} onRetry={backupsState.retry} />;
+  }
+
+  const handleCreateBackup = async () => {
+    setCreating(true);
+    try {
+      await databaseApi.createBackup({
+        backupType: createForm.backupType,
+        tenantId: createForm.tenantId || undefined,
+        compress: createForm.compress,
+        encrypt: createForm.encrypt,
+        retentionDays: createForm.retentionDays,
+      });
+      setShowCreateModal(false);
+      backupsState.refresh();
+    } catch (err) {
+      alert(`Backup creation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteBackup = async (backupId: string) => {
+    if (!confirm('Are you sure you want to delete this backup?')) return;
+    try {
+      await databaseApi.deleteBackup(backupId);
+      backupsState.refresh();
+    } catch (err) {
+      alert(`Delete failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleRestoreBackup = async (backupId: string) => {
+    if (!confirm('This will overwrite existing data. Are you sure?')) return;
+    try {
+      await databaseApi.restoreFromBackup({ backupId });
+      alert('Restore initiated successfully.');
+      setSelectedBackup(null);
+    } catch (err) {
+      alert(`Restore failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  const getBackupType = (b: BackupItem) => b.backupType || b.type || 'unknown';
+  const getBackupCreatedAt = (b: BackupItem) => b.createdAt || b.startedAt || '';
 
   return (
     <div className="space-y-6">
@@ -809,43 +839,52 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Size</div>
           <div className="text-2xl font-bold text-blue-600">
-            {formatBytes(backups.filter(b => b.status === 'completed').reduce((sum, b) => sum + b.sizeBytes, 0))}
+            {formatBytes(backups.filter(b => b.status === 'completed').reduce((sum, b) => sum + (b.sizeBytes || 0), 0))}
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">In Progress</div>
           <div className="text-2xl font-bold text-yellow-600">
-            {backups.filter(b => b.status === 'in_progress').length}
+            {backups.filter(b => b.status === 'running' || b.status === 'in_progress').length}
           </div>
         </div>
       </div>
 
       {/* Backup Schedule */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Backup Schedule</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div>
-              <div className="font-medium text-gray-900">Daily Incremental</div>
-              <div className="text-sm text-gray-500">Every day at 2:00 AM</div>
+      {scheduleState.data && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Backup Schedule</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <div className="font-medium text-gray-900">Schedule</div>
+                <div className="text-sm text-gray-500">{scheduleState.data.schedule || 'Not configured'}</div>
+              </div>
+              <StatusBadge status={scheduleState.data.enabled ? 'active' : 'suspended'} />
             </div>
-            <StatusBadge status="active" />
-          </div>
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div>
-              <div className="font-medium text-gray-900">Weekly Full</div>
-              <div className="text-sm text-gray-500">Every Sunday at 3:00 AM</div>
-            </div>
-            <StatusBadge status="active" />
+            {scheduleState.data.nextRun && (
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <div className="font-medium text-gray-900">Next Run</div>
+                  <div className="text-sm text-gray-500">{formatDate(scheduleState.data.nextRun)}</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Backup List */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Backups</h3>
           <div className="flex space-x-3">
+            <button
+              onClick={() => backupsState.refresh()}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+            >
+              Refresh
+            </button>
             <button
               onClick={() => setShowRestoreModal(true)}
               className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm"
@@ -860,81 +899,83 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Backup</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Options</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {backups.map((backup) => (
-                <tr key={backup.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">{backup.fileName}</div>
-                    <div className="text-xs text-gray-500">{backup.schemaName}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={backup.backupType} />
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={backup.status} />
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {backup.status === 'completed' ? formatBytes(backup.sizeBytes) : '-'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex space-x-2">
-                      {backup.isCompressed && (
-                        <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-600 rounded">
-                          Compressed
-                        </span>
-                      )}
-                      {backup.isEncrypted && (
-                        <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-600 rounded">
-                          Encrypted
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDate(backup.createdAt)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDate(backup.expiresAt)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex space-x-2">
-                      {backup.status === 'completed' && (
-                        <>
+        {backups.length === 0 ? (
+          <EmptyState message="No backups found." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Backup</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Options</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {backups.map((backup) => (
+                  <tr key={backup.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">{backup.fileName || backup.location || backup.id}</div>
+                      <div className="text-xs text-gray-500">{backup.schemaName || (backup.tenantId ? `Tenant: ${backup.tenantId}` : 'All')}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={getBackupType(backup)} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={backup.status} />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {backup.status === 'completed' && backup.sizeBytes ? formatBytes(backup.sizeBytes) : '-'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex space-x-2">
+                        {(backup.isCompressed || backup.compressionType) && (
+                          <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-600 rounded">
+                            Compressed
+                          </span>
+                        )}
+                        {(backup.isEncrypted || backup.encryptionKey) && (
+                          <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-600 rounded">
+                            Encrypted
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {formatDate(getBackupCreatedAt(backup))}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {formatDate(backup.expiresAt)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex space-x-2">
+                        {backup.status === 'completed' && (
                           <button
                             onClick={() => setSelectedBackup(backup)}
                             className="text-green-600 hover:text-green-800 text-sm"
                           >
                             Restore
                           </button>
-                          <button className="text-blue-600 hover:text-blue-800 text-sm">
-                            Download
-                          </button>
-                        </>
-                      )}
-                      <button className="text-red-600 hover:text-red-800 text-sm">
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        )}
+                        <button
+                          onClick={() => handleDeleteBackup(backup.id)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Create Backup Modal */}
@@ -951,16 +992,22 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Target</label>
-                <select className="w-full border border-gray-300 rounded-lg px-3 py-2">
-                  <option value="">All Schemas</option>
-                  <option value="tenant-001">tenant_abc123_schema</option>
-                  <option value="tenant-002">tenant_def456_schema</option>
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Target Tenant (optional)</label>
+                <input
+                  type="text"
+                  placeholder="Leave empty for all schemas"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  value={createForm.tenantId}
+                  onChange={(e) => setCreateForm(f => ({ ...f, tenantId: e.target.value }))}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Backup Type</label>
-                <select className="w-full border border-gray-300 rounded-lg px-3 py-2">
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  value={createForm.backupType}
+                  onChange={(e) => setCreateForm(f => ({ ...f, backupType: e.target.value }))}
+                >
                   <option value="full">Full Backup</option>
                   <option value="incremental">Incremental</option>
                   <option value="differential">Differential</option>
@@ -970,17 +1017,28 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Retention (days)</label>
                 <input
                   type="number"
-                  defaultValue={30}
+                  value={createForm.retentionDays}
+                  onChange={(e) => setCreateForm(f => ({ ...f, retentionDays: parseInt(e.target.value) || 30 }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
               <div className="flex items-center space-x-4">
                 <label className="flex items-center space-x-2">
-                  <input type="checkbox" defaultChecked className="rounded border-gray-300" />
+                  <input
+                    type="checkbox"
+                    checked={createForm.compress}
+                    onChange={(e) => setCreateForm(f => ({ ...f, compress: e.target.checked }))}
+                    className="rounded border-gray-300"
+                  />
                   <span className="text-sm text-gray-700">Compress</span>
                 </label>
                 <label className="flex items-center space-x-2">
-                  <input type="checkbox" className="rounded border-gray-300" />
+                  <input
+                    type="checkbox"
+                    checked={createForm.encrypt}
+                    onChange={(e) => setCreateForm(f => ({ ...f, encrypt: e.target.checked }))}
+                    className="rounded border-gray-300"
+                  />
                   <span className="text-sm text-gray-700">Encrypt</span>
                 </label>
               </div>
@@ -988,11 +1046,16 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
                 <button
                   onClick={() => setShowCreateModal(false)}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                  disabled={creating}
                 >
                   Cancel
                 </button>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                  Create Backup
+                <button
+                  onClick={handleCreateBackup}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  disabled={creating}
+                >
+                  {creating ? 'Creating...' : 'Create Backup'}
                 </button>
               </div>
             </div>
@@ -1024,17 +1087,18 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
               {selectedBackup ? (
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="text-sm text-gray-500">Selected Backup</div>
-                  <div className="font-medium">{selectedBackup.fileName}</div>
-                  <div className="text-xs text-gray-400">Created: {formatDate(selectedBackup.createdAt)}</div>
+                  <div className="font-medium">{selectedBackup.fileName || selectedBackup.location || selectedBackup.id}</div>
+                  <div className="text-xs text-gray-400">Created: {formatDate(selectedBackup.createdAt || selectedBackup.startedAt)}</div>
                 </div>
               ) : (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Tenant</label>
-                    <select className="w-full border border-gray-300 rounded-lg px-3 py-2">
-                      <option value="tenant-001">tenant_abc123_schema</option>
-                      <option value="tenant-002">tenant_def456_schema</option>
-                    </select>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Tenant ID</label>
+                    <input
+                      type="text"
+                      placeholder="Enter tenant ID"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Recovery Point</label>
@@ -1061,7 +1125,14 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
                 >
                   Cancel
                 </button>
-                <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                <button
+                  onClick={() => {
+                    if (selectedBackup) {
+                      handleRestoreBackup(selectedBackup.id);
+                    }
+                  }}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
                   Start Restore
                 </button>
               </div>
@@ -1073,217 +1144,317 @@ const BackupsTab: React.FC<{ backups: Backup[] }> = ({ backups }) => {
   );
 };
 
+// ============================================================================
 // Monitoring Tab Component
-const MonitoringTab: React.FC<{
-  health: DatabaseHealth;
-  connections: ConnectionStats;
-  storage: StorageInfo[];
-  slowQueries: SlowQuery[];
-  indexRecommendations: IndexRecommendation[];
-}> = ({ health, connections, storage, slowQueries, indexRecommendations }) => {
+// ============================================================================
+
+const MonitoringTab: React.FC = () => {
+  const healthState = useAsyncData<DatabaseHealth>(
+    useCallback(() => databaseApi.getDatabaseHealth(), []),
+    { initialData: null }
+  );
+
+  const connectionsState = useAsyncData<ConnectionStats>(
+    useCallback(() => databaseApi.getConnectionStats(), []),
+    { initialData: null }
+  );
+
+  const storageState = useAsyncData<StorageInfo[]>(
+    useCallback(() => databaseApi.getStorageByTenant(), []),
+    { initialData: [] }
+  );
+
+  const slowQueriesState = useAsyncData<SlowQueryItem[]>(
+    useCallback(() => databaseApi.getSlowQueries({ grouped: true, limit: 20 }), []),
+    { initialData: [] }
+  );
+
+  const indexState = useAsyncData<IndexRecommendation[]>(
+    useCallback(() => databaseApi.getIndexRecommendations(), []),
+    { initialData: [] }
+  );
+
+  const isLoading =
+    (healthState.loading && healthState.isInitialLoad) ||
+    (connectionsState.loading && connectionsState.isInitialLoad);
+
+  if (isLoading) {
+    return <LoadingSpinner message="Loading monitoring data..." />;
+  }
+
+  const health = healthState.data;
+  const connections = connectionsState.data;
+  const storage = storageState.data || [];
+  const slowQueries = slowQueriesState.data || [];
+  const indexRecommendations = indexState.data || [];
+
   return (
     <div className="space-y-6">
       {/* Health Status */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Database Health</h3>
-          <div className="flex items-center space-x-3">
-            <span className={`text-3xl font-bold ${
-              health.status === 'healthy' ? 'text-green-600' :
-              health.status === 'warning' ? 'text-yellow-600' : 'text-red-600'
-            }`}>
-              {health.score}
-            </span>
-            <StatusBadge status={health.status} />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {health.checks.map((check) => (
-            <div key={check.name} className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">{check.name}</span>
-                <StatusBadge status={check.status} />
-              </div>
-              <div className="text-xl font-bold text-gray-900">{check.value}</div>
-              <div className="text-xs text-gray-500">{check.message}</div>
+      {healthState.error ? (
+        <ErrorState error={healthState.error} onRetry={healthState.retry} />
+      ) : health ? (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900">Database Health</h3>
+            <div className="flex items-center space-x-3">
+              <span className={`text-3xl font-bold ${
+                health.status === 'healthy' ? 'text-green-600' :
+                health.status === 'warning' ? 'text-yellow-600' : 'text-red-600'
+              }`}>
+                {health.score}
+              </span>
+              <StatusBadge status={health.status} />
+              <button
+                onClick={() => healthState.refresh()}
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              >
+                Refresh
+              </button>
             </div>
-          ))}
-        </div>
-        {health.recommendations.length > 0 && (
-          <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div className="text-sm font-medium text-yellow-800 mb-2">Recommendations</div>
-            <ul className="list-disc list-inside text-sm text-yellow-700 space-y-1">
-              {health.recommendations.map((rec, idx) => (
-                <li key={idx}>{rec}</li>
-              ))}
-            </ul>
           </div>
-        )}
-      </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {health.checks.map((check) => (
+              <div key={check.name} className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">{check.name}</span>
+                  <StatusBadge status={check.status} />
+                </div>
+                <div className="text-xl font-bold text-gray-900">{check.value}</div>
+                <div className="text-xs text-gray-500">{check.message}</div>
+              </div>
+            ))}
+          </div>
+          {health.recommendations.length > 0 && (
+            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="text-sm font-medium text-yellow-800 mb-2">Recommendations</div>
+              <ul className="list-disc list-inside text-sm text-yellow-700 space-y-1">
+                {health.recommendations.map((rec, idx) => (
+                  <li key={idx}>{rec}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Connection Stats */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Connection Pool</h3>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-gray-900">{connections.total}</div>
-            <div className="text-sm text-gray-500">Total</div>
+      {connectionsState.error ? (
+        <ErrorState error={connectionsState.error} onRetry={connectionsState.retry} />
+      ) : connections ? (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900">Connection Pool</h3>
+            <button
+              onClick={() => connectionsState.refresh()}
+              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+            >
+              Refresh
+            </button>
           </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-green-600">{connections.active}</div>
-            <div className="text-sm text-gray-500">Active</div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-gray-900">{connections.total}</div>
+              <div className="text-sm text-gray-500">Total</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-green-600">{connections.active}</div>
+              <div className="text-sm text-gray-500">Active</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-blue-600">{connections.idle}</div>
+              <div className="text-sm text-gray-500">Idle</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-yellow-600">{connections.waiting}</div>
+              <div className="text-sm text-gray-500">Waiting</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-600">{connections.maxConnections}</div>
+              <div className="text-sm text-gray-500">Max</div>
+            </div>
           </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-blue-600">{connections.idle}</div>
-            <div className="text-sm text-gray-500">Idle</div>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-yellow-600">{connections.waiting}</div>
-            <div className="text-sm text-gray-500">Waiting</div>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-purple-600">{connections.maxConnections}</div>
-            <div className="text-sm text-gray-500">Max</div>
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm text-gray-500">Utilization</span>
+              <span className="text-sm font-medium">{(connections.utilizationPercent || 0).toFixed(1)}%</span>
+            </div>
+            <ProgressBar
+              value={connections.total}
+              max={connections.maxConnections}
+              color={(connections.utilizationPercent || 0) > 80 ? 'bg-red-500' : (connections.utilizationPercent || 0) > 60 ? 'bg-yellow-500' : 'bg-green-500'}
+            />
           </div>
         </div>
-        <div className="mt-4">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm text-gray-500">Utilization</span>
-            <span className="text-sm font-medium">{connections.utilizationPercent.toFixed(1)}%</span>
-          </div>
-          <ProgressBar
-            value={connections.total}
-            max={connections.maxConnections}
-            color={connections.utilizationPercent > 80 ? 'bg-red-500' : connections.utilizationPercent > 60 ? 'bg-yellow-500' : 'bg-green-500'}
-          />
-        </div>
-      </div>
+      ) : null}
 
       {/* Storage by Tenant */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Storage by Tenant</h3>
+      {storageState.error ? (
+        <ErrorState error={storageState.error} onRetry={storageState.retry} />
+      ) : storage.length > 0 ? (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <h3 className="text-lg font-medium text-gray-900">Storage by Tenant</h3>
+            <button
+              onClick={() => storageState.refresh()}
+              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schema</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Size</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indexes</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Distribution</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {(() => {
+                  const totalStorage = storage.reduce((sum, s) => sum + s.totalSizeBytes, 0);
+                  return storage.map((item) => {
+                    const percentage = totalStorage > 0 ? (item.totalSizeBytes / totalStorage) * 100 : 0;
+                    return (
+                      <tr key={item.tenantId} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-medium text-gray-900">{item.schemaName}</div>
+                          <div className="text-xs text-gray-500">{item.tenantId}</div>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                          {formatBytes(item.totalSizeBytes)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {formatBytes(item.dataSizeBytes)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {formatBytes(item.indexSizeBytes)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {item.tableCount}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-2">
+                            <ProgressBar value={percentage} max={100} />
+                            <span className="text-sm text-gray-500">{percentage.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schema</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Size</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indexes</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Distribution</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {(() => {
-                const totalStorage = storage.reduce((sum, s) => sum + s.totalSizeBytes, 0);
-                return storage.map((item) => {
-                const percentage = totalStorage > 0 ? (item.totalSizeBytes / totalStorage) * 100 : 0;
-                return (
-                  <tr key={item.tenantId} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{item.schemaName}</div>
-                      <div className="text-xs text-gray-500">{item.tenantId}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {formatBytes(item.totalSizeBytes)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {formatBytes(item.dataSizeBytes)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {formatBytes(item.indexSizeBytes)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {item.tableCount}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center space-x-2">
-                        <ProgressBar value={percentage} max={100} />
-                        <span className="text-sm text-gray-500">{percentage.toFixed(1)}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              });
-              })()}
-            </tbody>
-          </table>
+      ) : !storageState.loading ? (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Storage by Tenant</h3>
+          <EmptyState message="No storage data available." />
         </div>
-      </div>
+      ) : null}
 
       {/* Slow Queries */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Slow Queries (Grouped)</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Query Pattern</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Count</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Time</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {slowQueries.map((query, idx) => (
-                <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <code className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
-                      {query.query.length > 80 ? query.query.substring(0, 80) + '...' : query.query}
-                    </code>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{query.count}</td>
-                  <td className="px-6 py-4">
-                    <span className={`text-sm font-medium ${
-                      query.avgTime > 2000 ? 'text-red-600' : 'text-yellow-600'
-                    }`}>
-                      {formatDuration(query.avgTime)}
-                    </span>
-                  </td>
+      {slowQueriesState.error ? (
+        <ErrorState error={slowQueriesState.error} onRetry={slowQueriesState.retry} />
+      ) : slowQueries.length > 0 ? (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <h3 className="text-lg font-medium text-gray-900">Slow Queries (Grouped)</h3>
+            <button
+              onClick={() => slowQueriesState.refresh()}
+              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Query Pattern</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Count</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Time</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {slowQueries.map((query, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <code className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                        {query.query.length > 80 ? query.query.substring(0, 80) + '...' : query.query}
+                      </code>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">{query.count}</td>
+                    <td className="px-6 py-4">
+                      <span className={`text-sm font-medium ${
+                        query.avgTime > 2000 ? 'text-red-600' : 'text-yellow-600'
+                      }`}>
+                        {formatDuration(query.avgTime)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ) : !slowQueriesState.loading ? (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Slow Queries</h3>
+          <EmptyState message="No slow queries detected." />
+        </div>
+      ) : null}
 
       {/* Index Recommendations */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Index Recommendations</h3>
-        </div>
-        <div className="p-6 space-y-4">
-          {indexRecommendations.map((rec, idx) => (
-            <div key={idx} className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-medium text-gray-900">{rec.tableName}</span>
-                    <span className={`px-2 py-0.5 text-xs rounded-full ${
-                      rec.estimatedImpact === 'high' ? 'bg-red-100 text-red-600' :
-                      rec.estimatedImpact === 'medium' ? 'bg-yellow-100 text-yellow-600' :
-                      'bg-green-100 text-green-600'
-                    }`}>
-                      {rec.estimatedImpact} impact
-                    </span>
+      {indexState.error ? (
+        <ErrorState error={indexState.error} onRetry={indexState.retry} />
+      ) : indexRecommendations.length > 0 ? (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <h3 className="text-lg font-medium text-gray-900">Index Recommendations</h3>
+            <button
+              onClick={() => indexState.refresh()}
+              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="p-6 space-y-4">
+            {indexRecommendations.map((rec, idx) => (
+              <div key={idx} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-gray-900">{rec.tableName}</span>
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${
+                        rec.estimatedImpact === 'high' ? 'bg-red-100 text-red-600' :
+                        rec.estimatedImpact === 'medium' ? 'bg-yellow-100 text-yellow-600' :
+                        'bg-green-100 text-green-600'
+                      }`}>
+                        {rec.estimatedImpact} impact
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">{rec.reason}</p>
+                    <code className="block text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded mt-2">
+                      {rec.createStatement}
+                    </code>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">{rec.reason}</p>
-                  <code className="block text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded mt-2">
-                    {rec.createStatement}
-                  </code>
                 </div>
-                <button className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">
-                  Apply
-                </button>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      ) : !indexState.loading ? (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Index Recommendations</h3>
+          <EmptyState message="No index recommendations at this time." />
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -1308,7 +1479,7 @@ const DatabaseManagementPage: React.FC = () => {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Database Management</h1>
         <p className="text-gray-500">
-          Multi-tenant schema yönetimi, migration, backup ve performans izleme
+          Multi-tenant schema yonetimi, migration, backup ve performans izleme
         </p>
       </div>
 
@@ -1334,20 +1505,10 @@ const DatabaseManagementPage: React.FC = () => {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'schemas' && <SchemasTab schemas={mockSchemas} />}
-      {activeTab === 'migrations' && (
-        <MigrationsTab plans={mockMigrationPlans} history={mockMigrations} />
-      )}
-      {activeTab === 'backups' && <BackupsTab backups={mockBackups} />}
-      {activeTab === 'monitoring' && (
-        <MonitoringTab
-          health={mockHealth}
-          connections={mockConnections}
-          storage={mockStorage}
-          slowQueries={mockSlowQueries}
-          indexRecommendations={mockIndexRecommendations}
-        />
-      )}
+      {activeTab === 'schemas' && <SchemasTab />}
+      {activeTab === 'migrations' && <MigrationsTab />}
+      {activeTab === 'backups' && <BackupsTab />}
+      {activeTab === 'monitoring' && <MonitoringTab />}
     </div>
   );
 };

@@ -133,7 +133,7 @@ export class Equipment {
   @Index()
   departmentId?: string;
 
-  @ManyToOne('Department', { onDelete: 'CASCADE', nullable: true })
+  @ManyToOne('Department', { onDelete: 'RESTRICT', nullable: true })
   @JoinColumn({ name: 'departmentId' })
   department?: Department;
 

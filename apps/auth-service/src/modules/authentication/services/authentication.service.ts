@@ -27,6 +27,7 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditLogService, CreateAuditLogDto } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
 import { RegisterInput } from '../dto/register.dto';
@@ -52,6 +53,7 @@ export interface JwtPayload {
   roles: Role[];
   tenantId: string | null;
   modules?: string[];
+  resourcePermissions?: string[];
   jti?: string; // JWT ID for blacklisting
   iat?: number;
   exp?: number;
@@ -95,6 +97,8 @@ export class AuthenticationService {
     private readonly invitationRepository: Repository<Invitation>,
     @InjectRepository(UserModuleAssignment)
     private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
+    @InjectRepository(Tenant)
+    private readonly tenantRepository: Repository<Tenant>,
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -289,6 +293,26 @@ export class AuthenticationService {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
+      // SECURITY: Check tenant status — block login for SUSPENDED/CANCELLED tenants (BULGU-008)
+      // SUPER_ADMIN users (tenantId is null) are exempt from this check
+      if (user.tenantId) {
+        const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
+        if (tenant && (tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED')) {
+          await this.ensureMinDuration(startTime);
+          this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
+          await this.logSecurityEvent('LOGIN_BLOCKED_TENANT_SUSPENDED', {
+            userId: user.id,
+            email: user.email,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: `Tenant account is ${tenant.status.toLowerCase()}`,
+          }, AuditLogSeverity.WARNING);
+          throw new UnauthorizedException('Tenant account is suspended');
+        }
+      }
+
       // Validate password
       const isPasswordValid = await user.validatePassword(input.password);
 
@@ -382,15 +406,29 @@ export class AuthenticationService {
     lastName?: string,
     ipAddress?: string,
   ): Promise<AuthPayload> {
+    // SECURITY: Hash token with SHA-256 for lookup against hashed tokens (SEC-005)
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
     // Execute all reads + validation + writes inside a single transaction
     const result = await this.dataSource.transaction(async (manager) => {
       // SECURITY: Lock the invitation row to prevent concurrent acceptance
-      const invitation = await manager
+      // Try hashed token first, then fall back to plaintext for backward compatibility
+      let invitation = await manager
         .getRepository(Invitation)
         .createQueryBuilder('invitation')
         .setLock('pessimistic_write')
-        .where('invitation.token = :token', { token })
+        .where('invitation.token = :tokenHash', { tokenHash })
         .getOne();
+
+      if (!invitation) {
+        // Backward compatibility: try plaintext token for pre-migration invitations
+        invitation = await manager
+          .getRepository(Invitation)
+          .createQueryBuilder('invitation')
+          .setLock('pessimistic_write')
+          .where('invitation.token = :token', { token })
+          .getOne();
+      }
 
       if (!invitation) {
         throw new BadRequestException('Invalid invitation token');
@@ -403,10 +441,18 @@ export class AuthenticationService {
         throw new BadRequestException('Invitation cannot be accepted');
       }
 
-      // Find user by invitation token (within transaction)
-      const user = await manager
+      // Find user by invitation token hash (within transaction)
+      // SECURITY: Try hashed token first, then plaintext fallback for backward compatibility (SEC-005)
+      let user = await manager
         .getRepository(User)
-        .findOne({ where: { invitationToken: token } });
+        .findOne({ where: { invitationToken: tokenHash } });
+
+      if (!user) {
+        // Backward compatibility: try plaintext token for pre-migration users
+        user = await manager
+          .getRepository(User)
+          .findOne({ where: { invitationToken: token } });
+      }
 
       if (!user) {
         // SECURITY: Generic message to prevent token enumeration
@@ -436,15 +482,26 @@ export class AuthenticationService {
 
     this.logger.log(`Invitation accepted: ${result.email} (role: ${result.role})`);
 
-    // Publish event (outside transaction - events can be retried)
-    await this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'InvitationAccepted',
-      timestamp: new Date(),
-      tenantId: result.tenantId ?? 'system',
-      userId: result.id,
-      version: 1,
-    });
+    // PERF: Parallelize audit log + event publish (BULGU-016)
+    await Promise.allSettled([
+      // SECURITY AUDIT: Log invitation acceptance (BULGU-016)
+      this.logSecurityEvent('INVITATION_ACCEPTED', {
+        userId: result.id,
+        email: result.email,
+        tenantId: result.tenantId,
+        ipAddress,
+        success: true,
+      }),
+      // Publish event (outside transaction - events can be retried)
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'InvitationAccepted',
+        timestamp: new Date(),
+        tenantId: result.tenantId ?? 'system',
+        userId: result.id,
+        version: 1,
+      }),
+    ]);
 
     return this.generateTokens(result, ipAddress);
   }
@@ -460,9 +517,20 @@ export class AuthenticationService {
     lastName?: string;
     expired?: boolean;
   }> {
-    const invitation = await this.invitationRepository.findOne({
-      where: { token },
+    // SECURITY: Hash token for lookup against hashed tokens (SEC-005)
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Try hashed token first, then fall back to plaintext for backward compatibility
+    let invitation = await this.invitationRepository.findOne({
+      where: { token: tokenHash },
     });
+
+    if (!invitation) {
+      // Backward compatibility: try plaintext token for pre-migration invitations
+      invitation = await this.invitationRepository.findOne({
+        where: { token },
+      });
+    }
 
     if (!invitation) {
       return { valid: false };
@@ -832,6 +900,65 @@ export class AuthenticationService {
   }
 
   /**
+   * Get user's tenant-level resource permissions from their role assignment.
+   *
+   * SUPER_ADMIN and TENANT_ADMIN are excluded -- they bypass permission checks entirely.
+   * For MODULE_MANAGER and MODULE_USER, queries the tenant schema to fetch the
+   * resource_permissions array from the user's assigned role.
+   *
+   * Returns a flat string array (e.g., ["tanks:create", "sensors:view"]).
+   * Empty array if the user has no role assignment or no permissions.
+   */
+  private async getUserResourcePermissions(user: User): Promise<string[]> {
+    // SUPER_ADMIN and TENANT_ADMIN don't need resource permissions -- they have full access
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.TENANT_ADMIN) {
+      return [];
+    }
+
+    // No tenant context means no tenant-level permissions
+    if (!user.tenantId) {
+      return [];
+    }
+
+    try {
+      // Compute tenant schema name (same logic as SchemaManagerService.getTenantSchemaName)
+      const cleanId = user.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
+      const schemaName = `tenant_${cleanId}`;
+
+      // Query user's active role assignments and their resource permissions
+      // A user may have multiple roles; merge all resource permissions (union)
+      const rows: Array<{ resource_permissions: string[] | null }> = await this.dataSource.query(
+        `
+        SELECT trp.resource_permissions
+        FROM "${schemaName}"."user_role_assignments" ura
+        JOIN "${schemaName}"."tenant_role_permissions" trp ON ura.role_id = trp.role_id
+        WHERE ura.user_id = $1 AND ura.is_active = true
+        `,
+        [user.id],
+      );
+
+      // Merge permissions from all assigned roles, deduplicate
+      const permissionSet = new Set<string>();
+      for (const row of rows) {
+        if (Array.isArray(row.resource_permissions)) {
+          for (const perm of row.resource_permissions) {
+            permissionSet.add(perm);
+          }
+        }
+      }
+
+      return Array.from(permissionSet);
+    } catch (error) {
+      // If the tenant schema or tables don't exist yet, return empty
+      // This is non-fatal -- the user simply won't have fine-grained permissions
+      this.logger.warn(
+        `Failed to load resource permissions for user ${user.id} in tenant ${user.tenantId}: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
    * Handle failed login with atomic database increment to prevent race conditions.
    * Uses a single atomic SQL statement with RETURNING to avoid multiple round-trips (MED-01).
    * Returns the updated failedLoginAttempts count for accurate audit logging (M-04).
@@ -880,6 +1007,9 @@ export class AuthenticationService {
     const modules = await this.getUserModules(user);
     const moduleCodes = modules.map((m) => m.code);
 
+    // Get user's tenant-level resource permissions for JWT (MODULE_MANAGER, MODULE_USER only)
+    const resourcePermissions = await this.getUserResourcePermissions(user);
+
     // Generate JWT ID for token blacklisting
     const jti = crypto.randomUUID();
 
@@ -890,6 +1020,7 @@ export class AuthenticationService {
       roles: [user.role], // Include as array for consistency
       tenantId: user.tenantId ?? null,
       modules: moduleCodes.length > 0 ? moduleCodes : undefined,
+      resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
       jti, // Include JTI for token blacklisting
     };
 
@@ -972,6 +1103,174 @@ export class AuthenticationService {
       default:
         return '/';
     }
+  }
+
+  /**
+   * Initiate password reset flow.
+   *
+   * SECURITY:
+   * - Always completes in minimum duration to prevent timing-based user enumeration
+   * - Stores SHA-256 hash of token (not plaintext) in the database
+   * - Token expires after 1 hour
+   * - If user not found, performs dummy hash to match timing and returns silently
+   * - Publishes PasswordResetRequestedEvent for notification service to send email
+   */
+  async initiatePasswordReset(email: string, ipAddress?: string): Promise<void> {
+    const startTime = Date.now();
+    this.logger.debug('Password reset requested');
+
+    try {
+      const user = await this.userRepository.findOne({
+        where: { email: email.toLowerCase() },
+      });
+
+      if (!user) {
+        // SECURITY: Perform dummy hash to match timing of real token generation
+        crypto.createHash('sha256').update(crypto.randomBytes(32)).digest('hex');
+        await this.ensureMinDuration(startTime);
+        return;
+      }
+
+      // Check if account is active
+      if (!user.isActive) {
+        await this.ensureMinDuration(startTime);
+        return;
+      }
+
+      // Generate cryptographically secure reset token (256 bits of entropy)
+      const resetToken = crypto.randomBytes(32).toString('hex');
+
+      // SECURITY: Store SHA-256 hash of token, not the plaintext
+      const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+      // Set token and expiry (1 hour)
+      user.passwordResetToken = resetTokenHash;
+      user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await this.userRepository.save(user);
+
+      // Publish event for notification service to send reset email
+      await this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'PasswordResetRequested',
+        timestamp: new Date(),
+        tenantId: user.tenantId ?? 'system',
+        userId: user.id,
+        email: user.email,
+        resetToken, // Plain token for email link (notification service uses this)
+        firstName: user.firstName ?? undefined,
+        version: 1,
+      });
+
+      // Audit log
+      await this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        ipAddress,
+        success: true,
+      });
+
+      await this.ensureMinDuration(startTime);
+    } catch (error) {
+      await this.ensureMinDuration(startTime);
+      // SECURITY: Swallow errors to prevent information leakage
+      // Log internally but don't propagate to caller
+      this.logger.error('Error during password reset initiation', (error as Error).stack);
+    }
+  }
+
+  /**
+   * Reset password using a valid reset token.
+   *
+   * SECURITY:
+   * - Token is hashed with SHA-256 before database lookup
+   * - Validates token expiry (1 hour window)
+   * - Token is single-use (cleared after successful reset)
+   * - All refresh tokens are revoked (forces re-authentication on all devices)
+   * - Returns new auth tokens so user is immediately logged in
+   * - Password validation: min 8, uppercase, lowercase, digit, special char
+   */
+  async resetPassword(
+    token: string,
+    newPassword: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthPayload> {
+    // SECURITY: Hash the provided token with SHA-256 to compare against stored hash
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find user by hashed token and ensure it hasn't expired
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .where('user.passwordResetToken = :tokenHash', { tokenHash })
+      .andWhere('user.passwordResetExpires > :now', { now: new Date() })
+      .getOne();
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    // Check if account is active
+    if (!user.isActive) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    // Update password (BeforeUpdate hook will bcrypt-hash it)
+    user.password = newPassword;
+
+    // SECURITY: Clear reset token (single-use)
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+
+    // Reset any account lockout from failed login attempts
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+
+    await this.userRepository.save(user);
+
+    // SECURITY: Revoke ALL refresh tokens (force re-auth on all devices)
+    await this.refreshTokenRepository.update(
+      { userId: user.id, isRevoked: false },
+      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Password reset' },
+    );
+
+    // Blacklist all existing access tokens for this user
+    if (this.tokenBlacklist) {
+      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
+      const expiresInSeconds = this.parseExpiresIn(expiresIn);
+      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
+      await this.tokenBlacklist.blacklistUserTokens(user.id, expiryDate, 'password_reset');
+    }
+
+    // Revoke all sessions
+    if (this.sessionManager) {
+      await this.sessionManager.revokeAllSessions(user.id);
+    }
+
+    this.logger.log(`Password reset successful for user: ${user.id}`);
+
+    // Audit log + event publish in parallel
+    await Promise.allSettled([
+      this.logSecurityEvent('PASSWORD_RESET_SUCCESS', {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        ipAddress,
+        userAgent,
+        success: true,
+      }),
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'PasswordResetCompleted',
+        timestamp: new Date(),
+        tenantId: user.tenantId ?? 'system',
+        userId: user.id,
+        version: 1,
+      }),
+    ]);
+
+    // Generate new tokens so user is immediately logged in
+    return this.generateTokens(user, ipAddress, userAgent);
   }
 
   private parseExpiresIn(expiresIn: string): number {

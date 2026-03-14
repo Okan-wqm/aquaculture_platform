@@ -1,11 +1,14 @@
 /**
  * Update Department Command Handler
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { DepartmentUpdatedEvent } from '@platform/event-contracts';
 import { UpdateDepartmentCommand } from '../commands/update-department.command';
 import { Department } from '../entities/department.entity';
 
@@ -65,14 +68,25 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
 
     this.logger.log(`Department ${departmentId} updated successfully`);
 
-    // Domain event: DepartmentUpdated
-    // await this.eventBus?.publish(new DepartmentUpdatedEvent({
-    //   tenantId,
-    //   departmentId: updatedDepartment.id,
-    //   name: updatedDepartment.name,
-    //   code: updatedDepartment.code,
-    //   updatedBy: userId,
-    // }));
+    // Publish domain event: DepartmentUpdated
+    if (this.eventBus) {
+      try {
+        const event: DepartmentUpdatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'DepartmentUpdated',
+          tenantId,
+          timestamp: new Date(),
+          departmentId: updatedDepartment.id,
+          siteId: updatedDepartment.siteId,
+          name: updatedDepartment.name,
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published DepartmentUpdatedEvent for department ${updatedDepartment.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish DepartmentUpdatedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return updatedDepartment;
   }

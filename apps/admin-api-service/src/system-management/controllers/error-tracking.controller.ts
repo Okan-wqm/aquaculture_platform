@@ -9,8 +9,11 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
 import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
@@ -67,6 +70,7 @@ class CreateAlertRuleDto {
 
 @ApiTags('Analytics')
 @Controller('system/errors')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class ErrorTrackingController {
   constructor(private readonly errorTrackingService: ErrorTrackingService) {}
 

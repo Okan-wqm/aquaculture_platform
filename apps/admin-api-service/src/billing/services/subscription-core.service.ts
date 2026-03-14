@@ -468,38 +468,49 @@ export class SubscriptionCoreService {
 
       const newSubscriptionId = subscriptionResult[0].id;
 
-      // Create subscription_module_items for each module
-      for (const moduleConfig of modules) {
-        const itemResult = await manager.query(
-          `
-          INSERT INTO billing.subscription_module_items (
-            id, "subscriptionId", "moduleId", "moduleCode",
-            quantities, "monthlyPrice", "lineItems",
-            "isActive", "createdAt", "updatedAt"
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3,
-            $4, $5, $6,
-            true, NOW(), NOW()
-          )
-          RETURNING id
-        `,
-          [
-            newSubscriptionId,
+      // Bulk insert all subscription_module_items in a single query
+      if (modules.length > 0) {
+        const valuesClauses: string[] = [];
+        const bulkParams: unknown[] = [newSubscriptionId];
+        let bulkParamIndex = 2; // $1 is subscriptionId
+
+        for (const moduleConfig of modules) {
+          valuesClauses.push(
+            `(gen_random_uuid(), $1, $${bulkParamIndex}, $${bulkParamIndex + 1}, $${bulkParamIndex + 2}, $${bulkParamIndex + 3}, $${bulkParamIndex + 4}, true, NOW(), NOW())`,
+          );
+          bulkParams.push(
             moduleConfig.moduleId,
             moduleConfig.moduleCode,
             JSON.stringify(moduleConfig.quantities),
             moduleConfig.subtotal,
             JSON.stringify(moduleConfig.lineItems || []),
-          ],
+          );
+          bulkParamIndex += 5;
+        }
+
+        const bulkInsertResult = await manager.query(
+          `
+          INSERT INTO billing.subscription_module_items (
+            id, "subscriptionId", "moduleId", "moduleCode",
+            quantities, "monthlyPrice", "lineItems",
+            "isActive", "createdAt", "updatedAt"
+          ) VALUES ${valuesClauses.join(', ')}
+          RETURNING id, "moduleId", "moduleCode"
+        `,
+          bulkParams,
         );
 
-        moduleItems.push({
-          id: itemResult[0].id,
-          moduleId: moduleConfig.moduleId,
-          moduleCode: moduleConfig.moduleCode,
-          quantities: moduleConfig.quantities,
-          monthlyPrice: moduleConfig.subtotal,
-        });
+        for (let i = 0; i < bulkInsertResult.length; i++) {
+          const row = bulkInsertResult[i];
+          const moduleConfig = modules.find((m) => m.moduleId === row.moduleId && m.moduleCode === row.moduleCode);
+          moduleItems.push({
+            id: row.id,
+            moduleId: row.moduleId,
+            moduleCode: row.moduleCode,
+            quantities: moduleConfig?.quantities || {},
+            monthlyPrice: moduleConfig?.subtotal || 0,
+          });
+        }
       }
 
       // Update tenant with subscription info

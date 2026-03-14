@@ -57,7 +57,42 @@ export interface UseAsyncDataReturn<T> extends AsyncState<T> {
 }
 
 // Simple in-memory cache — cleared on logout/session change (SEC-015, BUG-010)
-const cache = new Map<string, { data: unknown; timestamp: number }>();
+// Fix: H1 -- LRU eviction with max size to prevent unbounded memory growth
+const MAX_CACHE_SIZE = 100;
+
+interface CacheEntry {
+  data: unknown;
+  timestamp: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+
+/**
+ * Add an entry to the cache with LRU eviction.
+ * Map preserves insertion order, so the first key is the oldest.
+ */
+function addToCache(key: string, value: CacheEntry): void {
+  // If key already exists, delete it first so it moves to the end (most recent)
+  cache.delete(key);
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey) cache.delete(oldestKey);
+  }
+  cache.set(key, value);
+}
+
+/**
+ * Get a cache entry, refreshing its position (LRU touch).
+ */
+function getCacheEntry(key: string): CacheEntry | undefined {
+  const entry = cache.get(key);
+  if (entry) {
+    // Move to end (most recently used)
+    cache.delete(key);
+    cache.set(key, entry);
+  }
+  return entry;
+}
 
 // Clear all cached data when the user logs out
 if (typeof window !== 'undefined') {
@@ -98,9 +133,21 @@ export function useAsyncData<T>(
   // Store canRetry in a ref so the retry callback doesn't re-create on every error state
   // change, preventing downstream re-renders in consumers that pass retry as a prop (PERF-001)
   const canRetryRef = useRef(false);
+
+  // Fix: C8 -- Store callbacks in refs to prevent infinite re-fetch loops
+  // when consumers pass inline arrow functions for transform/onSuccess/onError.
+  // Without this, each render creates new callback references which would cause
+  // fetchData identity to change and trigger the refetch useEffect endlessly.
+  const transformRef = useRef(transform);
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+
   useEffect(() => {
     fetcherRef.current = fetcher;
-  }, [fetcher]);
+    transformRef.current = transform;
+    onSuccessRef.current = onSuccess;
+    onErrorRef.current = onError;
+  });
 
   const fetchData = useCallback(
     async (showLoading = true) => {
@@ -113,9 +160,9 @@ export function useAsyncData<T>(
       // Track this fetch with a unique ID so superseded fetches don't update state
       const fetchId = ++fetchIdRef.current;
 
-      // Check cache
+      // Check cache (uses LRU touch -- H1)
       if (cacheKey) {
-        const cached = cache.get(cacheKey);
+        const cached = getCacheEntry(cacheKey);
         if (cached && Date.now() - cached.timestamp < cacheTTL) {
           if (mountedRef.current && fetchId === fetchIdRef.current) {
             setState((prev) => ({
@@ -156,14 +203,14 @@ export function useAsyncData<T>(
           return;
         }
 
-        // Apply transform if provided
-        if (transform) {
-          result = transform(result) as Awaited<T>;
+        // Apply transform if provided (use ref to avoid stale closure -- C8)
+        if (transformRef.current) {
+          result = transformRef.current(result) as Awaited<T>;
         }
 
-        // Update cache
+        // Update cache (uses LRU eviction -- H1)
         if (cacheKey) {
-          cache.set(cacheKey, { data: result, timestamp: Date.now() });
+          addToCache(cacheKey, { data: result, timestamp: Date.now() });
         }
 
         if (mountedRef.current) {
@@ -176,7 +223,7 @@ export function useAsyncData<T>(
             canRetry: false,
             errorCode: undefined,
           });
-          onSuccess?.(result);
+          onSuccessRef.current?.(result);
         }
       } catch (err) {
         // Cancel timeout on any error path too (BUG-012)
@@ -218,12 +265,14 @@ export function useAsyncData<T>(
             canRetry: isRetryable,
             errorCode,
           }));
-          onError?.(err instanceof Error ? err : new Error(errorMessage));
+          onErrorRef.current?.(err instanceof Error ? err : new Error(errorMessage));
         }
       }
     },
     // fetcher removed from deps — stored in ref to prevent infinite re-fetch loops (PERF-001)
-    [cacheKey, cacheTTL, timeout, transform, onSuccess, onError] // eslint-disable-line react-hooks/exhaustive-deps
+    // Fix: C8 -- transform, onSuccess, onError removed from deps — stored in refs
+    // to prevent infinite re-fetch loops when consumers pass inline arrow functions
+    [cacheKey, cacheTTL, timeout] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const fetch = useCallback(() => fetchData(true), [fetchData]);
@@ -269,12 +318,15 @@ export function useAsyncData<T>(
     setState((prev) => ({ ...prev, error, canRetry: error !== null }));
   }, []);
 
-  // Initial fetch
+  // Fix: C7 -- Refetch when fetchData identity changes (driven by cacheKey / cacheTTL / timeout).
+  // Previously used empty dependency array [] which meant no refetch on cacheKey change.
+  // Now that C8 stabilized callbacks via refs, fetchData only changes when
+  // cacheKey/cacheTTL/timeout change — safe to use as a dependency without infinite loops.
   useEffect(() => {
     if (immediate) {
       fetchData(true);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup
   useEffect(() => {

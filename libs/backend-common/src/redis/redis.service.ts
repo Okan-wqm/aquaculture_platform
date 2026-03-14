@@ -219,6 +219,22 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * Atomically set a key only if it does not already exist, with an expiry.
+   * Uses Redis SET NX EX which is a single atomic command – no race window.
+   * Returns true if the key was set (lock acquired), false if it already existed.
+   */
+  async setNx(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
+    const prefixedKey = this.prefixKey(key);
+    let result: string | null;
+    if (ttlSeconds && ttlSeconds > 0) {
+      result = await this.client.set(prefixedKey, value, 'EX', ttlSeconds, 'NX');
+    } else {
+      result = await this.client.set(prefixedKey, value, 'NX');
+    }
+    return result === 'OK';
+  }
+
+  /**
    * Get underlying Redis client for advanced operations
    */
   getClient(): Redis {

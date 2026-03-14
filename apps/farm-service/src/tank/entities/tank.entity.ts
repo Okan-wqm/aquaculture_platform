@@ -228,7 +228,7 @@ export class Tank {
   @Column('uuid')
   departmentId: string;
 
-  @ManyToOne(() => Department, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Department, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'departmentId' })
   department: Department;
 

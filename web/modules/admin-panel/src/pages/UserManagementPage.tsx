@@ -194,7 +194,7 @@ const UserManagementPage: React.FC = () => {
       fetchUsers();
       fetchInitialData();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Islem basarisiz');
+      setFormError(err instanceof Error ? err.message : 'Operation failed');
     } finally {
       setSaving(false);
     }
@@ -210,7 +210,7 @@ const UserManagementPage: React.FC = () => {
       fetchUsers();
       fetchInitialData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Silme basarisiz');
+      setError(err instanceof Error ? err.message : 'Delete failed');
     }
   };
 
@@ -224,7 +224,7 @@ const UserManagementPage: React.FC = () => {
       }
       fetchUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Islem basarisiz');
+      setError(err instanceof Error ? err.message : 'Operation failed');
     }
   };
 
@@ -260,7 +260,7 @@ const UserManagementPage: React.FC = () => {
       // Check user limit before inviting
       const limitCheck = await usersApi.checkTenantLimit(inviteFormData.tenantId);
       if (!limitCheck.canCreate) {
-        setInviteError(limitCheck.message || 'Kullanici limiti doldu');
+        setInviteError(limitCheck.message || 'User limit reached');
         setInviting(false);
         return;
       }
@@ -275,7 +275,7 @@ const UserManagementPage: React.FC = () => {
         invitedBy: 'system', // In real app, get from auth context
       });
 
-      setInviteSuccess(`Davet gonderildi: ${inviteFormData.email}`);
+      setInviteSuccess(`Invitation sent: ${inviteFormData.email}`);
 
       // Reset form
       setInviteFormData({
@@ -296,7 +296,7 @@ const UserManagementPage: React.FC = () => {
         setInviteSuccess(null);
       }, 2000);
     } catch (err) {
-      setInviteError(err instanceof Error ? err.message : 'Davet gonderilemedi');
+      setInviteError(err instanceof Error ? err.message : 'Failed to send invitation');
     } finally {
       setInviting(false);
     }
@@ -354,8 +354,8 @@ const UserManagementPage: React.FC = () => {
     const labels: Record<string, string> = {
       SUPER_ADMIN: 'Super Admin',
       TENANT_ADMIN: 'Tenant Admin',
-      MODULE_MANAGER: 'Modul Yoneticisi',
-      MODULE_USER: 'Kullanici',
+      MODULE_MANAGER: 'Module Manager',
+      MODULE_USER: 'User',
     };
     return labels[role] || role;
   };
@@ -373,7 +373,7 @@ const UserManagementPage: React.FC = () => {
   const columns: TableColumn<User>[] = [
     {
       key: 'name',
-      header: 'Kullanici',
+      header: 'User',
       sortable: true,
       render: (user) => (
         <div>
@@ -384,7 +384,7 @@ const UserManagementPage: React.FC = () => {
     },
     {
       key: 'role',
-      header: 'Rol',
+      header: 'Role',
       sortable: true,
       render: (user) => (
         <Badge variant={getRoleVariant(user.role)}>{getRoleLabel(user.role)}</Badge>
@@ -400,21 +400,21 @@ const UserManagementPage: React.FC = () => {
     },
     {
       key: 'isActive',
-      header: 'Durum',
+      header: 'Status',
       sortable: true,
       render: (user) => (
         <Badge variant={user.isActive ? 'success' : 'default'}>
-          {user.isActive ? 'Aktif' : 'Pasif'}
+          {user.isActive ? 'Active' : 'Inactive'}
         </Badge>
       ),
     },
     {
       key: 'lastLoginAt',
-      header: 'Son Giris',
+      header: 'Last Login',
       sortable: true,
       render: (user) => (
         <span className="text-sm text-gray-500">
-          {user.lastLoginAt ? formatDate(new Date(user.lastLoginAt), 'short') : 'Hic giris yapmadi'}
+          {user.lastLoginAt ? formatDate(new Date(user.lastLoginAt), 'short') : 'Never logged in'}
         </span>
       ),
     },
@@ -425,10 +425,10 @@ const UserManagementPage: React.FC = () => {
       render: (user) => (
         <div className="flex items-center justify-end space-x-1">
           <Button variant="ghost" size="sm" onClick={() => { setSelectedUser(user); setIsDetailModalOpen(true); }}>
-            Detay
+            Details
           </Button>
           <Button variant="ghost" size="sm" onClick={() => openEditModal(user)}>
-            Duzenle
+            Edit
           </Button>
           <Button variant="ghost" size="sm" onClick={() => { setSelectedUser(user); setDeleteModalOpen(true); }}>
             <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -445,26 +445,26 @@ const UserManagementPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Kullanici Yonetimi</h1>
+          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Toplam {totalUsers} kullanici
+            Total {totalUsers} users
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex space-x-2">
           <Button variant="outline" onClick={fetchUsers} disabled={loading}>
-            Yenile
+            Refresh
           </Button>
           <Button variant="outline" onClick={openInviteModal}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
-            Davet Gonder
+            Send Invite
           </Button>
           <Button onClick={() => openEditModal(null)}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Yeni Kullanici
+            New User
           </Button>
         </div>
       </div>
@@ -485,19 +485,19 @@ const UserManagementPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Toplam</p>
+            <p className="text-sm text-gray-500">Total</p>
             <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Aktif</p>
+            <p className="text-sm text-gray-500">Active</p>
             <p className="text-2xl font-bold text-green-600">{stats.activeUsers}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Son 24 Saat Giris</p>
+            <p className="text-sm text-gray-500">Logins (Last 24h)</p>
             <p className="text-2xl font-bold text-blue-600">{stats.loginsLast24Hours}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Son 30 Gun Yeni</p>
+            <p className="text-sm text-gray-500">New (Last 30 Days)</p>
             <p className="text-2xl font-bold text-purple-600">{stats.newUsersLast30Days}</p>
           </Card>
         </div>
@@ -508,7 +508,7 @@ const UserManagementPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
           <div className="sm:col-span-2">
             <Input
-              placeholder="Isim veya e-posta ara..."
+              placeholder="Search by name or email..."
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               leftIcon={
@@ -522,27 +522,27 @@ const UserManagementPage: React.FC = () => {
             value={roleFilter}
             onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
             options={[
-              { value: '', label: 'Tum Roller' },
+              { value: '', label: 'All Roles' },
               { value: 'SUPER_ADMIN', label: 'Super Admin' },
               { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-              { value: 'MODULE_MANAGER', label: 'Modul Yoneticisi' },
-              { value: 'MODULE_USER', label: 'Kullanici' },
+              { value: 'MODULE_MANAGER', label: 'Module Manager' },
+              { value: 'MODULE_USER', label: 'User' },
             ]}
           />
           <Select
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             options={[
-              { value: '', label: 'Tum Durumlar' },
-              { value: 'active', label: 'Aktif' },
-              { value: 'inactive', label: 'Pasif' },
+              { value: '', label: 'All Statuses' },
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
             ]}
           />
           <Select
             value={tenantFilter}
             onChange={(e) => { setTenantFilter(e.target.value); setPage(1); }}
             options={[
-              { value: '', label: 'Tum Tenantlar' },
+              { value: '', label: 'All Tenants' },
               ...tenants.map((t) => ({ value: t.id, label: t.name })),
             ]}
           />
@@ -553,14 +553,14 @@ const UserManagementPage: React.FC = () => {
       {loading ? (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-2 text-gray-500">Yukleniyor...</p>
+          <p className="mt-2 text-gray-500">Loading...</p>
         </div>
       ) : (
         <Table
           data={users}
           columns={columns}
           keyExtractor={(user) => user.id}
-          emptyMessage="Kullanici bulunamadi"
+          emptyMessage="No users found"
         />
       )}
 
@@ -573,10 +573,10 @@ const UserManagementPage: React.FC = () => {
             disabled={page === 1}
             onClick={() => setPage(page - 1)}
           >
-            Onceki
+            Previous
           </Button>
           <span className="py-2 px-4 text-sm text-gray-600">
-            Sayfa {page} / {Math.ceil(totalUsers / limit)}
+            Page {page} / {Math.ceil(totalUsers / limit)}
           </span>
           <Button
             variant="outline"
@@ -584,7 +584,7 @@ const UserManagementPage: React.FC = () => {
             disabled={page >= Math.ceil(totalUsers / limit)}
             onClick={() => setPage(page + 1)}
           >
-            Sonraki
+            Next
           </Button>
         </div>
       )}
@@ -593,7 +593,7 @@ const UserManagementPage: React.FC = () => {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={selectedUser ? 'Kullaniciyi Duzenle' : 'Yeni Kullanici'}
+        title={selectedUser ? 'Edit User' : 'New User'}
         size="md"
       >
         <div className="space-y-4">
@@ -601,13 +601,13 @@ const UserManagementPage: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Ad"
+              label="First Name"
               value={formData.firstName}
               onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
               required
             />
             <Input
-              label="Soyad"
+              label="Last Name"
               value={formData.lastName}
               onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
               required
@@ -625,7 +625,7 @@ const UserManagementPage: React.FC = () => {
 
           {!selectedUser && (
             <Input
-              label="Sifre"
+              label="Password"
               type="password"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -649,7 +649,7 @@ const UserManagementPage: React.FC = () => {
             value={formData.tenantId}
             onChange={(e) => setFormData({ ...formData, tenantId: e.target.value })}
             options={[
-              { value: '', label: 'Tenant Yok (Super Admin)' },
+              { value: '', label: 'No Tenant (Super Admin)' },
               ...tenants.map((t) => ({ value: t.id, label: t.name })),
             ]}
           />
@@ -663,16 +663,16 @@ const UserManagementPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
                 className="rounded border-gray-300"
               />
-              <label htmlFor="isActive" className="text-sm text-gray-700">Aktif</label>
+              <label htmlFor="isActive" className="text-sm text-gray-700">Active</label>
             </div>
           )}
 
           <div className="flex justify-end space-x-3 pt-4">
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>
-              Iptal
+              Cancel
             </Button>
             <Button onClick={handleSaveUser} loading={saving}>
-              {selectedUser ? 'Guncelle' : 'Olustur'}
+              {selectedUser ? 'Update' : 'Create'}
             </Button>
           </div>
         </div>
@@ -682,14 +682,14 @@ const UserManagementPage: React.FC = () => {
       <Modal
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
-        title="Kullanici Detayi"
+        title="User Details"
         size="md"
       >
         {selectedUser && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Ad Soyad</p>
+                <p className="text-xs text-gray-500">Full Name</p>
                 <p className="font-medium">{selectedUser.firstName} {selectedUser.lastName}</p>
               </div>
               <div>
@@ -697,13 +697,13 @@ const UserManagementPage: React.FC = () => {
                 <p className="font-medium">{selectedUser.email}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Rol</p>
+                <p className="text-xs text-gray-500">Role</p>
                 <Badge variant={getRoleVariant(selectedUser.role)}>{getRoleLabel(selectedUser.role)}</Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Durum</p>
+                <p className="text-xs text-gray-500">Status</p>
                 <Badge variant={selectedUser.isActive ? 'success' : 'default'}>
-                  {selectedUser.isActive ? 'Aktif' : 'Pasif'}
+                  {selectedUser.isActive ? 'Active' : 'Inactive'}
                 </Badge>
               </div>
               <div>
@@ -711,15 +711,15 @@ const UserManagementPage: React.FC = () => {
                 <p className="font-medium">{selectedUser.tenantName || '-'}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Son Giris</p>
+                <p className="text-xs text-gray-500">Last Login</p>
                 <p className="font-medium">
                   {selectedUser.lastLoginAt
                     ? formatDate(new Date(selectedUser.lastLoginAt), 'long')
-                    : 'Hic giris yapmadi'}
+                    : 'Never logged in'}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Olusturulma</p>
+                <p className="text-xs text-gray-500">Created</p>
                 <p className="font-medium">{formatDate(new Date(selectedUser.createdAt), 'long')}</p>
               </div>
             </div>
@@ -730,17 +730,17 @@ const UserManagementPage: React.FC = () => {
                 size="sm"
                 onClick={() => handleToggleStatus(selectedUser)}
               >
-                {selectedUser.isActive ? 'Pasif Yap' : 'Aktif Yap'}
+                {selectedUser.isActive ? 'Deactivate' : 'Activate'}
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => handleForceLogout(selectedUser)}
               >
-                Zorla Cikis Yaptir
+                Force Logout
               </Button>
               <Button variant="outline" onClick={() => setIsDetailModalOpen(false)}>
-                Kapat
+                Close
               </Button>
             </div>
           </div>
@@ -752,9 +752,9 @@ const UserManagementPage: React.FC = () => {
         isOpen={deleteModalOpen}
         onClose={() => setDeleteModalOpen(false)}
         onConfirm={handleDeleteUser}
-        title="Kullaniciyi Sil"
-        message={`"${selectedUser?.email}" kullanicisini silmek istediginizden emin misiniz?`}
-        confirmText="Sil"
+        title="Delete User"
+        message={`Are you sure you want to delete user "${selectedUser?.email}"?`}
+        confirmText="Delete"
         confirmVariant="danger"
       />
 
@@ -762,7 +762,7 @@ const UserManagementPage: React.FC = () => {
       <Modal
         isOpen={isInviteModalOpen}
         onClose={() => setIsInviteModalOpen(false)}
-        title="Kullanici Davet Et"
+        title="Invite User"
         size="md"
       >
         <div className="space-y-4">
@@ -774,7 +774,7 @@ const UserManagementPage: React.FC = () => {
             value={inviteFormData.tenantId}
             onChange={(e) => handleInviteTenantChange(e.target.value)}
             options={[
-              { value: '', label: 'Tenant Secin' },
+              { value: '', label: 'Select Tenant' },
               ...tenants.map((t) => ({ value: t.id, label: t.name })),
             ]}
           />
@@ -818,20 +818,20 @@ const UserManagementPage: React.FC = () => {
             onChange={(e) =>
               setInviteFormData({ ...inviteFormData, email: e.target.value })
             }
-            placeholder="ornek@sirket.com"
+            placeholder="example@company.com"
             required
           />
 
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Ad"
+              label="First Name"
               value={inviteFormData.firstName}
               onChange={(e) =>
                 setInviteFormData({ ...inviteFormData, firstName: e.target.value })
               }
             />
             <Input
-              label="Soyad"
+              label="Last Name"
               value={inviteFormData.lastName}
               onChange={(e) =>
                 setInviteFormData({ ...inviteFormData, lastName: e.target.value })
@@ -840,7 +840,7 @@ const UserManagementPage: React.FC = () => {
           </div>
 
           <Select
-            label="Rol *"
+            label="Role *"
             value={inviteFormData.role}
             onChange={(e) =>
               setInviteFormData({ ...inviteFormData, role: e.target.value })
@@ -855,15 +855,15 @@ const UserManagementPage: React.FC = () => {
                     }))
                 : [
                     { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-                    { value: 'MODULE_MANAGER', label: 'Modul Yoneticisi' },
-                    { value: 'MODULE_USER', label: 'Kullanici' },
+                    { value: 'MODULE_MANAGER', label: 'Module Manager' },
+                    { value: 'MODULE_USER', label: 'User' },
                   ]
             }
           />
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mesaj (Opsiyonel)
+              Message (Optional)
             </label>
             <textarea
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -872,25 +872,25 @@ const UserManagementPage: React.FC = () => {
               onChange={(e) =>
                 setInviteFormData({ ...inviteFormData, message: e.target.value })
               }
-              placeholder="Davet mesaji..."
+              placeholder="Invitation message..."
             />
           </div>
 
           <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
-            <strong>Bilgi:</strong> Davet edilen kullaniciya e-posta gonderilecek.
-            Kullanici davet linkine tiklayarak sifresi olusturacak.
+            <strong>Note:</strong> An email will be sent to the invited user.
+            The user will create their password by clicking the invite link.
           </div>
 
           <div className="flex justify-end space-x-3 pt-4">
             <Button variant="outline" onClick={() => setIsInviteModalOpen(false)}>
-              Iptal
+              Cancel
             </Button>
             <Button
               onClick={handleInviteUser}
               loading={inviting}
               disabled={!userLimitCheck?.canCreate && !!inviteFormData.tenantId}
             >
-              Davet Gonder
+              Send Invite
             </Button>
           </div>
         </div>

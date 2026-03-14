@@ -13,7 +13,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { CreateHarvestRecordCommand, CreateHarvestRecordInput } from '../commands/create-harvest-record.command';
 import { HarvestRecord, HarvestRecordStatus, QualityGrade, HarvestOperation, LotInfo } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
-import { Batch } from '../../batch/entities/batch.entity';
+import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -173,6 +173,13 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       batch.harvestedQuantity = (batch.harvestedQuantity || 0) + input.quantityHarvested;
       batch.retentionRate = batch.getRetentionRate();
       batch.updatedBy = recordedBy;
+
+      // Tüm stok hasad edildiyse batch'i HARVESTED olarak işaretle
+      if (batch.currentQuantity <= 0) {
+        batch.status = BatchStatus.HARVESTED;
+        batch.statusChangedAt = new Date();
+        batch.actualHarvestDate = new Date();
+      }
 
       await queryRunner.manager.save(Batch, batch);
 

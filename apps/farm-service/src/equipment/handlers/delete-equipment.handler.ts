@@ -6,11 +6,14 @@
  * When an equipment ID is found in the tanks table, the delete is delegated
  * to delete the Tank entity instead.
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { EquipmentDeletedEvent } from '@platform/event-contracts';
 import { DeleteEquipmentCommand } from '../commands/delete-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
@@ -133,14 +136,26 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
 
     this.logger.log(`Equipment ${equipmentId} marked as deleted`);
 
-    // Domain event: EquipmentDeleted
-    // await this.eventBus?.publish(new EquipmentDeletedEvent({
-    //   tenantId,
-    //   equipmentId: equipment.id,
-    //   name: equipment.name,
-    //   cascade,
-    //   deletedBy: userId,
-    // }));
+    // Publish domain event: EquipmentDeleted
+    if (this.eventBus) {
+      try {
+        const event: EquipmentDeletedEvent = {
+          eventId: randomUUID(),
+          eventType: 'EquipmentDeleted',
+          tenantId,
+          timestamp: new Date(),
+          equipmentId: equipment.id,
+          name: equipment.name,
+          code: equipment.code,
+          deletedAt: new Date(),
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published EquipmentDeletedEvent for equipment ${equipment.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish EquipmentDeletedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return true;
   }

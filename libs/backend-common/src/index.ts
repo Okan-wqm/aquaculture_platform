@@ -6,10 +6,12 @@ export * from './decorators/tenant.decorator';
 export * from './decorators/current-user.decorator';
 export * from './decorators/roles.decorator';
 export * from './decorators/cacheable.decorator';
+export * from './decorators/require-permission.decorator';
 
 // Guards
 export * from './guards/roles.guard';
 export * from './guards/tenant.guard';
+export * from './guards/tenant-permission.guard';
 
 // Filters
 export * from './filters/http-exception.filter';
@@ -37,6 +39,9 @@ export * from './redis';
 
 // Telemetry
 export * from './telemetry';
+
+// Metrics - Per-service Prometheus metrics (module, middleware, controller)
+export * from './metrics';
 
 // Security - Rate Limiting, Token Blacklist, Session Management, GDPR, etc.
 export * from './security';

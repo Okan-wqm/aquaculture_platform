@@ -86,7 +86,7 @@ export function createBaseEvent<T extends BaseEvent>(
   eventType: T['eventType'],
   tenantId: string,
   overrides?: Partial<Pick<BaseEvent, 'correlationId' | 'causationId' | 'userId' | 'version'>>,
-): Pick<BaseEvent, 'eventId' | 'eventType' | 'timestamp' | 'tenantId' | 'version'> & Partial<BaseEvent> {
+): Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version'> & { eventType: T['eventType'] } & Partial<BaseEvent> {
   return {
     eventId: crypto.randomUUID(),
     eventType,
@@ -94,5 +94,5 @@ export function createBaseEvent<T extends BaseEvent>(
     tenantId,
     version: 1,
     ...overrides,
-  };
+  } as Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version'> & { eventType: T['eventType'] } & Partial<BaseEvent>;
 }

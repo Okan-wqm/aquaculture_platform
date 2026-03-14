@@ -7,7 +7,8 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { RedisModule, TenantGuard } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard } from '@aquaculture/backend-common';
+import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
 import { HealthModule } from './health/health.module';
@@ -108,6 +109,15 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
         keyPrefix: 'billing:',
       }),
     }),
+    // Event Bus Module (NATS JetStream)
+    EventBusModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
+        streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+      }),
+    }),
     BillingModule,
     MeteringModule,
     HealthModule,
@@ -122,6 +132,11 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     {
       provide: APP_GUARD,
       useClass: TenantGuard,
+    },
+    // SECURITY: Roles guard - enforces @Roles() decorator authorization
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })

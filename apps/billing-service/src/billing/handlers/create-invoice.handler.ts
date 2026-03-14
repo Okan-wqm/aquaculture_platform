@@ -1,6 +1,8 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Optional, Inject } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
 import { Invoice, InvoiceStatus, InvoiceLineItem } from '../entities/invoice.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -18,7 +20,10 @@ function roundCurrency(amount: number): number {
 export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceCommand, Invoice> {
   private readonly logger = new Logger(CreateInvoiceHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
+  ) {}
 
   async execute(command: CreateInvoiceCommand): Promise<Invoice> {
     const { tenantId, input, userId } = command;
@@ -130,6 +135,31 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
     this.logger.log(
       `Invoice created: ${savedInvoice.id} (${savedInvoice.invoiceNumber}) for tenant ${tenantId}`,
     );
+
+    // Publish NATS event so other services (notification, etc.) can react
+    try {
+      const event: InvoiceGeneratedEvent = {
+        ...createBaseEvent<InvoiceGeneratedEvent>('InvoiceGenerated', tenantId, { userId }),
+        invoiceId: savedInvoice.id,
+        invoiceNumber: savedInvoice.invoiceNumber,
+        subscriptionId: savedInvoice.subscriptionId || '',
+        subtotal: savedInvoice.subtotal,
+        tax: savedInvoice.tax?.taxAmount || 0,
+        total: savedInvoice.total,
+        currency: savedInvoice.currency,
+        dueDate: savedInvoice.dueDate,
+        billingPeriodStart: savedInvoice.periodStart,
+        billingPeriodEnd: savedInvoice.periodEnd,
+      };
+      await this.eventBus?.publish(event);
+    } catch (eventError) {
+      // Event publish failure must not block the main operation
+      this.logger.warn(
+        `Failed to publish InvoiceGenerated event for ${savedInvoice.id}: ${
+          eventError instanceof Error ? eventError.message : 'Unknown error'
+        }`,
+      );
+    }
 
     return savedInvoice;
   }

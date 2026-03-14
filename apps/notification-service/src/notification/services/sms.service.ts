@@ -13,8 +13,19 @@ function maskPhoneNumber(phoneNumber: string): string {
 
 /**
  * SMS Service
- * Handles SMS notifications
- * Currently implements a mock provider - can be extended for Twilio, AWS SNS, etc.
+ * Handles SMS notifications via multiple providers.
+ *
+ * Implemented providers:
+ * - mock:   Logs SMS to console (development/testing)
+ * - twilio: Sends via Twilio REST API using HTTP fetch (no SDK dependency)
+ *
+ * Planned providers:
+ * - aws_sns: Amazon SNS SMS
+ *
+ * Configuration env vars:
+ * - SMS_ENABLED=true/false
+ * - SMS_PROVIDER=mock|twilio|aws_sns
+ * - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER (when provider=twilio)
  */
 @Injectable()
 export class SmsService {
@@ -24,14 +35,26 @@ export class SmsService {
   private readonly isProduction: boolean;
   private providerHealthy = true;
 
+  // Twilio configuration (loaded from env when provider=twilio)
+  private readonly twilioAccountSid?: string;
+  private readonly twilioAuthToken?: string;
+  private readonly twilioFromNumber?: string;
+
   // Supported providers that have actual implementations
-  private static readonly IMPLEMENTED_PROVIDERS = ['mock'];
-  private static readonly PLANNED_PROVIDERS = ['twilio', 'aws_sns'];
+  private static readonly IMPLEMENTED_PROVIDERS = ['mock', 'twilio'];
+  private static readonly PLANNED_PROVIDERS = ['aws_sns'];
 
   constructor(private readonly configService: ConfigService) {
     this.isEnabled = this.configService.get('SMS_ENABLED', 'false') === 'true';
     this.provider = this.configService.get('SMS_PROVIDER', 'mock');
     this.isProduction = this.configService.get('NODE_ENV') === 'production';
+
+    // Load Twilio configuration if provider is twilio
+    if (this.provider === 'twilio') {
+      this.twilioAccountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
+      this.twilioAuthToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
+      this.twilioFromNumber = this.configService.get<string>('TWILIO_FROM_NUMBER');
+    }
 
     // SECURITY: Validate configuration at startup
     this.validateConfiguration();
@@ -73,6 +96,23 @@ export class SmsService {
         this.providerHealthy = false;
       } else {
         this.logger.warn(message);
+      }
+    }
+
+    // Validate Twilio-specific configuration
+    if (this.provider === 'twilio') {
+      if (!this.twilioAccountSid || !this.twilioAuthToken || !this.twilioFromNumber) {
+        const missing = [
+          !this.twilioAccountSid && 'TWILIO_ACCOUNT_SID',
+          !this.twilioAuthToken && 'TWILIO_AUTH_TOKEN',
+          !this.twilioFromNumber && 'TWILIO_FROM_NUMBER',
+        ].filter(Boolean).join(', ');
+
+        this.logger.error(
+          `Twilio SMS provider is missing required env vars: ${missing}. ` +
+          `SMS sending will fail until these are configured.`,
+        );
+        this.providerHealthy = false;
       }
     }
   }
@@ -174,20 +214,80 @@ export class SmsService {
   }
 
   /**
-   * Twilio SMS provider (placeholder - implement when needed)
+   * Twilio SMS provider -- uses the Twilio REST API directly via HTTP fetch.
+   * No external SDK dependency required.
+   *
+   * API docs: https://www.twilio.com/docs/sms/api/message-resource#create-a-message-resource
    */
   private async sendViaTwilio(
-    _phoneNumber: string,
-    _message: string,
+    phoneNumber: string,
+    message: string,
   ): Promise<string> {
-    // TODO: Implement Twilio integration
-    // const client = require('twilio')(accountSid, authToken);
-    // const result = await client.messages.create({ body: message, from: fromNumber, to: phoneNumber });
-    // return result.sid;
+    if (!this.twilioAccountSid || !this.twilioAuthToken || !this.twilioFromNumber) {
+      throw new Error(
+        'Twilio SMS provider is not configured. ' +
+        'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER env vars.',
+      );
+    }
 
-    throw new Error(
-      'Twilio SMS provider is not yet implemented. Set SMS_PROVIDER=mock or implement Twilio integration.',
-    );
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${this.twilioAccountSid}/Messages.json`;
+
+    // Twilio uses HTTP Basic Auth: accountSid:authToken
+    const authHeader = 'Basic ' + Buffer.from(
+      `${this.twilioAccountSid}:${this.twilioAuthToken}`,
+    ).toString('base64');
+
+    const body = new URLSearchParams({
+      To: phoneNumber,
+      From: this.twilioFromNumber,
+      Body: message,
+    });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const responseBody = await response.json() as Record<string, unknown>;
+
+      if (!response.ok) {
+        const twilioError = (responseBody['message'] as string) || `HTTP ${response.status}`;
+        const errorCode = responseBody['code'] || 'unknown';
+        throw new Error(
+          `Twilio API error (${errorCode}): ${twilioError}`,
+        );
+      }
+
+      const sid = responseBody['sid'] as string;
+      if (!sid) {
+        throw new Error('Twilio response missing message SID');
+      }
+
+      this.logger.debug(
+        `Twilio SMS sent to ${maskPhoneNumber(phoneNumber)}: ${sid}`,
+      );
+
+      return sid;
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      if ((error as Error).name === 'AbortError') {
+        throw new Error('Twilio API request timed out after 15 seconds');
+      }
+
+      throw error;
+    }
   }
 
   /**

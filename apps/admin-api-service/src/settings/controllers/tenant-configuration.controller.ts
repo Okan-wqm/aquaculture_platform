@@ -6,11 +6,16 @@ import {
   Delete,
   Body,
   Param,
-  Query,
+  Req,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
   UserLimitsConfig,
@@ -33,6 +38,7 @@ import {
 
 @ApiTags('Settings')
 @Controller('settings/tenant')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class TenantConfigurationController {
   constructor(
     private readonly configService: TenantConfigurationService,
@@ -103,13 +109,16 @@ export class TenantConfigurationController {
     return this.configService.getUserLimits(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/user-limits')
   async updateUserLimits(
     @Param('tenantId') tenantId: string,
     @Body() limits: Partial<UserLimitsConfig>,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateUserLimits(tenantId, limits, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateUserLimits(tenantId, limits, userId);
   }
 
   // ============================================================================
@@ -121,13 +130,16 @@ export class TenantConfigurationController {
     return this.configService.getStorageConfig(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/storage')
   async updateStorageConfig(
     @Param('tenantId') tenantId: string,
     @Body() storage: Partial<StorageConfig>,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateStorageConfig(tenantId, storage, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateStorageConfig(tenantId, storage, userId);
   }
 
   @Post(':tenantId/storage/check-limit')
@@ -148,13 +160,16 @@ export class TenantConfigurationController {
     return this.configService.getApiConfig(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/api')
   async updateApiConfig(
     @Param('tenantId') tenantId: string,
     @Body() apiConfig: Partial<ApiConfig>,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateApiConfig(tenantId, apiConfig, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateApiConfig(tenantId, apiConfig, userId);
   }
 
   // ============================================================================
@@ -250,13 +265,16 @@ export class TenantConfigurationController {
     return this.configService.getBrandingConfig(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/branding')
   async updateBranding(
     @Param('tenantId') tenantId: string,
     @Body() dto: UpdateBrandingDto,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateBranding(tenantId, dto, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateBranding(tenantId, dto, userId);
   }
 
   // ============================================================================
@@ -268,13 +286,16 @@ export class TenantConfigurationController {
     return this.configService.getSecurityConfig(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/security')
   async updateSecurityConfig(
     @Param('tenantId') tenantId: string,
     @Body() security: Partial<TenantSecurityConfig>,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateSecurityConfig(tenantId, security, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateSecurityConfig(tenantId, security, userId);
   }
 
   @Post(':tenantId/security/ip-whitelist')
@@ -318,13 +339,16 @@ export class TenantConfigurationController {
     return this.configService.getNotificationConfig(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/notifications')
   async updateNotificationConfig(
     @Param('tenantId') tenantId: string,
     @Body() notification: Partial<TenantNotificationConfig>,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateNotificationConfig(tenantId, notification, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateNotificationConfig(tenantId, notification, userId);
   }
 
   // ============================================================================
@@ -336,13 +360,16 @@ export class TenantConfigurationController {
     return this.configService.getFeatureFlags(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/features')
   async updateFeatureFlags(
     @Param('tenantId') tenantId: string,
     @Body() flags: Partial<FeatureFlagsConfig>,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateFeatureFlags(tenantId, flags, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateFeatureFlags(tenantId, flags, userId);
   }
 
   @Post(':tenantId/features/modules/:moduleCode/enable')
@@ -370,12 +397,15 @@ export class TenantConfigurationController {
     return this.configService.getDataRetentionConfig(tenantId);
   }
 
+  // Fix: C6 -- JWT-based identity
   @Put(':tenantId/data-retention')
   async updateDataRetentionConfig(
     @Param('tenantId') tenantId: string,
     @Body() retention: Partial<DataRetentionConfig>,
-    @Query('updatedBy') updatedBy?: string,
+    @Req() req: Request,
   ) {
-    return this.configService.updateDataRetentionConfig(tenantId, retention, updatedBy);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.configService.updateDataRetentionConfig(tenantId, retention, userId);
   }
 }

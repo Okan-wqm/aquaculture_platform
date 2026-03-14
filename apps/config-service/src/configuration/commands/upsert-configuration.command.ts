@@ -9,5 +9,6 @@ export class UpsertConfigurationCommand {
     public readonly environment: ConfigEnvironment,
     public readonly userId: string,
     public readonly isSecret: boolean = false,
+    public readonly reason?: string,
   ) {}
 }

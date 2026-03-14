@@ -2,11 +2,14 @@
  * Delete Department Command Handler
  * Supports cascade soft delete of all related items
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { DepartmentDeletedEvent } from '@platform/event-contracts';
 import { DeleteDepartmentCommand } from '../commands/delete-department.command';
 import { Department } from '../entities/department.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -144,14 +147,27 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
 
     this.logger.log(`Department ${departmentId} marked as deleted`);
 
-    // Domain event: DepartmentDeleted
-    // await this.eventBus?.publish(new DepartmentDeletedEvent({
-    //   tenantId,
-    //   departmentId: department.id,
-    //   name: department.name,
-    //   cascade,
-    //   deletedBy: userId,
-    // }));
+    // Publish domain event: DepartmentDeleted
+    if (this.eventBus) {
+      try {
+        const event: DepartmentDeletedEvent = {
+          eventId: randomUUID(),
+          eventType: 'DepartmentDeleted',
+          tenantId,
+          timestamp: new Date(),
+          departmentId: department.id,
+          siteId: department.siteId,
+          name: department.name,
+          code: department.code,
+          deletedAt: new Date(),
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published DepartmentDeletedEvent for department ${department.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish DepartmentDeletedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return true;
   }

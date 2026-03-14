@@ -1,8 +1,5 @@
-import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@platform/backend-common';
-
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   CreatePlatformAnnouncementInput,
   CreateTenantAnnouncementInput,
@@ -23,7 +20,6 @@ import { AnnouncementService } from '../services/announcement.service';
  * GraphQL resolver for announcement operations.
  */
 @Resolver()
-@UseGuards(JwtAuthGuard)
 export class AnnouncementResolver {
   constructor(private readonly announcementService: AnnouncementService) {}
 

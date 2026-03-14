@@ -1,8 +1,5 @@
-import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@platform/backend-common';
-
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import {
   CreateTicketInput,
   AddTicketCommentInput,
@@ -23,7 +20,6 @@ import { SupportService } from '../services/support.service';
  * GraphQL resolver for support ticket operations.
  */
 @Resolver()
-@UseGuards(JwtAuthGuard)
 export class SupportResolver {
   constructor(private readonly supportService: SupportService) {}
 

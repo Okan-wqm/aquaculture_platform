@@ -13,6 +13,7 @@ import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
   TenantGuard,
+  RolesGuard,
   UserContextMiddleware,
   SourceSchemaBootstrapService,
 } from '@platform/backend-common';
@@ -245,6 +246,11 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_GUARD,
       useClass: TenantGuard,
+    },
+    // SECURITY: Roles guard - enforces @Roles() decorator authorization
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,

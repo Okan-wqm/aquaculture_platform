@@ -14,6 +14,8 @@ import {
   BarChart3,
   Calendar,
   RefreshCw,
+  Activity,
+  TrendingUp,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { useAssignModuleManager } from '../hooks/useTenantData';
@@ -397,6 +399,31 @@ const MY_MODULES_ID_QUERY = `
 `;
 
 /**
+ * Module usage statistics query
+ * Returns per-module usage counts, last access, and user counts.
+ * Falls back gracefully if the backend query is not yet available.
+ */
+const MODULE_USAGE_STATS_QUERY = `
+  query ModuleUsageStats {
+    moduleUsageStats {
+      moduleCode
+      userCount
+      lastAccessAt
+      actionsThisMonth
+      actionsLastMonth
+    }
+  }
+`;
+
+interface ModuleUsageStat {
+  moduleCode: string;
+  userCount: number;
+  lastAccessAt: string | null;
+  actionsThisMonth: number;
+  actionsLastMonth: number;
+}
+
+/**
  * TenantModules Page
  *
  * Uses AuthContext modules (from login) as the source of truth for display,
@@ -424,6 +451,21 @@ const TenantModules: React.FC = () => {
       .catch((err) => logError('TenantModules.fetchModuleIds', err));
   }, []);
 
+  // Wave 4: Fetch module usage stats (graceful fallback if backend not ready)
+  const [usageStats, setUsageStats] = useState<Record<string, ModuleUsageStat>>({});
+  useEffect(() => {
+    graphqlRequest<{ moduleUsageStats: ModuleUsageStat[] }>(MODULE_USAGE_STATS_QUERY)
+      .then((data) => {
+        const map: Record<string, ModuleUsageStat> = {};
+        (data.moduleUsageStats || []).forEach((s) => { map[s.moduleCode] = s; });
+        setUsageStats(map);
+      })
+      .catch((err) => {
+        // Graceful fallback -- usage stats are optional enrichment
+        logError('TenantModules.fetchUsageStats', err);
+      });
+  }, []);
+
   // Transform AuthContext modules to DisplayModule format
   const modules = useMemo<DisplayModule[]>(() => {
     if (!authModules || authModules.length === 0) {
@@ -432,6 +474,7 @@ const TenantModules: React.FC = () => {
 
     return authModules.map((m) => {
       const code = m.code || '';
+      const stats = usageStats[code];
       return {
         // BUG-019: Use real UUID from myModules query; fall back to code only when GQL hasn't
         // returned yet — mutations will correctly re-use the real ID once it arrives.
@@ -440,16 +483,18 @@ const TenantModules: React.FC = () => {
         name: m.name || code.charAt(0).toUpperCase() + code.slice(1),
         description: `${m.name || code} module for your tenant`,
         status: 'active' as const, // AuthContext only returns enabled modules
-        assignedUsers: 0,
+        assignedUsers: stats?.userCount ?? 0,
         manager: undefined,
-        lastActivity: 'Recently',
+        lastActivity: stats?.lastAccessAt
+          ? new Date(stats.lastAccessAt).toLocaleDateString()
+          : 'Recently',
         features: moduleFeaturesMap[code] || [],
         icon: moduleIconMap[code] || '📦',
         route: m.defaultRoute || moduleRouteMap[code],
         activatedAt: new Date().toISOString(),
       };
     });
-  }, [authModules, moduleIdByCode]);
+  }, [authModules, moduleIdByCode, usageStats]);
 
   const loading = authLoading;
 
@@ -588,6 +633,41 @@ const TenantModules: React.FC = () => {
                 </span>
               </div>
             </div>
+
+            {/* Wave 4: Usage Statistics */}
+            {usageStats[module.code] && (
+              <div className="px-6 py-3 bg-tenant-50/50 border-t border-gray-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Activity className="w-3.5 h-3.5 text-tenant-500" />
+                  <span className="text-xs font-medium text-tenant-700 uppercase tracking-wider">
+                    Usage Stats
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Actions this month</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {usageStats[module.code].actionsThisMonth.toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">vs. last month</p>
+                    <div className="flex items-center gap-1">
+                      {usageStats[module.code].actionsThisMonth >= usageStats[module.code].actionsLastMonth ? (
+                        <TrendingUp className="w-3.5 h-3.5 text-green-500" />
+                      ) : (
+                        <TrendingUp className="w-3.5 h-3.5 text-red-500 rotate-180" />
+                      )}
+                      <p className="text-sm font-semibold text-gray-900">
+                        {usageStats[module.code].actionsLastMonth > 0
+                          ? `${((usageStats[module.code].actionsThisMonth / usageStats[module.code].actionsLastMonth - 1) * 100).toFixed(0)}%`
+                          : 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Manager Section */}
             <div className="p-4 border-t border-gray-100">

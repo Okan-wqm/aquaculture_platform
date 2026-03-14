@@ -1,9 +1,8 @@
-import { UseGuards, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@platform/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';
-import { JwtAuthGuard } from '../../authentication/guards/jwt-auth.guard';
 import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
@@ -36,7 +35,6 @@ import { TenantService } from '../services/tenant.service';
 export class TenantResolver {
   constructor(private readonly tenantService: TenantService) {}
 
-  @UseGuards(JwtAuthGuard)
   @SuperAdminOnly()
   @Mutation(() => Tenant)
   async createTenant(
@@ -46,14 +44,12 @@ export class TenantResolver {
     return this.tenantService.create(input, ctx.req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard)
   @SuperAdminOnly()
   @Query(() => [Tenant])
   async tenants(): Promise<Tenant[]> {
     return this.tenantService.findAll();
   }
 
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => Tenant)
   async tenant(
@@ -82,7 +78,6 @@ export class TenantResolver {
     };
   }
 
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Mutation(() => Tenant)
   async updateTenant(
@@ -103,7 +98,6 @@ export class TenantResolver {
     return this.tenantService.update(id, input);
   }
 
-  @UseGuards(JwtAuthGuard)
   @SuperAdminOnly()
   @Mutation(() => Tenant)
   async suspendTenant(
@@ -112,7 +106,6 @@ export class TenantResolver {
     return this.tenantService.suspend(id);
   }
 
-  @UseGuards(JwtAuthGuard)
   @SuperAdminOnly()
   @Mutation(() => Tenant)
   async activateTenant(
@@ -121,7 +114,6 @@ export class TenantResolver {
     return this.tenantService.activate(id);
   }
 
-  @UseGuards(JwtAuthGuard)
   @SuperAdminOnly()
   @Mutation(() => Tenant)
   async cancelTenant(
@@ -137,7 +129,6 @@ export class TenantResolver {
   /**
    * Get current user's tenant (for TENANT_ADMIN)
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => Tenant)
   async myTenant(
@@ -149,7 +140,6 @@ export class TenantResolver {
   /**
    * Get tenant statistics (users, modules, activity)
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => TenantStats)
   async tenantStats(
@@ -161,7 +151,6 @@ export class TenantResolver {
   /**
    * Get tenant's assigned modules with details
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => [TenantModule])
   async myTenantModules(
@@ -173,7 +162,6 @@ export class TenantResolver {
   /**
    * Get users belonging to tenant
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => [User])
   async tenantUsers(
@@ -189,7 +177,6 @@ export class TenantResolver {
   /**
    * Get tenant database information (read-only view)
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => TenantDatabaseInfo)
   async tenantDatabase(
@@ -202,7 +189,6 @@ export class TenantResolver {
    * Get table schema information (columns, indexes)
    * Only returns schema for tables the tenant has access to
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Query(() => TableSchemaInfo)
   async tableSchema(
@@ -216,7 +202,6 @@ export class TenantResolver {
   /**
    * Assign module manager to a module
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Mutation(() => TenantModule)
   async assignModuleManager(
@@ -233,7 +218,6 @@ export class TenantResolver {
   /**
    * Remove module manager from a module
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Mutation(() => TenantModule)
   async removeModuleManager(
@@ -246,7 +230,6 @@ export class TenantResolver {
   /**
    * Update tenant settings (TENANT_ADMIN can update limited fields)
    */
-  @UseGuards(JwtAuthGuard)
   @TenantAdminOrHigher()
   @Mutation(() => Tenant)
   async updateTenantSettings(

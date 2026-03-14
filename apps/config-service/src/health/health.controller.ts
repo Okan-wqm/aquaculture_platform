@@ -5,8 +5,11 @@ import {
   TypeOrmHealthIndicator,
   MemoryHealthIndicator,
 } from '@nestjs/terminus';
+import { Public, SkipTenantGuard } from '@platform/backend-common';
 
 @Controller('health')
+@Public()
+@SkipTenantGuard()
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

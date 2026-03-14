@@ -20,10 +20,8 @@ export default defineConfig({
         react: { singleton: true, requiredVersion: '^18.2.0' },
         'react-dom': { singleton: true, requiredVersion: '^18.2.0' },
         'react-router-dom': { singleton: true, requiredVersion: '^6.21.0' },
-        '@tanstack/react-query': { singleton: true, requiredVersion: '^5.17.0' },
         // CRITICAL: AuthContext ve TenantContext için zorunlu
         '@aquaculture/shared-ui': { singleton: true, import: true },
-        zustand: { singleton: true, requiredVersion: '^4.4.0' },
       },
     }),
   ],

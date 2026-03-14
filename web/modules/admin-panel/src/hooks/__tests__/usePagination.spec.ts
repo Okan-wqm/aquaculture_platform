@@ -267,10 +267,11 @@ describe('usePagination', () => {
         result.current.setTotal(50);
       });
 
-      // Total pages is now 3, but page stays at 5 until explicitly changed
+      // M4: page is now auto-clamped to maxPage when total changes
       expect(result.current.totalPages).toBe(3);
+      expect(result.current.page).toBe(3); // Clamped to max automatically
 
-      // Going to a valid page should work
+      // Going to a page beyond max should still clamp
       act(() => {
         result.current.goToPage(5);
       });

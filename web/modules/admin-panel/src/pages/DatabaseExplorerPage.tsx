@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Input, Badge, Alert, Modal } from '@aquaculture/shared-ui';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { databaseApi } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -57,128 +57,41 @@ interface TableData {
 }
 
 // ============================================================================
-// API Functions
+// API Functions (via centralized databaseApi)
 // ============================================================================
 
-const API_BASE = '/api/database/explorer';
+const fetchSchemas = (): Promise<string[]> => databaseApi.getExplorerSchemas();
 
-const getAuthHeader = (): Record<string, string> => {
-  const token = getAccessToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+const fetchTables = (schema: string): Promise<TableInfo[]> => databaseApi.getExplorerTables(schema);
 
-async function fetchSchemas(): Promise<string[]> {
-  const response = await fetch(`${API_BASE}/schemas`, {
-    credentials: 'include',
-    headers: { ...getAuthHeader() },
-  });
-  if (!response.ok) throw new Error('Failed to fetch schemas');
-  const json = await response.json();
-  return json && json.data ? json.data : json;
-}
-
-async function fetchTables(schema: string): Promise<TableInfo[]> {
-  const response = await fetch(`${API_BASE}/schemas/${schema}/tables`, {
-    credentials: 'include',
-    headers: { ...getAuthHeader() },
-  });
-  if (!response.ok) throw new Error('Failed to fetch tables');
-  const json = await response.json();
-  return json && json.data ? json.data : json;
-}
-
-async function fetchTableData(
+const fetchTableData = (
   schema: string,
   table: string,
   page = 1,
   limit = 50,
   orderBy?: string,
   orderDirection?: 'ASC' | 'DESC'
-): Promise<TableData> {
-  const params = new URLSearchParams({
-    page: String(page),
-    limit: String(limit),
-  });
-  if (orderBy) {
-    params.set('orderBy', orderBy);
-    params.set('orderDirection', orderDirection || 'ASC');
-  }
+): Promise<TableData> =>
+  databaseApi.getExplorerTableData(schema, table, { page, limit, orderBy, orderDirection });
 
-  const response = await fetch(
-    `${API_BASE}/schemas/${schema}/tables/${table}/data?${params}`,
-    { credentials: 'include', headers: { ...getAuthHeader() } }
-  );
-  if (!response.ok) throw new Error('Failed to fetch table data');
-  const json = await response.json();
-  return json && json.data ? json.data : json;
-}
-
-async function insertRow(
+const insertRow = (
   schema: string,
   table: string,
   data: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API_BASE}/schemas/${schema}/tables/${table}/rows`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeader(),
-    },
-    body: JSON.stringify({ data }),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to insert row');
-  }
-  const json = await response.json();
-  return json && json.data ? json.data : json;
-}
+): Promise<Record<string, unknown>> => databaseApi.insertExplorerRow(schema, table, data);
 
-async function updateRow(
+const updateRow = (
   schema: string,
   table: string,
   id: string,
   data: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const response = await fetch(
-    `${API_BASE}/schemas/${schema}/tables/${table}/rows/${id}`,
-    {
-      method: 'PUT',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
-      },
-      body: JSON.stringify({ data }),
-    }
-  );
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to update row');
-  }
-  const json = await response.json();
-  return json && json.data ? json.data : json;
-}
+): Promise<Record<string, unknown>> => databaseApi.updateExplorerRow(schema, table, id, data);
 
-async function deleteRow(
+const deleteRow = (
   schema: string,
   table: string,
   id: string
-): Promise<void> {
-  const response = await fetch(
-    `${API_BASE}/schemas/${schema}/tables/${table}/rows/${id}`,
-    {
-      method: 'DELETE',
-      credentials: 'include',
-      headers: { ...getAuthHeader() },
-    }
-  );
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Failed to delete row');
-  }
-}
+): Promise<void> => databaseApi.deleteExplorerRow(schema, table, id);
 
 async function exportTableData(
   schema: string,
@@ -187,16 +100,14 @@ async function exportTableData(
   orderBy?: string,
   orderDirection?: 'ASC' | 'DESC'
 ): Promise<void> {
-  const params = new URLSearchParams({ format });
-  if (orderBy) {
-    params.set('orderBy', orderBy);
-    params.set('orderDirection', orderDirection || 'ASC');
-  }
-
-  const response = await fetch(
-    `${API_BASE}/schemas/${schema}/tables/${table}/export?${params}`,
-    { credentials: 'include', headers: { ...getAuthHeader() } }
-  );
+  // Export uses a download URL -- must use direct fetch for blob response
+  const url = databaseApi.exportExplorerTable(schema, table, format, orderBy, orderDirection);
+  const { getAccessToken } = await import('@platform/shared-ui/utils/api-client');
+  const token = getAccessToken();
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
 
   if (!response.ok) {
     throw new Error('Failed to export data');
@@ -204,13 +115,13 @@ async function exportTableData(
 
   // Trigger file download
   const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
+  const blobUrl = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
+  a.href = blobUrl;
   a.download = `${table}_export.${format}`;
   document.body.appendChild(a);
   a.click();
-  window.URL.revokeObjectURL(url);
+  window.URL.revokeObjectURL(blobUrl);
   document.body.removeChild(a);
 }
 
@@ -358,7 +269,7 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={mode === 'create' ? 'Yeni Satır Ekle' : 'Satırı Düzenle'}
+      title={mode === 'create' ? 'Add New Row' : 'Edit Row'}
       size="lg"
     >
       {error && (
@@ -431,10 +342,10 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
 
       <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
         <Button variant="outline" onClick={onClose}>
-          İptal
+          Cancel
         </Button>
         <Button onClick={handleSave} loading={saving}>
-          {mode === 'create' ? 'Ekle' : 'Kaydet'}
+          {mode === 'create' ? 'Add' : 'Save'}
         </Button>
       </div>
     </Modal>
@@ -622,7 +533,7 @@ const DatabaseExplorerPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Database Explorer</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Veritabanı tablolarını görüntüle ve yönet
+            View and manage database tables
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-2">
@@ -685,7 +596,7 @@ const DatabaseExplorerPage: React.FC = () => {
                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Yeni Satır
+                New Row
               </Button>
             </>
           )}
@@ -701,7 +612,7 @@ const DatabaseExplorerPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Table List */}
         <Card className="p-4 lg:col-span-1">
-          <h3 className="text-lg font-semibold mb-4">Tablolar ({tables.length})</h3>
+          <h3 className="text-lg font-semibold mb-4">Tables ({tables.length})</h3>
           <div className="space-y-1 max-h-[calc(100vh-300px)] overflow-y-auto">
             {tables.map((table) => (
               <button
@@ -727,7 +638,7 @@ const DatabaseExplorerPage: React.FC = () => {
         <Card className="lg:col-span-3 overflow-hidden">
           {!selectedTable ? (
             <div className="flex items-center justify-center h-64 text-gray-500">
-              Bir tablo seçin
+              Select a table
             </div>
           ) : loading && !tableData ? (
             <div className="flex items-center justify-center h-64">
@@ -774,7 +685,7 @@ const DatabaseExplorerPage: React.FC = () => {
                               isSensitive ? 'text-orange-600 bg-orange-50' : 'text-gray-500'
                             }`}
                             onClick={() => handleSort(col.columnName)}
-                            title={isSensitive ? 'Bu kolon hassas veri içeriyor (maskeli)' : undefined}
+                            title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
                           >
                             <div className="flex items-center gap-1">
                               {col.columnName}
@@ -799,7 +710,7 @@ const DatabaseExplorerPage: React.FC = () => {
                         );
                       })}
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        İşlemler
+                        Actions
                       </th>
                     </tr>
                   </thead>
@@ -822,7 +733,7 @@ const DatabaseExplorerPage: React.FC = () => {
                                 className={`px-4 py-2 text-sm max-w-xs truncate ${
                                   valueIsMasked ? 'bg-orange-50' : ''
                                 } ${isSensitive ? 'text-orange-600' : 'text-gray-900'}`}
-                                title={valueIsMasked ? 'Hassas veri (maskeli)' : formatValue(row[col.columnName])}
+                                title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(row[col.columnName])}
                               >
                                 {row[col.columnName] === null ? (
                                   <span className="text-gray-400 italic">NULL</span>
@@ -874,7 +785,7 @@ const DatabaseExplorerPage: React.FC = () => {
               {tableData.totalPages > 1 && (
                 <div className="px-4 py-3 border-t flex items-center justify-between">
                   <div className="text-sm text-gray-500">
-                    Sayfa {tableData.page} / {tableData.totalPages} (
+                    Page {tableData.page} / {tableData.totalPages} (
                     {((tableData.page - 1) * tableData.limit + 1).toLocaleString()} -{' '}
                     {Math.min(tableData.page * tableData.limit, tableData.totalRows).toLocaleString()}{' '}
                     / {tableData.totalRows.toLocaleString()})
@@ -886,7 +797,7 @@ const DatabaseExplorerPage: React.FC = () => {
                       disabled={page === 1}
                       onClick={() => setPage(page - 1)}
                     >
-                      Önceki
+                      Previous
                     </Button>
                     <Button
                       variant="outline"
@@ -894,7 +805,7 @@ const DatabaseExplorerPage: React.FC = () => {
                       disabled={page >= tableData.totalPages}
                       onClick={() => setPage(page + 1)}
                     >
-                      Sonraki
+                      Next
                     </Button>
                   </div>
                 </div>
@@ -920,20 +831,20 @@ const DatabaseExplorerPage: React.FC = () => {
       <Modal
         isOpen={deleteConfirm.show}
         onClose={() => setDeleteConfirm({ show: false, id: '' })}
-        title="Satırı Sil"
+        title="Delete Row"
       >
         <p className="text-gray-600 mb-4">
-          Bu satırı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.
+          Are you sure you want to delete this row? This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
           <Button
             variant="outline"
             onClick={() => setDeleteConfirm({ show: false, id: '' })}
           >
-            İptal
+            Cancel
           </Button>
           <Button variant="danger" onClick={handleDeleteRow}>
-            Sil
+            Delete
           </Button>
         </div>
       </Modal>

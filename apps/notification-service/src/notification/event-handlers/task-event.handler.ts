@@ -5,6 +5,7 @@ import { IEventBus, IEventHandler } from '@platform/event-bus';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 import { InAppNotificationService } from '../services/in-app.service';
 import { PushService } from '../services/push.service';
+import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 import { DeviceToken } from '../entities/device-token.entity';
 import type {
   TaskEvent,
@@ -75,6 +76,7 @@ export class TaskEventHandler
     private readonly dispatcher: NotificationDispatcherService,
     private readonly inAppService: InAppNotificationService,
     private readonly pushService: PushService,
+    private readonly dlqService: DeadLetterQueueService,
     @InjectRepository(DeviceToken)
     private readonly deviceTokenRepository: Repository<DeviceToken>,
     @Inject('EVENT_BUS')
@@ -150,6 +152,32 @@ export class TaskEventHandler
         `Error processing ${eventType} event: ${(error as Error).message}`,
         (error as Error).stack,
       );
+
+      // DLQ: Determine whether to retry or dead-letter this event
+      try {
+        const dlqResult = await this.dlqService.handleFailedEvent(
+          event as unknown as Record<string, unknown>,
+          error,
+        );
+
+        if (dlqResult.retry) {
+          // Re-publish with incremented retryCount and a fresh eventId
+          // to bypass NATS deduplication window
+          await this.eventBus.publish({
+            ...(event as any),
+            retryCount: dlqResult.retryCount,
+            eventId: crypto.randomUUID(),
+          });
+          this.logger.warn(
+            `Task event ${eventType} (task ${event.taskId.substring(0, 8)}...) ` +
+            `re-published for retry attempt ${dlqResult.retryCount}`,
+          );
+        }
+      } catch (dlqError) {
+        this.logger.error(
+          `DLQ handling failed for ${eventType}: ${(dlqError as Error).message}`,
+        );
+      }
     } finally {
       this.semaphore.release();
     }

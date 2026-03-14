@@ -48,6 +48,28 @@ async function decryptPayload(iv: string, ciphertext: string): Promise<Operation
   return JSON.parse(new TextDecoder().decode(plaintext)) as OperationPayload;
 }
 
+// SEC-03-A: Generic encrypt/decrypt helpers for cache data (reuses the same
+// per-session AES-GCM key used by the queue). These operate on arbitrary
+// stringified JSON rather than typed OperationPayload.
+async function encryptString(plaintext: string): Promise<{ iv: string; ciphertext: string }> {
+  const key = await getSessionKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+  const ciphertextBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  return {
+    iv: btoa(String.fromCharCode(...iv)),
+    ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertextBuf))),
+  };
+}
+
+async function decryptString(iv: string, ciphertext: string): Promise<string> {
+  const key = await getSessionKey();
+  const ivBytes = Uint8Array.from(atob(iv), (c) => c.charCodeAt(0));
+  const ctBytes = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, key, ctBytes);
+  return new TextDecoder().decode(plaintext);
+}
+
 // Internal stored shape — payload is replaced by encrypted envelope
 interface StoredOperation extends Omit<QueuedOperation, 'payload'> {
   _enc: { iv: string; ciphertext: string };
@@ -165,25 +187,58 @@ export async function clearAllOperations(): Promise<void> {
 // Data Cache Operations (for offline tank/batch data)
 // ============================================================================
 
+// SEC-03-A: Cache entries are now AES-GCM encrypted at rest, matching the
+// queue encryption strategy. TTL metadata (cachedAt, expiresAt) remains in
+// plaintext so expiry checks don't require decryption. Backwards-compatible:
+// if a legacy unencrypted entry is encountered, getCachedData() deletes it
+// and returns null rather than leaking data or crashing.
+
+interface EncryptedCacheEntry {
+  _enc: { iv: string; ciphertext: string };
+  cachedAt: string;
+  expiresAt: string;
+}
+
 export async function cacheData<T>(key: string, data: T, ttlMs: number = 1000 * 60 * 60): Promise<void> {
-  await set(`${CACHE_PREFIX}${key}`, {
-    data,
+  const _enc = await encryptString(JSON.stringify(data));
+  const entry: EncryptedCacheEntry = {
+    _enc,
     cachedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + ttlMs).toISOString(),
-  }, cacheStore);
+  };
+  await set(`${CACHE_PREFIX}${key}`, entry, cacheStore);
 }
 
 export async function getCachedData<T>(key: string): Promise<T | null> {
   const cached = await get(`${CACHE_PREFIX}${key}`, cacheStore);
   if (!cached) return null;
 
-  const { data, expiresAt } = cached as { data: T; expiresAt: string };
-  if (new Date(expiresAt) < new Date()) {
+  const entry = cached as Record<string, unknown>;
+
+  // Check TTL first (plaintext metadata — no decryption needed)
+  const expiresAt = entry.expiresAt as string | undefined;
+  if (expiresAt && new Date(expiresAt) < new Date()) {
     await del(`${CACHE_PREFIX}${key}`, cacheStore);
     return null;
   }
 
-  return data;
+  // SEC-03-A: Encrypted entry path
+  if (entry._enc && typeof entry._enc === 'object') {
+    const enc = entry._enc as { iv: string; ciphertext: string };
+    try {
+      const decrypted = await decryptString(enc.iv, enc.ciphertext);
+      return JSON.parse(decrypted) as T;
+    } catch {
+      // Decryption failed (session key rotated or data corrupted) — purge entry
+      await del(`${CACHE_PREFIX}${key}`, cacheStore);
+      return null;
+    }
+  }
+
+  // Backwards-compat: legacy unencrypted entry — purge it instead of returning
+  // plaintext data, so the caller re-fetches and stores an encrypted copy.
+  await del(`${CACHE_PREFIX}${key}`, cacheStore);
+  return null;
 }
 
 export async function clearCache(): Promise<void> {

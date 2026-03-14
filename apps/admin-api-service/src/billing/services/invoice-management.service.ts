@@ -238,29 +238,61 @@ export class InvoiceManagementService {
    * Get invoice statistics
    */
   async getStats(): Promise<InvoiceStats> {
-    // Total invoices and amounts
-    const totalResult = await this.dataSource.query(`
-      SELECT
-        COUNT(*) as count,
-        COALESCE(SUM(total), 0) as "totalAmount",
-        COALESCE(SUM("amountPaid"), 0) as "totalPaid"
-      FROM billing.invoices
-    `);
+    // Execute all 5 independent queries in parallel
+    const [totalResult, statusResult, currencyResult, paymentTimeResult, thisMonthResult] =
+      await Promise.all([
+        // Total invoices and amounts
+        this.dataSource.query(`
+          SELECT
+            COUNT(*) as count,
+            COALESCE(SUM(total), 0) as "totalAmount",
+            COALESCE(SUM("amountPaid"), 0) as "totalPaid"
+          FROM billing.invoices
+        `),
 
+        // By status
+        this.dataSource.query(`
+          SELECT
+            status,
+            COUNT(*) as count,
+            COALESCE(SUM(total), 0) as amount
+          FROM billing.invoices
+          GROUP BY status
+        `),
+
+        // By currency
+        this.dataSource.query(`
+          SELECT
+            currency,
+            COALESCE(SUM(total), 0) as amount
+          FROM billing.invoices
+          GROUP BY currency
+        `),
+
+        // Average payment time
+        this.dataSource.query(`
+          SELECT
+            AVG(EXTRACT(EPOCH FROM ("paidAt" - "issueDate")) / 86400) as "avgDays"
+          FROM billing.invoices
+          WHERE status = 'paid' AND "paidAt" IS NOT NULL
+        `),
+
+        // This month stats
+        this.dataSource.query(`
+          SELECT
+            COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) as paid,
+            COALESCE(SUM(CASE WHEN status IN ('pending', 'sent') THEN total ELSE 0 END), 0) as pending
+          FROM billing.invoices
+          WHERE "issueDate" >= DATE_TRUNC('month', CURRENT_DATE)
+        `),
+      ]);
+
+    // Process total results
     const totalInvoices = parseInt(totalResult[0]?.count || '0', 10);
     const totalAmount = parseFloat(totalResult[0]?.totalAmount || '0');
     const totalPaid = parseFloat(totalResult[0]?.totalPaid || '0');
 
-    // By status
-    const statusResult = await this.dataSource.query(`
-      SELECT
-        status,
-        COUNT(*) as count,
-        COALESCE(SUM(total), 0) as amount
-      FROM billing.invoices
-      GROUP BY status
-    `);
-
+    // Process status results
     const byStatus: Record<string, { count: number; amount: number }> = {};
     let totalPending = 0;
     let totalOverdue = 0;
@@ -278,42 +310,20 @@ export class InvoiceManagementService {
       }
     }
 
-    // By currency
-    const currencyResult = await this.dataSource.query(`
-      SELECT
-        currency,
-        COALESCE(SUM(total), 0) as amount
-      FROM billing.invoices
-      GROUP BY currency
-    `);
-
+    // Process currency results
     const byCurrency: Record<string, number> = {};
     for (const row of currencyResult) {
       byCurrency[row.currency] = parseFloat(row.amount);
     }
 
-    // Average payment time
-    const paymentTimeResult = await this.dataSource.query(`
-      SELECT
-        AVG(EXTRACT(EPOCH FROM ("paidAt" - "issueDate")) / 86400) as "avgDays"
-      FROM billing.invoices
-      WHERE status = 'paid' AND "paidAt" IS NOT NULL
-    `);
+    // Process payment time
     const avgPaymentTime = parseFloat(paymentTimeResult[0]?.avgDays || '0');
 
     // Overdue rate
     const overdueCount = byStatus['overdue']?.count || 0;
     const overdueRate = totalInvoices > 0 ? (overdueCount / totalInvoices) * 100 : 0;
 
-    // This month stats
-    const thisMonthResult = await this.dataSource.query(`
-      SELECT
-        COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) as paid,
-        COALESCE(SUM(CASE WHEN status IN ('pending', 'sent') THEN total ELSE 0 END), 0) as pending
-      FROM billing.invoices
-      WHERE "issueDate" >= DATE_TRUNC('month', CURRENT_DATE)
-    `);
-
+    // Process this month stats
     const paidThisMonth = parseFloat(thisMonthResult[0]?.paid || '0');
     const pendingThisMonth = parseFloat(thisMonthResult[0]?.pending || '0');
 

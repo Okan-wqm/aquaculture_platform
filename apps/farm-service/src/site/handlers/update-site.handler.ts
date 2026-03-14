@@ -1,11 +1,14 @@
 /**
  * Update Site Command Handler
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { SiteUpdatedEvent } from '@platform/event-contracts';
 import { UpdateSiteCommand } from '../commands/update-site.command';
 import { Site } from '../entities/site.entity';
 
@@ -65,14 +68,26 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand> {
 
     this.logger.log(`Site ${siteId} updated successfully`);
 
-    // Domain event: SiteUpdated
-    // await this.eventBus?.publish(new SiteUpdatedEvent({
-    //   tenantId,
-    //   siteId: updatedSite.id,
-    //   name: updatedSite.name,
-    //   code: updatedSite.code,
-    //   updatedBy: userId,
-    // }));
+    // Publish domain event: SiteUpdated
+    if (this.eventBus) {
+      try {
+        const event: SiteUpdatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'SiteUpdated',
+          tenantId,
+          timestamp: new Date(),
+          siteId: updatedSite.id,
+          name: updatedSite.name,
+          code: updatedSite.code,
+          status: updatedSite.status,
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published SiteUpdatedEvent for site ${updatedSite.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish SiteUpdatedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return updatedSite;
   }

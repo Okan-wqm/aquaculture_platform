@@ -31,20 +31,23 @@ interface MobilePermissionsContextValue {
   refreshPermissions: () => Promise<void>;
 }
 
+// D07 RBAC-01: Fail-closed defaults — when the backend is unreachable and no
+// cached permissions exist, deny access to all features. This prevents
+// privilege escalation via network isolation attacks on shared field devices.
 const DEFAULT_SETTINGS: MobileSettings = {
-  isMobileEnabled: true,
+  isMobileEnabled: false,
   allowedFeatures: {
-    mortality: true,
-    cull: true,
-    harvest: true,
-    feeding: true,
+    mortality: false,
+    cull: false,
+    harvest: false,
+    feeding: false,
     waterQuality: false,
-    tankView: true,
-    schedule: true,
-    attendance: true,
-    leave: true,
-    tasks: true,
-    transfer: true,
+    tankView: false,
+    schedule: false,
+    attendance: false,
+    leave: false,
+    tasks: false,
+    transfer: false,
   },
 };
 

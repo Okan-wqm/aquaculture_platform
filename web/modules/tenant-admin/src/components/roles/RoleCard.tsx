@@ -21,10 +21,10 @@ import type { TenantRole } from '../../hooks/useTenantRoles';
 export interface RoleCardProps {
   /** The role data to display */
   role: TenantRole;
-  /** Callback fired when the edit button is clicked */
-  onEdit: (role: TenantRole) => void;
-  /** Callback fired when the delete button is clicked */
-  onDelete: (role: TenantRole) => void;
+  /** Callback fired when the edit button is clicked. Omit to hide the edit button (SEC-007). */
+  onEdit?: (role: TenantRole) => void;
+  /** Callback fired when the delete button is clicked. Omit to hide the delete button (SEC-007). */
+  onDelete?: (role: TenantRole) => void;
 }
 
 // ============================================================================
@@ -113,27 +113,31 @@ export const RoleCard: React.FC<RoleCardProps> = ({
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => onEdit(role)}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
-            title="Edit role"
-            aria-label={`Edit ${role.name} role`}
-          >
-            <Edit className="w-4 h-4" />
-          </button>
-          {!role.isSystemRole && (
-            <button
-              onClick={() => onDelete(role)}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="Delete role"
-              aria-label={`Delete ${role.name} role`}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        {/* Action Buttons - SEC-007: only rendered when callbacks provided */}
+        {(onEdit || onDelete) && (
+          <div className="flex items-center gap-1">
+            {onEdit && (
+              <button
+                onClick={() => onEdit(role)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                title="Edit role"
+                aria-label={`Edit ${role.name} role`}
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+            )}
+            {onDelete && !role.isSystemRole && (
+              <button
+                onClick={() => onDelete(role)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                title="Delete role"
+                aria-label={`Delete ${role.name} role`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Description */}

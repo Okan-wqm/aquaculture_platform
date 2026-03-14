@@ -188,18 +188,18 @@ const IpAccessRulesPage: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">IP Erişim Kuralları</h1>
-          <p className="text-gray-500 mt-1">Whitelist ve blacklist yönetimi</p>
+          <h1 className="text-2xl font-bold text-gray-900">IP Access Rules</h1>
+          <p className="text-gray-500 mt-1">Whitelist and blacklist management</p>
         </div>
         <div className="flex gap-3">
           <Button variant="secondary" onClick={() => setShowBulkModal(true)}>
-            Toplu Ekle
+            Bulk Add
           </Button>
           <Button variant="primary" onClick={() => {
             setNewRule({ ruleType: activeTab, isActive: true });
             setShowAddModal(true);
           }}>
-            Kural Ekle
+            Add Rule
           </Button>
         </div>
       </div>
@@ -234,7 +234,7 @@ const IpAccessRulesPage: React.FC = () => {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <Card className="text-center">
             <p className="text-2xl font-bold text-gray-900">{stats.totalRules}</p>
-            <p className="text-sm text-gray-500">Toplam Kural</p>
+            <p className="text-sm text-gray-500">Total Rules</p>
           </Card>
           <Card className="text-center">
             <p className="text-2xl font-bold text-green-600">{stats.whitelistCount}</p>
@@ -246,25 +246,25 @@ const IpAccessRulesPage: React.FC = () => {
           </Card>
           <Card className="text-center">
             <p className="text-2xl font-bold text-blue-600">{stats.activeRules}</p>
-            <p className="text-sm text-gray-500">Aktif Kural</p>
+            <p className="text-sm text-gray-500">Active Rules</p>
           </Card>
           <Card className="text-center">
             <p className="text-2xl font-bold text-orange-600">{stats.expiredRules}</p>
-            <p className="text-sm text-gray-500">Süresi Dolmuş</p>
+            <p className="text-sm text-gray-500">Expired</p>
           </Card>
           <Card className="text-center">
             <p className="text-2xl font-bold text-purple-600">{stats.totalHits.toLocaleString()}</p>
-            <p className="text-sm text-gray-500">Toplam Hit</p>
+            <p className="text-sm text-gray-500">Total Hits</p>
           </Card>
         </div>
       )}
 
       {/* IP Check Tool */}
-      <Card title="IP Kontrol">
+      <Card title="IP Check">
         <div className="flex gap-4 items-end">
           <div className="flex-1 max-w-xs">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              IP Adresi
+              IP Address
             </label>
             <Input
               type="text"
@@ -274,14 +274,14 @@ const IpAccessRulesPage: React.FC = () => {
             />
           </div>
           <Button variant="primary" onClick={handleCheckIp}>
-            Kontrol Et
+            Check
           </Button>
           {checkResult && (
             <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
               checkResult.allowed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
             }`}>
               <span className={`w-3 h-3 rounded-full ${checkResult.allowed ? 'bg-green-500' : 'bg-red-500'}`} />
-              <span className="font-medium">{checkResult.allowed ? 'İzinli' : 'Engelli'}</span>
+              <span className="font-medium">{checkResult.allowed ? 'Allowed' : 'Blocked'}</span>
               <span className="text-sm">- {checkResult.reason}</span>
             </div>
           )}
@@ -318,13 +318,13 @@ const IpAccessRulesPage: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP Adresi</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Açıklama</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hit Sayısı</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP Address</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hit Count</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Son Hit</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bitiş</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">İşlemler</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -338,7 +338,7 @@ const IpAccessRulesPage: React.FC = () => {
                   </td>
                   <td className="px-4 py-3">
                     <Badge variant={rule.isActive ? 'success' : 'default'}>
-                      {rule.isActive ? 'Aktif' : 'Pasif'}
+                      {rule.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">
@@ -346,13 +346,13 @@ const IpAccessRulesPage: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {rule.lastHitAt
-                      ? new Date(rule.lastHitAt).toLocaleString('tr-TR')
-                      : 'Hiç'}
+                      ? new Date(rule.lastHitAt).toLocaleString('en-US')
+                      : 'Never'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {rule.expiresAt
-                      ? new Date(rule.expiresAt).toLocaleDateString('tr-TR')
-                      : 'Süresiz'}
+                      ? new Date(rule.expiresAt).toLocaleDateString('en-US')
+                      : 'No Expiry'}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
@@ -361,7 +361,7 @@ const IpAccessRulesPage: React.FC = () => {
                         size="sm"
                         onClick={() => handleToggleRule(rule)}
                       >
-                        {rule.isActive ? 'Devre Dışı' : 'Aktifleştir'}
+                        {rule.isActive ? 'Disable' : 'Enable'}
                       </Button>
                       <Button
                         variant="ghost"
@@ -369,7 +369,7 @@ const IpAccessRulesPage: React.FC = () => {
                         className="text-red-600"
                         onClick={() => handleDeleteRule(rule.id)}
                       >
-                        Sil
+                        Delete
                       </Button>
                     </div>
                   </td>
@@ -382,7 +382,7 @@ const IpAccessRulesPage: React.FC = () => {
         {filteredRules.length === 0 && (
           <div className="text-center py-8">
             <p className="text-gray-500">
-              {activeTab === 'whitelist' ? 'Whitelist boş' : 'Blacklist boş'}
+              {activeTab === 'whitelist' ? 'Whitelist is empty' : 'Blacklist is empty'}
             </p>
           </div>
         )}
@@ -393,12 +393,12 @@ const IpAccessRulesPage: React.FC = () => {
         <Modal
           isOpen={showAddModal}
           onClose={() => setShowAddModal(false)}
-          title="Yeni IP Kuralı"
+          title="New IP Rule"
         >
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Kural Tipi
+                Rule Type
               </label>
               <div className="flex gap-4">
                 <label className="flex items-center">
@@ -426,31 +426,31 @@ const IpAccessRulesPage: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                IP Adresi (CIDR desteklenir)
+                IP Address (CIDR supported)
               </label>
               <Input
                 type="text"
                 value={newRule.ipAddress || ''}
                 onChange={(e) => setNewRule({ ...newRule, ipAddress: e.target.value })}
-                placeholder="192.168.1.0/24 veya 10.0.0.1"
+                placeholder="192.168.1.0/24 or 10.0.0.1"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Açıklama
+                Description
               </label>
               <Input
                 type="text"
                 value={newRule.description || ''}
                 onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
-                placeholder="Ofis ağı"
+                placeholder="Office network"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Bitiş Tarihi (opsiyonel)
+                Expiry Date (optional)
               </label>
               <Input
                 type="date"
@@ -461,10 +461,10 @@ const IpAccessRulesPage: React.FC = () => {
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button variant="secondary" onClick={() => setShowAddModal(false)}>
-                İptal
+                Cancel
               </Button>
               <Button variant="primary" onClick={handleAddRule}>
-                Ekle
+                Add
               </Button>
             </div>
           </div>
@@ -476,12 +476,12 @@ const IpAccessRulesPage: React.FC = () => {
         <Modal
           isOpen={showBulkModal}
           onClose={() => setShowBulkModal(false)}
-          title="Toplu IP Ekleme"
+          title="Bulk IP Import"
         >
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Kural Tipi
+                Rule Type
               </label>
               <div className="flex gap-4">
                 <label className="flex items-center">
@@ -509,7 +509,7 @@ const IpAccessRulesPage: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                IP Adresleri (her satıra bir IP)
+                IP Addresses (one per line)
               </label>
               <textarea
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
@@ -519,16 +519,16 @@ const IpAccessRulesPage: React.FC = () => {
                 placeholder="192.168.1.1&#10;192.168.1.0/24&#10;10.0.0.0/8"
               />
               <p className="text-xs text-gray-500 mt-1">
-                {bulkIps.split('\n').filter(ip => ip.trim()).length} IP adresi
+                {bulkIps.split('\n').filter(ip => ip.trim()).length} IP address(es)
               </p>
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button variant="secondary" onClick={() => setShowBulkModal(false)}>
-                İptal
+                Cancel
               </Button>
               <Button variant="primary" onClick={handleBulkAdd}>
-                Ekle
+                Add
               </Button>
             </div>
           </div>

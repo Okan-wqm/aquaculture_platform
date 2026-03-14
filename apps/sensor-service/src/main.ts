@@ -2,9 +2,14 @@ import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { initTelemetry } from '@platform/backend-common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+
+// Initialize OpenTelemetry tracing BEFORE NestFactory.create()
+// Only active when ENABLE_TRACING=true environment variable is set.
+initTelemetry('sensor-service');
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('SensorService');

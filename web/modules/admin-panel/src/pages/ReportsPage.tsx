@@ -8,35 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge, Modal, Input } from '@aquaculture/shared-ui';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
-import { useAsyncData } from '../hooks/useAsyncData';
-
-// ============================================================================
-// API Configuration
-// ============================================================================
-
-const API_BASE_URL = import.meta.env.VITE_ADMIN_API_URL || '/api';
-
-// Simple fetch wrapper
-const apiFetch = async <T,>(endpoint: string, options?: RequestInit): Promise<T> => {
-  const token = getAccessToken();
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'API Error' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
-  }
-
-  return response.json();
-};
+import { reportsApi } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -74,16 +46,6 @@ interface GeneratedReport {
   summary?: Record<string, unknown>;
 }
 
-interface ReportApiResponse {
-  data: unknown[];
-  summary: Record<string, unknown>;
-  metadata?: {
-    generatedAt: string;
-    reportType: string;
-    format: string;
-  };
-}
-
 // Helper function to convert report type to CSV export type
 const getReportTypeForExport = (reportType: ReportType): string => {
   switch (reportType) {
@@ -109,8 +71,8 @@ const getReportTypeForExport = (reportType: ReportType): string => {
 const reportDefinitions: ReportDefinition[] = [
   {
     type: 'tenant_overview',
-    name: 'Tenant Ozeti',
-    description: 'Tum tenant\'larin durumu, planlari ve metrikleri',
+    name: 'Tenant Overview',
+    description: 'Status, plans, and metrics for all tenants',
     category: 'Tenant',
     endpoint: '/reports/tenant-overview',
     icon: (
@@ -326,14 +288,11 @@ const ReportsPage: React.FC = () => {
       if (!reportDef) throw new Error('Report definition not found');
 
       // Call the backend API to generate the report
-      const response = await apiFetch<ReportApiResponse>('/reports/generate', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: selectedReportType,
-          format: selectedFormat,
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-        }),
+      const response = await reportsApi.generateCustomReport({
+        type: selectedReportType,
+        format: selectedFormat,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
       });
 
       const newReport: GeneratedReport = {
@@ -363,7 +322,7 @@ const ReportsPage: React.FC = () => {
     if (!reportDef) return;
 
     try {
-      const response = await apiFetch<ReportApiResponse>(`${reportDef.endpoint}?format=${format}`);
+      const response = await reportsApi.getQuickReport(reportDef.endpoint, format);
 
       const newReport: GeneratedReport = {
         id: `rpt_${Date.now()}`,
@@ -413,7 +372,7 @@ const ReportsPage: React.FC = () => {
       case 'excel':
         // Excel format - use CSV export as fallback (backend doesn't support excel natively)
         try {
-          const csvExportUrl = `${API_BASE_URL}/reports/export/csv?type=${getReportTypeForExport(report.type)}`;
+          const csvExportUrl = `${reportsApi.getExportUrl('csv')}?type=${getReportTypeForExport(report.type)}`;
           window.open(csvExportUrl, '_blank');
           setInfoMessage('Downloading as CSV (Excel export not natively supported).');
           return;
@@ -424,7 +383,7 @@ const ReportsPage: React.FC = () => {
       case 'pdf':
         // For PDF, use the correct backend endpoint with reportType as path param
         try {
-          const pdfExportUrl = `${API_BASE_URL}/reports/export/pdf/${report.type}`;
+          const pdfExportUrl = reportsApi.getExportUrl('pdf', report.type);
           window.open(pdfExportUrl, '_blank');
           return;
         } catch {

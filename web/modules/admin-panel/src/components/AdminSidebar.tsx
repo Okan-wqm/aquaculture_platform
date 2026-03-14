@@ -273,6 +273,8 @@ const MenuItem: React.FC<{
     <div>
       <button
         onClick={handleClick}
+        aria-expanded={hasChildren ? isExpanded : undefined}
+        aria-current={isActive ? 'page' : undefined}
         className={`
           w-full flex items-center gap-3
           ${collapsed && depth === 0 ? 'justify-center' : 'justify-between'}
@@ -385,7 +387,8 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   }, [navigate]);
 
   return (
-    <aside
+    <nav
+      aria-label="Admin navigation"
       className={`
         flex flex-col
         ${collapsed ? 'w-16' : 'w-64'}
@@ -414,6 +417,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
         {onCollapsedChange && (
           <button
             onClick={() => onCollapsedChange(!collapsed)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             className={`
               p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg
               transition-all duration-200
@@ -427,7 +431,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin scrollbar-thumb-gray-300">
+      <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin scrollbar-thumb-gray-300" role="list">
         {navigationItems.map((item) => (
           <MenuItem
             key={item.id}
@@ -439,7 +443,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             onNavigate={handleNavigate}
           />
         ))}
-      </nav>
+      </div>
 
       {/* Footer */}
       {!collapsed && (
@@ -457,7 +461,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           </div>
         </div>
       )}
-    </aside>
+    </nav>
   );
 };
 

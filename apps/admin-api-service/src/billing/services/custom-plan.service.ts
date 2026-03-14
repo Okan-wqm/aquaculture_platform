@@ -460,10 +460,12 @@ export class CustomPlanService {
     const modules: CustomPlanModule[] = [];
     let monthlySubtotal = 0;
 
+    // Bulk fetch all module pricings in a single query instead of N queries
+    const moduleCodes = moduleInputs.map((input) => input.moduleCode);
+    const pricingMap = await this.modulePricingService.getModulePricingByCodes(moduleCodes);
+
     for (const input of moduleInputs) {
-      const pricing = await this.modulePricingService.getModulePricingByCode(
-        input.moduleCode,
-      );
+      const pricing = pricingMap.get(input.moduleCode);
 
       if (!pricing) {
         this.logger.warn(`No pricing for module: ${input.moduleCode}`);

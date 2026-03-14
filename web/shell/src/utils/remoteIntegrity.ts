@@ -46,9 +46,37 @@ const REMOTE_SCRIPT_ALLOWLIST: RegExp[] = [
 // integrity verification. When empty, hash verification is skipped.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// D14-SC-01: SRI hash-pinning map for remote entry files
+//
+// CI/CD pipeline should generate this map after each build:
+//   1. Build all microfrontend modules
+//   2. Compute SHA-256 hash: sha256sum dist/assets/remoteEntry.js
+//   3. Inject hashes into this map (or import from a generated hashes.json)
+//
+// Format: { '<path-to-remoteEntry.js>': 'sha256-<base64-hash>' }
+//
+// When populated, the createElement patch in installRemoteIntegrityGuard()
+// will set the `integrity` attribute on injected <script> elements, enabling
+// browser-native SRI verification before execution.
+//
+// TODO(CI/CD): Add a post-build step that:
+//   - Runs: for module in dashboard farm-module hr-module sensor-module hydroponics-module admin-panel tenant-admin; do
+//       HASH=$(cat web/modules/$module/dist/assets/remoteEntry.js | openssl dgst -sha256 -binary | openssl base64 -A)
+//       echo "  '/remotes/$module/assets/remoteEntry.js': 'sha256-$HASH',"
+//     done
+//   - Writes the output to web/shell/src/generated/remoteHashes.json
+//   - This file imports and re-exports the generated map
+// ---------------------------------------------------------------------------
 const REMOTE_HASH_PINS: Record<string, string> = {
-  // Example (fill in via CI):
-  // '/remotes/dashboard/assets/remoteEntry.js': 'sha256-AAAA...',
+  // Populated by CI/CD pipeline — do not edit manually
+  // '/remotes/dashboard/assets/remoteEntry.js': 'sha256-...',
+  // '/remotes/farm-module/assets/remoteEntry.js': 'sha256-...',
+  // '/remotes/hr-module/assets/remoteEntry.js': 'sha256-...',
+  // '/remotes/sensor-module/assets/remoteEntry.js': 'sha256-...',
+  // '/remotes/hydroponics-module/assets/remoteEntry.js': 'sha256-...',
+  // '/remotes/admin-panel/assets/remoteEntry.js': 'sha256-...',
+  // '/remotes/tenant-admin/assets/remoteEntry.js': 'sha256-...',
 };
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import {
   CorrelationIdMiddleware,
   UserContextMiddleware,
   TenantGuard,
+  RolesGuard,
   RedisModule,
 } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
@@ -138,6 +139,11 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     {
       provide: APP_GUARD,
       useClass: TenantGuard,
+    },
+    // SECURITY: Roles guard - enforces @Roles() decorator authorization
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })

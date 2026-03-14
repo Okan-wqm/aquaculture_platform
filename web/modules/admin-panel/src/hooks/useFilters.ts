@@ -95,27 +95,29 @@ export function useFilters<T extends Record<string, unknown>>(
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Update URL when filters change
+  // Update URL when filters change (H2: functional update to avoid stale closure)
   const updateUrl = useCallback(
     (newFilters: T) => {
       if (!syncUrl) return;
 
-      const newParams = new URLSearchParams(searchParams);
+      setSearchParams(prev => {
+        const newParams = new URLSearchParams(prev);
 
-      Object.entries(newFilters).forEach(([key, value]) => {
-        const initialValue = initialFilters[key as keyof T];
+        Object.entries(newFilters).forEach(([key, value]) => {
+          const initialValue = initialFilters[key as keyof T];
 
-        // Only add to URL if different from initial
-        if (value !== initialValue && value !== '' && value !== null && value !== undefined) {
-          newParams.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
-        } else {
-          newParams.delete(key);
-        }
-      });
+          // Only add to URL if different from initial
+          if (value !== initialValue && value !== '' && value !== null && value !== undefined) {
+            newParams.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+          } else {
+            newParams.delete(key);
+          }
+        });
 
-      setSearchParams(newParams, { replace: true });
+        return newParams;
+      }, { replace: true });
     },
-    [syncUrl, searchParams, setSearchParams, initialFilters]
+    [syncUrl, setSearchParams, initialFilters]
   );
 
   // Track which keys were updated immediately (non-debounced) so we don't call onChange twice (BUG-007, PERF-008)

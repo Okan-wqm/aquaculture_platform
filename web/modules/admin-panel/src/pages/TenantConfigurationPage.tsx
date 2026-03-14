@@ -3,6 +3,8 @@
  *
  * Tenant-level ayarların yönetimi için sayfa.
  * User limits, storage, API, branding, security ve notification ayarları.
+ *
+ * Sprint 3 Fix (Grup Q / C10-36): Mock data removed, real API integration via settingsApi.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -14,6 +16,8 @@ import {
   Input,
   Modal
 } from '@aquaculture/shared-ui';
+import { settingsApi } from '../services/adminApi';
+import type { TenantConfiguration as ApiTenantConfiguration } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -192,150 +196,132 @@ const TenantConfigurationPage: React.FC = () => {
   }, [tenantId]);
 
   const loadConfiguration = async () => {
+    if (!tenantId) return;
     try {
       setLoading(true);
-      // Mock data - replace with API call
-      const mockConfig: TenantConfiguration = {
-        id: '1',
-        tenantId: tenantId || '',
-        userLimits: {
-          maxUsers: 50,
-          maxAdmins: 5,
-          maxModuleManagers: 10,
-          maxConcurrentSessions: 3,
-          sessionTimeoutMinutes: 480,
-          inactiveUserCleanupDays: 90,
-          allowGuestAccess: false,
+      setSaveError(null);
+      const apiConfig = await settingsApi.getTenantConfig(tenantId);
+      // Map API response (flat configuration record) into local TenantConfiguration shape.
+      // The backend returns { tenantId, configuration: Record<string,unknown>, branding?, apiKeys?, webhooks?, updatedAt }
+      // We spread the configuration record into our detailed local config structure.
+      const cfg = apiConfig.configuration || {};
+      const localConfig: TenantConfiguration = {
+        id: apiConfig.tenantId,
+        tenantId: apiConfig.tenantId,
+        userLimits: (cfg.userLimits as UserLimitsConfig) || {
+          maxUsers: 50, maxAdmins: 5, maxModuleManagers: 10, maxConcurrentSessions: 3,
+          sessionTimeoutMinutes: 480, inactiveUserCleanupDays: 90, allowGuestAccess: false,
         },
-        storageConfig: {
-          totalStorageGB: 100,
-          usedStorageGB: 45.5,
-          maxFileSizeMB: 100,
+        storageConfig: (cfg.storageConfig as StorageConfig) || {
+          totalStorageGB: 100, usedStorageGB: 0, maxFileSizeMB: 100,
           allowedFileTypes: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'png'],
-          enableFileVersioning: true,
-          versionRetentionCount: 5,
-          compressionEnabled: true,
+          enableFileVersioning: true, versionRetentionCount: 5, compressionEnabled: true,
         },
         apiConfig: {
           enabled: true,
-          rateLimitPerMinute: 100,
-          rateLimitPerHour: 1000,
-          rateLimitPerDay: 10000,
-          maxConcurrentRequests: 10,
-          apiKeys: [
-            {
-              id: '1',
-              name: 'Production API Key',
-              prefix: 'aq_prod_',
-              permissions: ['read', 'write'],
-              createdAt: '2024-01-01',
-              isActive: true,
-            },
-          ],
-          webhooksEnabled: true,
-          webhookRetryCount: 3,
-          ipWhitelist: [],
+          rateLimitPerMinute: ((cfg.apiConfig as Record<string, unknown>)?.rateLimitPerMinute as number) || 100,
+          rateLimitPerHour: ((cfg.apiConfig as Record<string, unknown>)?.rateLimitPerHour as number) || 1000,
+          rateLimitPerDay: ((cfg.apiConfig as Record<string, unknown>)?.rateLimitPerDay as number) || 10000,
+          maxConcurrentRequests: ((cfg.apiConfig as Record<string, unknown>)?.maxConcurrentRequests as number) || 10,
+          apiKeys: (apiConfig.apiKeys || []).map(k => ({
+            id: k.id,
+            name: k.name,
+            prefix: k.prefix,
+            permissions: k.scopes || [],
+            expiresAt: k.expiresAt,
+            lastUsedAt: k.lastUsedAt,
+            createdAt: '',
+            isActive: true,
+          })),
+          webhooksEnabled: ((cfg.apiConfig as Record<string, unknown>)?.webhooksEnabled as boolean) ?? true,
+          webhookRetryCount: ((cfg.apiConfig as Record<string, unknown>)?.webhookRetryCount as number) || 3,
+          ipWhitelist: ((cfg.apiConfig as Record<string, unknown>)?.ipWhitelist as string[]) || [],
         },
-        dataRetention: {
-          auditLogRetentionDays: 90,
-          activityLogRetentionDays: 30,
-          sensorDataRetentionDays: 365,
-          alertHistoryRetentionDays: 180,
-          deletedDataRetentionDays: 30,
-          backupRetentionDays: 30,
-          autoDeleteEnabled: true,
-          archiveBeforeDelete: true,
+        dataRetention: (cfg.dataRetention as DataRetentionConfig) || {
+          auditLogRetentionDays: 90, activityLogRetentionDays: 30, sensorDataRetentionDays: 365,
+          alertHistoryRetentionDays: 180, deletedDataRetentionDays: 30, backupRetentionDays: 30,
+          autoDeleteEnabled: true, archiveBeforeDelete: true,
         },
-        domainConfig: {
-          customDomain: 'app.example.com',
-          customDomainVerified: true,
-          subdomain: 'acme',
-          redirectToCustomDomain: true,
-          allowedOrigins: ['https://example.com'],
+        domainConfig: (cfg.domainConfig as DomainConfig) || {
+          customDomainVerified: false, redirectToCustomDomain: false, allowedOrigins: [],
         },
         brandingConfig: {
-          logoUrl: 'https://example.com/logo.png',
-          primaryColor: '#3B82F6',
-          secondaryColor: '#6B7280',
-          accentColor: '#10B981',
-          headerColor: '#1F2937',
-          fontFamily: 'Inter',
-          companyName: 'ACME Corp',
-          supportEmail: 'support@acme.com',
-          showPoweredBy: false,
+          logoUrl: apiConfig.branding?.logo,
+          primaryColor: apiConfig.branding?.primaryColor || '#3B82F6',
+          secondaryColor: apiConfig.branding?.secondaryColor || '#6B7280',
+          accentColor: ((cfg.brandingConfig as Record<string, unknown>)?.accentColor as string) || '#10B981',
+          headerColor: ((cfg.brandingConfig as Record<string, unknown>)?.headerColor as string) || '#1F2937',
+          fontFamily: ((cfg.brandingConfig as Record<string, unknown>)?.fontFamily as string) || 'Inter',
+          companyName: ((cfg.brandingConfig as Record<string, unknown>)?.companyName as string) || '',
+          supportEmail: ((cfg.brandingConfig as Record<string, unknown>)?.supportEmail as string),
+          showPoweredBy: ((cfg.brandingConfig as Record<string, unknown>)?.showPoweredBy as boolean) ?? true,
         },
-        securityConfig: {
-          mfaRequired: true,
-          mfaRequiredForAdmins: true,
-          allowedMfaMethods: ['totp', 'email'],
-          ssoEnabled: false,
-          passwordMinLength: 12,
-          passwordRequireUppercase: true,
-          passwordRequireLowercase: true,
-          passwordRequireNumbers: true,
-          passwordRequireSpecialChars: true,
-          passwordExpiryDays: 90,
-          ipWhitelistEnabled: false,
-          ipWhitelist: [],
-          ipBlacklistEnabled: false,
-          ipBlacklist: [],
-          geoBlockingEnabled: false,
-          allowedCountries: [],
-          blockedCountries: [],
-          maxLoginAttempts: 5,
-          lockoutDurationMinutes: 30,
-          sessionTimeoutMinutes: 480,
-          singleSessionPerUser: false,
+        securityConfig: (cfg.securityConfig as TenantSecurityConfig) || {
+          mfaRequired: false, mfaRequiredForAdmins: true, allowedMfaMethods: ['totp'],
+          ssoEnabled: false, passwordMinLength: 8, passwordRequireUppercase: true,
+          passwordRequireLowercase: true, passwordRequireNumbers: true, passwordRequireSpecialChars: false,
+          passwordExpiryDays: 90, ipWhitelistEnabled: false, ipWhitelist: [],
+          ipBlacklistEnabled: false, ipBlacklist: [], geoBlockingEnabled: false,
+          allowedCountries: [], blockedCountries: [], maxLoginAttempts: 5,
+          lockoutDurationMinutes: 30, sessionTimeoutMinutes: 480, singleSessionPerUser: false,
         },
-        notificationConfig: {
-          emailEnabled: true,
-          emailFromName: 'ACME Support',
-          emailFromAddress: 'noreply@acme.com',
-          customSmtpEnabled: true,
-          smsEnabled: false,
-          pushEnabled: true,
-          slackEnabled: true,
-          slackWebhookUrl: 'https://hooks.slack.com/...',
-          webhookEnabled: true,
-          digestFrequency: 'daily',
-          quietHoursEnabled: true,
-          quietHoursStart: '22:00',
-          quietHoursEnd: '07:00',
+        notificationConfig: (cfg.notificationConfig as TenantNotificationConfig) || {
+          emailEnabled: true, customSmtpEnabled: false, smsEnabled: false,
+          pushEnabled: false, slackEnabled: false, webhookEnabled: false,
+          digestFrequency: 'daily', quietHoursEnabled: false,
         },
-        featureFlags: {
-          enabledModules: ['farm', 'sensor', 'alert', 'hr', 'billing'],
-          advancedAnalytics: true,
-          customReports: true,
-          dataExport: true,
-          dataImport: true,
-          bulkOperations: true,
-          auditLog: true,
-          apiAccess: true,
-          mobileAccess: true,
-          offlineMode: false,
-          thirdPartyIntegrations: true,
-          customIntegrations: false,
-          iotDeviceSupport: true,
+        featureFlags: (cfg.featureFlags as FeatureFlagsConfig) || {
+          enabledModules: [], advancedAnalytics: false, customReports: false,
+          dataExport: true, dataImport: true, bulkOperations: false,
+          auditLog: true, apiAccess: true, mobileAccess: true, offlineMode: false,
+          thirdPartyIntegrations: false, customIntegrations: false, iotDeviceSupport: false,
           betaFeatures: [],
         },
-        createdAt: '2024-01-01',
-        updatedAt: '2024-03-15',
+        createdAt: apiConfig.updatedAt,
+        updatedAt: apiConfig.updatedAt,
       };
-      setConfig(mockConfig);
+      setConfig(localConfig);
     } catch (error) {
       console.error('Failed to load configuration:', error);
+      setSaveError('Failed to load tenant configuration. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleSave = async () => {
-    if (!config) return;
+    if (!config || !tenantId) return;
     try {
       setSaving(true);
       setSaveError(null);
       setSaveSuccess(false);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await settingsApi.updateTenantConfig(tenantId, {
+        configuration: {
+          userLimits: config.userLimits,
+          storageConfig: config.storageConfig,
+          apiConfig: {
+            enabled: config.apiConfig.enabled,
+            rateLimitPerMinute: config.apiConfig.rateLimitPerMinute,
+            rateLimitPerHour: config.apiConfig.rateLimitPerHour,
+            rateLimitPerDay: config.apiConfig.rateLimitPerDay,
+            maxConcurrentRequests: config.apiConfig.maxConcurrentRequests,
+            webhooksEnabled: config.apiConfig.webhooksEnabled,
+            webhookRetryCount: config.apiConfig.webhookRetryCount,
+            ipWhitelist: config.apiConfig.ipWhitelist,
+          },
+          dataRetention: config.dataRetention,
+          domainConfig: config.domainConfig,
+          brandingConfig: config.brandingConfig,
+          securityConfig: config.securityConfig,
+          notificationConfig: config.notificationConfig,
+          featureFlags: config.featureFlags,
+        },
+        branding: {
+          logo: config.brandingConfig.logoUrl,
+          primaryColor: config.brandingConfig.primaryColor,
+          secondaryColor: config.brandingConfig.secondaryColor,
+        },
+      });
       setSaveSuccess(true);
     } catch (error) {
       console.error('Failed to save configuration:', error);
@@ -360,14 +346,14 @@ const TenantConfigurationPage: React.FC = () => {
   };
 
   const tabs: { id: TabType; label: string; icon: string }[] = [
-    { id: 'limits', label: 'Kullanıcı Limitleri', icon: '👥' },
-    { id: 'storage', label: 'Depolama', icon: '💾' },
+    { id: 'limits', label: 'User Limits', icon: '👥' },
+    { id: 'storage', label: 'Storage', icon: '💾' },
     { id: 'api', label: 'API & Webhooks', icon: '🔌' },
-    { id: 'branding', label: 'Marka & Görünüm', icon: '🎨' },
-    { id: 'security', label: 'Güvenlik', icon: '🔒' },
-    { id: 'notifications', label: 'Bildirimler', icon: '🔔' },
-    { id: 'features', label: 'Özellikler', icon: '⚡' },
-    { id: 'retention', label: 'Veri Saklama', icon: '📁' },
+    { id: 'branding', label: 'Branding & Appearance', icon: '🎨' },
+    { id: 'security', label: 'Security', icon: '🔒' },
+    { id: 'notifications', label: 'Notifications', icon: '🔔' },
+    { id: 'features', label: 'Features', icon: '⚡' },
+    { id: 'retention', label: 'Data Retention', icon: '📁' },
   ];
 
   if (loading) {
@@ -449,11 +435,11 @@ const TenantConfigurationPage: React.FC = () => {
       <div className="mt-6">
         {/* User Limits Tab */}
         {activeTab === 'limits' && (
-          <Card title="Kullanıcı Limitleri">
+          <Card title="User Limits">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Maksimum Kullanıcı
+                  Maximum Users
                 </label>
                 <Input
                   type="number"
@@ -463,7 +449,7 @@ const TenantConfigurationPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Maksimum Admin
+                  Maximum Admins
                 </label>
                 <Input
                   type="number"
@@ -473,7 +459,7 @@ const TenantConfigurationPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Maks. Eş Zamanlı Oturum
+                  Max Concurrent Sessions
                 </label>
                 <Input
                   type="number"
@@ -483,7 +469,7 @@ const TenantConfigurationPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Oturum Zaman Aşımı (dk)
+                  Session Timeout (min)
                 </label>
                 <Input
                   type="number"
@@ -500,7 +486,7 @@ const TenantConfigurationPage: React.FC = () => {
                   className="h-4 w-4 text-blue-600 rounded"
                 />
                 <label htmlFor="allowGuestAccess" className="ml-2 text-sm text-gray-700">
-                  Misafir Erişimine İzin Ver
+                  Allow Guest Access
                 </label>
               </div>
             </div>
@@ -509,10 +495,10 @@ const TenantConfigurationPage: React.FC = () => {
 
         {/* Storage Tab */}
         {activeTab === 'storage' && (
-          <Card title="Depolama Ayarları">
+          <Card title="Storage Settings">
             <div className="mb-6">
               <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-600">Kullanılan Alan</span>
+                <span className="text-gray-600">Used Space</span>
                 <span className="font-medium">
                   {config.storageConfig.usedStorageGB} GB / {config.storageConfig.totalStorageGB} GB
                 </span>
@@ -530,7 +516,7 @@ const TenantConfigurationPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Toplam Depolama (GB)
+                  Total Storage (GB)
                 </label>
                 <Input
                   type="number"
@@ -540,7 +526,7 @@ const TenantConfigurationPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Maks. Dosya Boyutu (MB)
+                  Max File Size (MB)
                 </label>
                 <Input
                   type="number"
@@ -557,7 +543,7 @@ const TenantConfigurationPage: React.FC = () => {
                   className="h-4 w-4 text-blue-600 rounded"
                 />
                 <label htmlFor="enableFileVersioning" className="ml-2 text-sm text-gray-700">
-                  Dosya Versiyonlama
+                  File Versioning
                 </label>
               </div>
             </div>
@@ -567,7 +553,7 @@ const TenantConfigurationPage: React.FC = () => {
         {/* API Tab */}
         {activeTab === 'api' && (
           <div className="space-y-6">
-            <Card title="API Ayarları">
+            <Card title="API Settings">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="flex items-center">
                   <input
@@ -578,12 +564,12 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="apiEnabled" className="ml-2 text-sm text-gray-700">
-                    API Erişimi Aktif
+                    API Access Enabled
                   </label>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Rate Limit / Dakika
+                    Rate Limit / Minute
                   </label>
                   <Input
                     type="number"
@@ -593,7 +579,7 @@ const TenantConfigurationPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Rate Limit / Saat
+                    Rate Limit / Hour
                   </label>
                   <Input
                     type="number"
@@ -605,10 +591,10 @@ const TenantConfigurationPage: React.FC = () => {
             </Card>
 
             <Card
-              title="API Anahtarları"
+              title="API Keys"
               headerAction={
                 <Button variant="primary" size="sm" onClick={() => setShowApiKeyModal(true)}>
-                  Yeni Anahtar
+                  New Key
                 </Button>
               }
             >
@@ -616,11 +602,11 @@ const TenantConfigurationPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead>
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ad</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prefix</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">İzinler</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">İşlemler</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Permissions</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -635,12 +621,12 @@ const TenantConfigurationPage: React.FC = () => {
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant={key.isActive ? 'success' : 'error'}>
-                            {key.isActive ? 'Aktif' : 'Pasif'}
+                            {key.isActive ? 'Active' : 'Inactive'}
                           </Badge>
                         </td>
                         <td className="px-4 py-3">
                           <Button variant="ghost" size="sm" className="text-red-600">
-                            İptal Et
+                            Revoke
                           </Button>
                         </td>
                       </tr>
@@ -655,7 +641,7 @@ const TenantConfigurationPage: React.FC = () => {
         {/* Security Tab */}
         {activeTab === 'security' && (
           <div className="space-y-6">
-            <Card title="Çok Faktörlü Kimlik Doğrulama (MFA)">
+            <Card title="Multi-Factor Authentication (MFA)">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex items-center">
                   <input
@@ -666,7 +652,7 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="mfaRequired" className="ml-2 text-sm text-gray-700">
-                    Tüm Kullanıcılar İçin MFA Zorunlu
+                    Require MFA for All Users
                   </label>
                 </div>
                 <div className="flex items-center">
@@ -678,17 +664,17 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="mfaRequiredForAdmins" className="ml-2 text-sm text-gray-700">
-                    Adminler İçin MFA Zorunlu
+                    Require MFA for Admins
                   </label>
                 </div>
               </div>
             </Card>
 
-            <Card title="Şifre Politikası">
+            <Card title="Password Policy">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Minimum Şifre Uzunluğu
+                    Minimum Password Length
                   </label>
                   <Input
                     type="number"
@@ -698,7 +684,7 @@ const TenantConfigurationPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Şifre Süresi (gün)
+                    Password Expiry (days)
                   </label>
                   <Input
                     type="number"
@@ -714,7 +700,7 @@ const TenantConfigurationPage: React.FC = () => {
                       onChange={(e) => updateConfig('securityConfig', { passwordRequireUppercase: e.target.checked })}
                       className="h-4 w-4 text-blue-600 rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-700">Büyük harf zorunlu</span>
+                    <span className="ml-2 text-sm text-gray-700">Require uppercase</span>
                   </div>
                   <div className="flex items-center">
                     <input
@@ -723,7 +709,7 @@ const TenantConfigurationPage: React.FC = () => {
                       onChange={(e) => updateConfig('securityConfig', { passwordRequireNumbers: e.target.checked })}
                       className="h-4 w-4 text-blue-600 rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-700">Rakam zorunlu</span>
+                    <span className="ml-2 text-sm text-gray-700">Require numbers</span>
                   </div>
                   <div className="flex items-center">
                     <input
@@ -732,17 +718,17 @@ const TenantConfigurationPage: React.FC = () => {
                       onChange={(e) => updateConfig('securityConfig', { passwordRequireSpecialChars: e.target.checked })}
                       className="h-4 w-4 text-blue-600 rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-700">Özel karakter zorunlu</span>
+                    <span className="ml-2 text-sm text-gray-700">Require special characters</span>
                   </div>
                 </div>
               </div>
             </Card>
 
-            <Card title="Giriş Güvenliği">
+            <Card title="Login Security">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Maks. Başarısız Giriş Denemesi
+                    Max Failed Login Attempts
                   </label>
                   <Input
                     type="number"
@@ -752,7 +738,7 @@ const TenantConfigurationPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Hesap Kilitleme Süresi (dk)
+                    Account Lockout Duration (min)
                   </label>
                   <Input
                     type="number"
@@ -769,7 +755,7 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="singleSessionPerUser" className="ml-2 text-sm text-gray-700">
-                    Kullanıcı Başına Tek Oturum
+                    Single Session Per User
                   </label>
                 </div>
               </div>
@@ -780,7 +766,7 @@ const TenantConfigurationPage: React.FC = () => {
         {/* Notifications Tab */}
         {activeTab === 'notifications' && (
           <div className="space-y-6">
-            <Card title="Email Ayarları">
+            <Card title="Email Settings">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex items-center">
                   <input
@@ -791,12 +777,12 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="emailEnabled" className="ml-2 text-sm text-gray-700">
-                    Email Bildirimleri Aktif
+                    Email Notifications Enabled
                   </label>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Gönderen Adı
+                    Sender Name
                   </label>
                   <Input
                     type="text"
@@ -807,7 +793,7 @@ const TenantConfigurationPage: React.FC = () => {
               </div>
             </Card>
 
-            <Card title="Diğer Bildirim Kanalları">
+            <Card title="Other Notification Channels">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="flex items-center">
                   <input
@@ -818,7 +804,7 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="smsEnabled" className="ml-2 text-sm text-gray-700">
-                    SMS Bildirimleri
+                    SMS Notifications
                   </label>
                 </div>
                 <div className="flex items-center">
@@ -830,7 +816,7 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="pushEnabled" className="ml-2 text-sm text-gray-700">
-                    Push Bildirimleri
+                    Push Notifications
                   </label>
                 </div>
                 <div className="flex items-center">
@@ -842,7 +828,7 @@ const TenantConfigurationPage: React.FC = () => {
                     className="h-4 w-4 text-blue-600 rounded"
                   />
                   <label htmlFor="slackEnabled" className="ml-2 text-sm text-gray-700">
-                    Slack Entegrasyonu
+                    Slack Integration
                   </label>
                 </div>
               </div>
@@ -852,20 +838,20 @@ const TenantConfigurationPage: React.FC = () => {
 
         {/* Features Tab */}
         {activeTab === 'features' && (
-          <Card title="Özellik Bayrakları">
+          <Card title="Feature Flags">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
-                { key: 'advancedAnalytics', label: 'Gelişmiş Analitik' },
-                { key: 'customReports', label: 'Özel Raporlar' },
-                { key: 'dataExport', label: 'Veri Dışa Aktarma' },
-                { key: 'dataImport', label: 'Veri İçe Aktarma' },
-                { key: 'bulkOperations', label: 'Toplu İşlemler' },
-                { key: 'auditLog', label: 'Denetim Günlüğü' },
-                { key: 'apiAccess', label: 'API Erişimi' },
-                { key: 'mobileAccess', label: 'Mobil Erişim' },
-                { key: 'offlineMode', label: 'Çevrimdışı Mod' },
-                { key: 'thirdPartyIntegrations', label: '3. Parti Entegrasyonlar' },
-                { key: 'iotDeviceSupport', label: 'IoT Cihaz Desteği' },
+                { key: 'advancedAnalytics', label: 'Advanced Analytics' },
+                { key: 'customReports', label: 'Custom Reports' },
+                { key: 'dataExport', label: 'Data Export' },
+                { key: 'dataImport', label: 'Data Import' },
+                { key: 'bulkOperations', label: 'Bulk Operations' },
+                { key: 'auditLog', label: 'Audit Log' },
+                { key: 'apiAccess', label: 'API Access' },
+                { key: 'mobileAccess', label: 'Mobile Access' },
+                { key: 'offlineMode', label: 'Offline Mode' },
+                { key: 'thirdPartyIntegrations', label: 'Third-Party Integrations' },
+                { key: 'iotDeviceSupport', label: 'IoT Device Support' },
               ].map(({ key, label }) => (
                 <div key={key} className="flex items-center p-3 bg-gray-50 rounded-lg">
                   <input
@@ -886,14 +872,14 @@ const TenantConfigurationPage: React.FC = () => {
 
         {/* Data Retention Tab */}
         {activeTab === 'retention' && (
-          <Card title="Veri Saklama Politikaları">
+          <Card title="Data Retention Policies">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {[
-                { key: 'auditLogRetentionDays', label: 'Denetim Günlüğü (gün)' },
-                { key: 'activityLogRetentionDays', label: 'Aktivite Günlüğü (gün)' },
-                { key: 'sensorDataRetentionDays', label: 'Sensör Verisi (gün)' },
-                { key: 'alertHistoryRetentionDays', label: 'Alarm Geçmişi (gün)' },
-                { key: 'backupRetentionDays', label: 'Yedekleme (gün)' },
+                { key: 'auditLogRetentionDays', label: 'Audit Log (days)' },
+                { key: 'activityLogRetentionDays', label: 'Activity Log (days)' },
+                { key: 'sensorDataRetentionDays', label: 'Sensor Data (days)' },
+                { key: 'alertHistoryRetentionDays', label: 'Alert History (days)' },
+                { key: 'backupRetentionDays', label: 'Backup (days)' },
               ].map(({ key, label }) => (
                 <div key={key}>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -915,7 +901,7 @@ const TenantConfigurationPage: React.FC = () => {
                   className="h-4 w-4 text-blue-600 rounded"
                 />
                 <label htmlFor="autoDeleteEnabled" className="ml-2 text-sm text-gray-700">
-                  Otomatik Silme Aktif
+                  Auto-Delete Enabled
                 </label>
               </div>
             </div>
@@ -925,11 +911,11 @@ const TenantConfigurationPage: React.FC = () => {
         {/* Branding Tab */}
         {activeTab === 'branding' && (
           <div className="space-y-6">
-            <Card title="Marka Kimliği">
+            <Card title="Brand Identity">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Şirket Adı
+                    Company Name
                   </label>
                   <Input
                     type="text"
@@ -949,7 +935,7 @@ const TenantConfigurationPage: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Destek Email
+                    Support Email
                   </label>
                   <Input
                     type="email"
@@ -960,13 +946,13 @@ const TenantConfigurationPage: React.FC = () => {
               </div>
             </Card>
 
-            <Card title="Renk Şeması">
+            <Card title="Color Scheme">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {[
-                  { key: 'primaryColor', label: 'Ana Renk' },
-                  { key: 'secondaryColor', label: 'İkincil Renk' },
-                  { key: 'accentColor', label: 'Vurgu Rengi' },
-                  { key: 'headerColor', label: 'Header Rengi' },
+                  { key: 'primaryColor', label: 'Primary Color' },
+                  { key: 'secondaryColor', label: 'Secondary Color' },
+                  { key: 'accentColor', label: 'Accent Color' },
+                  { key: 'headerColor', label: 'Header Color' },
                 ].map(({ key, label }) => (
                   <div key={key}>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -996,13 +982,13 @@ const TenantConfigurationPage: React.FC = () => {
             setShowApiKeyModal(false);
             setNewApiKey(null);
           }}
-          title="Yeni API Anahtarı"
+          title="New API Key"
         >
           {newApiKey ? (
             <div className="space-y-4">
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                 <p className="text-sm text-yellow-800 mb-2">
-                  Bu anahtarı güvenli bir yere kaydedin!
+                  Save this key in a secure location!
                 </p>
                 <code className="block bg-white p-3 rounded border text-sm break-all">
                   {newApiKey}
@@ -1016,26 +1002,40 @@ const TenantConfigurationPage: React.FC = () => {
                   setSaveSuccess(true);
                 }}
               >
-                Kopyala
+                Copy
               </Button>
             </div>
           ) : (
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
-                setNewApiKey('aq_prod_xxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+                if (!tenantId) return;
+                const formData = new FormData(e.currentTarget);
+                const keyName = formData.get('keyName') as string;
+                try {
+                  const result = await settingsApi.createTenantApiKey(tenantId, {
+                    name: keyName,
+                    scopes: ['read', 'write'],
+                  });
+                  setNewApiKey(result.apiKey);
+                  // Reload config to get updated API keys list
+                  loadConfiguration();
+                } catch (err) {
+                  console.error('Failed to create API key:', err);
+                  setSaveError('Failed to create API key. Please try again.');
+                }
               }}
               className="space-y-4"
             >
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Anahtar Adı
+                  Key Name
                 </label>
-                <Input type="text" placeholder="Production API Key" required />
+                <Input type="text" name="keyName" placeholder="Production API Key" required />
               </div>
               <div className="flex space-x-3">
                 <Button type="submit" variant="primary" fullWidth>
-                  Oluştur
+                  Create
                 </Button>
                 <Button
                   type="button"
@@ -1043,7 +1043,7 @@ const TenantConfigurationPage: React.FC = () => {
                   fullWidth
                   onClick={() => setShowApiKeyModal(false)}
                 >
-                  İptal
+                  Cancel
                 </Button>
               </div>
             </form>

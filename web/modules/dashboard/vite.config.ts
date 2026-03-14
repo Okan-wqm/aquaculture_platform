@@ -41,6 +41,11 @@ export default defineConfig({
           singleton: true,
           import: true,
         },
+        // @tanstack/react-query singleton — shares QueryClient with shell
+        '@tanstack/react-query': {
+          singleton: true,
+          requiredVersion: '^5.17.0',
+        },
         // recharts is used heavily — share to avoid duplication across MF chunks
         recharts: {
           singleton: true,

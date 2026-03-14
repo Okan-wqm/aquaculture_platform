@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ScheduleModule } from '@nestjs/schedule';
 import { CertificationType } from './entities/certification-type.entity';
 import { EmployeeCertification } from './entities/employee-certification.entity';
 import { TrainingCourse } from './entities/training-course.entity';
@@ -8,6 +9,7 @@ import { TrainingEnrollment } from './entities/training-enrollment.entity';
 import { TrainingResolver } from './training.resolver';
 import { TrainingCommandHandlers } from './handlers';
 import { TrainingQueryHandlers } from './query-handlers';
+import { CertificationExpiryService } from './certification-expiry.service';
 import { Employee } from '../hr/entities/employee.entity';
 
 @Module({
@@ -20,11 +22,13 @@ import { Employee } from '../hr/entities/employee.entity';
       Employee,
     ]),
     CqrsModule,
+    ScheduleModule.forRoot(),
   ],
   providers: [
     TrainingResolver,
     ...TrainingCommandHandlers,
     ...TrainingQueryHandlers,
+    CertificationExpiryService,
   ],
   exports: [TypeOrmModule],
 })

@@ -353,7 +353,7 @@ export interface EquipmentCreatedEvent extends BaseEvent {
 export interface EquipmentUpdatedEvent extends BaseEvent {
   eventType: 'EquipmentUpdated';
   equipmentId: string;
-  siteId: string;
+  siteId?: string;
   name?: string;
   status?: string;
 }
@@ -364,7 +364,7 @@ export interface EquipmentUpdatedEvent extends BaseEvent {
 export interface EquipmentDeletedEvent extends BaseEvent {
   eventType: 'EquipmentDeleted';
   equipmentId: string;
-  siteId: string;
+  siteId?: string;
   name: string;
   code: string;
   deletedAt: Date;

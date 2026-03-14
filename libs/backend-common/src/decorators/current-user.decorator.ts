@@ -43,6 +43,13 @@ export interface CurrentUserPayload {
   modules?: string[];
 
   /**
+   * Tenant-level resource permissions (e.g., "tanks:create", "sensors:configure").
+   * Populated from the user's tenant role assignment at login time.
+   * SUPER_ADMIN and TENANT_ADMIN do not need this -- they have full access.
+   */
+  resourcePermissions?: string[];
+
+  /**
    * First name (optional)
    */
   firstName?: string;

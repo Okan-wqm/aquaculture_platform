@@ -25,10 +25,3 @@ export type {
   UseFiltersReturn,
 } from './useFilters';
 
-export {
-  usePermissionCategories,
-  useTenantUsers,
-  useInviteUser,
-  useUpdateUserPermissions,
-  useUserPermissions,
-} from './useUserPermissions';

@@ -15,6 +15,7 @@ import {
   Body,
   Query,
   BadRequestException,
+  ForbiddenException,
   Logger,
   UseGuards,
   Res,
@@ -24,10 +25,12 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsIn, IsObject, IsBoolean } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsIn, IsObject } from 'class-validator';
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
 
+// Fix: H8 -- per-route throttle for sensitive database operations
+import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common';
 import { MODULE_SCHEMAS } from '@platform/backend-common';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
@@ -139,10 +142,7 @@ class TableQueryDto {
   @IsString()
   filter?: string;
 
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  includeSensitive?: boolean;
+  // Fix: C12 -- includeSensitive kaldırıldı, sensitive data her zaman maskelenir
 }
 
 class ExportQueryDto {
@@ -307,17 +307,19 @@ export class DatabaseExplorerController {
         (t: { table_name: string }) => !MODULE_TABLE_NAMES.has(t.table_name),
       );
 
-      // Her tablo için sütun bilgilerini al
+      // Bulk fetch column info for all tables in a single query instead of N+1
+      const tableNames = filteredTables.map((t: { table_name: string }) => t.table_name);
+      const allColumnsMap = await this.getBulkColumnInfo(queryRunner, schema, tableNames);
+
       const result: TableInfo[] = [];
 
       for (const table of filteredTables) {
-        const columns = await this.getColumnInfo(queryRunner, schema, table.table_name);
         result.push({
           tableName: table.table_name,
           schemaName: table.schema_name,
           rowCount: parseInt(table.row_count, 10),
           sizeBytes: parseInt(table.size_bytes, 10),
-          columns,
+          columns: allColumnsMap.get(table.table_name) || [],
         });
       }
 
@@ -358,7 +360,7 @@ export class DatabaseExplorerController {
     const offset = (page - 1) * limit;
     const orderBy = query.orderBy && this.isValidIdentifier(query.orderBy) ? query.orderBy : null;
     const orderDirection = query.orderDirection === 'DESC' ? 'DESC' : 'ASC';
-    const includeSensitive = query.includeSensitive === true;
+    // Fix: C12 -- sensitive data her zaman maskelenir, client kontrolü kaldırıldı
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -395,16 +397,14 @@ export class DatabaseExplorerController {
 
       const rawRows = await queryRunner.query(dataQuery, queryParams);
 
-      // SECURITY: Mask sensitive data unless explicitly requested
-      const rows = includeSensitive
-        ? rawRows
-        : rawRows.map((row: Record<string, unknown>) =>
-            maskSensitiveData(row, columnsWithSensitive),
-          );
+      // Fix: C12 -- sensitive data her zaman maskelenir
+      const rows = rawRows.map((row: Record<string, unknown>) =>
+        maskSensitiveData(row, columnsWithSensitive),
+      );
 
       // Audit log for data access
       this.logger.log(
-        `[AUDIT] Data access: ${schema}.${table} (page=${page}, rows=${rows.length}, sensitive=${includeSensitive})`,
+        `[AUDIT] Data access: ${schema}.${table} (page=${page}, rows=${rows.length})`,
       );
 
       return {
@@ -424,6 +424,8 @@ export class DatabaseExplorerController {
   /**
    * Export table data to CSV or JSON
    */
+  // Fix: H8 -- per-route throttle: data export is rate-limited (5 req / hour)
+  @ThrottleExport()
   @Get('schemas/:schema/tables/:table/export')
   async exportTableData(
     @Param('schema') schema: string,
@@ -539,12 +541,19 @@ export class DatabaseExplorerController {
   /**
    * Tabloya yeni satır ekle
    */
+  // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('schemas/:schema/tables/:table/rows')
   async insertRow(
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Body() dto: InsertRowDto,
   ) {
+    // Fix: C5 -- CRUD production koruması, varsayılan kapalı
+    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
+      throw new ForbiddenException('Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.');
+    }
+
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -586,6 +595,8 @@ export class DatabaseExplorerController {
   /**
    * Tablodaki satırı güncelle
    */
+  // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Put('schemas/:schema/tables/:table/rows/:id')
   async updateRow(
     @Param('schema') schema: string,
@@ -593,6 +604,11 @@ export class DatabaseExplorerController {
     @Param('id') id: string,
     @Body() dto: UpdateRowDto,
   ) {
+    // Fix: C5 -- CRUD production koruması, varsayılan kapalı
+    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
+      throw new ForbiddenException('Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.');
+    }
+
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -644,12 +660,19 @@ export class DatabaseExplorerController {
   /**
    * Tablodaki satırı sil
    */
+  // Fix: H8 -- per-route throttle: DB delete is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Param('id') id: string,
   ) {
+    // Fix: C5 -- CRUD production koruması, varsayılan kapalı
+    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
+      throw new ForbiddenException('Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.');
+    }
+
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -759,13 +782,21 @@ export class DatabaseExplorerController {
    * Execute raw SQL query (SELECT only)
    * SECURITY: This endpoint is extremely sensitive and should be disabled in production
    */
+  // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('query')
   async executeQuery(@Body() dto: ExecuteQueryDto) {
     const { sql, params = [] } = dto;
 
-    // SECURITY: Block in production environment
+    // Fix: C4 -- fail-closed raw SQL koruması
+    // Feature flag açıkça true olmalı, NODE_ENV kontrolü yedek savunma hattı
+    if (process.env['ENABLE_RAW_SQL_EXPLORER'] !== 'true') {
+      throw new ForbiddenException(
+        'Raw SQL queries are disabled. Set ENABLE_RAW_SQL_EXPLORER=true to enable.',
+      );
+    }
     if (process.env['NODE_ENV'] === 'production') {
-      throw new BadRequestException(
+      throw new ForbiddenException(
         'Raw SQL queries are disabled in production for security reasons',
       );
     }
@@ -782,6 +813,11 @@ export class DatabaseExplorerController {
     const sqlWithoutComments = sql
       .replace(/\/\*[\s\S]*?\*\//g, '') // Remove /* ... */ comments
       .replace(/--.*$/gm, '');          // Remove -- comments
+
+    // Fix: C1 -- multi-statement SQL bypass engeli
+    if (sqlWithoutComments.includes(';')) {
+      throw new BadRequestException('Multi-statement queries are not allowed');
+    }
 
     // Only allow SELECT/WITH queries
     const normalizedSql = sqlWithoutComments.trim().toUpperCase();
@@ -802,6 +838,14 @@ export class DatabaseExplorerController {
       /\bREVOKE\b/i,
       /\bEXEC(UTE)?\b/i,
       /\bCALL\b/i,
+      // Fix: C2,C3 -- SET/DO/PERFORM/COPY bypass engeli
+      /\bSET\b/i,
+      /\bDO\b\s*\$/i,
+      /\bPERFORM\b/i,
+      /\bCOPY\b/i,
+      // Fix: Review feedback -- defense-in-depth
+      /\bRESET\b/i,
+      /\bSHOW\b/i,
     ];
 
     for (const pattern of dangerousStatements) {
@@ -825,6 +869,10 @@ export class DatabaseExplorerController {
       /\bcopy\s+to\b/i,
       /\bcopy\s+from\b/i,
       /\bdblink\b/i,
+      // Fix: C2,H25 -- set_config/pg_sleep/current_setting bypass engeli
+      /\bset_config\b/i,
+      /\bpg_sleep\b/i,
+      /\bcurrent_setting\b/i,
     ];
 
     for (const pattern of dangerousFunctions) {
@@ -834,7 +882,8 @@ export class DatabaseExplorerController {
     }
 
     // SECURITY: Block access to module schemas and tenant schemas
-    const blockedSchemas = ['sensor', 'farm', 'hr', 'hydroponics'];
+    // Fix: C11 -- system catalog erişim engeli
+    const blockedSchemas = ['sensor', 'farm', 'hr', 'hydroponics', 'pg_catalog', 'information_schema'];
     for (const blocked of blockedSchemas) {
       if (new RegExp(`\\b${blocked}\\.`, 'i').test(sqlWithoutComments)) {
         throw new BadRequestException('Query references restricted schemas');
@@ -923,6 +972,80 @@ export class DatabaseExplorerController {
       foreignKeyTable: col.foreign_table_name as string | undefined,
       foreignKeyColumn: col.foreign_column_name as string | undefined,
     }));
+  }
+
+  /**
+   * Bulk fetch column info for multiple tables in a single query
+   * Eliminates N+1 queries when listing tables
+   */
+  private async getBulkColumnInfo(
+    queryRunner: ReturnType<DataSource['createQueryRunner']>,
+    schema: string,
+    tableNames: string[],
+  ): Promise<Map<string, ColumnInfo[]>> {
+    if (tableNames.length === 0) {
+      return new Map();
+    }
+
+    const columns = await queryRunner.query(`
+      SELECT
+        c.table_name,
+        c.column_name,
+        c.data_type,
+        c.is_nullable = 'YES' as is_nullable,
+        c.column_default,
+        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key,
+        CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_foreign_key,
+        fk.foreign_table_schema,
+        fk.foreign_table_name,
+        fk.foreign_column_name
+      FROM information_schema.columns c
+      LEFT JOIN (
+        SELECT DISTINCT kcu.table_name, kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        WHERE tc.table_schema = $1 AND tc.table_name = ANY($2) AND tc.constraint_type = 'PRIMARY KEY'
+      ) pk ON pk.table_name = c.table_name AND pk.column_name = c.column_name
+      LEFT JOIN (
+        SELECT DISTINCT ON (kcu.table_name, kcu.column_name)
+          kcu.table_name,
+          kcu.column_name,
+          ccu.table_schema as foreign_table_schema,
+          ccu.table_name as foreign_table_name,
+          ccu.column_name as foreign_column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON tc.constraint_name = ccu.constraint_name
+        WHERE tc.table_schema = $1 AND tc.table_name = ANY($2) AND tc.constraint_type = 'FOREIGN KEY'
+        ORDER BY kcu.table_name, kcu.column_name, kcu.ordinal_position
+      ) fk ON fk.table_name = c.table_name AND fk.column_name = c.column_name
+      WHERE c.table_schema = $1 AND c.table_name = ANY($2)
+      ORDER BY c.table_name, c.ordinal_position
+    `, [schema, tableNames]);
+
+    const result = new Map<string, ColumnInfo[]>();
+
+    for (const col of columns) {
+      const tableName = col.table_name as string;
+      if (!result.has(tableName)) {
+        result.set(tableName, []);
+      }
+      result.get(tableName)!.push({
+        columnName: col.column_name as string,
+        dataType: col.data_type as string,
+        isNullable: col.is_nullable as boolean,
+        columnDefault: col.column_default as string | null,
+        isPrimaryKey: col.is_primary_key as boolean,
+        isForeignKey: col.is_foreign_key as boolean,
+        foreignKeyTable: col.foreign_table_name as string | undefined,
+        foreignKeyColumn: col.foreign_column_name as string | undefined,
+      });
+    }
+
+    return result;
   }
 
   /**

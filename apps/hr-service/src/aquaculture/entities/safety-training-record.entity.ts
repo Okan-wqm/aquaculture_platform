@@ -4,11 +4,12 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  VersionColumn,
   Index,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
 export enum SafetyTrainingType {
@@ -120,4 +121,8 @@ export class SafetyTrainingRecord {
   @Field({ nullable: true })
   @Column({ nullable: true })
   updatedBy?: string;
+
+  @Field(() => Int)
+  @VersionColumn()
+  version!: number;
 }

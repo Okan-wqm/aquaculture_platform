@@ -70,6 +70,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
 
     // Batch'i kapat
     batch.status = BatchStatus.CLOSED;
+    batch.isActive = false;
     batch.statusChangedAt = new Date();
     batch.statusReason = `${reason}: ${notes || ''}`.trim();
     batch.updatedBy = closedBy;

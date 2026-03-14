@@ -2,11 +2,14 @@
  * Delete System Command Handler
  * Supports cascade soft delete of all related items
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { SystemDeletedEvent } from '@platform/event-contracts';
 import { DeleteSystemCommand } from '../commands/delete-system.command';
 import { System } from '../entities/system.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -112,14 +115,27 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand>
 
     this.logger.log(`System ${systemId} marked as deleted`);
 
-    // Domain event: SystemDeleted
-    // await this.eventBus?.publish(new SystemDeletedEvent({
-    //   tenantId,
-    //   systemId: system.id,
-    //   name: system.name,
-    //   cascade,
-    //   deletedBy: userId,
-    // }));
+    // Publish domain event: SystemDeleted
+    if (this.eventBus) {
+      try {
+        const event: SystemDeletedEvent = {
+          eventId: randomUUID(),
+          eventType: 'SystemDeleted',
+          tenantId,
+          timestamp: new Date(),
+          systemId: system.id,
+          siteId: system.siteId,
+          name: system.name,
+          code: system.code,
+          deletedAt: new Date(),
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published SystemDeletedEvent for system ${system.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish SystemDeletedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return true;
   }

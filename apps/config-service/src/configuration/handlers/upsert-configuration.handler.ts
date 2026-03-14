@@ -6,7 +6,7 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
 import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
-import { Configuration, ConfigValueType } from '../entities/configuration.entity';
+import { Configuration, ConfigurationHistory, ConfigValueType } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
 import { EncryptionService } from '../services/encryption.service';
 
@@ -28,6 +28,11 @@ export class UpsertConfigurationHandler
 
     try {
       const repo = this.dataSource.getRepository(Configuration);
+
+      // Fetch existing config before upsert (for history tracking)
+      const existingConfig = await repo.findOne({
+        where: { tenantId, service, key, environment },
+      });
 
       // Encrypt secret values before storing
       let valueToStore = value;
@@ -69,6 +74,43 @@ export class UpsertConfigurationHandler
       const saved = await repo.findOneOrFail({
         where: { tenantId, service, key, environment },
       });
+
+      // Record history if value changed (update case, not insert)
+      if (existingConfig && existingConfig.value !== valueToStore) {
+        try {
+          const historyRepo = this.dataSource.getRepository(ConfigurationHistory);
+
+          // SECURITY: Redact secret values in history records
+          const previousDisplayValue = existingConfig.isSecret
+            ? '[REDACTED]'
+            : existingConfig.value;
+          const newDisplayValue = isSecret ? '[REDACTED]' : value;
+
+          const history = historyRepo.create({
+            configurationId: saved.id,
+            tenantId,
+            service,
+            key,
+            previousValue: previousDisplayValue,
+            newValue: newDisplayValue,
+            changedBy: userId || 'system',
+            changedAt: new Date(),
+            changeReason: command.reason || 'Upsert operation',
+          });
+
+          await historyRepo.save(history);
+
+          this.logger.debug(
+            `Configuration history recorded for upsert: ${service}/${key}`,
+          );
+        } catch (historyError) {
+          // History recording failure must not block the main upsert operation
+          this.logger.warn(
+            `Failed to record configuration history for ${service}/${key}: ${historyError instanceof Error ? historyError.message : 'Unknown error'}`,
+            historyError instanceof Error ? historyError.stack : undefined,
+          );
+        }
+      }
 
       return saved;
     } catch (error) {

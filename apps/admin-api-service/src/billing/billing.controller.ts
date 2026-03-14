@@ -7,12 +7,16 @@ import {
   Body,
   Param,
   Query,
+  Req,
   HttpCode,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 
+// Fix: H8 -- per-route throttle for sensitive billing operations
+import { ThrottleSensitive } from '@aquaculture/backend-common';
 import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
 import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
@@ -104,21 +108,27 @@ export class BillingController {
   }
 
   @Post('plans')
-  async createPlan(@Body() dto: CreatePlanDto) {
-    return this.planService.create(dto);
+  async createPlan(@Body() dto: CreatePlanDto, @Req() req: Request) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.planService.create({ ...dto, createdBy: userId });
   }
 
   @Put('plans/:id')
-  async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto) {
-    return this.planService.update(id, dto);
+  async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto, @Req() req: Request) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.planService.update(id, { ...dto, updatedBy: userId });
   }
 
   @Post('plans/:id/deprecate')
   async deprecatePlan(
     @Param('id') id: string,
-    @Body('updatedBy') updatedBy: string,
+    @Req() req: Request,
   ) {
-    return this.planService.deprecate(id, updatedBy);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.planService.deprecate(id, userId);
   }
 
   @Post('plans/compare')
@@ -135,8 +145,10 @@ export class BillingController {
   }
 
   @Post('plans/seed')
-  async seedPlans(@Body('createdBy') createdBy: string) {
-    await this.planService.seedDefaultPlans(createdBy);
+  async seedPlans(@Req() req: Request) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    await this.planService.seedDefaultPlans(userId);
     return { success: true, message: 'Default plans seeded successfully' };
   }
 
@@ -181,24 +193,31 @@ export class BillingController {
   }
 
   @Post('discounts')
-  async createDiscountCode(@Body() dto: CreateDiscountCodeDto) {
-    return this.discountService.create(dto);
+  async createDiscountCode(@Body() dto: CreateDiscountCodeDto, @Req() req: Request) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.discountService.create({ ...dto, createdBy: userId });
   }
 
   @Put('discounts/:id')
   async updateDiscountCode(
     @Param('id') id: string,
     @Body() dto: UpdateDiscountCodeDto,
+    @Req() req: Request,
   ) {
-    return this.discountService.update(id, dto);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.discountService.update(id, { ...dto, updatedBy: userId });
   }
 
   @Post('discounts/:id/deactivate')
   async deactivateDiscountCode(
     @Param('id') id: string,
-    @Body('updatedBy') updatedBy: string,
+    @Req() req: Request,
   ) {
-    return this.discountService.deactivate(id, updatedBy);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.discountService.deactivate(id, userId);
   }
 
   @Post('discounts/validate')
@@ -219,13 +238,15 @@ export class BillingController {
     @Body('subscriptionId') subscriptionId?: string,
     @Body('invoiceId') invoiceId?: string,
     @Body('planId') planId?: string,
-    @Body('redeemedBy') redeemedBy?: string,
+    @Req() req?: Request,
   ) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
     return this.discountService.applyDiscount(code, tenantId, originalAmount, {
       subscriptionId,
       invoiceId,
       planId,
-      redeemedBy,
+      redeemedBy: userId,
     });
   }
 
@@ -254,9 +275,13 @@ export class BillingController {
   async bulkCreateDiscountCodes(
     @Body('count') count: number,
     @Body('template') template: Omit<CreateDiscountCodeDto, 'code'>,
-    @Body('codePrefix') codePrefix?: string,
+    @Body('codePrefix') codePrefix: string | undefined,
+    @Req() req: Request,
   ) {
-    const codes = await this.discountService.bulkCreate(count, template, codePrefix);
+    // Fix: C6 -- JWT-based identity, review feedback ile eklendi
+    const userId = (req as any).user?.id;
+    const safeTemplate = { ...template, createdBy: userId };
+    const codes = await this.discountService.bulkCreate(count, safeTemplate, codePrefix);
     return { success: true, count: codes.length, codes };
   }
 
@@ -265,8 +290,10 @@ export class BillingController {
   // ============================================================================
 
   @Post('subscriptions')
-  async createSubscription(@Body() dto: CreateSubscriptionDto) {
-    return this.subscriptionService.createSubscription(dto);
+  async createSubscription(@Body() dto: CreateSubscriptionDto, @Req() req: Request) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.subscriptionService.createSubscription({ ...dto, createdBy: userId });
   }
 
   @Get('subscriptions')
@@ -323,21 +350,27 @@ export class BillingController {
   }
 
   @Post('subscriptions/change-plan')
-  async changePlan(@Body() request: PlanChangeRequest) {
-    return this.subscriptionService.changePlan(request);
+  async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.subscriptionService.changePlan({ ...request, changedBy: userId });
   }
 
+  // Fix: H8 -- per-route throttle: subscription cancel is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('subscriptions/tenant/:tenantId/cancel')
   async cancelSubscription(
     @Param('tenantId') tenantId: string,
     @Body('reason') reason: string,
-    @Body('cancelledBy') cancelledBy: string,
     @Body('cancelImmediately') cancelImmediately?: boolean,
+    @Req() req?: Request,
   ) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
     return this.subscriptionService.cancelSubscription(
       tenantId,
       reason,
-      cancelledBy,
+      userId,
       cancelImmediately,
     );
   }
@@ -345,18 +378,22 @@ export class BillingController {
   @Post('subscriptions/tenant/:tenantId/reactivate')
   async reactivateSubscription(
     @Param('tenantId') tenantId: string,
-    @Body('reactivatedBy') reactivatedBy: string,
+    @Req() req: Request,
   ) {
-    return this.subscriptionService.reactivateSubscription(tenantId, reactivatedBy);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.subscriptionService.reactivateSubscription(tenantId, userId);
   }
 
   @Post('subscriptions/tenant/:tenantId/extend-trial')
   async extendTrial(
     @Param('tenantId') tenantId: string,
     @Body('additionalDays') additionalDays: number,
-    @Body('extendedBy') extendedBy: string,
+    @Req() req: Request,
   ) {
-    return this.subscriptionService.extendTrial(tenantId, additionalDays, extendedBy);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.subscriptionService.extendTrial(tenantId, additionalDays, userId);
   }
 
   @Post('subscriptions/process-renewals')
@@ -506,16 +543,21 @@ export class BillingController {
   }
 
   @Post('custom-plans')
-  async createCustomPlan(@Body() dto: CreateCustomPlanDto) {
-    return this.customPlanService.createCustomPlan(dto);
+  async createCustomPlan(@Body() dto: CreateCustomPlanDto, @Req() req: Request) {
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.customPlanService.createCustomPlan({ ...dto, createdBy: userId });
   }
 
   @Put('custom-plans/:planId')
   async updateCustomPlan(
     @Param('planId') planId: string,
     @Body() dto: UpdateCustomPlanDto,
+    @Req() req: Request,
   ) {
-    return this.customPlanService.updateCustomPlan(planId, dto);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.customPlanService.updateCustomPlan(planId, { ...dto, updatedBy: userId });
   }
 
   @Post('custom-plans/:planId/submit')
@@ -526,18 +568,22 @@ export class BillingController {
   @Post('custom-plans/:planId/approve')
   async approveCustomPlan(
     @Param('planId') planId: string,
-    @Body('approverId') approverId: string,
+    @Req() req: Request,
   ) {
-    return this.customPlanService.approvePlan(planId, approverId);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.customPlanService.approvePlan(planId, userId);
   }
 
   @Post('custom-plans/:planId/reject')
   async rejectCustomPlan(
     @Param('planId') planId: string,
     @Body('reason') reason: string,
-    @Body('rejectedBy') rejectedBy: string,
+    @Req() req: Request,
   ) {
-    return this.customPlanService.rejectPlan(planId, reason, rejectedBy);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.customPlanService.rejectPlan(planId, reason, userId);
   }
 
   @Post('custom-plans/:planId/activate')
@@ -615,22 +661,30 @@ export class BillingController {
     return this.invoiceService.getTenantInvoices(tenantId);
   }
 
+  // Fix: H8 -- per-route throttle: mark invoice paid is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('invoices/:invoiceId/mark-paid')
   async markInvoiceAsPaid(
     @Param('invoiceId') invoiceId: string,
     @Body('amount') amount: number,
-    @Body('markedBy') markedBy: string,
+    @Req() req: Request,
   ) {
-    return this.invoiceService.markAsPaid(invoiceId, amount, markedBy);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.invoiceService.markAsPaid(invoiceId, amount, userId);
   }
 
+  // Fix: H8 -- per-route throttle: invoice void is sensitive (3 req / 5 min)
+  @ThrottleSensitive()
   @Post('invoices/:invoiceId/void')
   async voidInvoice(
     @Param('invoiceId') invoiceId: string,
     @Body('reason') reason: string,
-    @Body('voidedBy') voidedBy: string,
+    @Req() req: Request,
   ) {
-    return this.invoiceService.voidInvoice(invoiceId, reason, voidedBy);
+    // Fix: C6 -- JWT-based identity
+    const userId = (req as any).user?.id;
+    return this.invoiceService.voidInvoice(invoiceId, reason, userId);
   }
 
   @Post('invoices/update-overdue')

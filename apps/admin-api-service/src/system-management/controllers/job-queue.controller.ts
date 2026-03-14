@@ -9,8 +9,11 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job-queue.entity';
 import { JobQueueService, JobDefinition } from '../services/job-queue.service';
@@ -61,6 +64,7 @@ class UpdateJobProgressDto {
 
 @ApiTags('Analytics')
 @Controller('system/jobs')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class JobQueueController {
   constructor(private readonly jobQueueService: JobQueueService) {}
 

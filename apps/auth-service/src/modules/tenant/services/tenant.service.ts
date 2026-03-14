@@ -13,6 +13,8 @@ import { TenantCreatedEvent, TenantUpdatedEvent, UserInvitedEvent } from '@platf
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { TENANT_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
@@ -105,6 +107,7 @@ export class TenantService {
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   async create(input: CreateTenantInput, createdBy: string): Promise<Tenant> {
@@ -203,6 +206,27 @@ export class TenantService {
     };
 
     await this.eventBus.publish(event);
+
+    // SECURITY AUDIT: Log tenant creation (BULGU-016)
+    try {
+      await this.auditLogService.log({
+        tenantId: saved.id,
+        performedBy: createdBy,
+        action: 'TENANT_CREATED',
+        entityType: 'Tenant',
+        entityId: saved.id,
+        details: {
+          name: saved.name,
+          slug: saved.slug,
+          plan: saved.plan,
+          status: saved.status,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.INFO,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log audit event TENANT_CREATED: ${(error as Error).message}`);
+    }
 
     return saved;
   }

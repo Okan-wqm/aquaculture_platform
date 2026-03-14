@@ -8,7 +8,7 @@
  */
 import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { RecordMortalityCommand } from '../commands/record-mortality.command';
@@ -25,6 +25,7 @@ import { findTankOrEquipment, TankLookupResult } from '../utils/tank-lookup.util
 @CommandHandler(RecordMortalityCommand)
 export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCommand, Batch> {
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(MortalityRecord)
@@ -46,6 +47,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
   async execute(command: RecordMortalityCommand): Promise<Batch> {
     const { tenantId, batchId, payload, recordedBy } = command;
 
+    // Read operations outside transaction
     // Batch bul
     const batch = await this.batchRepository.findOne({
       where: { id: batchId, tenantId, isActive: true },
@@ -81,100 +83,117 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
     const biomassKg = (payload.quantity * avgWeightG) / 1000;
 
-    // Mortality record oluştur
-    const mortalityRecord = this.mortalityRepository.create({
-      tenantId,
-      batchId,
-      tankId: payload.tankId,
-      recordDate: payload.observedAt,
-      count: payload.quantity,
-      estimatedBiomassLoss: biomassKg,
-      cause: MortalityCause[payload.reason.toUpperCase() as keyof typeof MortalityCause] ?? MortalityCause.UNKNOWN,
-      causeDetail: payload.detail,
-      notes: payload.notes,
-      recordedBy,
-    });
+    // Start transaction for all database write operations
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    const savedMortality = await this.mortalityRepository.save(mortalityRecord);
+    try {
+      // Mortality record oluştur
+      const mortalityRecord = queryRunner.manager.create(MortalityRecord, {
+        tenantId,
+        batchId,
+        tankId: payload.tankId,
+        recordDate: payload.observedAt,
+        count: payload.quantity,
+        estimatedBiomassLoss: biomassKg,
+        cause: MortalityCause[payload.reason.toUpperCase() as keyof typeof MortalityCause] ?? MortalityCause.UNKNOWN,
+        causeDetail: payload.detail,
+        notes: payload.notes,
+        recordedBy,
+      });
 
-    // Tank operation kaydı oluştur
-    const tankBatch = await this.tankBatchRepository.findOne({
-      where: { tenantId, tankId: payload.tankId },
-    });
+      await queryRunner.manager.save(MortalityRecord, mortalityRecord);
 
-    const preOperationState = tankBatch ? {
-      quantity: tankBatch.totalQuantity,
-      biomassKg: tankBatch.totalBiomassKg,
-      densityKgM3: tankBatch.densityKgM3,
-    } : undefined;
+      // Tank operation kaydı oluştur
+      const tankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: payload.tankId },
+      });
 
-    const operation = this.operationRepository.create({
-      tenantId,
-      tankId: payload.tankId,
-      batchId,
-      operationType: OperationType.MORTALITY,
-      operationDate: payload.observedAt,
-      quantity: payload.quantity,
-      avgWeightG,
-      biomassKg,
-      mortalityReason: MortalityReason[payload.reason.toUpperCase() as keyof typeof MortalityReason] ?? MortalityReason.UNKNOWN,
-      mortalityDetail: payload.detail,
-      preOperationState,
-      performedBy: recordedBy,
-      notes: payload.notes,
-      isDeleted: false,
-    });
+      const preOperationState = tankBatch ? {
+        quantity: tankBatch.totalQuantity,
+        biomassKg: tankBatch.totalBiomassKg,
+        densityKgM3: tankBatch.densityKgM3,
+      } : undefined;
 
-    await this.operationRepository.save(operation);
+      const operation = queryRunner.manager.create(TankOperation, {
+        tenantId,
+        tankId: payload.tankId,
+        batchId,
+        operationType: OperationType.MORTALITY,
+        operationDate: payload.observedAt,
+        quantity: payload.quantity,
+        avgWeightG,
+        biomassKg,
+        mortalityReason: MortalityReason[payload.reason.toUpperCase() as keyof typeof MortalityReason] ?? MortalityReason.UNKNOWN,
+        mortalityDetail: payload.detail,
+        preOperationState,
+        performedBy: recordedBy,
+        notes: payload.notes,
+        isDeleted: false,
+      });
 
-    // Batch metriklerini güncelle
-    batch.totalMortality += payload.quantity;
-    batch.currentQuantity -= payload.quantity;
-    batch.mortalitySummary.totalMortality = batch.totalMortality;
-    batch.mortalitySummary.mortalityRate = batch.getMortalityRate();
-    batch.mortalitySummary.lastMortalityAt = payload.observedAt;
-    batch.mortalitySummary.mainCause = payload.reason;
-    batch.retentionRate = batch.getRetentionRate();
-    batch.updatedBy = recordedBy;
+      await queryRunner.manager.save(TankOperation, operation);
 
-    await this.batchRepository.save(batch);
+      // Batch metriklerini güncelle
+      batch.totalMortality += payload.quantity;
+      batch.currentQuantity -= payload.quantity;
+      batch.mortalitySummary.totalMortality = batch.totalMortality;
+      batch.mortalitySummary.mortalityRate = batch.getMortalityRate();
+      batch.mortalitySummary.lastMortalityAt = payload.observedAt;
+      batch.mortalitySummary.mainCause = payload.reason;
+      batch.retentionRate = batch.getRetentionRate();
+      batch.updatedBy = recordedBy;
 
-    // TankBatch güncelle
-    if (tankBatch) {
-      // Ensure numeric operations (database may return decimal columns as strings)
-      tankBatch.totalQuantity = Number(tankBatch.totalQuantity) - payload.quantity;
-      tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) - biomassKg;
-      tankBatch.lastMortalityAt = payload.observedAt;
-      // Update current quantity/biomass denormalized fields
-      tankBatch.currentQuantity = tankBatch.totalQuantity;
-      tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
+      await queryRunner.manager.save(Batch, batch);
 
-      if (tankBatch.totalQuantity > 0) {
-        tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-        const effectiveVolume = tank.volume;
-        tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
+      // TankBatch güncelle
+      if (tankBatch) {
+        // Ensure numeric operations (database may return decimal columns as strings)
+        tankBatch.totalQuantity = Number(tankBatch.totalQuantity) - payload.quantity;
+        tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) - biomassKg;
+        tankBatch.lastMortalityAt = payload.observedAt;
+        // Update current quantity/biomass denormalized fields
+        tankBatch.currentQuantity = tankBatch.totalQuantity;
+        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
+
+        if (tankBatch.totalQuantity > 0) {
+          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
+          const effectiveVolume = tank.volume;
+          tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
+        }
+
+        await queryRunner.manager.save(TankBatch, tankBatch);
       }
 
-      await this.tankBatchRepository.save(tankBatch);
+      // Tank biomass güncelle (update the correct table)
+      const newBiomass = Number(tank.currentBiomass || 0) - biomassKg;
+      const newCount = (tank.currentCount || 0) - payload.quantity;
+      if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Tank)
+          .set({ currentBiomass: newBiomass, currentCount: newCount })
+          .where('id = :id', { id: tankLookup.originalTank.id })
+          .execute();
+      } else {
+        tank.currentBiomass = newBiomass;
+        tank.currentCount = newCount;
+        await queryRunner.manager.save(Equipment, tank);
+      }
+
+      // Commit transaction
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      // Rollback transaction on any error
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      // Release query runner
+      await queryRunner.release();
     }
 
-    // Tank biomass güncelle (update the correct table)
-    const newBiomass = Number(tank.currentBiomass || 0) - biomassKg;
-    const newCount = (tank.currentCount || 0) - payload.quantity;
-    if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
-      await this.tankRepository
-        .createQueryBuilder()
-        .update(Tank)
-        .set({ currentBiomass: newBiomass, currentCount: newCount })
-        .where('id = :id', { id: tankLookup.originalTank.id })
-        .execute();
-    } else {
-      tank.currentBiomass = newBiomass;
-      tank.currentCount = newCount;
-      await this.equipmentRepository.save(tank);
-    }
-
-    // Publish domain event
+    // Publish domain event (after commit, outside transaction)
     if (this.eventBus) {
       try {
         await this.eventBus.publish({

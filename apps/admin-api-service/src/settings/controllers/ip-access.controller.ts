@@ -7,10 +7,17 @@ import {
   Body,
   Param,
   Query,
+  Req,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { IsArray, IsIP, IsOptional, IsString, ArrayMaxSize } from 'class-validator';
+import { Request } from 'express';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
   IpAccessService,
@@ -18,8 +25,21 @@ import {
   UpdateIpAccessRuleDto,
 } from '../services/ip-access.service';
 
+// H23 fix: Proper DTO with array size limit and IP validation for bulk operations
+class BulkIpDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsIP(undefined, { each: true })
+  ips!: string[];
+
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
+}
+
 @ApiTags('Settings')
 @Controller('settings/ip-access')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class IpAccessController {
   constructor(
     private readonly ipAccessService: IpAccessService,
@@ -75,10 +95,18 @@ export class IpAccessController {
 
   /**
    * Create a new rule
+   * Fix: C6 -- JWT-based identity
    */
   @Post()
-  async createRule(@Body() dto: CreateIpAccessRuleDto) {
-    return this.ipAccessService.createRule(dto);
+  async createRule(
+    @Body() dto: CreateIpAccessRuleDto,
+    @Req() req: Request,
+  ) {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return this.ipAccessService.createRule({ ...dto, createdBy: userId });
   }
 
   /**
@@ -121,29 +149,41 @@ export class IpAccessController {
 
   /**
    * Bulk add to whitelist
+   * H23 fix: BulkIpDto with @ArrayMaxSize(500) + @IsIP validation; createdBy from JWT
    */
   @Post('whitelist/bulk')
   async bulkWhitelist(
-    @Body() body: { ips: string[]; tenantId?: string; createdBy?: string },
+    @Body() dto: BulkIpDto,
+    @Req() req: Request,
   ) {
+    const createdBy = (req as any).user?.id;
+    if (!createdBy) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     return this.ipAccessService.bulkWhitelist(
-      body.ips,
-      body.tenantId,
-      body.createdBy,
+      dto.ips,
+      dto.tenantId,
+      createdBy,
     );
   }
 
   /**
    * Bulk add to blacklist
+   * H23 fix: BulkIpDto with @ArrayMaxSize(500) + @IsIP validation; createdBy from JWT
    */
   @Post('blacklist/bulk')
   async bulkBlacklist(
-    @Body() body: { ips: string[]; tenantId?: string; createdBy?: string },
+    @Body() dto: BulkIpDto,
+    @Req() req: Request,
   ) {
+    const createdBy = (req as any).user?.id;
+    if (!createdBy) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     return this.ipAccessService.bulkBlacklist(
-      body.ips,
-      body.tenantId,
-      body.createdBy,
+      dto.ips,
+      dto.tenantId,
+      createdBy,
     );
   }
 

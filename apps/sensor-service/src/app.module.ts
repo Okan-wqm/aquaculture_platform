@@ -13,6 +13,7 @@ import {
   UserContextMiddleware,
   TenantContextMiddleware,
   CorrelationIdMiddleware,
+  MetricsMiddleware,
   TenantGuard,
   RolesGuard,
   SourceSchemaBootstrapService,
@@ -46,6 +47,7 @@ import { EdgeDevice } from './edge-device/entities/edge-device.entity';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
+import { SensorMetricsModule } from './metrics/metrics.module';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
@@ -276,6 +278,9 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
     SensorModule,
     HealthModule,
 
+    // Prometheus metrics (per-service /metrics endpoint)
+    SensorMetricsModule,
+
     // Protocol and Registration modules
     ProtocolModule.forRoot(),
     RegistrationModule,
@@ -329,10 +334,11 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
+        MetricsMiddleware,        // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
-        TenantSchemaMiddleware, // Sets PostgreSQL search_path to tenant schema
+        TenantSchemaMiddleware,   // Sets PostgreSQL search_path to tenant schema
       )
       .forRoutes('*');
   }

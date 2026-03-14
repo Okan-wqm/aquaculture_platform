@@ -12,10 +12,16 @@ import {
   Query,
   Param,
   Body,
+  Req,
   HttpCode,
   HttpStatus,
+  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
+
+import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
   DataRequest,
@@ -40,7 +46,7 @@ class CreateDataRequestDto {
   complianceFramework!: ComplianceType;
   tenantId!: string;
   tenantName!: string;
-  requesterId?: string;
+  // Fix: C6 -- requesterId removed from client input; set from JWT
   requesterName!: string;
   requesterEmail!: string;
   description!: string;
@@ -57,12 +63,12 @@ class UpdateDataRequestDto {
 }
 
 class VerifyIdentityDto {
-  verifiedBy!: string;
+  // Fix: C6 -- verifiedBy removed from client input; set from JWT
   verificationMethod!: string;
 }
 
 class CompleteDataRequestDto {
-  completedBy!: string;
+  // Fix: C6 -- completedBy removed from client input; set from JWT
   completionNotes!: string;
   deliveryFormat?: 'json' | 'csv' | 'pdf' | 'xml';
   downloadUrl?: string;
@@ -86,8 +92,7 @@ class GenerateReportDto {
   reportPeriodStart!: string;
   reportPeriodEnd!: string;
   includedTenants?: string[];
-  generatedBy!: string;
-  generatedByName!: string;
+  // Fix: C6 -- generatedBy/generatedByName removed from client input; set from JWT
 }
 
 class QueryReportsDto {
@@ -104,6 +109,7 @@ class QueryReportsDto {
 
 @ApiTags('Security')
 @Controller('security/compliance')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class ComplianceController {
   constructor(private readonly complianceService: ComplianceService) {}
 
@@ -113,13 +119,17 @@ export class ComplianceController {
 
   /**
    * Create data subject request
+   * Fix: C6 -- JWT-based identity
    */
   @Post('data-requests')
   @HttpCode(HttpStatus.CREATED)
   async createDataRequest(
     @Body() dto: CreateDataRequestDto,
+    @Req() req: Request,
   ): Promise<DataRequest> {
-    return this.complianceService.createDataRequest(dto);
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
+    return this.complianceService.createDataRequest({ ...dto, requesterId: userId });
   }
 
   /**
@@ -157,47 +167,61 @@ export class ComplianceController {
 
   /**
    * Update data request
+   * Fix: C6 -- JWT-based identity (was hardcoded 'admin')
    */
   @Put('data-requests/:id')
   async updateDataRequest(
     @Param('id') id: string,
     @Body() dto: UpdateDataRequestDto,
+    @Req() req: Request,
   ): Promise<DataRequest> {
+    const userId = (req as any).user?.id;
+    const userName = (req as any).user?.name || (req as any).user?.email || userId;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.complianceService.updateDataRequest(
       id,
       dto,
-      'admin', // Would come from auth context
-      'Admin User',
+      userId,
+      userName,
     );
   }
 
   /**
    * Verify requester identity
+   * Fix: C6 -- JWT-based identity
    */
   @Post('data-requests/:id/verify')
   @HttpCode(HttpStatus.OK)
   async verifyIdentity(
     @Param('id') id: string,
     @Body() dto: VerifyIdentityDto,
+    @Req() req: Request,
   ): Promise<DataRequest> {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.complianceService.verifyIdentity(
       id,
-      dto.verifiedBy,
+      userId,
       dto.verificationMethod,
     );
   }
 
   /**
    * Complete data request
+   * Fix: C6 -- JWT-based identity
    */
   @Post('data-requests/:id/complete')
   @HttpCode(HttpStatus.OK)
   async completeDataRequest(
     @Param('id') id: string,
     @Body() dto: CompleteDataRequestDto,
+    @Req() req: Request,
   ): Promise<DataRequest> {
+    const userId = (req as any).user?.id;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.complianceService.completeDataRequest(id, {
       ...dto,
+      completedBy: userId,
       downloadExpiresAt: dto.downloadExpiresAt
         ? new Date(dto.downloadExpiresAt)
         : undefined,
@@ -244,19 +268,24 @@ export class ComplianceController {
 
   /**
    * Generate compliance report
+   * Fix: C6 -- JWT-based identity
    */
   @Post('reports')
   @HttpCode(HttpStatus.CREATED)
   async generateReport(
     @Body() dto: GenerateReportDto,
+    @Req() req: Request,
   ): Promise<ComplianceReport> {
+    const userId = (req as any).user?.id;
+    const userName = (req as any).user?.name || (req as any).user?.email || userId;
+    if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.complianceService.generateComplianceReport({
       complianceType: dto.complianceType,
       reportPeriodStart: new Date(dto.reportPeriodStart),
       reportPeriodEnd: new Date(dto.reportPeriodEnd),
       includedTenants: dto.includedTenants,
-      generatedBy: dto.generatedBy,
-      generatedByName: dto.generatedByName,
+      generatedBy: userId,
+      generatedByName: userName,
     });
   }
 

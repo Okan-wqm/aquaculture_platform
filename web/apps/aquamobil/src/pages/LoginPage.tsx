@@ -44,8 +44,9 @@ export function LoginPage() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    // D07 VAL-01: Match the HTML minLength={8} attribute on the password input
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 

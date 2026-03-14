@@ -88,6 +88,29 @@ export class PushService {
         this.logger.warn(message);
       }
     }
+
+    // Validate Firebase-specific configuration
+    if (this.provider === 'firebase') {
+      const serviceAccount = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT');
+      if (!serviceAccount) {
+        this.logger.error(
+          `Firebase push provider is missing FIREBASE_SERVICE_ACCOUNT env var. ` +
+          `Push notifications will fail until this is configured.`,
+        );
+        this.providerHealthy = false;
+      } else {
+        // Validate that it's valid JSON
+        try {
+          JSON.parse(serviceAccount);
+        } catch {
+          this.logger.error(
+            `FIREBASE_SERVICE_ACCOUNT env var contains invalid JSON. ` +
+            `Push notifications will fail.`,
+          );
+          this.providerHealthy = false;
+        }
+      }
+    }
   }
 
   /**

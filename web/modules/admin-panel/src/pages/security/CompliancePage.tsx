@@ -31,7 +31,6 @@ import {
   Globe,
   FileCheck,
 } from 'lucide-react';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import { securityApi } from '../../services/adminApi';
 
 // ============================================================================
@@ -144,18 +143,7 @@ async function fetchComplianceReports(): Promise<ComplianceReport[]> {
 }
 
 async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
-  const token = getAccessToken();
-  const response = await fetch(`/api/security/compliance/checks/${framework}`, {
-    credentials: 'include',
-    headers: {
-      Authorization: token ? `Bearer ${token}` : '',
-      'Content-Type': 'application/json',
-    },
-  });
-  if (!response.ok) {
-    throw new Error('Failed to fetch compliance checks');
-  }
-  return response.json();
+  return securityApi.getComplianceChecks(framework) as unknown as Promise<ComplianceCheck[]>;
 }
 
 // ============================================================================

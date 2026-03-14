@@ -110,31 +110,31 @@ describe('CreateTenantPage', () => {
     it('should render the page title', async () => {
       renderWithRouter(<CreateTenantPage />);
 
-      expect(screen.getByText('Yeni Tenant Olustur')).toBeInTheDocument();
-      expect(screen.getByText('Yeni bir sirket hesabi olusturun')).toBeInTheDocument();
+      expect(screen.getByText('Create New Tenant')).toBeInTheDocument();
+      expect(screen.getByText('Create a custom package with module-based pricing')).toBeInTheDocument();
     });
 
     it('should render step indicators', async () => {
       renderWithRouter(<CreateTenantPage />);
 
-      expect(screen.getByText('Temel Bilgiler')).toBeInTheDocument();
-      expect(screen.getByText('Iletisim')).toBeInTheDocument();
-      expect(screen.getByText('Moduller')).toBeInTheDocument();
-      expect(screen.getByText('Onay')).toBeInTheDocument();
+      expect(screen.getByText('Basic Info')).toBeInTheDocument();
+      expect(screen.getByText('Contact')).toBeInTheDocument();
+      expect(screen.getByText('Modules & Pricing')).toBeInTheDocument();
+      expect(screen.getByText('Confirmation')).toBeInTheDocument();
     });
 
     it('should start on step 1', async () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Step 1 content should be visible
-      expect(screen.getByText('Sirket Adi *')).toBeInTheDocument();
+      expect(screen.getByText('Company Name *')).toBeInTheDocument();
       expect(screen.getByText('Slug (URL)')).toBeInTheDocument();
     });
 
     it('should have disabled back button on first step', async () => {
       renderWithRouter(<CreateTenantPage />);
 
-      const backButton = screen.getByRole('button', { name: /geri/i });
+      const backButton = screen.getByRole('button', { name: /back/i });
       expect(backButton).toBeDisabled();
     });
 
@@ -152,7 +152,7 @@ describe('CreateTenantPage', () => {
       const user = userEvent.setup();
       renderWithRouter(<CreateTenantPage />);
 
-      const nameInput = screen.getByLabelText(/sirket adi/i);
+      const nameInput = screen.getByLabelText(/company name/i);
       await user.type(nameInput, 'Test Company Name');
 
       const slugInput = screen.getByLabelText(/slug/i);
@@ -163,7 +163,7 @@ describe('CreateTenantPage', () => {
       const user = userEvent.setup();
       renderWithRouter(<CreateTenantPage />);
 
-      const nameInput = screen.getByLabelText(/sirket adi/i);
+      const nameInput = screen.getByLabelText(/company name/i);
       await user.type(nameInput, 'Test!@#$%Company');
 
       const slugInput = screen.getByLabelText(/slug/i);
@@ -175,7 +175,7 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Try to proceed without filling required fields
-      const nextButton = screen.getByRole('button', { name: /devam/i });
+      const nextButton = screen.getByRole('button', { name: /continue/i });
       await user.click(nextButton);
 
       // Should show error
@@ -187,15 +187,15 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Fill in required fields
-      const nameInput = screen.getByLabelText(/sirket adi/i);
+      const nameInput = screen.getByLabelText(/company name/i);
       await user.type(nameInput, 'Test Company');
 
-      const nextButton = screen.getByRole('button', { name: /devam/i });
+      const nextButton = screen.getByRole('button', { name: /continue/i });
       await user.click(nextButton);
 
       // Should move to step 2
       await waitFor(() => {
-        expect(screen.getByText('Yonetici Bilgileri')).toBeInTheDocument();
+        expect(screen.getByText('Admin Information')).toBeInTheDocument();
       });
     });
 
@@ -210,7 +210,7 @@ describe('CreateTenantPage', () => {
       const user = userEvent.setup();
       renderWithRouter(<CreateTenantPage />);
 
-      const trialInput = screen.getByLabelText(/deneme suresi/i);
+      const trialInput = screen.getByLabelText(/trial period/i);
       await user.clear(trialInput);
       await user.type(trialInput, '30');
 
@@ -224,11 +224,11 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Fill step 1
-      const nameInput = screen.getByLabelText(/sirket adi/i);
+      const nameInput = screen.getByLabelText(/company name/i);
       await user.type(nameInput, 'Test Company');
 
       // Go to step 2
-      const nextButton = screen.getByRole('button', { name: /devam/i });
+      const nextButton = screen.getByRole('button', { name: /continue/i });
       await user.click(nextButton);
 
       return user;
@@ -237,24 +237,24 @@ describe('CreateTenantPage', () => {
     it('should display contact info fields', async () => {
       await goToStep2();
 
-      expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/e-posta/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/telefon/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/full name/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/e-mail|email/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/phone/i)).toBeInTheDocument();
     });
 
     it('should validate email format', async () => {
       const user = await goToStep2();
 
       // Fill name
-      const nameInput = screen.getByLabelText(/ad soyad/i);
+      const nameInput = screen.getByLabelText(/full name/i);
       await user.type(nameInput, 'John Doe');
 
       // Fill invalid email
-      const emailInput = screen.getByLabelText(/e-posta/i);
+      const emailInput = screen.getByLabelText(/e-mail|email/i);
       await user.type(emailInput, 'invalid-email');
 
       // Try to proceed
-      const nextButton = screen.getByRole('button', { name: /devam/i });
+      const nextButton = screen.getByRole('button', { name: /continue/i });
       await user.click(nextButton);
 
       // Should show error
@@ -264,29 +264,29 @@ describe('CreateTenantPage', () => {
     it('should accept valid email', async () => {
       const user = await goToStep2();
 
-      const nameInput = screen.getByLabelText(/ad soyad/i);
+      const nameInput = screen.getByLabelText(/full name/i);
       await user.type(nameInput, 'John Doe');
 
-      const emailInput = screen.getByLabelText(/e-posta/i);
+      const emailInput = screen.getByLabelText(/e-mail|email/i);
       await user.type(emailInput, 'john@example.com');
 
-      const nextButton = screen.getByRole('button', { name: /devam/i });
+      const nextButton = screen.getByRole('button', { name: /continue/i });
       await user.click(nextButton);
 
       // Should move to step 3
       await waitFor(() => {
-        expect(screen.getByText('Modul Secimi')).toBeInTheDocument();
+        expect(screen.getByText('Module Selection')).toBeInTheDocument();
       });
     });
 
     it('should allow navigating back to step 1', async () => {
       const user = await goToStep2();
 
-      const backButton = screen.getByRole('button', { name: /geri/i });
+      const backButton = screen.getByRole('button', { name: /back/i });
       await user.click(backButton);
 
       // Should be back on step 1
-      expect(screen.getByText('Temel Bilgiler')).toBeInTheDocument();
+      expect(screen.getByText('Basic Info')).toBeInTheDocument();
     });
   });
 
@@ -296,19 +296,19 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Step 1
-      await user.type(screen.getByLabelText(/sirket adi/i), 'Test Company');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'Test Company');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Wait for step 2
-      await waitFor(() => expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByLabelText(/full name/i)).toBeInTheDocument());
 
       // Step 2
-      await user.type(screen.getByLabelText(/ad soyad/i), 'John Doe');
-      await user.type(screen.getByLabelText(/e-posta/i), 'john@example.com');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.type(screen.getByLabelText(/full name/i), 'John Doe');
+      await user.type(screen.getByLabelText(/e-mail|email/i), 'john@example.com');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Wait for modules to load and step 3 to render
-      await waitFor(() => expect(screen.getByText('Modul Secimi')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Module Selection')).toBeInTheDocument());
 
       return user;
     };
@@ -336,7 +336,7 @@ describe('CreateTenantPage', () => {
 
       // Should show selected count
       await waitFor(() => {
-        expect(screen.getByText(/secili: 1 modul/i)).toBeInTheDocument();
+        expect(screen.getByText(/selected: 1 module/i)).toBeInTheDocument();
       });
     });
 
@@ -354,7 +354,7 @@ describe('CreateTenantPage', () => {
 
       // Should show 0 selected
       await waitFor(() => {
-        expect(screen.getByText(/secili: 0 modul/i)).toBeInTheDocument();
+        expect(screen.getByText(/selected: 0 module/i)).toBeInTheDocument();
       });
     });
 
@@ -365,15 +365,15 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Navigate to step 3
-      await user.type(screen.getByLabelText(/sirket adi/i), 'Test Company');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
-      await waitFor(() => expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument());
-      await user.type(screen.getByLabelText(/ad soyad/i), 'John');
-      await user.type(screen.getByLabelText(/e-posta/i), 'john@test.com');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'Test Company');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => expect(screen.getByLabelText(/full name/i)).toBeInTheDocument());
+      await user.type(screen.getByLabelText(/full name/i), 'John');
+      await user.type(screen.getByLabelText(/e-mail|email/i), 'john@test.com');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       await waitFor(() => {
-        expect(screen.getByText('Aktif modul bulunamadi')).toBeInTheDocument();
+        expect(screen.getByText('No modules found')).toBeInTheDocument();
       });
     });
   });
@@ -384,21 +384,21 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Step 1
-      await user.type(screen.getByLabelText(/sirket adi/i), 'Test Company');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'Test Company');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Step 2
-      await waitFor(() => expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument());
-      await user.type(screen.getByLabelText(/ad soyad/i), 'John Doe');
-      await user.type(screen.getByLabelText(/e-posta/i), 'john@example.com');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await waitFor(() => expect(screen.getByLabelText(/full name/i)).toBeInTheDocument());
+      await user.type(screen.getByLabelText(/full name/i), 'John Doe');
+      await user.type(screen.getByLabelText(/e-mail|email/i), 'john@example.com');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Step 3 - skip modules
-      await waitFor(() => expect(screen.getByText('Modul Secimi')).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await waitFor(() => expect(screen.getByText('Module Selection')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Wait for step 4
-      await waitFor(() => expect(screen.getByText('Onay')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Confirmation')).toBeInTheDocument());
 
       return user;
     };
@@ -415,7 +415,7 @@ describe('CreateTenantPage', () => {
     it('should show submit button on final step', async () => {
       await goToStep4();
 
-      expect(screen.getByRole('button', { name: /tenant olustur/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /create tenant/i })).toBeInTheDocument();
     });
 
     it('should create tenant on submit', async () => {
@@ -424,7 +424,7 @@ describe('CreateTenantPage', () => {
 
       const user = await goToStep4();
 
-      const submitButton = screen.getByRole('button', { name: /tenant olustur/i });
+      const submitButton = screen.getByRole('button', { name: /create tenant/i });
       await user.click(submitButton);
 
       await waitFor(() => {
@@ -447,10 +447,10 @@ describe('CreateTenantPage', () => {
 
       const user = await goToStep4();
 
-      await user.click(screen.getByRole('button', { name: /tenant olustur/i }));
+      await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/tenant basariyla olusturuldu/i)).toBeInTheDocument();
+        expect(screen.getByText(/tenant created successfully/i)).toBeInTheDocument();
       });
     });
 
@@ -459,7 +459,7 @@ describe('CreateTenantPage', () => {
 
       const user = await goToStep4();
 
-      await user.click(screen.getByRole('button', { name: /tenant olustur/i }));
+      await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/creation failed/i)).toBeInTheDocument();
@@ -476,24 +476,24 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Step 1
-      await user.type(screen.getByLabelText(/sirket adi/i), 'Test Company');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'Test Company');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Step 2
-      await waitFor(() => expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument());
-      await user.type(screen.getByLabelText(/ad soyad/i), 'John Doe');
-      await user.type(screen.getByLabelText(/e-posta/i), 'john@example.com');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await waitFor(() => expect(screen.getByLabelText(/full name/i)).toBeInTheDocument());
+      await user.type(screen.getByLabelText(/full name/i), 'John Doe');
+      await user.type(screen.getByLabelText(/e-mail|email/i), 'john@example.com');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Step 3 - select modules
       await waitFor(() => expect(screen.getByText('Farm Management')).toBeInTheDocument());
       const farmModule = screen.getByText('Farm Management').closest('div');
       if (farmModule) await user.click(farmModule);
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Step 4 - submit
-      await waitFor(() => expect(screen.getByText('Onay')).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: /tenant olustur/i }));
+      await waitFor(() => expect(screen.getByText('Confirmation')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
       await waitFor(() => {
         expect(modulesApi.assignToTenant).toHaveBeenCalledWith('new-tenant-id', 'module-1');
@@ -510,25 +510,25 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Complete the form
-      await user.type(screen.getByLabelText(/sirket adi/i), 'Test Company');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
-      await waitFor(() => expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument());
-      await user.type(screen.getByLabelText(/ad soyad/i), 'John Doe');
-      await user.type(screen.getByLabelText(/e-posta/i), 'john@example.com');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
-      await waitFor(() => expect(screen.getByText('Modul Secimi')).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: /devam/i }));
-      await waitFor(() => expect(screen.getByText('Onay')).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: /tenant olustur/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'Test Company');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => expect(screen.getByLabelText(/full name/i)).toBeInTheDocument());
+      await user.type(screen.getByLabelText(/full name/i), 'John Doe');
+      await user.type(screen.getByLabelText(/e-mail|email/i), 'john@example.com');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => expect(screen.getByText('Module Selection')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => expect(screen.getByText('Confirmation')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
       // Wait for success view
       await waitFor(() => {
-        expect(screen.getByText(/tenant basariyla olusturuldu/i)).toBeInTheDocument();
+        expect(screen.getByText(/tenant created successfully/i)).toBeInTheDocument();
       });
 
       // Should show navigation buttons
-      expect(screen.getByRole('button', { name: /tenant listesi/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /tenant detayi/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /tenant list/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /tenant details/i })).toBeInTheDocument();
     });
 
     it('should navigate to tenant list on button click', async () => {
@@ -539,22 +539,22 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Complete form quickly
-      await user.type(screen.getByLabelText(/sirket adi/i), 'Test');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
-      await waitFor(() => expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument());
-      await user.type(screen.getByLabelText(/ad soyad/i), 'Jo');
-      await user.type(screen.getByLabelText(/e-posta/i), 'j@t.co');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
-      await waitFor(() => expect(screen.getByText('Modul Secimi')).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: /devam/i }));
-      await waitFor(() => expect(screen.getByText('Onay')).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: /tenant olustur/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'Test');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => expect(screen.getByLabelText(/full name/i)).toBeInTheDocument());
+      await user.type(screen.getByLabelText(/full name/i), 'Jo');
+      await user.type(screen.getByLabelText(/e-mail|email/i), 'j@t.co');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => expect(screen.getByText('Module Selection')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => expect(screen.getByText('Confirmation')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /tenant listesi/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /tenant list/i })).toBeInTheDocument();
       });
 
-      await user.click(screen.getByRole('button', { name: /tenant listesi/i }));
+      await user.click(screen.getByRole('button', { name: /tenant list/i }));
 
       expect(mockNavigate).toHaveBeenCalledWith('/admin/tenants');
     });
@@ -565,7 +565,7 @@ describe('CreateTenantPage', () => {
       const user = userEvent.setup();
       renderWithRouter(<CreateTenantPage />);
 
-      const cancelButton = screen.getByRole('button', { name: /iptal/i });
+      const cancelButton = screen.getByRole('button', { name: /cancel/i });
       await user.click(cancelButton);
 
       expect(mockNavigate).toHaveBeenCalledWith('/admin/tenants');
@@ -578,27 +578,27 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Enter data in step 1
-      await user.type(screen.getByLabelText(/sirket adi/i), 'My Company');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'My Company');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Enter data in step 2
-      await waitFor(() => expect(screen.getByLabelText(/ad soyad/i)).toBeInTheDocument());
-      await user.type(screen.getByLabelText(/ad soyad/i), 'Jane');
-      await user.type(screen.getByLabelText(/e-posta/i), 'jane@test.com');
+      await waitFor(() => expect(screen.getByLabelText(/full name/i)).toBeInTheDocument());
+      await user.type(screen.getByLabelText(/full name/i), 'Jane');
+      await user.type(screen.getByLabelText(/e-mail|email/i), 'jane@test.com');
 
       // Go back to step 1
-      await user.click(screen.getByRole('button', { name: /geri/i }));
+      await user.click(screen.getByRole('button', { name: /back/i }));
 
       // Check step 1 data is preserved
-      expect(screen.getByLabelText(/sirket adi/i)).toHaveValue('My Company');
+      expect(screen.getByLabelText(/company name/i)).toHaveValue('My Company');
 
       // Go forward again
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Check step 2 data is preserved
       await waitFor(() => {
-        expect(screen.getByLabelText(/ad soyad/i)).toHaveValue('Jane');
-        expect(screen.getByLabelText(/e-posta/i)).toHaveValue('jane@test.com');
+        expect(screen.getByLabelText(/full name/i)).toHaveValue('Jane');
+        expect(screen.getByLabelText(/e-mail|email/i)).toHaveValue('jane@test.com');
       });
     });
   });
@@ -609,12 +609,12 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Try to proceed without data
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.click(screen.getByRole('button', { name: /continue/i }));
       expect(screen.getByText(/please fill in all required fields/i)).toBeInTheDocument();
 
       // Fill in data and proceed
-      await user.type(screen.getByLabelText(/sirket adi/i), 'Test');
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.type(screen.getByLabelText(/company name/i), 'Test');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Error should be cleared
       await waitFor(() => {
@@ -627,7 +627,7 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Trigger error
-      await user.click(screen.getByRole('button', { name: /devam/i }));
+      await user.click(screen.getByRole('button', { name: /continue/i }));
       expect(screen.getByText(/please fill in all required fields/i)).toBeInTheDocument();
 
       // Find and click dismiss button (if Alert has one)
@@ -643,7 +643,7 @@ describe('CreateTenantPage', () => {
     it('should have proper form labels', async () => {
       renderWithRouter(<CreateTenantPage />);
 
-      expect(screen.getByLabelText(/sirket adi/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/company name/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/slug/i)).toBeInTheDocument();
     });
 
@@ -651,11 +651,11 @@ describe('CreateTenantPage', () => {
       renderWithRouter(<CreateTenantPage />);
 
       // Back button should be disabled on first step
-      const backButton = screen.getByRole('button', { name: /geri/i });
+      const backButton = screen.getByRole('button', { name: /back/i });
       expect(backButton).toBeDisabled();
 
       // Next button should be enabled
-      const nextButton = screen.getByRole('button', { name: /devam/i });
+      const nextButton = screen.getByRole('button', { name: /continue/i });
       expect(nextButton).toBeInTheDocument();
     });
   });

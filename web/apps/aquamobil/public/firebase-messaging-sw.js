@@ -12,8 +12,8 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   const { title, body } = payload.notification || {};
-  self.registration.showNotification(title || 'Bildirim', {
-    body: body || '',
+  self.registration.showNotification(title || 'Notification', {
+    body: body || 'You have a new notification',
     icon: '/icons/icon-192.png',
     badge: '/icons/badge-72.png',
     data: payload.data,

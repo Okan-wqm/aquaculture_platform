@@ -5,11 +5,14 @@
  * When an equipment ID is found in the tanks table, the update is delegated
  * to update the Tank entity instead.
  */
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { EquipmentUpdatedEvent } from '@platform/event-contracts';
 import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
 import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
@@ -245,14 +248,25 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     this.logger.log(`Equipment ${equipmentId} updated successfully`);
 
-    // Domain event: EquipmentUpdated
-    // await this.eventBus?.publish(new EquipmentUpdatedEvent({
-    //   tenantId,
-    //   equipmentId: updatedEquipment.id,
-    //   name: updatedEquipment.name,
-    //   code: updatedEquipment.code,
-    //   updatedBy: userId,
-    // }));
+    // Publish domain event: EquipmentUpdated
+    if (this.eventBus) {
+      try {
+        const event: EquipmentUpdatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'EquipmentUpdated',
+          tenantId,
+          timestamp: new Date(),
+          equipmentId: updatedEquipment.id,
+          name: updatedEquipment.name,
+          status: updatedEquipment.status,
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published EquipmentUpdatedEvent for equipment ${updatedEquipment.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish EquipmentUpdatedEvent: ${(eventError as Error).message}`);
+      }
+    }
 
     return updatedEquipment;
   }

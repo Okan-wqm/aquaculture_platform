@@ -6,6 +6,14 @@ import { CreatePayrollCommand } from '../commands/create-payroll.command';
 import { Payroll, PayrollStatus, EarningsBreakdown, DeductionsBreakdown } from '../entities/payroll.entity';
 import { Employee } from '../entities/employee.entity';
 
+/**
+ * Cent-based arithmetic to avoid floating-point errors in monetary calculations.
+ * Rounds each value to cents, sums in integer space, then converts back.
+ */
+function safeAdd(...values: number[]): number {
+  return values.reduce((sum, v) => sum + Math.round(v * 100), 0) / 100;
+}
+
 @Injectable()
 @CommandHandler(CreatePayrollCommand)
 export class CreatePayrollHandler implements ICommandHandler<CreatePayrollCommand, Payroll> {
@@ -54,22 +62,23 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         throw new ConflictException('Overlapping payroll period exists');
       }
 
-      // Calculate earnings breakdown
+      // Calculate earnings breakdown (cent-based arithmetic to avoid floating-point errors)
       const earnings: EarningsBreakdown = {
         baseSalary: input.earnings.baseSalary,
         overtime: input.earnings.overtime || 0,
         bonus: input.earnings.bonus || 0,
         commission: input.earnings.commission || 0,
         allowances: input.earnings.allowances || 0,
-        grossPay:
-          input.earnings.baseSalary +
-          (input.earnings.overtime || 0) +
-          (input.earnings.bonus || 0) +
-          (input.earnings.commission || 0) +
-          (input.earnings.allowances || 0),
+        grossPay: safeAdd(
+          input.earnings.baseSalary,
+          input.earnings.overtime || 0,
+          input.earnings.bonus || 0,
+          input.earnings.commission || 0,
+          input.earnings.allowances || 0,
+        ),
       };
 
-      // Calculate deductions breakdown
+      // Calculate deductions breakdown (cent-based arithmetic to avoid floating-point errors)
       const deductionInput = input.deductions || {};
       const deductions: DeductionsBreakdown = {
         tax: deductionInput.tax || 0,
@@ -77,12 +86,13 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         healthInsurance: deductionInput.healthInsurance || 0,
         retirement: deductionInput.retirement || 0,
         otherDeductions: deductionInput.otherDeductions || 0,
-        totalDeductions:
-          (deductionInput.tax || 0) +
-          (deductionInput.socialSecurity || 0) +
-          (deductionInput.healthInsurance || 0) +
-          (deductionInput.retirement || 0) +
-          (deductionInput.otherDeductions || 0),
+        totalDeductions: safeAdd(
+          deductionInput.tax || 0,
+          deductionInput.socialSecurity || 0,
+          deductionInput.healthInsurance || 0,
+          deductionInput.retirement || 0,
+          deductionInput.otherDeductions || 0,
+        ),
       };
 
       // Validate deductions don't exceed gross pay
@@ -90,8 +100,8 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         throw new BadRequestException('Total deductions cannot exceed gross pay');
       }
 
-      // Calculate net pay
-      const netPay = earnings.grossPay - deductions.totalDeductions;
+      // Calculate net pay (cent-based subtraction to avoid floating-point errors)
+      const netPay = (Math.round(earnings.grossPay * 100) - Math.round(deductions.totalDeductions * 100)) / 100;
 
       // Validate net pay is not negative
       if (netPay < 0) {

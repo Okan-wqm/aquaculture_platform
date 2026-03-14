@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent, PaymentReceivedEvent } from '@platform/event-contracts';
 import { RecordPaymentCommand } from '../commands/record-payment.command';
 import { Payment, PaymentStatus } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
@@ -23,7 +25,10 @@ function safeSubtract(a: number, b: number): number {
 export class RecordPaymentHandler implements ICommandHandler<RecordPaymentCommand, Payment> {
   private readonly logger = new Logger(RecordPaymentHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
+  ) {}
 
   async execute(command: RecordPaymentCommand): Promise<Payment> {
     const { tenantId, input, userId } = command;
@@ -124,6 +129,28 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
       this.logger.log(
         `Payment recorded: ${savedPayment.id} (${savedPayment.transactionId}) for invoice ${input.invoiceId}. Amount: ${input.amount}`,
       );
+
+      // Publish NATS event so other services (notification, etc.) can react
+      try {
+        const event: PaymentReceivedEvent = {
+          ...createBaseEvent<PaymentReceivedEvent>('PaymentReceived', tenantId, { userId }),
+          paymentId: savedPayment.id,
+          invoiceId: input.invoiceId,
+          amount: savedPayment.amount,
+          currency: savedPayment.currency,
+          paymentMethod: savedPayment.paymentMethod,
+          transactionId: savedPayment.transactionId,
+          paidAt: savedPayment.paymentDate,
+        };
+        await this.eventBus?.publish(event);
+      } catch (eventError) {
+        // Event publish failure must not block the main operation
+        this.logger.warn(
+          `Failed to publish PaymentReceived event for ${savedPayment.id}: ${
+            eventError instanceof Error ? eventError.message : 'Unknown error'
+          }`,
+        );
+      }
 
       return savedPayment;
     });

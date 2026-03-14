@@ -139,6 +139,7 @@ class UpdateConfigDto {
 
 @ApiTags('Settings')
 @Controller('system/settings')
+@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard (method-level @Public() overrides where needed)
 export class GlobalSettingsController {
   constructor(private readonly globalSettingsService: GlobalSettingsService) {}
 

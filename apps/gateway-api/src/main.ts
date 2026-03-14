@@ -1,11 +1,17 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { initTelemetry } from '@platform/backend-common';
 import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+
+// Initialize OpenTelemetry tracing BEFORE NestFactory.create()
+// so that all HTTP/DB calls are automatically instrumented.
+// Only active when ENABLE_TRACING=true environment variable is set.
+initTelemetry('gateway-api');
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('GatewayAPI');

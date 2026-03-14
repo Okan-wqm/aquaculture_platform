@@ -135,17 +135,17 @@ describe('TenantManagementPage', () => {
     it('should render the page title', async () => {
       renderWithRouter(<TenantManagementPage />);
 
-      expect(screen.getByText('Tenant Yonetimi')).toBeInTheDocument();
+      expect(screen.getByText('Tenant Management')).toBeInTheDocument();
     });
 
     it('should display stats cards', async () => {
       renderWithRouter(<TenantManagementPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Toplam')).toBeInTheDocument();
-        expect(screen.getByText('Aktif')).toBeInTheDocument();
-        expect(screen.getByText('Askida')).toBeInTheDocument();
-        expect(screen.getByText('Beklemede')).toBeInTheDocument();
+        expect(screen.getByText('Total')).toBeInTheDocument();
+        expect(screen.getByText('Active')).toBeInTheDocument();
+        expect(screen.getByText('Suspended')).toBeInTheDocument();
+        expect(screen.getByText('Pending')).toBeInTheDocument();
       });
     });
 
@@ -489,7 +489,7 @@ describe('TenantManagementPage', () => {
       renderWithRouter(<TenantManagementPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/tenant bulunamadi/i)).toBeInTheDocument();
+        expect(screen.getByText(/no tenants found/i)).toBeInTheDocument();
       });
     });
   });

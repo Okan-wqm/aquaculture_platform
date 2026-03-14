@@ -5,17 +5,22 @@
  *
  * @module Feeding/Handlers
  */
-import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
+import { FeedInventoryLowEvent } from '@platform/event-contracts';
 import { ConsumeFeedInventoryCommand, ConsumptionReason } from '../commands/consume-feed-inventory.command';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 
 @Injectable()
 @CommandHandler(ConsumeFeedInventoryCommand)
 export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedInventoryCommand, FeedInventory> {
+  private readonly logger = new Logger(ConsumeFeedInventoryHandler.name);
+
   constructor(
     @InjectRepository(FeedInventory)
     private readonly inventoryRepository: Repository<FeedInventory>,
@@ -66,16 +71,27 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
     // Kaydet
     const saved = await this.inventoryRepository.save(inventory);
 
-    // Domain event: FeedInventoryLow (düşük stok uyarısı)
-    if (saved.status === InventoryStatus.LOW_STOCK) {
-      // await this.eventBus?.publish(new FeedInventoryLowEvent({
-      //   tenantId,
-      //   inventoryId: saved.id,
-      //   feedId: saved.feedId,
-      //   currentQuantityKg: saved.quantityKg,
-      //   status: saved.status,
-      //   userId,
-      // }));
+    // Publish domain event: FeedInventoryLow (low stock alert)
+    if (saved.status === InventoryStatus.LOW_STOCK && this.eventBus) {
+      try {
+        const event: FeedInventoryLowEvent = {
+          eventId: randomUUID(),
+          eventType: 'FeedInventoryLow',
+          tenantId,
+          timestamp: new Date(),
+          inventoryId: saved.id,
+          feedId: saved.feedId,
+          siteId: saved.siteId,
+          currentQuantityKg: saved.quantityKg,
+          reorderPointKg: saved.minStockKg,
+          status: 'low_stock',
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published FeedInventoryLowEvent for inventory ${saved.id}`);
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish FeedInventoryLowEvent: ${(eventError as Error).message}`);
+      }
     }
 
     return saved;

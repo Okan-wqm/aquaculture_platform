@@ -202,6 +202,7 @@ function verifyTOTP(
 export class MfaService implements OnModuleInit {
   private readonly logger = new Logger(MfaService.name);
   private encryptionKey: Buffer | null = null;
+  private mfaDisabled = false;
   private readonly issuerName: string;
 
   constructor(
@@ -221,15 +222,10 @@ export class MfaService implements OnModuleInit {
   onModuleInit(): void {
     const masterKey = this.configService.get<string>('MFA_ENCRYPTION_KEY');
     if (!masterKey) {
-      const nodeEnv = this.configService.get('NODE_ENV');
-      if (nodeEnv === 'production') {
-        throw new Error(
-          'SECURITY: MFA_ENCRYPTION_KEY environment variable must be set in production',
-        );
-      }
       this.logger.warn(
-        'MFA_ENCRYPTION_KEY not set — MFA encryption unavailable in non-production',
+        'MFA_ENCRYPTION_KEY not set — MFA features will be disabled. Set this env var to enable MFA.',
       );
+      this.mfaDisabled = true;
       return;
     }
 
@@ -255,6 +251,9 @@ export class MfaService implements OnModuleInit {
    * The secret is stored encrypted but mfaEnabled remains false until verification.
    */
   async setupMfa(userId: string): Promise<SetupMfaResponse> {
+    if (this.mfaDisabled) {
+      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
+    }
     const user = await this.findUserOrFail(userId);
 
     if (user.mfaEnabled) {

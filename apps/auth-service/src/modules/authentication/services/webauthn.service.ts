@@ -6,7 +6,6 @@ import {
   BadRequestException,
   Logger,
   Inject,
-  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -26,7 +25,7 @@ import {
   WebAuthnRemoveResponse,
 } from '../dto/webauthn.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
-import { AuthenticationService } from './authentication.service';
+import type { AuthenticationService } from './authentication.service';
 
 /**
  * In-memory challenge store with TTL.

@@ -287,6 +287,12 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD}
+      # MFA & WebAuthn (optional -- MFA disabled if not set)
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-Suderra Aquaculture Platform}
     depends_on:
       postgres:
         condition: service_healthy

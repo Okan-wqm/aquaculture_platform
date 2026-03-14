@@ -483,7 +483,8 @@
       "Bash(git:*)",
       "Bash(do cp:*)",
       "Bash(wait:*)",
-      "Bash(timeout 180 npx tsc:*)"
+      "Bash(timeout 180 npx tsc:*)",
+      "Bash(for dir:*)"
     ],
     "deny": [],
     "ask": []

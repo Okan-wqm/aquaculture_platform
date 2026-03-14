@@ -347,7 +347,7 @@ export class AuthenticationService {
       // instead of full tokens. The user must complete MFA verification
       // via the verifyMfaLogin mutation to receive full auth tokens.
       // ----------------------------------------------------------------
-      if (user.mfaEnabled && this.mfaService) {
+      if (user.mfaEnabled && this.mfaService?.isMfaAvailable()) {
         // Save login attempt state but DON'T set lastLoginAt yet
         // (it will be set after MFA verification succeeds)
         await this.userRepository.save(user);

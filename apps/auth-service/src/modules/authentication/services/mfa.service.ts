@@ -240,6 +240,14 @@ export class MfaService implements OnModuleInit {
     this.logger.log('MFA encryption initialized');
   }
 
+  /**
+   * Check if MFA feature is available (encryption key is configured).
+   * Used by AuthenticationService to decide whether to trigger MFA flow.
+   */
+  isMfaAvailable(): boolean {
+    return !this.mfaDisabled;
+  }
+
   // ==========================================================================
   // MFA Setup Flow
   // ==========================================================================
@@ -297,6 +305,9 @@ export class MfaService implements OnModuleInit {
    * Sets mfaEnabled=true on success.
    */
   async verifyMfaSetup(userId: string, code: string): Promise<VerifyMfaSetupResponse> {
+    if (this.mfaDisabled) {
+      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
+    }
     const user = await this.findUserOrFail(userId);
 
     if (user.mfaEnabled) {
@@ -335,6 +346,9 @@ export class MfaService implements OnModuleInit {
    * Disable MFA after verifying password and TOTP code.
    */
   async disableMfa(userId: string, password: string, code: string): Promise<DisableMfaResponse> {
+    if (this.mfaDisabled) {
+      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
+    }
     const user = await this.findUserOrFail(userId);
 
     if (!user.mfaEnabled) {
@@ -381,6 +395,9 @@ export class MfaService implements OnModuleInit {
    * Regenerate recovery codes (requires authentication + TOTP verification).
    */
   async regenerateRecoveryCodes(userId: string, code: string): Promise<RegenerateMfaRecoveryCodesResponse> {
+    if (this.mfaDisabled) {
+      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
+    }
     const user = await this.findUserOrFail(userId);
 
     if (!user.mfaEnabled || !user.mfaSecret) {
@@ -450,6 +467,9 @@ export class MfaService implements OnModuleInit {
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthPayload> {
+    if (this.mfaDisabled) {
+      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
+    }
     // Validate the MFA token
     let mfaPayload: { sub: string; userId: string; purpose: string; jti: string };
     try {

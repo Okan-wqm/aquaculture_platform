@@ -799,7 +799,7 @@ jobs:
               RESTARTS=$(docker inspect --format='{{.RestartCount}}' "$c" 2>/dev/null || echo "0")
               if [ "$HEALTH" != "healthy" ] || [ "$RESTARTS" -gt 0 ] 2>/dev/null; then
                 echo "--- $c (health=$HEALTH, restarts=$RESTARTS) last 80 lines ---"
-                docker logs --tail 80 "$c" 2>&1 || true
+                docker logs --tail 200 "$c" 2>&1 || true
               fi
             done
 

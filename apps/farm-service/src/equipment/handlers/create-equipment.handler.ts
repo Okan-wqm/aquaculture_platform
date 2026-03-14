@@ -230,7 +230,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
           tenantId,
           timestamp: new Date(),
           equipmentId: savedEquipment.id,
-          siteId: department.siteId,
+          siteId: department.siteId ?? '',
           systemId: systems[0]?.id,
           departmentId: savedEquipment.departmentId,
           name: savedEquipment.name,

@@ -688,20 +688,29 @@ export class FCRCalculationService {
     let lowerIdx = 0;
     let upperIdx = weights.length - 1;
 
+    const firstWeight = weights[0];
+    const lastWeight = weights[weights.length - 1];
+
+    if (firstWeight === undefined || lastWeight === undefined) {
+      return null;
+    }
+
     // Ağırlık aralığın altındaysa ilk sütunu kullan
-    if (avgWeightG <= weights[0]) {
+    if (avgWeightG <= firstWeight) {
       lowerIdx = 0;
       upperIdx = 0;
     }
     // Ağırlık aralığın üstündeyse son sütunu kullan
-    else if (avgWeightG >= weights[weights.length - 1]) {
+    else if (avgWeightG >= lastWeight) {
       lowerIdx = weights.length - 1;
       upperIdx = weights.length - 1;
     }
     // Ara değer: iki sütun arasında bul
     else {
       for (let i = 0; i < weights.length - 1; i++) {
-        if (avgWeightG >= weights[i] && avgWeightG < weights[i + 1]) {
+        const currentWeight = weights[i];
+        const nextWeight = weights[i + 1];
+        if (currentWeight !== undefined && nextWeight !== undefined && avgWeightG >= currentWeight && avgWeightG < nextWeight) {
           lowerIdx = i;
           upperIdx = i + 1;
           break;
@@ -723,7 +732,7 @@ export class FCRCalculationService {
       const upperFCR = row[upperIdx];
 
       // 0 değeri kapsanmayan hücre demek, atla
-      if (lowerFCR <= 0 || upperFCR <= 0) {
+      if (lowerFCR === undefined || upperFCR === undefined || lowerFCR <= 0 || upperFCR <= 0) {
         continue;
       }
 
@@ -732,7 +741,9 @@ export class FCRCalculationService {
         interpolatedFCR = lowerFCR;
       } else {
         // Lineer interpolasyon
-        const ratio = (avgWeightG - weights[lowerIdx]) / (weights[upperIdx] - weights[lowerIdx]);
+        const lowerWeight = weights[lowerIdx] ?? 0;
+        const upperWeight = weights[upperIdx] ?? 0;
+        const ratio = (avgWeightG - lowerWeight) / (upperWeight - lowerWeight);
         interpolatedFCR = lowerFCR + ratio * (upperFCR - lowerFCR);
       }
 

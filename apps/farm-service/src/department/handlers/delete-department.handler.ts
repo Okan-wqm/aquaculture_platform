@@ -156,7 +156,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
           tenantId,
           timestamp: new Date(),
           departmentId: department.id,
-          siteId: department.siteId,
+          siteId: department.siteId ?? '',
           name: department.name,
           code: department.code,
           deletedAt: new Date(),

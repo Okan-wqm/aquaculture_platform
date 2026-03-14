@@ -86,7 +86,7 @@ export class CreateDepartmentHandler implements ICommandHandler<CreateDepartment
           tenantId,
           timestamp: new Date(),
           departmentId: savedDepartment.id,
-          siteId: savedDepartment.siteId,
+          siteId: savedDepartment.siteId ?? '',
           name: savedDepartment.name,
           code: savedDepartment.code,
           type: savedDepartment.type,

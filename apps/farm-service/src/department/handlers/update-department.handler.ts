@@ -77,7 +77,7 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
           tenantId,
           timestamp: new Date(),
           departmentId: updatedDepartment.id,
-          siteId: updatedDepartment.siteId,
+          siteId: updatedDepartment.siteId ?? '',
           name: updatedDepartment.name,
           version: 1,
         };

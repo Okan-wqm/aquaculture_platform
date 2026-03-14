@@ -17,7 +17,13 @@
     "noImplicitAny": true,
     "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@aquaculture/backend-common": ["../../libs/backend-common/src/index.ts"],
+      "@aquaculture/backend-common/*": ["../../libs/backend-common/src/*"],
+      "@platform/event-contracts": ["../../libs/event-contracts/src/index.ts"],
+      "@platform/event-contracts/*": ["../../libs/event-contracts/src/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]

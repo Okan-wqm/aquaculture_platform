@@ -725,7 +725,7 @@ services:
     restart: unless-stopped
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -741,7 +741,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -757,7 +757,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -773,7 +773,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -789,7 +789,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -805,7 +805,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -821,7 +821,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -837,7 +837,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
@@ -853,7 +853,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /var/run
+      - /var/run:uid=101,gid=101
       - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network

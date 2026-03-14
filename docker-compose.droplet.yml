@@ -726,7 +726,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -742,7 +742,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -758,7 +758,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -774,7 +774,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -790,7 +790,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -806,7 +806,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -822,7 +822,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -838,7 +838,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:
@@ -854,7 +854,7 @@ services:
     tmpfs:
       - /tmp
       - /var/run
-      - /var/cache/nginx
+      - /var/cache/nginx:uid=101,gid=101
     networks:
       - aqua-network
     deploy:

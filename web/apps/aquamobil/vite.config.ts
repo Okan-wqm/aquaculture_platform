@@ -42,10 +42,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // PERF-06: Tighter glob patterns — SVGs excluded to avoid inlining HTML SVGs
-        // into the precache manifest unintentionally.
-        globPatterns: ['**/*.{js,css,html}'],
-        // ico, png, woff2 are handled by runtimeCaching below
+        // All static assets handled by runtimeCaching -- no precache needed
+        // This prevents build failures when glob patterns don't match any files in Docker
+        globPatterns: [],
         runtimeCaching: [
           // CRIT-2 / SEC-02 / PERF-01: GraphQL runtime caching has been intentionally
           // removed. Reasons:

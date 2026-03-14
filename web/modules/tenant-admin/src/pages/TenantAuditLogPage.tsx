@@ -26,7 +26,7 @@ import {
   Calendar,
   Eye,
 } from 'lucide-react';
-import { useTenantAuditLog, type AuditLogEntry, type AuditLogFilters } from '../hooks/useTenantAuditLog';
+import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
 
 // ============================================================================
 // Sub-Components

@@ -591,7 +591,7 @@ export const DebugToolsPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter SQL query..."
                 />
-                <div className="text-xs text-gray-400 text-right mt-1">
+                <div className="text-xs text-gray-500 text-right mt-1">
                   {queryInput.length} / 10,000 characters
                 </div>
               </div>
@@ -711,7 +711,7 @@ export const DebugToolsPage: React.FC = () => {
                               )}
                             </div>
                           ) : (
-                            <span className="text-sm text-gray-400">-</span>
+                            <span className="text-sm text-gray-500">-</span>
                           )}
                         </td>
                       </tr>

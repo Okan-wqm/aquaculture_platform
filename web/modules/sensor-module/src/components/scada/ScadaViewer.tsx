@@ -132,7 +132,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
     return (
       <div className={`flex-1 flex items-center justify-center bg-gray-50 ${className}`}>
         <div className="text-center">
-          <Loader2 size={48} className="mx-auto mb-4 text-gray-300" />
+          <Loader2 size={48} className="mx-auto mb-4 text-gray-500" />
           <h3 className="text-lg font-medium text-gray-700 mb-2">
             Proses Seçin
           </h3>
@@ -194,7 +194,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
               ? 'Pasif'
               : 'Arşivlenmiş'}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             {selectedProcess.nodes.length} ekipman
           </span>
         </div>

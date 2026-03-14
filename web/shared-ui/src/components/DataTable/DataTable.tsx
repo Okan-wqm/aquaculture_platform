@@ -134,7 +134,7 @@ export interface DataTableProps<T> {
 const SortIcon: React.FC<{ direction?: 'asc' | 'desc' }> = ({ direction }) => {
   if (!direction) {
     return (
-      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
       </svg>
     );
@@ -587,7 +587,7 @@ export function DataTable<T>({
           {searchable && (
             <div className="relative flex-1 max-w-md">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="h-5 w-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </div>
@@ -825,6 +825,12 @@ export function DataTable<T>({
                   }`}
                   style={{ width: col.width, minWidth: col.minWidth }}
                   onClick={() => col.sortable !== false && sortable && handleSort(String(col.key))}
+                  aria-sort={
+                    sortConfig?.key === String(col.key)
+                      ? sortConfig.direction === 'asc' ? 'ascending' : 'descending'
+                      : undefined
+                  }
+                  aria-label={col.sortable !== false && sortable ? `Sort by ${col.header}` : undefined}
                 >
                   <div className={`flex items-center gap-2 ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : ''}`}>
                     {col.header}

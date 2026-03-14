@@ -99,12 +99,12 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
               }`}
             >
               {severityIcon[diag.severity]}
-              <span className="text-gray-400 font-mono text-xs min-w-[4rem]">
+              <span className="text-gray-500 font-mono text-xs min-w-[4rem]">
                 {diag.line}:{diag.column}
               </span>
               <span className="text-gray-700 flex-1">{diag.message}</span>
               {diag.code && (
-                <span className="text-xs text-gray-400 font-mono">{diag.code}</span>
+                <span className="text-xs text-gray-500 font-mono">{diag.code}</span>
               )}
             </button>
           ))}

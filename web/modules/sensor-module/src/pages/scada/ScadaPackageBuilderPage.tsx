@@ -433,13 +433,13 @@ const ScadaPackageBuilderPage: React.FC = () => {
                   {selectedDevice.isOnline ? (
                     <Wifi className="w-3 h-3 text-green-500" />
                   ) : (
-                    <WifiOff className="w-3 h-3 text-gray-400" />
+                    <WifiOff className="w-3 h-3 text-gray-500" />
                   )}
                 </span>
               ) : (
-                <span className="text-gray-400">Select Device</span>
+                <span className="text-gray-500">Select Device</span>
               )}
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <ChevronDown className="w-3 h-3 text-gray-500" />
             </button>
 
             {showDeviceDropdown && (
@@ -471,7 +471,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                     >
                       <span className="truncate">{device.deviceName}</span>
                       <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                        <span className="text-xs text-gray-400">{device.deviceCode}</span>
+                        <span className="text-xs text-gray-500">{device.deviceCode}</span>
                         {device.isOnline ? (
                           <span className="w-2 h-2 rounded-full bg-green-500" />
                         ) : (
@@ -481,7 +481,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
                     </button>
                   ))}
                   {devices.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-gray-400">No edge devices found</p>
+                    <p className="px-3 py-2 text-xs text-gray-500">No edge devices found</p>
                   )}
                 </div>
               </>
@@ -709,7 +709,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           {activeScreenId && (
-            <span className="text-gray-400">
+            <span className="text-gray-500">
               {screens.find((s) => s.id === activeScreenId)?.name ?? ''}
             </span>
           )}

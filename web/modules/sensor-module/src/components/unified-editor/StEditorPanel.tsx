@@ -409,7 +409,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     return (
       <button
         onClick={() => setBottomPanelOpen(true)}
-        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-750 transition-colors"
+        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-500 hover:text-gray-200 hover:bg-gray-750 transition-colors"
       >
         <ChevronUp className="w-3.5 h-3.5" />
         ST Editor (Ctrl+J)
@@ -438,7 +438,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             setShowNewInput(true);
             setTimeout(() => newInputRef.current?.focus(), 50);
           }}
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="New Program"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -451,7 +451,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         <button
           onClick={() => compile()}
           disabled={compileStatus === 'compiling'}
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
+          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
           title="Compile (F5)"
         >
           {compileStatus === 'compiling' ? (
@@ -469,7 +469,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             else validate();
           }}
           disabled={compileStatus === 'compiling'}
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
+          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
           title="Validate (F7)"
         >
           <CheckCircle className="w-3.5 h-3.5" />
@@ -482,7 +482,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
             {/* Deploy */}
             <button
-              className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
               title="Deploy (F9)"
             >
               <Upload className="w-3.5 h-3.5" />
@@ -498,7 +498,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             {/* Save */}
             <button
               onClick={save}
-              className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
               title="Save (Ctrl+S)"
             >
               <Save className="w-3.5 h-3.5" />
@@ -510,7 +510,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Format */}
         <button
           onClick={formatCode}
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Format (Shift+Alt+F)"
         >
           <AlignLeft className="w-3.5 h-3.5" />
@@ -522,7 +522,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Export JSON */}
         <button
           onClick={() => setShowExportDialog(true)}
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Export JSON Bundle"
         >
           <Download className="w-3.5 h-3.5" />
@@ -532,7 +532,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Import JSON */}
         <button
           onClick={() => setShowImportDialog(true)}
-          className="px-2 py-1 text-xs text-gray-300 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Import JSON Bundle"
         >
           <Upload className="w-3.5 h-3.5" />
@@ -543,7 +543,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         <div className="flex-1" />
 
         {/* Program name + dirty */}
-        <span className="text-xs text-gray-400 flex items-center gap-1">
+        <span className="text-xs text-gray-500 flex items-center gap-1">
           <FileText className="w-3.5 h-3.5" />
           {activeProgram?.name ?? '(no program)'}
           {isDirty && <span className="text-yellow-400">*</span>}
@@ -556,7 +556,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {!embedded && (
           <button
             onClick={toggleBottomPanel}
-            className="px-1.5 py-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
+            className="px-1.5 py-1 text-gray-500 hover:text-white hover:bg-gray-700 rounded"
             title="Collapse (Ctrl+J)"
           >
             <ChevronDown className="w-3.5 h-3.5" />
@@ -612,7 +612,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                   className={`group flex items-center gap-1 px-2 py-1 text-xs cursor-pointer ${
                     prog.id === activeProgramId
                       ? 'bg-gray-700 text-white'
-                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                      : 'text-gray-500 hover:bg-gray-800 hover:text-gray-200'
                   }`}
                 >
                   <FileText className="w-3 h-3 flex-shrink-0" />
@@ -675,7 +675,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
               {diagnostics.length > 0 && (
                 <button
                   onClick={clearMarkers}
-                  className="text-gray-500 hover:text-gray-300 text-[10px]"
+                  className="text-gray-500 hover:text-gray-500 text-[10px]"
                 >
                   Clear
                 </button>
@@ -696,7 +696,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             )}
 
             {compileStatus === 'compiling' && (
-              <div className="px-2 py-4 text-xs text-gray-400 text-center flex flex-col items-center gap-1">
+              <div className="px-2 py-4 text-xs text-gray-500 text-center flex flex-col items-center gap-1">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Compiling...
               </div>

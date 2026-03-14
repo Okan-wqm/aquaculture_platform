@@ -1,10 +1,4 @@
 import { HttpStatus } from '@nestjs/common';
-import {
-  HealthCheckService,
-  TypeOrmHealthIndicator,
-  MemoryHealthIndicator,
-  HealthCheckResult,
-} from '@nestjs/terminus';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { HealthController } from '../../health.controller';
@@ -21,21 +15,6 @@ const createMockResponse = () => {
 
 describe('HealthController', () => {
   let controller: HealthController;
-  let healthCheckService: HealthCheckService;
-  let healthService: HealthService;
-
-  const mockHealthCheckService = {
-    check: jest.fn(),
-  };
-
-  const mockDbIndicator = {
-    pingCheck: jest.fn(),
-  };
-
-  const mockMemoryIndicator = {
-    checkHeap: jest.fn(),
-    checkRSS: jest.fn(),
-  };
 
   const mockHealthService = {
     isDraining: jest.fn(),
@@ -43,6 +22,8 @@ describe('HealthController', () => {
     getSmtpStatus: jest.fn(),
     isStartupComplete: jest.fn(),
     getMetrics: jest.fn(),
+    getCircuitBreakers: jest.fn(),
+    resetCircuitBreaker: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -51,66 +32,42 @@ describe('HealthController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
       providers: [
-        { provide: HealthCheckService, useValue: mockHealthCheckService },
-        { provide: TypeOrmHealthIndicator, useValue: mockDbIndicator },
-        { provide: MemoryHealthIndicator, useValue: mockMemoryIndicator },
         { provide: HealthService, useValue: mockHealthService },
       ],
     }).compile();
 
     controller = module.get<HealthController>(HealthController);
-    healthCheckService = module.get<HealthCheckService>(HealthCheckService);
-    healthService = module.get<HealthService>(HealthService);
-  });
-
-  describe('GET /health (check)', () => {
-    it('should return healthy status when all checks pass', async () => {
-      const healthyResult: HealthCheckResult = {
-        status: 'ok',
-        info: {
-          database: { status: 'up' },
-          memory_heap: { status: 'up' },
-          memory_rss: { status: 'up' },
-        },
-        error: {},
-        details: {
-          database: { status: 'up' },
-          memory_heap: { status: 'up' },
-          memory_rss: { status: 'up' },
-        },
-      };
-      mockHealthCheckService.check.mockResolvedValue(healthyResult);
-
-      const result = await controller.check();
-
-      expect(result.status).toBe('ok');
-      expect(mockHealthCheckService.check).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.any(Function),
-          expect.any(Function),
-          expect.any(Function),
-        ]),
-      );
-    });
-
-    it('should propagate terminus error when DB is down', async () => {
-      mockHealthCheckService.check.mockRejectedValue(
-        new Error('Health Check has failed'),
-      );
-
-      await expect(controller.check()).rejects.toThrow(
-        'Health Check has failed',
-      );
-    });
   });
 
   describe('GET /health/live (liveness)', () => {
     it('should return 200 with ok status', () => {
       const result = controller.liveness();
 
+      expect(result).toEqual({ status: 'ok' });
+    });
+  });
+
+  describe('GET /health (general health)', () => {
+    it('should return standardized health response', () => {
+      const result = controller.health();
+
       expect(result.status).toBe('ok');
       expect(result.timestamp).toBeDefined();
-      expect(new Date(result.timestamp).getTime()).not.toBeNaN();
+      expect(typeof result.uptime).toBe('number');
+      expect(result.version).toBeDefined();
+    });
+
+    it('should include valid ISO timestamp', () => {
+      const result = controller.health();
+      const timestamp = new Date(result.timestamp);
+      expect(timestamp.toISOString()).toBe(result.timestamp);
+    });
+
+    it('should not expose sensitive data', () => {
+      const result = controller.health() as unknown as Record<string, unknown>;
+      expect(result).not.toHaveProperty('memory');
+      expect(result).not.toHaveProperty('database');
+      expect(result).not.toHaveProperty('smtp');
     });
   });
 
@@ -119,7 +76,10 @@ describe('HealthController', () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(false);
       mockHealthService.checkDatabase.mockResolvedValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({ state: 'closed', consecutiveFailures: 0 });
+      mockHealthService.getSmtpStatus.mockReturnValue({
+        state: 'closed',
+        consecutiveFailures: 0,
+      });
 
       await controller.readiness(res);
 
@@ -128,8 +88,8 @@ describe('HealthController', () => {
         expect.objectContaining({
           status: 'ok',
           checks: expect.objectContaining({
-            database: true,
-            smtp: 'closed',
+            database: 'ok',
+            smtp: 'ok',
           }),
         }),
       );
@@ -139,7 +99,10 @@ describe('HealthController', () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(false);
       mockHealthService.checkDatabase.mockResolvedValue(false);
-      mockHealthService.getSmtpStatus.mockReturnValue({ state: 'closed', consecutiveFailures: 0 });
+      mockHealthService.getSmtpStatus.mockReturnValue({
+        state: 'closed',
+        consecutiveFailures: 0,
+      });
 
       await controller.readiness(res);
 
@@ -147,7 +110,7 @@ describe('HealthController', () => {
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 'not_ready',
-          checks: expect.objectContaining({ database: false }),
+          checks: expect.objectContaining({ database: 'error' }),
         }),
       );
     });
@@ -155,7 +118,10 @@ describe('HealthController', () => {
     it('should return 503 when service is draining', async () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({ state: 'closed', consecutiveFailures: 0 });
+      mockHealthService.getSmtpStatus.mockReturnValue({
+        state: 'closed',
+        consecutiveFailures: 0,
+      });
 
       await controller.readiness(res);
 
@@ -163,7 +129,7 @@ describe('HealthController', () => {
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 'not_ready',
-          checks: expect.objectContaining({ draining: true }),
+          checks: expect.objectContaining({ draining: 'error' }),
         }),
       );
     });
@@ -171,26 +137,31 @@ describe('HealthController', () => {
     it('should skip database check when draining', async () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({ state: 'closed', consecutiveFailures: 0 });
+      mockHealthService.getSmtpStatus.mockReturnValue({
+        state: 'closed',
+        consecutiveFailures: 0,
+      });
 
       await controller.readiness(res);
 
       expect(mockHealthService.checkDatabase).not.toHaveBeenCalled();
     });
 
-    it('should include SMTP circuit breaker state in readiness', async () => {
+    it('should report SMTP error when circuit is open', async () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(false);
       mockHealthService.checkDatabase.mockResolvedValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({ state: 'open', consecutiveFailures: 5 });
+      mockHealthService.getSmtpStatus.mockReturnValue({
+        state: 'open',
+        consecutiveFailures: 5,
+      });
 
       await controller.readiness(res);
 
-      // Service is still ready even if SMTP is open — SMTP is not a hard dependency
       expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          checks: expect.objectContaining({ smtp: 'open' }),
+          checks: expect.objectContaining({ smtp: 'error' }),
         }),
       );
     });
@@ -205,7 +176,7 @@ describe('HealthController', () => {
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'started' }),
+        expect.objectContaining({ status: 'ok' }),
       );
     });
 
@@ -217,7 +188,7 @@ describe('HealthController', () => {
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'starting' }),
+        expect.objectContaining({ status: 'not_ready' }),
       );
     });
   });

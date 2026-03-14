@@ -193,7 +193,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                     {errorInfo?.componentStack && (
                       <>
                         <hr className="border-gray-700 my-3" />
-                        <p className="text-xs text-gray-400 mb-2">Component Stack:</p>
+                        <p className="text-xs text-gray-500 mb-2">Component Stack:</p>
                         <pre className="text-xs text-red-400 font-mono whitespace-pre-wrap">
                           {errorInfo.componentStack}
                         </pre>

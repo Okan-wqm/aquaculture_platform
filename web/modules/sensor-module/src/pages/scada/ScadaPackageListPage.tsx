@@ -154,7 +154,7 @@ const ScadaPackageListPage: React.FC = () => {
       <div className="flex gap-4 mb-6">
         {/* Search */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <input
             type="text"
             placeholder="Search packages..."
@@ -166,7 +166,7 @@ const ScadaPackageListPage: React.FC = () => {
 
         {/* Status Filter */}
         <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -183,7 +183,7 @@ const ScadaPackageListPage: React.FC = () => {
       {/* Package List */}
       {filteredPackages.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <Package className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+          <Package className="w-12 h-12 mx-auto text-gray-500 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No packages found</h3>
           <p className="text-gray-500 mb-4">
             {searchTerm || statusFilter !== 'all'

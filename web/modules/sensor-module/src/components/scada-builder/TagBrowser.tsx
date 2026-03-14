@@ -141,19 +141,19 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
           {tag.ioType}
         </span>
         <span className="flex-1 truncate font-medium text-gray-800">{tag.name}</span>
-        {tag.unit && <span className="text-xs text-gray-400">{tag.unit}</span>}
-        <span className="text-[10px] text-gray-400 shrink-0">CH{tag.channel}</span>
+        {tag.unit && <span className="text-xs text-gray-500">{tag.unit}</span>}
+        <span className="text-[10px] text-gray-500 shrink-0">CH{tag.channel}</span>
       </button>
     );
   };
 
   const renderDropdownContent = () => {
     if (!deviceId) {
-      return <div className="px-3 py-4 text-sm text-gray-400 text-center">Select a target device first</div>;
+      return <div className="px-3 py-4 text-sm text-gray-500 text-center">Select a target device first</div>;
     }
     if (loading) {
       return (
-        <div className="px-3 py-4 flex items-center justify-center gap-2 text-sm text-gray-400">
+        <div className="px-3 py-4 flex items-center justify-center gap-2 text-sm text-gray-500">
           <Loader2 className="w-4 h-4 animate-spin" />
           Loading...
         </div>
@@ -164,14 +164,14 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
     }
     if (filteredGroups.length === 0) {
       return (
-        <div className="px-3 py-4 text-sm text-gray-400 text-center">
+        <div className="px-3 py-4 text-sm text-gray-500 text-center">
           {search ? 'No results found' : 'No tags found for this device'}
         </div>
       );
     }
     return filteredGroups.map((group) => (
       <div key={group.ioType}>
-        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50 sticky top-0">
+        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 bg-gray-50 sticky top-0">
           {group.label}
         </div>
         {group.tags.map(renderTagItem)}
@@ -206,7 +206,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
       <div className="relative flex">
         <div className="relative flex-1">
           {open && (
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
           )}
           <input
             ref={inputRef}
@@ -224,7 +224,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
         <button
           type="button"
           onClick={handleToggle}
-          className="absolute right-0 top-0 h-full px-2.5 text-gray-400 hover:text-gray-600 transition-colors"
+          className="absolute right-0 top-0 h-full px-2.5 text-gray-500 hover:text-gray-600 transition-colors"
         >
           <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>

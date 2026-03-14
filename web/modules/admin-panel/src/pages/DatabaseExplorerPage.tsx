@@ -305,7 +305,7 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
               )}
             </label>
             {isSensitive ? (
-              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-400 italic">
+              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500 italic">
                 [Sensitive field — not shown for security. Clear to unset.]
               </div>
             ) : (
@@ -736,7 +736,7 @@ const DatabaseExplorerPage: React.FC = () => {
                                 title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(row[col.columnName])}
                               >
                                 {row[col.columnName] === null ? (
-                                  <span className="text-gray-400 italic">NULL</span>
+                                  <span className="text-gray-500 italic">NULL</span>
                                 ) : valueIsMasked ? (
                                   <span className="flex items-center gap-1 text-orange-600 font-mono">
                                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">

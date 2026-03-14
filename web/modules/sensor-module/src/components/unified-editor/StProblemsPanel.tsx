@@ -44,7 +44,7 @@ const SEVERITY_CONFIG: Record<
   error: { icon: XCircle, color: 'text-red-400', textColor: 'text-red-300', label: 'Errors' },
   warning: { icon: AlertTriangle, color: 'text-yellow-400', textColor: 'text-yellow-300', label: 'Warnings' },
   info: { icon: Info, color: 'text-blue-400', textColor: 'text-blue-300', label: 'Info' },
-  hint: { icon: Lightbulb, color: 'text-gray-400', textColor: 'text-gray-300', label: 'Hints' },
+  hint: { icon: Lightbulb, color: 'text-gray-500', textColor: 'text-gray-500', label: 'Hints' },
 };
 
 type SortKey = 'severity' | 'line';
@@ -108,11 +108,11 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
         className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-750 text-xs flex-shrink-0 w-full text-left"
       >
         {isExpanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
         ) : (
-          <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
         )}
-        <span className="text-gray-300 font-medium">PROBLEMS</span>
+        <span className="text-gray-500 font-medium">PROBLEMS</span>
 
         {counts.error > 0 && (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-900/50 text-red-300">
@@ -147,7 +147,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
                   className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors ${
                     active
                       ? `${cfg.color} bg-gray-800`
-                      : 'text-gray-600 hover:text-gray-400'
+                      : 'text-gray-600 hover:text-gray-500'
                   }`}
                   title={`Toggle ${cfg.label}`}
                 >
@@ -161,7 +161,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
 
             <button
               onClick={toggleSort}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-gray-500 hover:text-gray-300 hover:bg-gray-800"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-gray-500 hover:text-gray-500 hover:bg-gray-800"
               title={`Sort by ${sortKey === 'severity' ? 'line' : 'severity'}`}
             >
               <ArrowUpDown className="w-3 h-3" />

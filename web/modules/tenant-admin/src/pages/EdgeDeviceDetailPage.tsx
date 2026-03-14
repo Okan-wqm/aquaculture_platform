@@ -64,7 +64,7 @@ const DecommissionModal: React.FC<{
             <h2 className="text-base font-semibold text-gray-900">Decommission Device</h2>
             <p className="text-xs text-gray-500">This action is irreversible</p>
           </div>
-          <button onClick={onClose} className="ml-auto p-1 text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="ml-auto p-1 text-gray-500 hover:text-gray-600">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -114,7 +114,7 @@ const RebootConfirmModal: React.FC<{
             <RotateCcw className="w-5 h-5 text-amber-600" />
           </div>
           <h2 className="text-base font-semibold text-gray-900">Reboot Device?</h2>
-          <button onClick={onClose} className="ml-auto p-1 text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="ml-auto p-1 text-gray-500 hover:text-gray-600">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -149,7 +149,7 @@ const HealthGauge: React.FC<{ label: string; value?: number; unit?: string; icon
     </div>
     <div className="flex items-end gap-1">
       <span className="text-2xl font-bold text-gray-900">{value ?? '--'}</span>
-      <span className="text-sm text-gray-400 mb-0.5">{unit}</span>
+      <span className="text-sm text-gray-500 mb-0.5">{unit}</span>
     </div>
     {value != null && (
       <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -213,7 +213,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   if (loading && !device) {
     return (
       <div className="flex items-center justify-center h-96">
-        <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
+        <RefreshCw className="w-6 h-6 animate-spin text-gray-500" />
       </div>
     );
   }
@@ -250,13 +250,13 @@ const EdgeDeviceDetailPage: React.FC = () => {
       <div className="flex items-center gap-4">
         <button
           onClick={() => navigate('/tenant/devices')}
-          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+          className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-3 flex-1">
           <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${device.isOnline ? 'bg-emerald-100' : 'bg-gray-100'}`}>
-            <Cpu className={`w-6 h-6 ${device.isOnline ? 'text-emerald-600' : 'text-gray-400'}`} />
+            <Cpu className={`w-6 h-6 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500'}`} />
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -264,7 +264,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
               {device.isOnline ? (
                 <span className="flex items-center gap-1 text-xs text-emerald-600"><Wifi className="w-3.5 h-3.5" /> Online</span>
               ) : (
-                <span className="flex items-center gap-1 text-xs text-gray-400"><WifiOff className="w-3.5 h-3.5" /> Offline</span>
+                <span className="flex items-center gap-1 text-xs text-gray-500"><WifiOff className="w-3.5 h-3.5" /> Offline</span>
               )}
             </div>
             <p className="text-sm text-gray-500">{device.deviceCode} · {device.deviceModel} · {device.lifecycleState.replace(/_/g, ' ')}</p>
@@ -474,7 +474,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-900">{event.message}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
+                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
                       <span>{event.eventType.replace(/_/g, ' ')}</span>
                       <span>·</span>
                       <span>{new Date(event.createdAt).toLocaleString('tr-TR')}</span>

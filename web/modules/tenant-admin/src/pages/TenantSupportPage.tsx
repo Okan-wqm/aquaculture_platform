@@ -156,7 +156,7 @@ const NewTicketModal: React.FC<{
               <button
                 type="button"
                 onClick={onClose}
-                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -281,7 +281,7 @@ const RatingModal: React.FC<{
                   className={`w-8 h-8 ${
                     star <= (hoveredRating || rating)
                       ? 'text-yellow-400 fill-yellow-400'
-                      : 'text-gray-300'
+                      : 'text-gray-500'
                   }`}
                 />
               </button>
@@ -680,7 +680,7 @@ export const TenantSupportPage: React.FC = () => {
           {/* Filters */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
               <input
                 type="text"
                 placeholder="Search tickets..."
@@ -743,7 +743,7 @@ export const TenantSupportPage: React.FC = () => {
                         {ticket.category.replace('_', ' ')}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
                         <Clock size={12} />
                         {formatTime(ticket.createdAt)}
@@ -760,14 +760,14 @@ export const TenantSupportPage: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                  <ChevronRight size={18} className="text-gray-400 flex-shrink-0" />
+                  <ChevronRight size={18} className="text-gray-500 flex-shrink-0" />
                 </div>
               </div>
             ))}
 
             {filteredTickets.length === 0 && (
               <div className="p-8 text-center text-gray-500">
-                <Ticket size={48} className="mx-auto mb-3 text-gray-300" />
+                <Ticket size={48} className="mx-auto mb-3 text-gray-500" />
                 <p className="font-medium">No tickets found</p>
                 <p className="text-sm mt-1">Create a new ticket to get help</p>
               </div>
@@ -811,7 +811,7 @@ export const TenantSupportPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setSelectedTicket(null)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <X size={20} />
                 </button>
@@ -820,7 +820,7 @@ export const TenantSupportPage: React.FC = () => {
               {/* Tags */}
               {selectedTicket.tags.length > 0 && (
                 <div className="flex items-center gap-2 mt-3">
-                  <Tag size={14} className="text-gray-400" />
+                  <Tag size={14} className="text-gray-500" />
                   {selectedTicket.tags.map((tag) => (
                     <span key={tag} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
                       {tag}
@@ -880,7 +880,7 @@ export const TenantSupportPage: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <span className="text-xs text-gray-400">{formatTime(comment.createdAt)}</span>
+                    <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
                   </div>
                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.content}</p>
                   {comment.attachments.length > 0 && (
@@ -897,7 +897,7 @@ export const TenantSupportPage: React.FC = () => {
                             onClick={safeUrl ? undefined : (e) => e.preventDefault()}
                             className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
                           >
-                            <FileText size={14} className="text-gray-400" />
+                            <FileText size={14} className="text-gray-500" />
                             <span className="text-gray-700">{att.filename}</span>
                           </a>
                         );
@@ -920,7 +920,7 @@ export const TenantSupportPage: React.FC = () => {
                     className="flex-1 px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
                   />
                   <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                       <Paperclip size={20} />
                     </button>
                     <button
@@ -948,7 +948,7 @@ export const TenantSupportPage: React.FC = () => {
                         className={
                           star <= selectedTicket.satisfactionRating!
                             ? 'text-yellow-500 fill-yellow-500'
-                            : 'text-gray-300'
+                            : 'text-gray-500'
                         }
                       />
                     ))}

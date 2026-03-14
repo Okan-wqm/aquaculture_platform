@@ -155,7 +155,7 @@ const TenantMessagesPage: React.FC = () => {
             <button
               onClick={fetchThreads}
               disabled={loading}
-              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
               title="Refresh"
             >
               <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
@@ -204,7 +204,7 @@ const TenantMessagesPage: React.FC = () => {
           {/* Search & Filter */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
               <input
                 type="text"
                 placeholder="Search conversations..."
@@ -250,7 +250,7 @@ const TenantMessagesPage: React.FC = () => {
               </div>
             ) : filteredThreads.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
-                <MessageSquare size={48} className="mb-2 text-gray-300" />
+                <MessageSquare size={48} className="mb-2 text-gray-500" />
                 <p>No conversations found</p>
                 {threads.length === 0 && (
                   <p className="text-sm mt-1">Start a new conversation with the admin</p>
@@ -276,7 +276,7 @@ const TenantMessagesPage: React.FC = () => {
                       )}
                     </div>
                     <div className="text-sm text-gray-500 truncate mt-1">{thread.lastMessage}</div>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
                       <Clock size={12} />
                       <span>{formatTime(thread.lastMessageAt)}</span>
                       <span>·</span>
@@ -315,7 +315,7 @@ const TenantMessagesPage: React.FC = () => {
                     </div>
                     <p className="text-sm text-gray-500">{selectedThread.messageCount} messages</p>
                   </div>
-                  <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                  <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                     <MoreVertical size={18} />
                   </button>
                 </div>
@@ -329,7 +329,7 @@ const TenantMessagesPage: React.FC = () => {
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                    <MessageSquare size={48} className="mb-2 text-gray-300" />
+                    <MessageSquare size={48} className="mb-2 text-gray-500" />
                     <p>No messages yet</p>
                   </div>
                 ) : (
@@ -355,7 +355,7 @@ const TenantMessagesPage: React.FC = () => {
                         </span>
                         <span
                           className={`text-xs ${
-                            message.senderType === 'tenant_admin' ? 'text-tenant-200' : 'text-gray-400'
+                            message.senderType === 'tenant_admin' ? 'text-tenant-200' : 'text-gray-500'
                           }`}
                         >
                           {formatTime(message.createdAt)}
@@ -400,7 +400,7 @@ const TenantMessagesPage: React.FC = () => {
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                      <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                         <Paperclip size={20} />
                       </button>
                       <button
@@ -413,7 +413,7 @@ const TenantMessagesPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center justify-between mt-2">
-                    <div className="text-xs text-gray-400">Press Ctrl+Enter to send</div>
+                    <div className="text-xs text-gray-500">Press Ctrl+Enter to send</div>
                     {sendError && (
                       <div className="flex items-center gap-1 text-xs text-red-600">
                         <AlertCircle size={12} />
@@ -436,7 +436,7 @@ const TenantMessagesPage: React.FC = () => {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-gray-500">
-                <MessageSquare size={64} className="mx-auto mb-4 text-gray-300" />
+                <MessageSquare size={64} className="mx-auto mb-4 text-gray-500" />
                 <h3 className="text-lg font-medium text-gray-700">Select a conversation</h3>
                 <p className="mt-1">Choose a thread from the list to view messages</p>
               </div>
@@ -504,7 +504,7 @@ const NewThreadModal: React.FC<{
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">New Conversation</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
             <X size={24} />
           </button>
         </div>

@@ -208,7 +208,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           {/* Dropdown ikonu */}
           <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
             <svg
-              className="w-5 h-5 text-gray-400"
+              className="w-5 h-5 text-gray-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"

@@ -1,12 +1,25 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { del } from 'idb-keyval';
 import type { AuthState } from '@/types';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
+import { syncAuthStore } from '@/services/authenticated-fetch';
 
 interface AuthContextValue extends AuthState {
   isLoading: boolean;
   isMobileDisabled: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /**
+   * Complete login with pre-obtained token (e.g., from WebAuthn biometric flow).
+   * Sets auth state directly without calling the login GraphQL mutation.
+   */
+  loginWithToken: (accessToken: string, user: {
+    id: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    role: string;
+    tenantId: string | null;
+  }) => Promise<void>;
   logout: () => void;
   refreshAuth: () => Promise<void>;
 }
@@ -203,6 +216,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loginWithToken = useCallback(async (
+    accessToken: string,
+    user: { id: string; email: string; firstName?: string; lastName?: string; role: string; tenantId: string | null },
+  ) => {
+    setIsLoading(true);
+    setIsMobileDisabled(false);
+    try {
+      // Check if user has mobile access enabled
+      const mobileEnabled = await checkMobileEnabled(accessToken);
+      if (!mobileEnabled) {
+        setIsMobileDisabled(true);
+        throw new Error('Mobile access is not enabled for your account. Please contact your administrator.');
+      }
+
+      const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+
+      setState({
+        user: {
+          id: user.id,
+          email: user.email,
+          name: displayName,
+          role: user.role as 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER',
+          tenantId: user.tenantId,
+        },
+        accessToken,
+        refreshToken: null,
+        tenantId: user.tenantId,
+        isAuthenticated: true,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const logout = useCallback(() => {
     const currentUserId = state.user?.id;
 
@@ -267,6 +314,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [logout]);
 
+  // D07 API-01: Keep the module-level auth store in sync so that
+  // authenticatedFetch (a plain function, not a hook) can read current tokens.
+  // refreshAuthForInterceptor performs its own fetch (same mutation) and writes
+  // the new token into both React state AND the module-level store synchronously
+  // so the interceptor can retry immediately without waiting for a re-render.
+  const logoutRef = useRef(logout);
+  logoutRef.current = logout;
+
+  const refreshAuthForInterceptor = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...CSRF_HEADER,
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          query: REFRESH_MUTATION,
+          variables: { input: { refreshToken: '' } },
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.errors || !result.data?.refreshToken?.accessToken) {
+        return false;
+      }
+
+      const { accessToken: newToken } = result.data.refreshToken;
+
+      // Update React state (will trigger syncAuthStore via useEffect)
+      setState((prev) => ({ ...prev, accessToken: newToken }));
+
+      // Also update the module store immediately so the retry uses the new token
+      // without waiting for the next React render cycle.
+      syncAuthStore(newToken, state.tenantId, refreshAuthForInterceptor);
+
+      return true;
+    } catch {
+      return false;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.tenantId]);
+
+  useEffect(() => {
+    syncAuthStore(state.accessToken, state.tenantId, refreshAuthForInterceptor);
+  }, [state.accessToken, state.tenantId, refreshAuthForInterceptor]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -274,6 +370,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isMobileDisabled,
         login,
+        loginWithToken,
         logout,
         refreshAuth,
       }}

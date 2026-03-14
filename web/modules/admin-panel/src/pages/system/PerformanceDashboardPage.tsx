@@ -458,7 +458,7 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div className="text-5xl font-bold text-green-600">
               {Math.round(dashboard.currentSnapshot.healthScore)}
             </div>
-            <div className="text-gray-400">/100</div>
+            <div className="text-gray-500">/100</div>
           </div>
         </div>
         <div className="h-4 bg-gray-200 rounded-full overflow-hidden">

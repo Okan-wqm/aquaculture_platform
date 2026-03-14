@@ -90,7 +90,7 @@ export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
 
   if (error || !stats) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         {error || 'No data'}
       </div>
     );
@@ -153,7 +153,7 @@ export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
       </div>
       {/* Last update time */}
       {latestTimestamp && (
-        <div className="flex items-center justify-center gap-1 text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100">
+        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100">
           <Clock size={10} />
           <span>{formatTimeSince(latestTimestamp)}</span>
         </div>

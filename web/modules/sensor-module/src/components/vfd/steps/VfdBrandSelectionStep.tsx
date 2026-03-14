@@ -123,7 +123,7 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
                     </span>
                   ))}
                   {selectedBrand.modelSeries.length > 5 && (
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                       +{selectedBrand.modelSeries.length - 5} daha
                     </span>
                   )}

@@ -103,16 +103,16 @@ const DataChannelItem: React.FC<DataChannelItemProps> = ({ channel, parentSensor
       onDragStart={handleDragStart}
       className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-grab hover:bg-gray-100 transition-colors group"
     >
-      <GripVertical className="w-3 h-3 text-gray-300 group-hover:text-gray-500" />
+      <GripVertical className="w-3 h-3 text-gray-500 group-hover:text-gray-500" />
       <TypeIcon type={type} className="w-4 h-4" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-700 truncate">{channel.name}</p>
         {channel.dataPath && (
-          <p className="text-xs text-gray-400 font-mono truncate">{channel.dataPath}</p>
+          <p className="text-xs text-gray-500 font-mono truncate">{channel.dataPath}</p>
         )}
       </div>
       {channel.unit && (
-        <span className="text-xs text-gray-400">{channel.unit}</span>
+        <span className="text-xs text-gray-500">{channel.unit}</span>
       )}
     </div>
   );
@@ -159,18 +159,18 @@ const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = fals
         className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
       >
         {isExpanded ? (
-          <ChevronDown className="w-4 h-4 text-gray-400" />
+          <ChevronDown className="w-4 h-4 text-gray-500" />
         ) : (
-          <ChevronRight className="w-4 h-4 text-gray-400" />
+          <ChevronRight className="w-4 h-4 text-gray-500" />
         )}
         <Server className="w-4 h-4 text-cyan-600" />
         <span className="flex-1 text-sm font-medium text-gray-700 truncate">{parent.name}</span>
         {isConnected ? (
           <Wifi className="w-3 h-3 text-green-500" />
         ) : (
-          <WifiOff className="w-3 h-3 text-gray-400" />
+          <WifiOff className="w-3 h-3 text-gray-500" />
         )}
-        <span className="text-xs text-gray-400">{filteredChildren.length}</span>
+        <span className="text-xs text-gray-500">{filteredChildren.length}</span>
       </button>
 
       {/* Data Channels */}
@@ -188,7 +188,7 @@ const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = fals
 
       {/* Empty state when expanded but no channels */}
       {isExpanded && filteredChildren.length === 0 && (
-        <div className="border-t border-gray-200 bg-white p-4 text-center text-sm text-gray-400">
+        <div className="border-t border-gray-200 bg-white p-4 text-center text-sm text-gray-500">
           Veri kanalı bulunamadı
         </div>
       )}
@@ -253,7 +253,7 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
       {/* Search */}
       <div className="px-4 py-3 border-b border-gray-200">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
             value={searchTerm}

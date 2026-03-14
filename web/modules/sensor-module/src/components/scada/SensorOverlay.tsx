@@ -67,7 +67,7 @@ const getTrendIcon = (trend: 'up' | 'down' | 'stable') => {
     case 'down':
       return <TrendingDown className="w-2.5 h-2.5 text-red-500" />;
     default:
-      return <Minus className="w-2.5 h-2.5 text-gray-400" />;
+      return <Minus className="w-2.5 h-2.5 text-gray-500" />;
   }
 };
 

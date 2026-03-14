@@ -203,7 +203,7 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
                     {log.entityType} - {log.performedByEmail || log.performedBy}
                   </p>
                 </div>
-                <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
+                <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
                   {formatTime(log.createdAt)}
                 </span>
               </div>
@@ -639,7 +639,7 @@ const AdminDashboard: React.FC = () => {
                 <p className="text-lg font-semibold text-gray-900">
                   {Math.round(metrics.resources.memoryUsage.heapUsed / (1024 * 1024))} MB
                 </p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-500">
                   / {Math.round(metrics.resources.memoryUsage.heapTotal / (1024 * 1024))} MB
                 </p>
               </div>

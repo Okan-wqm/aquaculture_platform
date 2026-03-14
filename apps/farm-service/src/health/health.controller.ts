@@ -1,57 +1,19 @@
-import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { StandardHealthController } from '@platform/backend-common';
 import { DataSource } from 'typeorm';
-import { Public, SkipTenantGuard } from '@platform/backend-common';
 
 /**
- * Health Controller
- * Provides health check endpoints for kubernetes probes
+ * Farm Service Health Controller
+ * Extends the standard health controller with consistent K8s probe format.
  */
 @Controller('health')
-@Public()
-@SkipTenantGuard()
-export class HealthController {
+export class HealthController extends StandardHealthController {
   constructor(
     @InjectDataSource()
-    private readonly dataSource: DataSource,
-  ) {}
-
-  /**
-   * Liveness probe
-   */
-  @Get('live')
-  @HttpCode(HttpStatus.OK)
-  liveness(): { status: 'ok' } {
-    return { status: 'ok' };
-  }
-
-  /**
-   * Readiness probe
-   */
-  @Get('ready')
-  @HttpCode(HttpStatus.OK)
-  async readiness(): Promise<{ status: 'ok' | 'not_ready'; database: boolean }> {
-    const isDbConnected = this.dataSource.isInitialized;
-
-    if (!isDbConnected) {
-      return { status: 'not_ready', database: false };
-    }
-
-    return { status: 'ok', database: true };
-  }
-
-  /**
-   * Full health check
-   */
-  @Get()
-  @HttpCode(HttpStatus.OK)
-  async health(): Promise<{
-    status: 'ok';
-    timestamp: string;
-  }> {
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-    };
+    dataSource: DataSource,
+  ) {
+    super(dataSource);
+    this.serviceName = 'farm-service';
   }
 }

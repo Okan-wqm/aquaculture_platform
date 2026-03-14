@@ -50,7 +50,7 @@ const variantStyles: Record<ButtonVariant, string> = {
     hover:bg-gray-200
     focus:ring-gray-500
     active:bg-gray-300
-    disabled:bg-gray-50 disabled:text-gray-400
+    disabled:bg-gray-50 disabled:text-gray-500
     border border-gray-300
   `,
   danger: `
@@ -68,10 +68,10 @@ const variantStyles: Record<ButtonVariant, string> = {
     disabled:bg-green-300
   `,
   warning: `
-    bg-yellow-500 text-white
-    hover:bg-yellow-600
-    focus:ring-yellow-500
-    active:bg-yellow-700
+    bg-yellow-600 text-white
+    hover:bg-yellow-700
+    focus:ring-yellow-600
+    active:bg-yellow-800
     disabled:bg-yellow-300
   `,
   ghost: `
@@ -79,7 +79,7 @@ const variantStyles: Record<ButtonVariant, string> = {
     hover:bg-gray-100
     focus:ring-gray-500
     active:bg-gray-200
-    disabled:text-gray-400
+    disabled:text-gray-500
   `,
   outline: `
     bg-transparent text-blue-600

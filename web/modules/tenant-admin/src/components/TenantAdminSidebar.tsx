@@ -300,6 +300,7 @@ export const TenantAdminSidebar: React.FC<TenantAdminSidebarProps> = ({
 
   return (
     <aside
+      aria-label="Main navigation"
       className={`
         h-screen flex flex-col
         bg-gradient-to-b from-tenant-950 via-tenant-900 to-tenant-800

@@ -346,7 +346,7 @@ const EventDetailModal: React.FC<{
               {getSeverityIcon(event.severity)}
               <h2 className="text-xl font-semibold text-gray-900">{event.eventType}</h2>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -742,7 +742,7 @@ export const SecurityDashboardPage: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <Eye className="w-4 h-4 text-gray-400" />
+                    <Eye className="w-4 h-4 text-gray-500" />
                   </div>
                 </div>
               ))

@@ -4,6 +4,9 @@
  * Implements behavior tree pattern for complex decision-making in alert rules.
  * Supports composite nodes (sequence, selector, parallel), decorators (inverter,
  * repeater, retry, timeout), and leaf nodes (action, condition).
+ *
+ * @deprecated This service is not registered in any NestJS module and is dead code.
+ * Retained for reference; scheduled for removal. See D10-F3.
  */
 
 import * as crypto from 'crypto';

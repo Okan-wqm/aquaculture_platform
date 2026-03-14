@@ -1358,6 +1358,49 @@ export class AuthenticationService {
     return this.generateTokens(user, ipAddress, userAgent);
   }
 
+  /**
+   * Generate full auth tokens for a user after WebAuthn (biometric) verification.
+   * This is called by WebAuthnService after successful biometric authentication.
+   *
+   * SECURITY: This method must only be called from WebAuthnService after
+   * credential verification succeeds. It bypasses password validation
+   * (biometric authentication replaces password).
+   */
+  async generateTokensForWebAuthn(
+    user: User,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthPayload> {
+    // Enforce concurrent session limit
+    if (this.sessionManager) {
+      await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
+    }
+
+    this.logger.log(`WebAuthn verified, generating tokens for: ${user.email} (role: ${user.role})`);
+
+    // Audit log + event publish in parallel
+    await Promise.allSettled([
+      this.logSecurityEvent('LOGIN_SUCCESS_WEBAUTHN', {
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+        ipAddress,
+        userAgent,
+        success: true,
+      }),
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        eventType: 'UserLoggedIn',
+        timestamp: new Date(),
+        tenantId: user.tenantId ?? 'system',
+        userId: user.id,
+        version: 1,
+      }),
+    ]);
+
+    return this.generateTokens(user, ipAddress, userAgent);
+  }
+
   private parseExpiresIn(expiresIn: string): number {
     // L-03: Support 'w' (weeks) unit in addition to s/m/h/d
     const match = expiresIn.match(/^(\d+)([smhdw])$/);

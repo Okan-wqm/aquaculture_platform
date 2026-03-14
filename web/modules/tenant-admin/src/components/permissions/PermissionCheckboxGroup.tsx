@@ -308,15 +308,15 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
             {getCategoryIcon(category.categoryKey)}
           </span>
           <span className="font-semibold text-gray-900">{category.name}</span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             ({selectedPermissions}/{totalPermissions})
           </span>
         </div>
         <span className="flex items-center gap-2" aria-hidden="true">
           {isExpanded ? (
-            <ChevronDown className="w-5 h-5 text-gray-400" />
+            <ChevronDown className="w-5 h-5 text-gray-500" />
           ) : (
-            <ChevronRight className="w-5 h-5 text-gray-400" />
+            <ChevronRight className="w-5 h-5 text-gray-500" />
           )}
         </span>
       </button>

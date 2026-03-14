@@ -173,8 +173,8 @@ const HmiWidgetPanel: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 py-12">
-                <Settings className="w-10 h-10 mb-3 text-gray-300" />
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 py-12">
+                <Settings className="w-10 h-10 mb-3 text-gray-500" />
                 <p className="text-sm">Bilinmeyen widget tipi</p>
                 <p className="text-xs mt-1">{widgetType || 'Tip belirtilmemis'}</p>
               </div>
@@ -219,7 +219,7 @@ const HmiWidgetPanel: React.FC = () => {
             </div>
 
             {alarmRules.length === 0 && (
-              <p className="text-xs text-gray-400 py-4 text-center">Henuz alarm kurali yok</p>
+              <p className="text-xs text-gray-500 py-4 text-center">Henuz alarm kurali yok</p>
             )}
 
             {alarmRules.map((rule) => (
@@ -348,7 +348,7 @@ const HmiWidgetPanel: React.FC = () => {
                   </div>
                 ))}
                 {trendConfig.tags.length === 0 && (
-                  <p className="text-xs text-gray-400 text-center py-2">Henuz tag eklenmedi</p>
+                  <p className="text-xs text-gray-500 text-center py-2">Henuz tag eklenmedi</p>
                 )}
               </div>
             </div>
@@ -371,11 +371,11 @@ const PlcPanel: React.FC = () => (
     </h3>
     <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
       <p className="text-xs text-gray-500 font-medium mb-2">Variable Listesi</p>
-      <p className="text-xs text-gray-400">PLC degisken tarayici burada gorunecek.</p>
+      <p className="text-xs text-gray-500">PLC degisken tarayici burada gorunecek.</p>
     </div>
     <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
       <p className="text-xs text-gray-500 font-medium mb-2">I/O Mapping</p>
-      <p className="text-xs text-gray-400">Fiziksel I/O eslemesi burada yapilacak.</p>
+      <p className="text-xs text-gray-500">Fiziksel I/O eslemesi burada yapilacak.</p>
     </div>
   </div>
 );
@@ -388,11 +388,11 @@ const RuntimePanel: React.FC = () => (
     </h3>
     <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
       <p className="text-xs text-gray-500 font-medium mb-2">Tag Degerleri</p>
-      <p className="text-xs text-gray-400">Canli tag degerleri tablosu burada gorunecek.</p>
+      <p className="text-xs text-gray-500">Canli tag degerleri tablosu burada gorunecek.</p>
     </div>
     <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
       <p className="text-xs text-gray-500 font-medium mb-2">Aktif Alarmlar</p>
-      <p className="text-xs text-gray-400">Aktif alarm listesi burada gorunecek.</p>
+      <p className="text-xs text-gray-500">Aktif alarm listesi burada gorunecek.</p>
     </div>
   </div>
 );
@@ -405,11 +405,11 @@ const DebugPanel: React.FC = () => (
     </h3>
     <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
       <p className="text-xs text-gray-500 font-medium mb-2">Watch Degiskenleri</p>
-      <p className="text-xs text-gray-400">Izlenen degiskenler burada gorunecek.</p>
+      <p className="text-xs text-gray-500">Izlenen degiskenler burada gorunecek.</p>
     </div>
     <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
       <p className="text-xs text-gray-500 font-medium mb-2">Force Value</p>
-      <p className="text-xs text-gray-400">Degisken zorla atama dialogu burada olacak.</p>
+      <p className="text-xs text-gray-500">Degisken zorla atama dialogu burada olacak.</p>
     </div>
   </div>
 );
@@ -423,8 +423,8 @@ const EmptyState: React.FC<{ icon: React.FC<{ className?: string }>; title: stri
   title,
   subtitle,
 }) => (
-  <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 p-6">
-    <Icon className="w-10 h-10 mb-3 text-gray-300" />
+  <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 p-6">
+    <Icon className="w-10 h-10 mb-3 text-gray-500" />
     <p className="text-sm font-medium">{title}</p>
     <p className="text-xs mt-1">{subtitle}</p>
   </div>

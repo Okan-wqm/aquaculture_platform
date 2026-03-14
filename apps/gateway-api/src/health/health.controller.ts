@@ -1,71 +1,85 @@
-import { Controller, Get, HttpCode, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpException, HttpStatus, Res } from '@nestjs/common';
+import { Response } from 'express';
 
 import { Public } from '../guards/auth.guard';
 
-import { HealthService, HealthStatus, PublicHealthStatus } from './health.service';
+import { HealthService, HealthStatus } from './health.service';
 
 /**
- * Health Controller
- * Provides health check endpoints for kubernetes probes
+ * Gateway Health Controller
  *
- * /health/live  - Public (K8s liveness probe)
- * /health/ready - Public (K8s readiness probe)
- * /health/ping  - Public (connectivity check)
- * /health       - Public but sanitized (no internal URLs, memory, uptime)
- * /health/detail - Auth required (full internal details for monitoring)
+ * The gateway is a special case: it has no database of its own but checks
+ * downstream microservices for readiness.
+ *
+ * Standard K8s probe endpoints:
+ *   GET /health/live   - Liveness: always 200 if process is alive
+ *   GET /health/ready  - Readiness: 200 if auth service reachable, 503 otherwise
+ *   GET /health        - General: sanitized status with timestamp, uptime, version
+ *   GET /health/detail - Auth required: full internal details for monitoring
+ *   GET /health/ping   - Simple connectivity check
  */
 @Controller('health')
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
   /**
-   * Liveness probe endpoint
-   * Returns 200 if the gateway is running
-   * Used by kubernetes to determine if pod should be restarted
+   * K8s Liveness Probe.
+   * Returns 200 as long as the process is running.
    */
   @Get('live')
   @Public()
   @HttpCode(HttpStatus.OK)
   liveness(): { status: 'ok' } {
-    return this.healthService.getLiveness();
+    return { status: 'ok' };
   }
 
   /**
-   * Readiness probe endpoint
-   * Returns 200 if the gateway is ready to accept traffic
-   * Used by kubernetes to determine if pod should receive traffic
+   * K8s Readiness Probe.
+   * Returns 200 if the gateway can reach critical downstream services.
+   * Returns 503 if not ready.
    */
   @Get('ready')
   @Public()
-  @HttpCode(HttpStatus.OK)
-  async readiness(): Promise<{ status: 'ok' | 'not_ready'; message?: string }> {
+  async readiness(@Res() res: Response): Promise<void> {
     const result = await this.healthService.getReadiness();
 
-    if (result.status !== 'ok') {
-      // Return 503 if not ready
-      throw new ServiceUnavailableException(result.message);
-    }
+    const isReady = result.status === 'ok';
+    const httpStatus = isReady ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
 
-    return result;
+    res.status(httpStatus).json({
+      status: isReady ? 'ok' : 'not_ready',
+      checks: {
+        downstream: isReady ? 'ok' : 'error',
+      },
+    });
   }
 
   /**
-   * Public health check endpoint (sanitized)
-   * Returns overall status and service names only
-   * Does NOT expose: URLs, memory, uptime, version, error details
+   * General Health Endpoint (sanitized, public).
+   * Returns timestamp, uptime, version. No internal service details.
    */
   @Get()
   @Public()
   @HttpCode(HttpStatus.OK)
-  async health(): Promise<PublicHealthStatus> {
-    return this.healthService.getPublicHealth();
+  health(): {
+    status: 'ok';
+    timestamp: string;
+    uptime: number;
+    version: string;
+  } {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: process.env.APP_VERSION || '0.0.0',
+    };
   }
 
   /**
-   * Detailed health check endpoint (auth required)
-   * Returns full internal details including service URLs, memory, uptime
-   * For monitoring dashboards and debugging only
-   * No @Public() decorator = requires authentication via global AuthGuard
+   * Detailed health check endpoint (auth required).
+   * Returns full internal details including service URLs, memory, uptime.
+   * For monitoring dashboards and debugging only.
+   * No @Public() decorator = requires authentication via global AuthGuard.
    */
   @Get('detail')
   @HttpCode(HttpStatus.OK)
@@ -74,8 +88,7 @@ export class HealthController {
   }
 
   /**
-   * Simple ping endpoint
-   * Returns pong - useful for simple connectivity checks
+   * Simple ping endpoint.
    */
   @Get('ping')
   @Public()
@@ -85,21 +98,5 @@ export class HealthController {
       message: 'pong',
       timestamp: new Date().toISOString(),
     };
-  }
-}
-
-/**
- * Custom exception for service unavailable
- */
-class ServiceUnavailableException extends HttpException {
-  constructor(message?: string) {
-    super(
-      {
-        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
-        message: message || 'Service temporarily unavailable',
-        error: 'Service Unavailable',
-      },
-      HttpStatus.SERVICE_UNAVAILABLE,
-    );
   }
 }

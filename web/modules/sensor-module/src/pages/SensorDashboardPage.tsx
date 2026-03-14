@@ -118,7 +118,7 @@ const SensorDashboardPage: React.FC = () => {
   // Show loading state
   if (loading && sensors.length === 0) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-100">
+      <div className="h-screen flex items-center justify-center bg-gray-100" role="status" aria-live="polite">
         <div className="text-center">
           <Loader2 size={48} className="mx-auto mb-4 text-cyan-500 animate-spin" />
           <h2 className="text-xl font-semibold text-gray-700">Sensörler Yükleniyor...</h2>
@@ -152,7 +152,7 @@ const SensorDashboardPage: React.FC = () => {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
         <div className="text-center max-w-md">
-          <Cpu size={64} className="mx-auto mb-4 text-gray-300" />
+          <Cpu size={64} className="mx-auto mb-4 text-gray-500" />
           <h2 className="text-2xl font-semibold text-gray-700 mb-2">Henüz Sensör Yok</h2>
           <p className="text-gray-500 mb-6">
             Dashboard'da görüntülemek için önce sensör kaydetmeniz gerekiyor.
@@ -164,7 +164,7 @@ const SensorDashboardPage: React.FC = () => {
             <Plus size={20} />
             Sensör Kaydet
           </Link>
-          <p className="mt-4 text-sm text-gray-400">
+          <p className="mt-4 text-sm text-gray-500">
             veya{' '}
             <Link to="/sensor/devices" className="text-cyan-600 hover:underline">
               Cihaz Yönetimi
@@ -209,7 +209,7 @@ const SensorDashboardPage: React.FC = () => {
               <span className="text-xs text-gray-600">
                 {isLiveMode ? 'Canlı' : 'Duraklatıldı'}
               </span>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-500">
                 | {formatLastUpdate()}
               </span>
             </div>
@@ -319,14 +319,14 @@ const SensorDashboardPage: React.FC = () => {
             >
               Prosesleri Düzenle
             </Link>
-            <span className="text-gray-300">|</span>
+            <span className="text-gray-500">|</span>
             <Link
               to="/sensor/analytics"
               className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
             >
               Analitik
             </Link>
-            <span className="text-gray-300">|</span>
+            <span className="text-gray-500">|</span>
             <Link
               to="/sensor/readings"
               className="text-xs text-blue-600 hover:text-blue-700 hover:underline"

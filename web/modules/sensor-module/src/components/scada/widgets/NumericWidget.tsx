@@ -31,7 +31,7 @@ const statusColors: Record<SensorStatus, { bg: string; text: string; border: str
 const trendColors = {
   up: 'text-green-500',
   down: 'text-red-500',
-  stable: 'text-gray-400',
+  stable: 'text-gray-500',
 };
 
 export const NumericWidget: React.FC<NumericWidgetProps> = ({

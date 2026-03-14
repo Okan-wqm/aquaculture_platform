@@ -55,7 +55,7 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
 
   if (error || !data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         {error || 'No data'}
       </div>
     );
@@ -134,13 +134,13 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
       </div>
 
       {/* Last update time */}
-      <div className="mt-1 flex items-center gap-1 text-xs text-gray-400">
+      <div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
         <Clock size={10} />
         <span>{formatTimeSince(reading.timestamp)}</span>
       </div>
 
       {/* Min/Max labels */}
-      <div className="flex justify-between w-full mt-1 px-4 text-xs text-gray-400">
+      <div className="flex justify-between w-full mt-1 px-4 text-xs text-gray-500">
         <span>{minValue}</span>
         <span>{maxValue}</span>
       </div>

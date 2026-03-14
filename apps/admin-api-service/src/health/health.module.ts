@@ -1,5 +1,4 @@
 import { Module, OnApplicationBootstrap } from '@nestjs/common';
-import { TerminusModule } from '@nestjs/terminus';
 
 import { SettingsModule } from '../settings/settings.module';
 
@@ -7,7 +6,7 @@ import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
 
 @Module({
-  imports: [TerminusModule, SettingsModule],
+  imports: [SettingsModule],
   controllers: [HealthController],
   providers: [HealthService],
   exports: [HealthService],

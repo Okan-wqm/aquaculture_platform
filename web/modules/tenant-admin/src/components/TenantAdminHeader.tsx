@@ -54,7 +54,7 @@ export const TenantAdminHeader: React.FC<TenantAdminHeaderProps> = ({
         {/* Search Bar - Hidden on mobile */}
         <div className="hidden md:flex items-center">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
               type="text"
               placeholder="Search..."
@@ -98,7 +98,7 @@ export const TenantAdminHeader: React.FC<TenantAdminHeaderProps> = ({
               <span className="text-xs text-gray-500">{tenantName}</span>
             </div>
 
-            <ChevronDown className="hidden md:block w-4 h-4 text-gray-400" />
+            <ChevronDown className="hidden md:block w-4 h-4 text-gray-500" />
           </button>
 
           {/* Dropdown Menu */}

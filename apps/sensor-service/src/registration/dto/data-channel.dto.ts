@@ -182,6 +182,41 @@ export class ReorderChannelsInput {
   channelIds!: string[];
 }
 
+/**
+ * PERF-RISK-004: Single item for bulk data channel threshold update.
+ * Used to replace N individual mutations with one atomic batch operation.
+ */
+@InputType()
+export class BulkUpdateDataChannelItem {
+  @Field(() => ID)
+  channelId!: string;
+
+  @Field(() => AlertThresholdsInput, { nullable: true })
+  alertThresholds?: AlertThresholdsInput;
+}
+
+/**
+ * PERF-RISK-004: Input for bulk updating data channel thresholds.
+ * Maximum 100 items per request to prevent abuse.
+ */
+@InputType()
+export class BulkUpdateDataChannelsInput {
+  @Field(() => [BulkUpdateDataChannelItem])
+  updates!: BulkUpdateDataChannelItem[];
+}
+
+/**
+ * PERF-RISK-004: Response type for bulk update operation.
+ */
+@ObjectType()
+export class BulkUpdateDataChannelsResult {
+  @Field()
+  success!: boolean;
+
+  @Field(() => Int)
+  count!: number;
+}
+
 // === Output Types ===
 
 @ObjectType('ChannelSensorInfo')

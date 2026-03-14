@@ -410,6 +410,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
+      aria-label="Main navigation"
       className={`
         flex flex-col
         ${collapsed ? 'w-16' : 'w-64'}
@@ -426,6 +427,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => onCollapsedChange(!collapsed)}
             className={`p-2 text-gray-500 hover:text-gray-700 ${themeStyle.toggleHover} rounded-lg`}
             title={collapsed ? 'Expand' : 'Collapse'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             <svg
               className={`w-5 h-5 transition-transform ${collapsed ? 'rotate-180' : ''}`}

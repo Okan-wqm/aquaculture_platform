@@ -113,7 +113,7 @@ const ThresholdRow: React.FC<ThresholdRowProps> = ({ threshold, onUpdate, updati
         <div>
           <span className="font-medium text-gray-900">{threshold.sensorName}</span>
           {threshold.dataPath && (
-            <p className="text-xs text-gray-400 font-mono">{threshold.dataPath}</p>
+            <p className="text-xs text-gray-500 font-mono">{threshold.dataPath}</p>
           )}
         </div>
       </td>
@@ -214,7 +214,7 @@ const ThresholdRow: React.FC<ThresholdRowProps> = ({ threshold, onUpdate, updati
             <button
               onClick={handleCancel}
               disabled={saving}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               title="İptal"
             >
               <X className="w-4 h-4" />
@@ -224,7 +224,7 @@ const ThresholdRow: React.FC<ThresholdRowProps> = ({ threshold, onUpdate, updati
           <button
             onClick={handleEdit}
             disabled={updating}
-            className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
             title="Düzenle"
           >
             <Edit className="w-4 h-4" />
@@ -391,7 +391,7 @@ const ThresholdsPage: React.FC = () => {
       {/* Empty State */}
       {sensorTypes.length === 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Activity className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 mb-2">Henüz Sensör Yok</h3>
           <p className="text-gray-500">
             Eşik değerlerini düzenlemek için önce sensör kaydetmeniz gerekiyor.

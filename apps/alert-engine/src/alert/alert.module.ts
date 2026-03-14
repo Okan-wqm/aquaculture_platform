@@ -6,10 +6,12 @@ import { AlertRule } from '../database/entities/alert-rule.entity';
 import { AlertHistory } from './entities/alert-history.entity';
 import { AlertIncident } from '../database/entities/alert-incident.entity';
 import { EscalationPolicy } from '../database/entities/escalation-policy.entity';
+import { AuditEntryEntity } from '../audit/entities/audit-entry.entity';
 
 // Services
 import { AlertEvaluationService } from './services/alert-evaluation.service';
 import { AlertRuleService } from './services/alert-rule.service';
+import { AlertAuditService } from '../audit/alert-audit.service';
 
 // Escalation services
 import { EscalationManagerService } from '../escalation/escalation-manager.service';
@@ -30,6 +32,12 @@ import { AlertResolver } from './resolvers/alert.resolver';
  * - Alert history tracking
  * - Alert acknowledgement and resolution
  * - Incident creation and escalation pipeline
+ *
+ * NOTE: The `rules-engine/` directory (RulesEngineService, RuleEvaluatorService,
+ * BehaviorTreeService, JsonRulesService, OpaRulesService, safe-regex.util) is
+ * NOT registered in this module. Those files are dead code marked @deprecated
+ * and scheduled for removal (D10-F3). Alert evaluation uses
+ * AlertEvaluationService instead.
  */
 @Module({
   imports: [
@@ -38,12 +46,14 @@ import { AlertResolver } from './resolvers/alert.resolver';
       AlertHistory,
       AlertIncident,
       EscalationPolicy,
+      AuditEntryEntity,
     ]),
   ],
   providers: [
     // Services
     AlertEvaluationService,
     AlertRuleService,
+    AlertAuditService,
 
     // Escalation services
     EscalationPolicyService,
@@ -56,6 +66,6 @@ import { AlertResolver } from './resolvers/alert.resolver';
     // Resolvers
     AlertResolver,
   ],
-  exports: [AlertEvaluationService, AlertRuleService, EscalationManagerService, AcknowledgmentTrackerService],
+  exports: [AlertEvaluationService, AlertRuleService, EscalationManagerService, AcknowledgmentTrackerService, AlertAuditService],
 })
 export class AlertModule {}

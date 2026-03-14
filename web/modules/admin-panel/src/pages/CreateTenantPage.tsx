@@ -303,7 +303,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 
       {/* No pricing info message */}
       {config.enabled && metrics.length === 0 && (
-        <p className="text-xs text-gray-400 pt-2 border-t">
+        <p className="text-xs text-gray-500 pt-2 border-t">
           Pricing not yet defined for this module
         </p>
       )}
@@ -926,7 +926,7 @@ const CreateTenantPage: React.FC = () => {
               ) : (
                 <div className="text-center py-12">
                   <p className="text-gray-500">No modules found</p>
-                  <p className="text-sm text-gray-400 mt-1">
+                  <p className="text-sm text-gray-500 mt-1">
                     Please define modules in Billing &gt; Module Pricing page first
                   </p>
                 </div>
@@ -1113,7 +1113,7 @@ const CreateTenantPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-400 pt-2">
+                  <p className="text-xs text-gray-500 pt-2">
                     * Prices are shown excluding taxes
                   </p>
                 </div>

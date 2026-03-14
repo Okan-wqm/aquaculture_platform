@@ -37,6 +37,9 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
 
 # Custom rules uygula
 kubectl apply -f prometheus/aquaculture-rules.yaml
+
+# SLO alert rules uygula
+kubectl apply -f prometheus/alerts/slo-alerts.yml
 ```
 
 ### Loki Stack Kurulumu
@@ -91,12 +94,34 @@ kubectl port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 -n mo
 
 ## Alert Kuralları
 
-### Critical Alerts
+### SLO Alerts (`prometheus/alerts/slo-alerts.yml`)
+SLO/SLI tanımları: `docs/slo/platform-slo.md`
+
+| Alert | SLO | Severity |
+|-------|-----|----------|
+| `SloGatewayDown` | Gateway availability 99.9% | critical |
+| `SloGatewayAvailabilityBurnFast` | Gateway 14.4x burn rate | critical |
+| `SloGatewayAvailabilityBurnSlow` | Gateway 6x burn rate | warning |
+| `SloLatencyP95High` | API p95 < 500ms | warning |
+| `SloLatencyP99Critical` | API p99 < 2000ms | critical |
+| `SloErrorRateHigh` | 5xx error rate < 0.1% | critical |
+| `SloErrorBudgetFastBurn` | Error budget 14.4x burn | critical |
+| `SloErrorBudgetSlowBurn` | Error budget 6x burn | warning |
+| `SloSensorDataStale` | Sensor freshness < 60s | warning |
+| `SloSensorDataStaleExtended` | Sensor freshness < 300s | critical |
+| `SloLoginSuccessRateLow` | Login success >= 99.5% | warning |
+| `SloLoginSuccessRateCritical` | Login success < 95% | critical |
+| `SloWebhookProcessingSlow` | Webhook p95 < 5s | warning |
+| `SloWebhookProcessingCritical` | Webhook p95 < 15s | critical |
+
+### Operational Alerts (`prometheus/aquaculture-rules.yaml`)
+
+#### Critical
 - `ServiceDown`: Servis erişilemez
 - `CriticalErrorRate`: >10% hata oranı
 - `DatabaseConnectionPoolExhausted`: DB bağlantı havuzu dolu
 
-### Warning Alerts
+#### Warning
 - `HighErrorRate`: >5% hata oranı
 - `HighLatency`: >2s p95 latency
 - `HighCPUUsage`: >80% CPU kullanımı

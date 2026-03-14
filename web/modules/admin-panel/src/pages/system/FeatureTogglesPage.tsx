@@ -408,7 +408,7 @@ export const FeatureTogglesPage: React.FC = () => {
                           <span className="text-sm text-gray-600">{toggle.rolloutPercentage}%</span>
                         </div>
                       ) : (
-                        <span className="text-sm text-gray-400">-</span>
+                        <span className="text-sm text-gray-500">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4">

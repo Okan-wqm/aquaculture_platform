@@ -6,6 +6,7 @@ import { ArrowLeft, Package, CheckCircle, AlertCircle, Hand, Settings, Radio } f
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useAuth } from '@/hooks/useAuth';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import { GET_TODAYS_FEEDING_PLAN } from '@/graphql/operations';
 import { clsx } from 'clsx';
 
@@ -72,33 +73,12 @@ function useTodaysFeedingPlan() {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'X-Tenant-Id': tenantId,
-          // SEC-06: CSRF defense header
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: GET_TODAYS_FEEDING_PLAN,
-          variables: { date: dateStr },
-        }),
-      });
+      const result = await graphqlRequest<{ dailyFeedingExecutions: FeedingExecution[] }>(
+        GET_TODAYS_FEEDING_PLAN,
+        { date: dateStr },
+      );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
-
-      const result = await response.json() as { data?: { dailyFeedingExecutions: FeedingExecution[] }; errors?: Array<{ message: string }> };
-
-      if (result.errors && result.errors.length > 0) {
-        throw new Error(result.errors[0]?.message || 'Failed to fetch feeding plan');
-      }
-
-      return result.data?.dailyFeedingExecutions ?? [];
+      return result.dailyFeedingExecutions ?? [];
     },
     enabled: isAuthenticated && !!accessToken && !!tenantId && isOnline,
     // 5-minute stale time: prevents re-fetching on brief network flickers while

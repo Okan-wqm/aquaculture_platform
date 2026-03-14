@@ -171,7 +171,7 @@ const ProgressBar: React.FC<{
     default: 'bg-blue-500',
     primary: 'bg-blue-600',
     success: 'bg-green-500',
-    warning: 'bg-yellow-500',
+    warning: 'bg-yellow-600',
     danger: 'bg-red-500',
     info: 'bg-cyan-500',
   };

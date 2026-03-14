@@ -1,42 +1,19 @@
-import { Controller, Get } from '@nestjs/common';
-import {
-  HealthCheck,
-  HealthCheckService,
-  TypeOrmHealthIndicator,
-  MemoryHealthIndicator,
-} from '@nestjs/terminus';
-import { Public, SkipTenantGuard } from '@platform/backend-common';
+import { Controller } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { StandardHealthController } from '@platform/backend-common';
+import { DataSource } from 'typeorm';
 
+/**
+ * Config Service Health Controller
+ * Extends the standard health controller with consistent K8s probe format.
+ */
 @Controller('health')
-@Public()
-@SkipTenantGuard()
-export class HealthController {
+export class HealthController extends StandardHealthController {
   constructor(
-    private readonly health: HealthCheckService,
-    private readonly db: TypeOrmHealthIndicator,
-    private readonly memory: MemoryHealthIndicator,
-  ) {}
-
-  @Get()
-  @HealthCheck()
-  check() {
-    return this.health.check([
-      () => this.db.pingCheck('database'),
-      () => this.memory.checkHeap('memory_heap', 500 * 1024 * 1024),
-      () => this.memory.checkRSS('memory_rss', 1024 * 1024 * 1024),
-    ]);
-  }
-
-  @Get('live')
-  liveness() {
-    return { status: 'ok', timestamp: new Date().toISOString() };
-  }
-
-  @Get('ready')
-  @HealthCheck()
-  readiness() {
-    return this.health.check([
-      () => this.db.pingCheck('database'),
-    ]);
+    @InjectDataSource()
+    dataSource: DataSource,
+  ) {
+    super(dataSource);
+    this.serviceName = 'config-service';
   }
 }

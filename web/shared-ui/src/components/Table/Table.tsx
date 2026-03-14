@@ -138,7 +138,7 @@ const SortIndicator: React.FC<{ active: boolean; direction?: 'asc' | 'desc' }> =
   <span className="ml-2 inline-flex">
     <svg
       className={`w-4 h-4 transition-colors ${
-        active ? 'text-blue-600' : 'text-gray-400'
+        active ? 'text-blue-600' : 'text-gray-500'
       }`}
       fill="none"
       viewBox="0 0 24 24"
@@ -384,6 +384,12 @@ export function Table<T extends object = Record<string, unknown>>({
                   `}
                   style={{ width: column.width }}
                   onClick={() => column.sortable && handleSort(String(column.key))}
+                  aria-sort={
+                    sorting?.field === String(column.key)
+                      ? sorting.order === 'asc' ? 'ascending' : 'descending'
+                      : undefined
+                  }
+                  aria-label={column.sortable ? `Sort by ${column.header || column.label}` : undefined}
                 >
                   <div className={`flex items-center ${column.align === 'center' ? 'justify-center' : column.align === 'right' ? 'justify-end' : ''}`}>
                     {column.header || column.label}

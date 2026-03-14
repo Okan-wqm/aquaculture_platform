@@ -1,61 +1,31 @@
-import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
-import {
-  HealthCheck,
-  HealthCheckService,
-  TypeOrmHealthIndicator,
-  MemoryHealthIndicator,
-} from '@nestjs/terminus';
-import { HealthService } from './health.service';
+import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { StandardHealthController } from '@platform/backend-common';
+import { DataSource } from 'typeorm';
+
 import { Public } from '../guards/internal-api.guard';
+import { HealthService } from './health.service';
 
+/**
+ * Observability Service Health Controller
+ * Extends the standard health controller with consistent K8s probe format.
+ * Retains the /health/metrics endpoint for internal monitoring.
+ */
 @Controller('health')
-export class HealthController {
+export class HealthController extends StandardHealthController {
   constructor(
-    private readonly health: HealthCheckService,
-    private readonly db: TypeOrmHealthIndicator,
-    private readonly memory: MemoryHealthIndicator,
+    @InjectDataSource()
+    dataSource: DataSource,
     private readonly healthService: HealthService,
-  ) {}
-
-  @Get()
-  @HealthCheck()
-  check() {
-    return this.health.check([
-      () => this.db.pingCheck('database'),
-      () => this.memory.checkHeap('memory_heap', 500 * 1024 * 1024),
-      () => this.memory.checkRSS('memory_rss', 1024 * 1024 * 1024),
-    ]);
+  ) {
+    super(dataSource);
+    this.serviceName = 'observability-service';
   }
 
-  @Get('live')
-  @Public()
-  liveness() {
-    return { status: 'ok', timestamp: new Date().toISOString() };
-  }
-
-  @Get('ready')
-  @Public()
-  async readiness() {
-    const dbHealthy = await this.healthService.checkDatabase();
-    if (!dbHealthy) {
-      throw new HttpException(
-        {
-          status: 'not_ready',
-          timestamp: new Date().toISOString(),
-          checks: { database: false },
-        },
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
-    }
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      checks: {
-        database: true,
-      },
-    };
-  }
-
+  /**
+   * Internal metrics endpoint (auth required via controller-level guard).
+   * Not part of the standard K8s probe set.
+   */
   @Get('metrics')
   async metrics() {
     return this.healthService.getMetrics();

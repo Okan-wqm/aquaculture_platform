@@ -48,6 +48,10 @@ interface CachedRules {
 /**
  * Rules Engine Service
  * Main orchestrator for rule evaluation and management
+ *
+ * @deprecated This service is not registered in any NestJS module and is dead code.
+ * AlertEvaluationService (in alert/services/) handles rule evaluation in production.
+ * Retained for reference; scheduled for removal. See D10-F3.
  */
 @Injectable()
 export class RulesEngineService implements OnModuleInit, OnModuleDestroy {

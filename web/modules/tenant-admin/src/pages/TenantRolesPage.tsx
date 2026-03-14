@@ -355,7 +355,7 @@ const RoleModal = memo<RoleModalProps>(({
                 />
               ) : (
                 <div className="p-8 text-center bg-gray-50 rounded-xl">
-                  <RefreshCw className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
+                  <RefreshCw className="w-6 h-6 animate-spin text-gray-500 mx-auto" />
                   <p className="mt-2 text-sm text-gray-500">
                     Loading permission categories...
                   </p>

@@ -153,7 +153,7 @@ export const SparklineWidget: React.FC<SparklineWidgetProps> = ({
               : 'bg-gray-400'
           }`}
         />
-        <span className="text-xs text-gray-400 capitalize">{status}</span>
+        <span className="text-xs text-gray-500 capitalize">{status}</span>
       </div>
     </div>
   );

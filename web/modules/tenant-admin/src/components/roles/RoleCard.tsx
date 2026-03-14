@@ -119,7 +119,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             {onEdit && (
               <button
                 onClick={() => onEdit(role)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                 title="Edit role"
                 aria-label={`Edit ${role.name} role`}
               >
@@ -129,7 +129,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             {onDelete && !role.isSystemRole && (
               <button
                 onClick={() => onDelete(role)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                 title="Delete role"
                 aria-label={`Delete ${role.name} role`}
               >

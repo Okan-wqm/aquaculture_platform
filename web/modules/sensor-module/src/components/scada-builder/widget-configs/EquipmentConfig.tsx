@@ -139,7 +139,7 @@ export const EquipmentConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
             </option>
           ))}
         </select>
-        <p className="mt-1 text-xs text-gray-400">
+        <p className="mt-1 text-xs text-gray-500">
           Select a state to test the symbol in edit mode.
         </p>
       </div>

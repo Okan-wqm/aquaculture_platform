@@ -138,7 +138,7 @@ const AlertCard: React.FC<{
               </span>
             )}
             {alert.sensorId && (
-              <span className="text-xs text-gray-400 font-mono">
+              <span className="text-xs text-gray-500 font-mono">
                 Sensor: {alert.sensorId.slice(0, 8)}...
               </span>
             )}
@@ -230,7 +230,7 @@ const AlertsPage: React.FC = () => {
   // Loading state
   if (loading && alerts.length === 0) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]">
+      <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
           <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
           <p className="text-gray-500">Uyarilar yukleniyor...</p>
@@ -347,7 +347,7 @@ const AlertsPage: React.FC = () => {
 
           {/* Severity Filter */}
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-400" />
+            <Filter className="w-5 h-5 text-gray-500" />
             <select
               value={filters.severity || 'all'}
               onChange={(e) =>
@@ -368,7 +368,7 @@ const AlertsPage: React.FC = () => {
           </div>
 
           {/* Auto-refresh indicator */}
-          <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-400">
+          <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-500">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             Otomatik yenileme: 30s
           </div>
@@ -389,7 +389,7 @@ const AlertsPage: React.FC = () => {
       {/* Empty State */}
       {alerts.length === 0 && !loading && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Activity className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 mb-2">Uyari Bulunamadi</h3>
           <p className="text-gray-500 text-sm">
             {filters.status !== 'all' || filters.severity

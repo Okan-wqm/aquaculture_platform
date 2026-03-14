@@ -45,7 +45,7 @@ const IndustrySetupPage: React.FC = () => {
         <div className="mt-6 flex justify-center">
           <button
             onClick={handleSkip}
-            className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-600 transition-colors"
           >
             Atla
             <ArrowRight className="w-4 h-4" />

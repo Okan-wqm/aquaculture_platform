@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
-import type { Task, GraphQLResponse } from '@/types';
+import type { Task } from '@/types';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import { GET_MY_TASKS } from '@/graphql/operations';
 
 type Segment = 'today' | 'upcoming' | 'overdue';
@@ -42,25 +43,12 @@ export function useMyTasks(segment: Segment = 'today') {
     setError(null);
 
     try {
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({
-          query: GET_MY_TASKS,
-          variables: { status: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
-        }),
-      });
+      const result = await graphqlRequest<{ myTasks: Task[] }>(
+        GET_MY_TASKS,
+        { status: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
+      );
 
-      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-
-      const result: GraphQLResponse<{ myTasks: Task[] }> = await response.json();
-      if (result.errors?.length) throw new Error(result.errors[0]?.message || 'GraphQL error');
-
-      const tasks = result.data?.myTasks || [];
+      const tasks = result.myTasks || [];
       setAllTasks(tasks);
       await cacheData('myTasks', tasks, 1000 * 60 * 30); // 30 min TTL
     } catch (err) {

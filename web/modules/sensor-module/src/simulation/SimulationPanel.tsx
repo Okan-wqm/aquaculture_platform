@@ -93,7 +93,7 @@ function isStringType(dataType: string): boolean {
 const StatusIndicator: React.FC<{ state: SimulationState }> = ({ state }) => {
   const { color, label } = STATUS_CONFIG[state];
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+    <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-500">
       <span className={`w-2 h-2 rounded-full ${color} ${state === 'running' ? 'animate-pulse' : ''}`} />
       {label}
     </span>
@@ -199,7 +199,7 @@ const VariableInputRow: React.FC<{
     }
 
     // Fallback: read-only display
-    return <span className="text-xs font-mono text-gray-600 dark:text-gray-400">{String(value)}</span>;
+    return <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>;
   };
 
   return (
@@ -273,14 +273,14 @@ const VariableSection: React.FC<{
         className="w-full flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 text-left transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
         )}
-        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+        <span className="text-xs font-semibold text-gray-700 dark:text-gray-500">
           {section.label}
         </span>
-        <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+        <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-500">
           {variables.length}
         </span>
       </button>
@@ -290,13 +290,13 @@ const VariableSection: React.FC<{
         <table className="w-full">
           <thead>
             <tr className="border-t border-gray-200 dark:border-gray-700">
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-400 dark:text-gray-500 w-1/3">
+              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500 w-1/3">
                 Değişken
               </th>
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-400 dark:text-gray-500 w-16">
+              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500 w-16">
                 Tip
               </th>
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-400 dark:text-gray-500">
+              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500">
                 Değer
               </th>
             </tr>
@@ -483,7 +483,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
         {/* Row 2: Cycle count, scan interval, status */}
         <div className="flex items-center gap-3 flex-wrap text-xs">
           {/* Cycle counter */}
-          <span className="text-gray-600 dark:text-gray-400">
+          <span className="text-gray-600 dark:text-gray-500">
             Cycle:{' '}
             <span className="font-mono font-semibold text-gray-900 dark:text-gray-200">
               {cycleCount}
@@ -491,7 +491,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           </span>
 
           {/* Scan cycle interval selector */}
-          <span className="inline-flex items-center gap-1 text-gray-600 dark:text-gray-400">
+          <span className="inline-flex items-center gap-1 text-gray-600 dark:text-gray-500">
             Scan:
             <select
               value={scanCycleMs}
@@ -524,7 +524,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
       {/* ── Idle state placeholder ───────────────────────────────────────── */}
       {state === 'idle' && (
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center text-sm text-gray-400 dark:text-gray-600">
+          <div className="text-center text-sm text-gray-500 dark:text-gray-600">
             <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p>ST kodunu yükleyin ve simülasyonu başlatın</p>
             <p className="text-xs mt-1">
@@ -555,7 +555,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
 
           {/* Empty state when there are no variables */}
           {variables.length === 0 && (
-            <div className="text-center text-xs text-gray-400 dark:text-gray-600 py-8">
+            <div className="text-center text-xs text-gray-500 dark:text-gray-600 py-8">
               Değişken bulunamadı. ST kodunda VAR bloğu tanımlayın.
             </div>
           )}
@@ -565,7 +565,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
       {/* ── Error state: no table shown ──────────────────────────────────── */}
       {state === 'error' && (
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center text-sm text-gray-400 dark:text-gray-600">
+          <div className="text-center text-sm text-gray-500 dark:text-gray-600">
             <AlertCircle className="w-8 h-8 mx-auto mb-2 text-red-400 opacity-50" />
             <p>Simülasyon yüklenemedi</p>
             <p className="text-xs mt-1">

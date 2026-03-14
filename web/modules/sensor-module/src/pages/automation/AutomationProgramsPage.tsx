@@ -497,7 +497,7 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-4 mb-6">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
           <input
             type="text"
             placeholder="Search programs..."
@@ -580,7 +580,7 @@ const AutomationProgramsPage: React.FC = () => {
         </div>
       ) : filteredPrograms.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg">
-          <Workflow className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+          <Workflow className="h-12 w-12 mx-auto text-gray-500 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
             No programs found
           </h3>

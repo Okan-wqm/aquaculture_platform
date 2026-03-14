@@ -113,7 +113,7 @@ const SensorScadaPage: React.FC = () => {
             <span className="flex items-center gap-1"><Activity className="w-3.5 h-3.5 text-blue-600" />{stats.channelCount} kanal</span>
             <span className="flex items-center gap-1"><Wifi className="w-3.5 h-3.5 text-green-600" />{stats.onlineCount} çevrimiçi</span>
           </div>
-          <div className="flex items-center gap-1 text-xs text-gray-400">
+          <div className="flex items-center gap-1 text-xs text-gray-500">
             <Clock className="w-3 h-3" />
             {lastUpdateTime}
           </div>
@@ -149,7 +149,7 @@ const SensorScadaPage: React.FC = () => {
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-50">
               <div className="text-center max-w-md">
-                <Layers className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <Layers className="w-16 h-16 text-gray-500 mx-auto mb-4" />
                 <h2 className="text-xl font-semibold text-gray-700 mb-2">
                   Proses Seçin veya Oluşturun
                 </h2>
@@ -181,7 +181,7 @@ const SensorScadaPage: React.FC = () => {
       </div>
 
       {/* Minimal Status Bar */}
-      <div className="flex items-center justify-between px-4 py-1 bg-white border-t border-gray-200 text-[11px] text-gray-400">
+      <div className="flex items-center justify-between px-4 py-1 bg-white border-t border-gray-200 text-[11px] text-gray-500">
         <span>{selectedProcess ? selectedProcess.nodes.length : 0} ekipman · {stats.channelCount} sensör</span>
         <span className="flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />

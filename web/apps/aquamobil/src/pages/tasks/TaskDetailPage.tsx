@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
 import { useTaskActions } from '@/hooks/useTaskActions';
-import type { Task, ChecklistItem, TaskNote, GraphQLResponse } from '@/types';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { Task, ChecklistItem, TaskNote } from '@/types';
 import { GET_TASK_DETAIL } from '@/graphql/operations';
 import { clsx } from 'clsx';
 
@@ -39,7 +39,6 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 export function TaskDetailPage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: string }>();
-  const { accessToken } = useAuth();
   const { completeTask, startTask, toggleChecklistItem, addNote } = useTaskActions();
 
   const [task, setTask] = useState<Task | null>(null);
@@ -51,33 +50,23 @@ export function TaskDetailPage() {
   const [successMessage, setSuccessMessage] = useState('');
 
   const fetchTask = useCallback(async () => {
-    if (!accessToken || !taskId) return;
+    if (!taskId) return;
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({ query: GET_TASK_DETAIL, variables: { id: taskId } }),
-      });
+      const result = await graphqlRequest<{ task: Task }>(
+        GET_TASK_DETAIL,
+        { id: taskId },
+      );
 
-      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-
-      const result: GraphQLResponse<{ task: Task }> = await response.json();
-      if (result.errors?.length) throw new Error(result.errors[0]?.message || 'GraphQL error');
-
-      setTask(result.data?.task ?? null);
+      setTask(result.task ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load task');
     } finally {
       setLoading(false);
     }
-  }, [accessToken, taskId]);
+  }, [taskId]);
 
   useEffect(() => {
     fetchTask();

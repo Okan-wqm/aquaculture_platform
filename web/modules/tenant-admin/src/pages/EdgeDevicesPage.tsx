@@ -192,7 +192,7 @@ const EdgeDevicesPage: React.FC = () => {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
             placeholder="Search devices..."
@@ -239,7 +239,7 @@ const EdgeDevicesPage: React.FC = () => {
 
         <button
           onClick={fetchDevices}
-          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
           title="Refresh"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -249,12 +249,12 @@ const EdgeDevicesPage: React.FC = () => {
       {/* Device Grid */}
       {loading && devices.length === 0 ? (
         <div className="flex items-center justify-center py-20">
-          <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
+          <RefreshCw className="w-6 h-6 animate-spin text-gray-500" />
           <span className="ml-2 text-gray-500">Loading devices...</span>
         </div>
       ) : devices.length === 0 ? (
         <div className="text-center py-20">
-          <Cpu className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+          <Cpu className="w-12 h-12 mx-auto text-gray-500 mb-4" />
           <h3 className="text-lg font-medium text-gray-900">No devices found</h3>
           <p className="text-sm text-gray-500 mt-1">
             Create an installer link to start adding edge devices
@@ -280,7 +280,7 @@ const EdgeDevicesPage: React.FC = () => {
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                     device.isOnline ? 'bg-emerald-100' : 'bg-gray-100'
                   }`}>
-                    <Cpu className={`w-5 h-5 ${device.isOnline ? 'text-emerald-600' : 'text-gray-400'}`} />
+                    <Cpu className={`w-5 h-5 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500'}`} />
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">
@@ -293,7 +293,7 @@ const EdgeDevicesPage: React.FC = () => {
                   {device.isOnline ? (
                     <Wifi className="w-4 h-4 text-emerald-500" />
                   ) : (
-                    <WifiOff className="w-4 h-4 text-gray-300" />
+                    <WifiOff className="w-4 h-4 text-gray-500" />
                   )}
                 </div>
               </div>
@@ -307,7 +307,7 @@ const EdgeDevicesPage: React.FC = () => {
                   {device.lifecycleState.replace(/_/g, ' ')}
                 </span>
                 {device.agentVersion && (
-                  <span className="text-xs text-gray-400">v{device.agentVersion}</span>
+                  <span className="text-xs text-gray-500">v{device.agentVersion}</span>
                 )}
               </div>
 
@@ -350,7 +350,7 @@ const EdgeDevicesPage: React.FC = () => {
               )}
 
               {/* Footer */}
-              <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
                 <span>{device.ipAddress || device.deviceModel}</span>
                 <span>{formatLastSeen(device.lastSeenAt)}</span>
               </div>

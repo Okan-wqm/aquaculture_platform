@@ -59,13 +59,13 @@ function formatRelativeTime(dateStr: string | null): string {
 function getDeviceIcon(deviceType: string | null): React.ReactNode {
   switch (deviceType?.toLowerCase()) {
     case 'mobile':
-      return <Smartphone className="w-4 h-4 text-gray-400" />;
+      return <Smartphone className="w-4 h-4 text-gray-500" />;
     case 'tablet':
-      return <Tablet className="w-4 h-4 text-gray-400" />;
+      return <Tablet className="w-4 h-4 text-gray-500" />;
     case 'desktop':
-      return <Monitor className="w-4 h-4 text-gray-400" />;
+      return <Monitor className="w-4 h-4 text-gray-500" />;
     default:
-      return <Globe className="w-4 h-4 text-gray-400" />;
+      return <Globe className="w-4 h-4 text-gray-500" />;
   }
 }
 
@@ -154,7 +154,7 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
 
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-40 text-sm text-gray-400">
+      <div className="flex items-center justify-center h-40 text-sm text-gray-500">
         No activity data available
       </div>
     );
@@ -182,7 +182,7 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
               style={{ height: `${Math.max(heightPercent, 2)}%`, minHeight: '2px' }}
             />
             {/* Label */}
-            <span className="text-[10px] text-gray-400 transform -rotate-45 origin-top-left whitespace-nowrap hidden sm:block">
+            <span className="text-[10px] text-gray-500 transform -rotate-45 origin-top-left whitespace-nowrap hidden sm:block">
               {date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </span>
           </div>
@@ -326,7 +326,7 @@ const TenantActivityPage: React.FC = () => {
               {period === '7d' ? 'Last 7 days' : 'Last 30 days'} trend
             </p>
           </div>
-          <TrendingUp className="w-5 h-5 text-gray-400" />
+          <TrendingUp className="w-5 h-5 text-gray-500" />
         </div>
         <DailyActiveUsersChart data={dailyActiveUsers} />
       </div>
@@ -359,7 +359,7 @@ const TenantActivityPage: React.FC = () => {
                     ) : (
                       <XCircle className="w-4 h-4 text-red-500" />
                     )}
-                    <span className="text-xs text-gray-400 whitespace-nowrap">
+                    <span className="text-xs text-gray-500 whitespace-nowrap">
                       {formatRelativeTime(login.loginAt)}
                     </span>
                   </div>
@@ -368,7 +368,7 @@ const TenantActivityPage: React.FC = () => {
             </div>
           ) : (
             <div className="py-12 text-center">
-              <Activity className="w-10 h-10 text-gray-300 mx-auto" />
+              <Activity className="w-10 h-10 text-gray-500 mx-auto" />
               <p className="mt-3 text-sm text-gray-500">No recent login data</p>
             </div>
           )}
@@ -403,7 +403,7 @@ const TenantActivityPage: React.FC = () => {
                       {summary.loginCount} logins
                     </p>
                   </div>
-                  <div className="hidden sm:flex items-center gap-1 text-xs text-gray-400">
+                  <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500">
                     <Clock className="w-3 h-3" />
                     {formatRelativeTime(summary.lastActiveAt)}
                   </div>
@@ -412,7 +412,7 @@ const TenantActivityPage: React.FC = () => {
             </div>
           ) : (
             <div className="py-12 text-center">
-              <Users className="w-10 h-10 text-gray-300 mx-auto" />
+              <Users className="w-10 h-10 text-gray-500 mx-auto" />
               <p className="mt-3 text-sm text-gray-500">No user activity data</p>
             </div>
           )}

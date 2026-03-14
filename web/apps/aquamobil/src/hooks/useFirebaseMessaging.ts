@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAuth } from './useAuth';
+import { authenticatedFetch } from '@/services/authenticated-fetch';
 
 // Firebase config from env vars
 const FIREBASE_CONFIG = {
@@ -97,13 +98,8 @@ export function useFirebaseMessaging() {
         if (token) {
           // Only register if token is new or changed
           if (token !== previousTokenRef.current) {
-            const response = await fetch('/graphql', {
+            const response = await authenticatedFetch('/graphql', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-                'X-Requested-With': 'XMLHttpRequest',
-              },
               body: JSON.stringify({
                 query: REGISTER_DEVICE_TOKEN_MUTATION,
                 variables: { token, platform: 'web' },

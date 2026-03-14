@@ -133,7 +133,7 @@ const DataChannelItem: React.FC<{ channel: RegisteredSensor }> = ({ channel }) =
         {channel.dataPath && (
           <code className="bg-gray-100 px-2 py-0.5 rounded font-mono">{channel.dataPath}</code>
         )}
-        {channel.unit && <span className="text-gray-400">{channel.unit}</span>}
+        {channel.unit && <span className="text-gray-500">{channel.unit}</span>}
       </div>
     </div>
   );
@@ -189,7 +189,7 @@ const EdgeFilterDropdown: React.FC<{
     </select>
     <ChevronDown
       size={16}
-      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"
     />
   </div>
 );
@@ -233,7 +233,7 @@ const EdgeDeviceListRow: React.FC<{
               isOnline ? 'bg-cyan-100' : 'bg-gray-100'
             }`}
           >
-            <Server size={20} className={isOnline ? 'text-cyan-600' : 'text-gray-400'} />
+            <Server size={20} className={isOnline ? 'text-cyan-600' : 'text-gray-500'} />
           </div>
           <div>
             <div className="font-medium text-gray-900">{device.deviceCode}</div>
@@ -255,7 +255,7 @@ const EdgeDeviceListRow: React.FC<{
             </>
           ) : (
             <>
-              <WifiOff size={14} className="text-gray-400" />
+              <WifiOff size={14} className="text-gray-500" />
               <span className="text-sm text-gray-500">Çevrimdışı</span>
             </>
           )}
@@ -322,7 +322,7 @@ const DeviceCard: React.FC<{
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             <div className={`p-3 rounded-lg ${isConnected ? 'bg-cyan-100' : 'bg-gray-100'}`}>
-              <Server className={`w-6 h-6 ${isConnected ? 'text-cyan-600' : 'text-gray-400'}`} />
+              <Server className={`w-6 h-6 ${isConnected ? 'text-cyan-600' : 'text-gray-500'}`} />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -344,9 +344,9 @@ const DeviceCard: React.FC<{
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">{children.length} veri kanalı</span>
             {isExpanded ? (
-              <ChevronDown className="w-5 h-5 text-gray-400" />
+              <ChevronDown className="w-5 h-5 text-gray-500" />
             ) : (
-              <ChevronRight className="w-5 h-5 text-gray-400" />
+              <ChevronRight className="w-5 h-5 text-gray-500" />
             )}
           </div>
         </div>
@@ -355,12 +355,12 @@ const DeviceCard: React.FC<{
         <div className="flex items-center gap-6 mt-4 text-sm text-gray-600">
           {(parent.location || parent.siteId) && (
             <div className="flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-gray-400" />
+              <MapPin className="w-4 h-4 text-gray-500" />
               <span>{parent.location || 'Konum belirtilmemiş'}</span>
             </div>
           )}
           <div className="flex items-center gap-1.5">
-            <Clock className="w-4 h-4 text-gray-400" />
+            <Clock className="w-4 h-4 text-gray-500" />
             <span>Son görülme: {lastSeen}</span>
           </div>
         </div>
@@ -772,7 +772,7 @@ const DevicesPage: React.FC = () => {
             <div className="flex flex-col md:flex-row gap-4">
               {/* Search */}
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="text"
                   placeholder="Cihaz kodu veya adı..."
@@ -787,7 +787,7 @@ const DevicesPage: React.FC = () => {
 
               {/* Filter Dropdowns */}
               <div className="flex items-center gap-2">
-                <Filter className="w-5 h-5 text-gray-400" />
+                <Filter className="w-5 h-5 text-gray-500" />
                 <EdgeFilterDropdown
                   label="Tüm Durumlar"
                   value={edgeStateFilter}
@@ -1054,7 +1054,7 @@ const DevicesPage: React.FC = () => {
             <div className="flex flex-col md:flex-row gap-4">
               {/* Search */}
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="text"
                   placeholder="Cihaz adı veya seri numarası..."
@@ -1066,7 +1066,7 @@ const DevicesPage: React.FC = () => {
 
               {/* Status Filter */}
               <div className="flex items-center gap-2">
-                <Filter className="w-5 h-5 text-gray-400" />
+                <Filter className="w-5 h-5 text-gray-500" />
                 <select
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}

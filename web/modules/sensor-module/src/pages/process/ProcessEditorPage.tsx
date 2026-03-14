@@ -217,7 +217,7 @@ const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ nodeId, data, onC
             <h3 className="text-lg font-semibold text-gray-900">Widget Configuration</h3>
             <button
               onClick={onClose}
-              className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              className="p-1 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <X className="w-5 h-5" />
             </button>
@@ -315,18 +315,18 @@ const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ nodeId, data, onC
                         >
                           <div className="flex items-center gap-2">
                             {expandedSensors.has(group.sensorId) ? (
-                              <ChevronDown className="w-4 h-4 text-gray-400" />
+                              <ChevronDown className="w-4 h-4 text-gray-500" />
                             ) : (
-                              <ChevronRight className="w-4 h-4 text-gray-400" />
+                              <ChevronRight className="w-4 h-4 text-gray-500" />
                             )}
                             <span className="font-medium text-sm text-gray-700">
                               {group.sensorName}
                             </span>
                             {group.sensorType && (
-                              <span className="text-xs text-gray-400">({group.sensorType})</span>
+                              <span className="text-xs text-gray-500">({group.sensorType})</span>
                             )}
                           </div>
-                          <span className="text-xs text-gray-400">
+                          <span className="text-xs text-gray-500">
                             {group.channels.length} channel
                             {group.channels.length !== 1 ? 's' : ''}
                           </span>
@@ -355,7 +355,7 @@ const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ nodeId, data, onC
                                   <div className="text-sm text-gray-900 truncate">
                                     {channel.displayLabel}
                                   </div>
-                                  <div className="text-xs text-gray-400">
+                                  <div className="text-xs text-gray-500">
                                     {channel.channelKey}
                                     {channel.unit && ` • ${channel.unit}`}
                                   </div>
@@ -437,7 +437,7 @@ const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ nodeId, data, onC
                       />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     Leave empty for automatic range based on data
                   </p>
                 </div>
@@ -586,7 +586,7 @@ const DeployAutomationModal: React.FC<DeployModalProps> = ({ isOpen, onClose, bo
             <Upload className="w-5 h-5 text-indigo-600" />
             Deploy Automation
           </h3>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
             <X className="w-5 h-5" />
           </button>
         </div>

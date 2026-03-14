@@ -496,7 +496,7 @@ export const JobQueuePage: React.FC = () => {
                             ) : job.durationMs ? (
                               <span className="text-sm text-gray-600">{formatDuration(job.durationMs)}</span>
                             ) : (
-                              <span className="text-sm text-gray-400">-</span>
+                              <span className="text-sm text-gray-500">-</span>
                             )}
                           </td>
                           <td className="px-6 py-4">
@@ -513,7 +513,7 @@ export const JobQueuePage: React.FC = () => {
                                 <div className="text-gray-500">{formatDateTime(job.completedAt)}</div>
                               )}
                               {!job.startedAt && !job.completedAt && (
-                                <span className="text-gray-400">-</span>
+                                <span className="text-gray-500">-</span>
                               )}
                             </div>
                           </td>
@@ -599,7 +599,7 @@ export const JobQueuePage: React.FC = () => {
                 ) : (
                   <button
                     onClick={() => handlePauseQueue(queue)}
-                    className="flex-1 px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm hover:bg-yellow-600 transition-colors"
+                    className="flex-1 px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm hover:bg-yellow-700 transition-colors"
                   >
                     Pause
                   </button>

@@ -198,7 +198,7 @@ export const AnnouncementsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => { fetchAnnouncements(); fetchStats(); }}
-              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
             </button>
@@ -251,7 +251,7 @@ export const AnnouncementsPage: React.FC = () => {
       <div className="bg-white border-b border-gray-200 px-6 py-3">
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
             <input
               type="text"
               placeholder="Search announcements..."
@@ -387,13 +387,13 @@ export const AnnouncementsPage: React.FC = () => {
                           </button>
                           <button
                             onClick={() => setSelectedAnnouncement(announcement)}
-                            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                            className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                           >
                             <Edit3 size={16} />
                           </button>
                           <button
                             onClick={() => handleDelete(announcement.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                            className="p-2 text-gray-500 hover:text-red-600 rounded-lg hover:bg-red-50"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -433,7 +433,7 @@ export const AnnouncementsPage: React.FC = () => {
 
             {filteredAnnouncements.length === 0 && (
               <div className="text-center py-12 text-gray-500">
-                <Megaphone size={48} className="mx-auto mb-3 text-gray-300" />
+                <Megaphone size={48} className="mx-auto mb-3 text-gray-500" />
                 <p>No announcements found</p>
               </div>
             )}
@@ -503,7 +503,7 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           <h2 className="text-xl font-semibold text-gray-900">
             {announcement ? 'Edit Announcement' : 'Create Announcement'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
             <X size={24} />
           </button>
         </div>
@@ -706,7 +706,7 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">Announcement Statistics</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
             <X size={24} />
           </button>
         </div>

@@ -95,7 +95,7 @@ export const GlobalAlarmBanner: React.FC = () => {
   /* Bar background: red-600 + pulse if critical, otherwise neutral dark */
   const barClasses = [
     'flex items-center justify-between px-4 h-8 text-xs select-none',
-    hasCritical ? 'bg-red-600 text-white animate-pulse' : 'bg-gray-800 text-gray-300',
+    hasCritical ? 'bg-red-600 text-white animate-pulse' : 'bg-gray-800 text-gray-500',
   ].join(' ');
 
   return (
@@ -146,7 +146,7 @@ export const GlobalAlarmBanner: React.FC = () => {
         <span
           className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-medium ${
             isEmpty
-              ? 'bg-gray-700 text-gray-400'
+              ? 'bg-gray-700 text-gray-500'
               : hasCritical
                 ? 'bg-red-800 text-red-100'
                 : 'bg-gray-700 text-gray-200'

@@ -81,7 +81,7 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
     case 'heatmap':
       // Heatmap placeholder - to be implemented
       return (
-        <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
           Heatmap coming soon
         </div>
       );
@@ -89,7 +89,7 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
       return <ProcessViewWidgetContent config={config} />;
     default:
       return (
-        <div className="flex items-center justify-center h-full text-gray-400">
+        <div className="flex items-center justify-center h-full text-gray-500">
           Unknown widget type
         </div>
       );
@@ -603,7 +603,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                           {!layout.isDefault && !layout.isSystemDefault && (
                             <button
                               onClick={() => handleSetAsDefault(layout.id)}
-                              className="p-1 text-gray-400 hover:text-yellow-500"
+                              className="p-1 text-gray-500 hover:text-yellow-500"
                               title="Set as default"
                             >
                               <Star size={14} />
@@ -612,7 +612,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                           {!layout.isSystemDefault && (
                             <button
                               onClick={() => handleDeleteLayout(layout.id)}
-                              className="p-1 text-gray-400 hover:text-red-500"
+                              className="p-1 text-gray-500 hover:text-red-500"
                               title="Delete"
                             >
                               <Trash2 size={14} />
@@ -704,7 +704,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                     </button>
                   ))}
                   {activeProcesses.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-gray-400">
+                    <div className="px-3 py-2 text-sm text-gray-500">
                       No processes available
                     </div>
                   )}
@@ -856,7 +856,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         {/* Scrollable Grid Area */}
         <div className="h-full overflow-auto p-4 relative" style={{ zIndex: 1 }}>
           {localWidgets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
               <div className="text-center">
                 <Settings size={48} className="mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium mb-2">Dashboard Empty</p>
@@ -897,14 +897,14 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleEditWidget(widget)}
-                          className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                          className="p-1 text-gray-500 hover:text-gray-600 rounded"
                           title="Edit"
                         >
                           <Settings size={14} />
                         </button>
                         <button
                           onClick={() => handleRemoveWidget(widget.id)}
-                          className="p-1 text-gray-400 hover:text-red-600 rounded"
+                          className="p-1 text-gray-500 hover:text-red-600 rounded"
                           title="Remove"
                         >
                           <Trash2 size={14} />

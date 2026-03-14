@@ -249,7 +249,7 @@ const ActivityDetailModal: React.FC<{
             <h2 className="text-xl font-semibold text-gray-900">Activity Details</h2>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-500 hover:text-gray-600"
             >
               <XCircle className="w-6 h-6" />
             </button>
@@ -605,7 +605,7 @@ export const ActivityLogPage: React.FC = () => {
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <div className="flex items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
             <input
               type="text"
               placeholder="Search by action, user, or IP..."
@@ -728,7 +728,7 @@ export const ActivityLogPage: React.FC = () => {
                       <td className="px-4 py-3">
                         <button
                           onClick={() => toggleRowExpand(activity.id)}
-                          className="text-gray-400 hover:text-gray-600"
+                          className="text-gray-500 hover:text-gray-600"
                         >
                           {expandedRows.has(activity.id) ? (
                             <ChevronDown className="w-4 h-4" />

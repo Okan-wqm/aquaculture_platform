@@ -295,10 +295,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
                 {/* Connection Info */}
                 <div className="pt-3 border-t border-gray-200">
-                  <p className="text-[10px] text-gray-400">
+                  <p className="text-[10px] text-gray-500">
                     Source: {selectedEdge.source} ({selectedEdge.sourceHandle})
                   </p>
-                  <p className="text-[10px] text-gray-400">
+                  <p className="text-[10px] text-gray-500">
                     Target: {selectedEdge.target} ({selectedEdge.targetHandle})
                   </p>
                 </div>
@@ -313,8 +313,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 py-12">
-                <Settings className="w-10 h-10 mb-3 text-gray-300" />
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 py-12">
+                <Settings className="w-10 h-10 mb-3 text-gray-500" />
                 <p className="text-sm">Select a widget</p>
                 <p className="text-xs mt-1">Select a widget from the canvas</p>
               </div>
@@ -337,7 +337,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
 
             {alarmRules.length === 0 && (
-              <p className="text-xs text-gray-400 py-4 text-center">No alarm rules yet</p>
+              <p className="text-xs text-gray-500 py-4 text-center">No alarm rules yet</p>
             )}
 
             {alarmRules.map((rule) => (
@@ -397,7 +397,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 />
                 <div className="flex gap-1">
                   <div className="flex-1">
-                    <label className="block text-[10px] text-gray-400 mb-0.5">Deadband</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Deadband</label>
                     <input
                       type="number"
                       value={rule.deadband ?? ''}
@@ -409,7 +409,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-[10px] text-gray-400 mb-0.5">Delay (sec)</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Delay (sec)</label>
                     <input
                       type="number"
                       value={rule.delay ?? ''}
@@ -569,7 +569,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   </div>
                 ))}
                 {trendConfig.tags.length === 0 && (
-                  <p className="text-xs text-gray-400 text-center py-2">No tags added yet</p>
+                  <p className="text-xs text-gray-500 text-center py-2">No tags added yet</p>
                 )}
               </div>
             </div>

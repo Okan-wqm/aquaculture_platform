@@ -50,10 +50,15 @@ vi.mock('../useAuth', () => ({
   useAuth: () => mockAuth,
 }));
 
+// D07 API-01: authenticatedFetch reads tokens from the module-level auth store.
+// We must keep it in sync with mockAuth so that authenticatedFetch injects the
+// correct Authorization header. This is done in beforeEach below.
+
 // Import after mocks
 import { MobilePermissionsProvider, useMobilePermissions } from '../useMobilePermissions';
 import type { MobileFeature } from '../useMobilePermissions';
 import { get, set } from 'idb-keyval';
+import { syncAuthStore } from '@/services/authenticated-fetch';
 
 // --------------------------------------------------------------------------
 // Helpers
@@ -92,6 +97,9 @@ describe('useMobilePermissions', () => {
       role: 'OPERATOR' as const,
       tenantId: 'tenant-1',
     };
+    // D07 API-01: Sync the module-level auth store so authenticatedFetch
+    // injects the correct Authorization / X-Tenant-Id headers.
+    syncAuthStore('test-token', 'tenant-1', async () => true);
   });
 
   afterEach(() => {

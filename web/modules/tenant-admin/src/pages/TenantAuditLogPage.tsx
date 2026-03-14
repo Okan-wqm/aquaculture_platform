@@ -390,7 +390,7 @@ const TenantAuditLogPage: React.FC = () => {
       {/* Search Bar */}
       <div className="bg-white rounded-xl border border-gray-100 p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
             placeholder="Search audit logs by action, user, or entity..."
@@ -440,7 +440,7 @@ const TenantAuditLogPage: React.FC = () => {
                     >
                       <td className="px-6 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-gray-400 hidden sm:block" />
+                          <Calendar className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
                           <div>
                             <p className="text-sm text-gray-900">
                               {new Date(entry.createdAt).toLocaleDateString()}
@@ -473,7 +473,7 @@ const TenantAuditLogPage: React.FC = () => {
                             e.stopPropagation();
                             setSelectedEntry(entry);
                           }}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                           title="View details"
                         >
                           <Eye className="w-4 h-4" />
@@ -488,7 +488,7 @@ const TenantAuditLogPage: React.FC = () => {
             {/* Empty State */}
             {visibleEntries.length === 0 && !isLoading && (
               <div className="py-12 text-center">
-                <Shield className="w-12 h-12 text-gray-300 mx-auto" />
+                <Shield className="w-12 h-12 text-gray-500 mx-auto" />
                 <h3 className="mt-4 text-sm font-medium text-gray-900">No audit log entries found</h3>
                 <p className="mt-1 text-sm text-gray-500">
                   {hasActiveFilters

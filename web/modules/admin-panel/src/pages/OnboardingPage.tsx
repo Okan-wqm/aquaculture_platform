@@ -345,7 +345,7 @@ export const OnboardingPage: React.FC = () => {
             {/* Filters */}
             <div className="p-4 border-b border-gray-200 space-y-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
                 <input
                   type="text"
                   placeholder="Search tenants..."
@@ -399,7 +399,7 @@ export const OnboardingPage: React.FC = () => {
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <Building2 size={16} className="text-gray-400" />
+                          <Building2 size={16} className="text-gray-500" />
                           <span className="font-medium text-gray-900">{progress.tenantName}</span>
                           {needsAttention && (
                             <AlertTriangle size={14} className="text-red-500" />
@@ -422,7 +422,7 @@ export const OnboardingPage: React.FC = () => {
                           />
                         </div>
 
-                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                           <span>{progress.completedSteps.length}/{steps.length} steps</span>
                           {progress.assignedTo && (
                             <span className="flex items-center gap-1">
@@ -435,7 +435,7 @@ export const OnboardingPage: React.FC = () => {
                           )}
                         </div>
                       </div>
-                      <ChevronRight size={18} className="text-gray-400" />
+                      <ChevronRight size={18} className="text-gray-500" />
                     </div>
                   </div>
                 );
@@ -443,7 +443,7 @@ export const OnboardingPage: React.FC = () => {
 
               {filteredProgress.length === 0 && (
                 <div className="p-8 text-center text-gray-500">
-                  <GraduationCap size={48} className="mx-auto mb-3 text-gray-300" />
+                  <GraduationCap size={48} className="mx-auto mb-3 text-gray-500" />
                   <p>No onboarding progress found</p>
                 </div>
               )}
@@ -471,7 +471,7 @@ export const OnboardingPage: React.FC = () => {
                   </div>
                   <button
                     onClick={() => setSelectedProgress(null)}
-                    className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                    className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                   >
                     <X size={20} />
                   </button>
@@ -541,7 +541,7 @@ export const OnboardingPage: React.FC = () => {
                               )}
                             </div>
                             <p className="text-sm text-gray-500 mt-0.5">{step.description}</p>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                               <span className="flex items-center gap-1">
                                 <Clock size={12} />
                                 ~{step.estimatedMinutes}m
@@ -625,7 +625,7 @@ export const OnboardingPage: React.FC = () => {
                           </div>
                           <div className="flex-1 min-w-0">
                             <h3 className="font-medium text-gray-900">{resource.title}</h3>
-                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                               <span className="capitalize">{resource.type}</span>
                             </div>
                           </div>
@@ -645,7 +645,7 @@ export const OnboardingPage: React.FC = () => {
 
             {resources.length === 0 && (
               <div className="p-8 text-center text-gray-500">
-                <BookOpen size={48} className="mx-auto mb-3 text-gray-300" />
+                <BookOpen size={48} className="mx-auto mb-3 text-gray-500" />
                 <p>No training resources available</p>
               </div>
             )}

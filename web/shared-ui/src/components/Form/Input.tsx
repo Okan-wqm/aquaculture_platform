@@ -132,7 +132,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {/* Sol ikon */}
           {leftIcon && (
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <span className={`text-gray-400 ${sizeStyles[size].icon}`}>
+              <span className={`text-gray-500 ${sizeStyles[size].icon}`}>
                 {leftIcon}
               </span>
             </div>

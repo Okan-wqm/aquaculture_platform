@@ -47,7 +47,7 @@ export const ChartTooltip: React.FC<ChartTooltipProps> = ({
                     style={{ backgroundColor: item.color }}
                   />
                 )}
-                <span className="text-gray-300">{item.label}</span>
+                <span className="text-gray-500">{item.label}</span>
               </div>
               <span className="font-medium">{item.value}</span>
             </div>

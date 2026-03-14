@@ -368,7 +368,7 @@ export const TicketsPage: React.FC = () => {
           </div>
           <button
             onClick={() => { fetchTickets(); fetchStats(); }}
-            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+            className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
           >
             <RefreshCw size={18} />
           </button>
@@ -423,7 +423,7 @@ export const TicketsPage: React.FC = () => {
           {/* Filters */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
               <input
                 type="text"
                 placeholder="Search tickets..."
@@ -490,7 +490,7 @@ export const TicketsPage: React.FC = () => {
               </div>
             ) : filteredTickets.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
-                <Inbox size={48} className="mb-2 text-gray-300" />
+                <Inbox size={48} className="mb-2 text-gray-500" />
                 <p>No tickets found</p>
               </div>
             ) : (
@@ -523,7 +523,7 @@ export const TicketsPage: React.FC = () => {
                         <span>·</span>
                         <span>{ticket.tenantName}</span>
                       </div>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Clock size={12} />
                           {formatTime(ticket.createdAt)}
@@ -540,7 +540,7 @@ export const TicketsPage: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                    <ChevronRight size={18} className="text-gray-400" />
+                    <ChevronRight size={18} className="text-gray-500" />
                   </div>
                 </div>
               ))
@@ -580,7 +580,7 @@ export const TicketsPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setSelectedTicket(null)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <X size={20} />
                 </button>
@@ -677,7 +677,7 @@ export const TicketsPage: React.FC = () => {
                 </div>
               ) : comments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                  <MessageSquare size={48} className="mb-2 text-gray-300" />
+                  <MessageSquare size={48} className="mb-2 text-gray-500" />
                   <p>No comments yet</p>
                 </div>
               ) : (
@@ -710,7 +710,7 @@ export const TicketsPage: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                      <span className="text-xs text-gray-400">{formatTime(comment.createdAt)}</span>
+                      <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
                     </div>
                     <p className={`text-sm whitespace-pre-wrap ${comment.isInternal ? 'text-yellow-800' : 'text-gray-700'}`}>
                       {comment.content}
@@ -723,7 +723,7 @@ export const TicketsPage: React.FC = () => {
                             href={att.url}
                             className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
                           >
-                            <Paperclip size={14} className="text-gray-400" />
+                            <Paperclip size={14} className="text-gray-500" />
                             <span className="text-gray-700">{att.filename}</span>
                           </a>
                         ))}
@@ -758,7 +758,7 @@ export const TicketsPage: React.FC = () => {
                     className="flex-1 px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                       <Paperclip size={20} />
                     </button>
                     <button
@@ -785,7 +785,7 @@ export const TicketsPage: React.FC = () => {
                         size={16}
                         className={star <= selectedTicket.satisfactionRating!
                           ? 'text-yellow-500 fill-yellow-500'
-                          : 'text-gray-300'
+                          : 'text-gray-500'
                         }
                       />
                     ))}

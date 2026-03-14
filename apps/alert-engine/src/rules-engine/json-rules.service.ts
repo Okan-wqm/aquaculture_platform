@@ -4,6 +4,9 @@
  * Implements a JSON-based rules engine for declarative rule definitions.
  * Supports complex conditions, operators, and rule composition similar
  * to json-rules-engine library patterns.
+ *
+ * @deprecated This service is not registered in any NestJS module and is dead code.
+ * Retained for reference; scheduled for removal. See D10-F3.
  */
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';

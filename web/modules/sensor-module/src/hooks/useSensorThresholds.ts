@@ -57,6 +57,22 @@ const UPDATE_DATA_CHANNEL_MUTATION = `
   }
 `;
 
+/**
+ * PERF-RISK-004: Single bulk mutation replaces N individual updateDataChannel calls.
+ * Executes all threshold updates in one atomic transaction on the backend.
+ * Maximum 100 items per request.
+ */
+const BULK_UPDATE_DATA_CHANNELS_MUTATION = `
+  mutation BulkUpdateDataChannels($input: BulkUpdateDataChannelsInput!) {
+    bulkUpdateDataChannels(input: $input) {
+      success
+      count
+    }
+  }
+`;
+
+const BULK_UPDATE_MAX_ITEMS = 100;
+
 // ============================================================================
 // Default thresholds by sensor type
 // ============================================================================
@@ -235,22 +251,30 @@ export function useSensorThresholds() {
     }
   }, [refetch]);
 
-  // Bulk update thresholds
+  // PERF-RISK-004: Bulk update thresholds via single atomic mutation.
+  // Previously used Promise.all with N separate mutations; now sends
+  // one bulkUpdateDataChannels call with all updates in a single transaction.
   const updateThresholdsBulk = useCallback(async (inputs: ThresholdUpdateInput[]) => {
+    if (inputs.length === 0) return;
+
+    if (inputs.length > BULK_UPDATE_MAX_ITEMS) {
+      throw new Error(
+        `Bulk update limited to ${BULK_UPDATE_MAX_ITEMS} items, received ${inputs.length}`,
+      );
+    }
+
     setUpdating(true);
     setUpdateError(null);
 
     try {
-      await Promise.all(
-        inputs.map((input) =>
-          graphqlFetch(UPDATE_DATA_CHANNEL_MUTATION, {
-            input: {
-              channelId: input.sensorId,
-              alertThresholds: input.alertThresholds,
-            },
-          })
-        )
-      );
+      await graphqlFetch(BULK_UPDATE_DATA_CHANNELS_MUTATION, {
+        input: {
+          updates: inputs.map((input) => ({
+            channelId: input.sensorId,
+            alertThresholds: input.alertThresholds,
+          })),
+        },
+      });
 
       await refetch();
     } catch (error) {

@@ -270,7 +270,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       {channels.length === 0 ? (
         <div className="text-center py-12">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-gray-400" />
+            <AlertCircle className="w-8 h-8 text-gray-500" />
           </div>
           <p className="text-gray-500 text-sm">
             Henuz kanal yapilandirilmadi. Kanal ekleyin veya AI tespiti kullanin.
@@ -324,7 +324,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
                       {/* L3: aria-label */}
                       <button
                         onClick={() => handleEditChannel(ch)}
-                        className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
+                        className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
                         aria-label="Kanali duzenle"
                         title="Kanali duzenle"
                       >
@@ -334,7 +334,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
                       <button
                         onClick={() => handleDeleteChannel(ch.id, ch.channelKey)}
                         disabled={deletingId === ch.id}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
                         aria-label="Kanali sil"
                         title="Kanali sil"
                       >

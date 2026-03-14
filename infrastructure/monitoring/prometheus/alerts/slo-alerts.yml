@@ -1,0 +1,379 @@
+# =============================================================================
+# Aquaculture Platform - SLO/SLI Alert Rules
+# =============================================================================
+# These alerts enforce the SLO targets defined in docs/slo/platform-slo.md.
+# They are designed to be applied as a PrometheusRule CRD alongside the
+# existing aquaculture-rules.yaml.
+#
+# Label conventions:
+#   severity: critical  -> PagerDuty page (on-call)
+#   severity: warning   -> Ticket creation (Jira/Linear)
+#   severity: info      -> Dashboard visibility only
+#
+# Burn rate methodology:
+#   Google SRE multi-window, multi-burn-rate approach.
+#   Fast burn (14.4x) = budget exhausts in ~2 days  -> page
+#   Slow burn (6x)    = budget exhausts in ~5 days  -> ticket
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aquaculture-slo-alerts
+  namespace: aquaculture
+  labels:
+    app: aquaculture
+    prometheus: kube-prometheus
+    purpose: slo-enforcement
+spec:
+  groups:
+    # ========================================================================
+    # Recording Rules - pre-compute expensive SLI queries
+    # ========================================================================
+    - name: aquaculture.slo.recording
+      interval: 30s
+      rules:
+        # -- Error ratio (5xx / total) over various windows --
+        - record: aquaculture:http_error_ratio:rate5m
+          expr: |
+            sum(rate(http_requests_total{namespace="aquaculture",status_code=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{namespace="aquaculture"}[5m]))
+
+        - record: aquaculture:http_error_ratio:rate30m
+          expr: |
+            sum(rate(http_requests_total{namespace="aquaculture",status_code=~"5.."}[30m]))
+            /
+            sum(rate(http_requests_total{namespace="aquaculture"}[30m]))
+
+        - record: aquaculture:http_error_ratio:rate1h
+          expr: |
+            sum(rate(http_requests_total{namespace="aquaculture",status_code=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{namespace="aquaculture"}[1h]))
+
+        - record: aquaculture:http_error_ratio:rate6h
+          expr: |
+            sum(rate(http_requests_total{namespace="aquaculture",status_code=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{namespace="aquaculture"}[6h]))
+
+        # -- Gateway availability (proportion of time gateway is up) --
+        - record: aquaculture:gateway_availability:avg5m
+          expr: |
+            avg_over_time(up{namespace="aquaculture",app="gateway-api"}[5m])
+
+        - record: aquaculture:gateway_availability:avg1h
+          expr: |
+            avg_over_time(up{namespace="aquaculture",app="gateway-api"}[1h])
+
+        - record: aquaculture:gateway_availability:avg6h
+          expr: |
+            avg_over_time(up{namespace="aquaculture",app="gateway-api"}[6h])
+
+        # -- API latency quantiles --
+        - record: aquaculture:http_latency_p95:5m
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le)
+            )
+
+        - record: aquaculture:http_latency_p99:5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le)
+            )
+
+        # -- Login success rate --
+        - record: aquaculture:login_success_ratio:rate5m
+          expr: |
+            sum(rate(auth_login_success_total{namespace="aquaculture"}[5m]))
+            /
+            sum(rate(auth_login_attempts_total{namespace="aquaculture"}[5m]))
+
+        # -- Sensor data freshness (max lag across all sensor types) --
+        - record: aquaculture:sensor_data_lag_seconds
+          expr: |
+            max(time() - max(sensor_reading_timestamp{namespace="aquaculture"}) by (sensor_type))
+
+        # -- Webhook processing p95 --
+        - record: aquaculture:webhook_latency_p95:5m
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(webhook_processing_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le)
+            )
+
+    # ========================================================================
+    # SLO 1: Gateway Availability >= 99.9%
+    # ========================================================================
+    - name: aquaculture.slo.gateway-availability
+      rules:
+        - alert: SloGatewayDown
+          expr: up{namespace="aquaculture",app="gateway-api"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            slo: gateway-availability
+          annotations:
+            summary: "Gateway is down - SLO 99.9% availability at risk"
+            description: >-
+              The gateway-api service has been unreachable for more than 1 minute.
+              Error budget: 43.2 min/month. Every minute of downtime consumes 2.3%
+              of the monthly budget.
+            runbook_url: "https://wiki.internal/runbooks/gateway-down"
+
+        - alert: SloGatewayAvailabilityBurnFast
+          expr: |
+            (1 - aquaculture:gateway_availability:avg1h) > (14.4 * 0.001)
+            and
+            (1 - aquaculture:gateway_availability:avg5m) > (14.4 * 0.001)
+          for: 2m
+          labels:
+            severity: critical
+            slo: gateway-availability
+            burn_rate: fast
+          annotations:
+            summary: "Gateway availability error budget burning fast (14.4x)"
+            description: >-
+              Gateway unavailability rate is 14.4x the allowed rate. At this pace,
+              the 30-day error budget will be exhausted in ~2 days. Immediate
+              investigation required.
+
+        - alert: SloGatewayAvailabilityBurnSlow
+          expr: |
+            (1 - aquaculture:gateway_availability:avg6h) > (6 * 0.001)
+            and
+            (1 - aquaculture:gateway_availability:avg1h) > (6 * 0.001)
+          for: 5m
+          labels:
+            severity: warning
+            slo: gateway-availability
+            burn_rate: slow
+          annotations:
+            summary: "Gateway availability error budget burning (6x)"
+            description: >-
+              Gateway unavailability rate is 6x the allowed rate over the last 6 hours.
+              At this pace, the 30-day error budget will be exhausted in ~5 days.
+              Create a ticket for investigation.
+
+    # ========================================================================
+    # SLO 2 & 3: API Latency p95 < 500ms, p99 < 2000ms
+    # ========================================================================
+    - name: aquaculture.slo.api-latency
+      rules:
+        - alert: SloLatencyP95High
+          expr: aquaculture:http_latency_p95:5m > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            slo: api-latency-p95
+          annotations:
+            summary: "API p95 latency exceeds 500ms SLO"
+            description: >-
+              The 95th percentile API response time is {{ $value | humanizeDuration }}
+              which exceeds the 500ms SLO target. Investigate slow endpoints.
+            runbook_url: "https://wiki.internal/runbooks/high-latency"
+
+        - alert: SloLatencyP99Critical
+          expr: aquaculture:http_latency_p99:5m > 2
+          for: 5m
+          labels:
+            severity: critical
+            slo: api-latency-p99
+          annotations:
+            summary: "API p99 latency exceeds 2000ms SLO"
+            description: >-
+              The 99th percentile API response time is {{ $value | humanizeDuration }}
+              which exceeds the 2000ms SLO target. This indicates severe performance
+              degradation affecting tail latency.
+            runbook_url: "https://wiki.internal/runbooks/critical-latency"
+
+    # ========================================================================
+    # SLO 4: Error Rate (5xx) < 0.1%
+    # ========================================================================
+    - name: aquaculture.slo.error-rate
+      rules:
+        - alert: SloErrorRateHigh
+          # Direct threshold: 5xx rate exceeds 0.1% for 5 minutes
+          expr: |
+            aquaculture:http_error_ratio:rate5m > 0.001
+            and
+            sum(rate(http_requests_total{namespace="aquaculture"}[5m])) > 1
+          for: 5m
+          labels:
+            severity: critical
+            slo: error-rate
+          annotations:
+            summary: "5xx error rate exceeds 0.1% SLO"
+            description: >-
+              Current 5xx error ratio is {{ $value | humanizePercentage }} which
+              exceeds the 0.1% SLO target. The minimum traffic guard (>1 rps)
+              is met, ruling out low-traffic false positives.
+            runbook_url: "https://wiki.internal/runbooks/error-rate"
+
+        - alert: SloErrorBudgetFastBurn
+          # Multi-window burn rate: 14.4x over 1h AND 5m
+          # 99.9% SLO -> 0.1% budget -> 0.001 * 14.4 = 0.0144
+          expr: |
+            aquaculture:http_error_ratio:rate1h > (14.4 * 0.001)
+            and
+            aquaculture:http_error_ratio:rate5m > (14.4 * 0.001)
+          for: 2m
+          labels:
+            severity: critical
+            slo: error-rate
+            burn_rate: fast
+          annotations:
+            summary: "Error budget fast burn: 14.4x rate (budget exhausts in ~2 days)"
+            description: >-
+              The 5xx error rate over the last 1 hour is consuming the 30-day error
+              budget at 14.4x the sustainable rate. The short window (5m) confirms
+              the issue is ongoing. At this pace the entire monthly budget will be
+              exhausted in approximately 2 days.
+            runbook_url: "https://wiki.internal/runbooks/error-budget-burn"
+
+        - alert: SloErrorBudgetSlowBurn
+          # Multi-window burn rate: 6x over 6h AND 30m
+          # 99.9% SLO -> 0.1% budget -> 0.001 * 6 = 0.006
+          expr: |
+            aquaculture:http_error_ratio:rate6h > (6 * 0.001)
+            and
+            aquaculture:http_error_ratio:rate30m > (6 * 0.001)
+          for: 5m
+          labels:
+            severity: warning
+            slo: error-rate
+            burn_rate: slow
+          annotations:
+            summary: "Error budget slow burn: 6x rate (budget exhausts in ~5 days)"
+            description: >-
+              The 5xx error rate over the last 6 hours is consuming the 30-day error
+              budget at 6x the sustainable rate. The 30-minute short window confirms
+              the trend is not a brief spike. Create a ticket for investigation.
+            runbook_url: "https://wiki.internal/runbooks/error-budget-burn"
+
+    # ========================================================================
+    # SLO 5: Sensor Data Freshness < 60s lag
+    # ========================================================================
+    - name: aquaculture.slo.sensor-freshness
+      rules:
+        - alert: SloSensorDataStale
+          expr: |
+            (time() - max(sensor_reading_timestamp{namespace="aquaculture"}) by (sensor_type))
+            > 60
+          for: 2m
+          labels:
+            severity: warning
+            slo: sensor-freshness
+          annotations:
+            summary: "Sensor data lag exceeds 60s SLO for {{ $labels.sensor_type }}"
+            description: >-
+              Sensor type {{ $labels.sensor_type }} has not reported fresh data for
+              {{ $value | humanizeDuration }}. The SLO target is < 60 seconds lag.
+              Check MQTT broker connectivity and sensor-service health.
+            runbook_url: "https://wiki.internal/runbooks/sensor-lag"
+
+        - alert: SloSensorDataStaleExtended
+          expr: |
+            (time() - max(sensor_reading_timestamp{namespace="aquaculture"}) by (sensor_type))
+            > 300
+          for: 5m
+          labels:
+            severity: critical
+            slo: sensor-freshness
+          annotations:
+            summary: "Sensor data lag exceeds 5 minutes for {{ $labels.sensor_type }}"
+            description: >-
+              Sensor type {{ $labels.sensor_type }} has not received data for over
+              5 minutes ({{ $value | humanizeDuration }}). This is 5x the SLO threshold.
+              Likely indicates sensor hardware failure or network partition.
+            runbook_url: "https://wiki.internal/runbooks/sensor-offline"
+
+    # ========================================================================
+    # SLO 6: Login Success Rate >= 99.5% (7-day window)
+    # ========================================================================
+    - name: aquaculture.slo.login-success
+      rules:
+        - alert: SloLoginSuccessRateLow
+          expr: |
+            aquaculture:login_success_ratio:rate5m < 0.995
+            and
+            sum(rate(auth_login_attempts_total{namespace="aquaculture"}[5m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            slo: login-success
+          annotations:
+            summary: "Login success rate below 99.5% SLO"
+            description: >-
+              Login success rate is {{ $value | humanizePercentage }} over the last
+              5 minutes, which is below the 99.5% SLO target. Check auth-service
+              health, database connectivity, and external identity provider status.
+            runbook_url: "https://wiki.internal/runbooks/login-failures"
+
+        - alert: SloLoginSuccessRateCritical
+          expr: |
+            aquaculture:login_success_ratio:rate5m < 0.95
+            and
+            sum(rate(auth_login_attempts_total{namespace="aquaculture"}[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: critical
+            slo: login-success
+          annotations:
+            summary: "Login success rate critically low (< 95%)"
+            description: >-
+              Login success rate has dropped to {{ $value | humanizePercentage }}.
+              This is a severe auth outage affecting user access. Immediate
+              investigation required.
+            runbook_url: "https://wiki.internal/runbooks/auth-outage"
+
+    # ========================================================================
+    # SLO 7: Webhook Processing < 5s
+    # ========================================================================
+    - name: aquaculture.slo.webhook-processing
+      rules:
+        - alert: SloWebhookProcessingSlow
+          expr: aquaculture:webhook_latency_p95:5m > 5
+          for: 5m
+          labels:
+            severity: warning
+            slo: webhook-processing
+          annotations:
+            summary: "Webhook processing p95 exceeds 5s SLO"
+            description: >-
+              The 95th percentile webhook processing latency is
+              {{ $value | humanizeDuration }}, exceeding the 5-second SLO target.
+              Check downstream service health and queue depth.
+            runbook_url: "https://wiki.internal/runbooks/webhook-slow"
+
+        - alert: SloWebhookProcessingCritical
+          expr: aquaculture:webhook_latency_p95:5m > 15
+          for: 3m
+          labels:
+            severity: critical
+            slo: webhook-processing
+          annotations:
+            summary: "Webhook processing p95 exceeds 15s (3x SLO)"
+            description: >-
+              Webhook processing latency is 3x the SLO target at
+              {{ $value | humanizeDuration }}. This likely indicates a downstream
+              service outage or severe resource contention.
+            runbook_url: "https://wiki.internal/runbooks/webhook-outage"
+
+    # ========================================================================
+    # Meta: SLO Alert Health (ensure SLO alerting itself is working)
+    # ========================================================================
+    - name: aquaculture.slo.meta
+      rules:
+        - alert: SloAlertRuleEvaluationFailure
+          expr: |
+            prometheus_rule_evaluation_failures_total{rule_group=~"aquaculture.slo.*"} > 0
+          for: 15m
+          labels:
+            severity: warning
+            slo: meta
+          annotations:
+            summary: "SLO alert rule evaluation is failing"
+            description: >-
+              Prometheus is failing to evaluate one or more SLO alert rules.
+              SLO enforcement is degraded. Check Prometheus logs for PromQL errors.

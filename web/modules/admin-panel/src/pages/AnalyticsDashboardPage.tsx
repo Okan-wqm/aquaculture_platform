@@ -228,7 +228,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
             <p className={`mt-2 text-sm font-medium ${getTrendColor()}`}>
               <span className="mr-1">{getTrendIcon()}</span>
               {Math.abs(change).toFixed(1)}%
-              <span className="ml-1 text-gray-400">vs last month</span>
+              <span className="ml-1 text-gray-500">vs last month</span>
             </p>
           )}
         </div>
@@ -669,7 +669,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             <MiniChart data={tenantTrend} height={100} color="#3B82F6" />
             {(tenantTrend.length === 0 || tenantTrend.every(d => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-400">No analytics data available yet</p>
+                <p className="text-sm text-gray-500">No analytics data available yet</p>
               </div>
             )}
           </div>
@@ -685,7 +685,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             <MiniChart data={revenueTrend} height={100} color="#8B5CF6" />
             {(revenueTrend.length === 0 || revenueTrend.every(d => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-400">No analytics data available yet</p>
+                <p className="text-sm text-gray-500">No analytics data available yet</p>
               </div>
             )}
           </div>
@@ -701,7 +701,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             <MiniChart data={userTrend} height={100} color="#10B981" />
             {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-400">No analytics data available yet</p>
+                <p className="text-sm text-gray-500">No analytics data available yet</p>
               </div>
             )}
           </div>
@@ -795,7 +795,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         <Card title="Module Usage">
           {Object.keys(data.usage.moduleUsage).length === 0 && (
             <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-gray-400">No analytics data available yet</p>
+              <p className="text-sm text-gray-500">No analytics data available yet</p>
             </div>
           )}
           <div className="space-y-4">
@@ -825,7 +825,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         <Card title="Feature Adoption">
           {data.usage.topFeatures.length === 0 && (
             <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-gray-400">No analytics data available yet</p>
+              <p className="text-sm text-gray-500">No analytics data available yet</p>
             </div>
           )}
           <div className="space-y-4">
@@ -884,14 +884,14 @@ const AnalyticsDashboardPage: React.FC = () => {
             <div key={region} className="text-center p-4 bg-gray-50 rounded-lg">
               <p className="text-3xl font-bold text-gray-900">{count}</p>
               <p className="text-sm text-gray-500 mt-1">{region}</p>
-              <p className="text-xs text-gray-400">{data.tenants.total > 0 ? ((count / data.tenants.total) * 100).toFixed(1) : '0.0'}%</p>
+              <p className="text-xs text-gray-500">{data.tenants.total > 0 ? ((count / data.tenants.total) * 100).toFixed(1) : '0.0'}%</p>
             </div>
           ))}
         </div>
       </Card>
 
       {/* Footer */}
-      <div className="text-center text-sm text-gray-400">
+      <div className="text-center text-sm text-gray-500">
         Last updated: {new Date(data.generatedAt).toLocaleString('en-US')}
       </div>
     </div>

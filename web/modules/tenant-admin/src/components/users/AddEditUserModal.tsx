@@ -319,7 +319,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
               </label>
               {rolesLoading ? (
                 <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                  <RefreshCw className="w-4 h-4 animate-spin text-gray-400" />
+                  <RefreshCw className="w-4 h-4 animate-spin text-gray-500" />
                   <span className="text-sm text-gray-500">Loading roles...</span>
                 </div>
               ) : roles.length === 0 ? (

@@ -71,6 +71,10 @@ export interface ComplexCondition {
 /**
  * Rule Evaluator Service
  * Evaluates conditions against context data
+ *
+ * @deprecated This service is not registered in any NestJS module and is dead code.
+ * AlertEvaluationService (in alert/services/) handles rule evaluation in production.
+ * Retained for reference; scheduled for removal. See D10-F3.
  */
 @Injectable()
 export class RuleEvaluatorService {

@@ -142,7 +142,7 @@ const StatusBadge: React.FC<{ status: 'normal' | 'warning' | 'critical' }> = ({ 
 const TrendIcon: React.FC<{ trend?: 'up' | 'down' | 'stable' }> = ({ trend }) => {
   if (trend === 'up') return <TrendingUp className="w-3 h-3 text-green-500" />;
   if (trend === 'down') return <TrendingDown className="w-3 h-3 text-red-500" />;
-  return <Minus className="w-3 h-3 text-gray-400" />;
+  return <Minus className="w-3 h-3 text-gray-500" />;
 };
 
 // Mock readings for demo (will be replaced with real-time data)
@@ -208,9 +208,9 @@ const DeviceGroupCard: React.FC<{
       >
         <button className="p-1 hover:bg-gray-100 rounded">
           {isExpanded ? (
-            <ChevronDown className="w-5 h-5 text-gray-400" />
+            <ChevronDown className="w-5 h-5 text-gray-500" />
           ) : (
-            <ChevronRight className="w-5 h-5 text-gray-400" />
+            <ChevronRight className="w-5 h-5 text-gray-500" />
           )}
         </button>
 
@@ -297,7 +297,7 @@ const DeviceGroupCard: React.FC<{
                           {(reading.value ?? 0).toFixed(2)} <span className="text-gray-500 font-normal">{reading.unit}</span>
                         </span>
                       ) : (
-                        <span className="text-gray-400">-</span>
+                        <span className="text-gray-500">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
@@ -307,7 +307,7 @@ const DeviceGroupCard: React.FC<{
                       {reading ? (
                         <StatusBadge status={reading.status} />
                       ) : (
-                        <span className="text-gray-400 text-sm">Veri yok</span>
+                        <span className="text-gray-500 text-sm">Veri yok</span>
                       )}
                     </td>
                   </tr>
@@ -350,7 +350,7 @@ const StandaloneSensorCard: React.FC<{
             {isConnected ? (
               <Wifi className="w-4 h-4 text-green-500" />
             ) : (
-              <WifiOff className="w-4 h-4 text-gray-400" />
+              <WifiOff className="w-4 h-4 text-gray-500" />
             )}
           </div>
           <p className="text-sm text-gray-500">{typeName}</p>
@@ -364,7 +364,7 @@ const StandaloneSensorCard: React.FC<{
               <StatusBadge status={reading.status} />
             </>
           ) : (
-            <p className="text-gray-400">Veri yok</p>
+            <p className="text-gray-500">Veri yok</p>
           )}
         </div>
       </div>
@@ -584,7 +584,7 @@ const ReadingsPage: React.FC = () => {
         <div className="flex flex-col md:flex-row gap-4">
           {/* Type Filter */}
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-400" />
+            <Filter className="w-5 h-5 text-gray-500" />
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
@@ -609,7 +609,7 @@ const ReadingsPage: React.FC = () => {
 
           {/* Period Filter */}
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-gray-400" />
+            <Calendar className="w-5 h-5 text-gray-500" />
             <select
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value)}

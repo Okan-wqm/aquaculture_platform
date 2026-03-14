@@ -148,7 +148,7 @@ const ModulesPage: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -295,7 +295,7 @@ const ModulesPage: React.FC = () => {
         </div>
       ) : modules.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-          <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-12 h-12 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
           <h3 className="text-lg font-medium text-gray-900 mb-2">No modules found</h3>
@@ -342,7 +342,7 @@ const ModulesPage: React.FC = () => {
               </div>
 
               <h3 className="text-lg font-semibold text-gray-900 mb-1">{module.name}</h3>
-              <p className="text-xs text-gray-400 mb-2">{module.code}</p>
+              <p className="text-xs text-gray-500 mb-2">{module.code}</p>
               <p className="text-sm text-gray-600 mb-4">{module.description || 'No description available'}</p>
 
               <div className="flex items-center justify-between text-sm">

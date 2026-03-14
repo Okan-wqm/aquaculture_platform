@@ -6,9 +6,9 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { create } from 'zustand';
-import { getAccessToken } from '@aquaculture/shared-ui';
+import { getSocket, releaseSocket } from './socketFactory';
 
 // WebSocket server URL — BUG-021 / SEC-003: use runtime/env config, not hardcoded localhost
 const WS_URL =
@@ -78,78 +78,58 @@ export const useSensorStore = create<SensorSocketState>((set, get) => ({
   },
 }));
 
-// Singleton socket instance
-let socketInstance: Socket | null = null;
+// Module-level flag to track whether event listeners have been bound
+let listenersAttached = false;
 let connectionAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
 /**
- * Initialize WebSocket connection
+ * Get or create the shared socket instance via the pool factory
+ * and attach sensor-specific event listeners once.
  */
-function initializeSocket(): Socket | null {
-  const token = getAccessToken();
+function getSensorSocket(): Socket | null {
+  const socket = getSocket(WS_URL);
+  if (!socket) return null;
 
-  if (!token) {
-    return null;
+  // Attach domain-specific listeners only once per socket lifetime
+  if (!listenersAttached) {
+    listenersAttached = true;
+
+    socket.on('connect', () => {
+      connectionAttempts = 0;
+      useSensorStore.getState().setConnected(true);
+    });
+
+    socket.on('disconnect', (_reason) => {
+      useSensorStore.getState().setConnected(false);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.warn('[SensorSocket] Connection error:', error.message);
+      connectionAttempts++;
+
+      if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('[SensorSocket] Max reconnection attempts reached');
+      }
+    });
+
+    socket.on('sensorReading', (reading: SensorReading) => {
+      useSensorStore.getState().updateReading(reading);
+    });
+
+    socket.on('error', (error: { message: string }) => {
+      console.error('[SensorSocket] Error:', error.message);
+    });
   }
 
-  if (socketInstance && socketInstance.connected) {
-    return socketInstance;
-  }
-
-  socketInstance = io(WS_URL, {
-    auth: { token },
-    transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-  });
-
-  socketInstance.on('connect', () => {
-    connectionAttempts = 0;
-    useSensorStore.getState().setConnected(true);
-  });
-
-  socketInstance.on('disconnect', (_reason) => {
-    useSensorStore.getState().setConnected(false);
-  });
-
-  socketInstance.on('connect_error', (error) => {
-    console.warn('[SensorSocket] Connection error:', error.message);
-    connectionAttempts++;
-
-    if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error('[SensorSocket] Max reconnection attempts reached');
-    }
-  });
-
-  socketInstance.on('sensorReading', (reading: SensorReading) => {
-    useSensorStore.getState().updateReading(reading);
-  });
-
-  socketInstance.on('error', (error: { message: string }) => {
-    console.error('[SensorSocket] Error:', error.message);
-  });
-
-  return socketInstance;
-}
-
-/**
- * Get or create socket instance
- */
-function getSocket(): Socket | null {
-  if (!socketInstance || !socketInstance.connected) {
-    return initializeSocket();
-  }
-  return socketInstance;
+  return socket;
 }
 
 /**
  * Subscribe to specific sensors via WebSocket
  */
 function subscribeToSensors(sensorIds: string[]): void {
-  const socket = getSocket();
+  const socket = getSensorSocket();
   if (!socket || !socket.connected) {
     console.warn('[SensorSocket] Cannot subscribe - not connected');
     return;
@@ -162,7 +142,7 @@ function subscribeToSensors(sensorIds: string[]): void {
  * Unsubscribe from sensors via WebSocket
  */
 function unsubscribeFromSensors(sensorIds: string[]): void {
-  const socket = getSocket();
+  const socket = getSensorSocket();
   if (!socket || !socket.connected) return;
 
   socket.emit('unsubscribe', { sensorIds });
@@ -178,13 +158,16 @@ export function useSensorSocket(sensorIds: string[] = []) {
 
   // Initialize socket on first use
   useEffect(() => {
-    const socket = getSocket();
+    const socket = getSensorSocket();
 
     return () => {
       // Cleanup: unsubscribe from sensors when component unmounts
       if (subscribedRef.current.size > 0) {
         unsubscribeFromSensors(Array.from(subscribedRef.current));
       }
+      // Release our reference so the pool can clean up when no consumers remain
+      releaseSocket(WS_URL);
+      listenersAttached = false;
     };
   }, []);
 

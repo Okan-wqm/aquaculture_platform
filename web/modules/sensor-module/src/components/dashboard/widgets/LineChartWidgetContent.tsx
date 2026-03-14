@@ -40,6 +40,7 @@ function formatTimeSince(dateInput: Date | string): string {
 }
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { downsampleChartData, MAX_CHART_POINTS } from '../../../utils/downsample';
 
 interface LineChartWidgetContentProps {
   config: WidgetConfig;
@@ -58,7 +59,7 @@ const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) =>
   if (!timestamp) return null;
   const diffSec = Math.floor((Date.now() - timestamp.getTime()) / 1000);
   const label = diffSec < 60 ? `${diffSec}s ago` : `${Math.floor(diffSec / 60)}m ago`;
-  return <span className="text-xs text-gray-400">{label}</span>;
+  return <span className="text-xs text-gray-500">{label}</span>;
 };
 
 export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
@@ -76,7 +77,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         {error}
       </div>
     );
@@ -124,9 +125,13 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
     groupedData[timeKey][point.sensorName] = point.value;
   });
 
-  const finalChartData = Object.values(groupedData).sort(
+  const sortedChartData = Object.values(groupedData).sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
+
+  // PERF-RISK-002: Downsample to prevent SVG DOM explosion with large datasets
+  // (e.g. 30-day @ 1-min aggregate = ~43,200 points). Display-only -- original data preserved.
+  const finalChartData = downsampleChartData(sortedChartData, MAX_CHART_POINTS);
 
   // Get unique sensor names (filter out undefined/null)
   const sensorNames = [...new Set(
@@ -135,7 +140,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
 
   if (finalChartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         No historical data
       </div>
     );
@@ -220,7 +225,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
       </div>
       {/* Last update time — only TimeSinceUpdate re-renders every second (PERF-004) */}
       {latestTimestamp && (
-        <div className="flex items-center justify-center gap-1 text-xs text-gray-400 pt-1 border-t border-gray-100">
+        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 pt-1 border-t border-gray-100">
           <Clock size={10} />
           <span>Last update: </span>
           <TimeSinceUpdate timestamp={latestTimestamp} />

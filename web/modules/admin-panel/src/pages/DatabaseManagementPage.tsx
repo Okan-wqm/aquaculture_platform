@@ -404,7 +404,7 @@ const SchemasTab: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-lg font-medium text-gray-900">Schema Details</h3>
-              <button onClick={() => setSelectedSchema(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setSelectedSchema(null)} className="text-gray-500 hover:text-gray-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -595,7 +595,7 @@ const MigrationsTab: React.FC = () => {
                       )}
                     </div>
                     <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
-                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-400">
+                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
                       <span>Tables: {plan.affectedTables.join(', ')}</span>
                       <span>Est. Duration: {formatDuration(plan.estimatedDuration)}</span>
                     </div>
@@ -670,7 +670,7 @@ const MigrationsTab: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-lg font-medium text-gray-900">Batch Migration</h3>
-              <button onClick={() => setShowBatchModal(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowBatchModal(false)} className="text-gray-500 hover:text-gray-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -984,7 +984,7 @@ const BackupsTab: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-lg font-medium text-gray-900">Create Backup</h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowCreateModal(false)} className="text-gray-500 hover:text-gray-600">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1076,7 +1076,7 @@ const BackupsTab: React.FC = () => {
                   setShowRestoreModal(false);
                   setSelectedBackup(null);
                 }}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-500 hover:text-gray-600"
               >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1088,7 +1088,7 @@ const BackupsTab: React.FC = () => {
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="text-sm text-gray-500">Selected Backup</div>
                   <div className="font-medium">{selectedBackup.fileName || selectedBackup.location || selectedBackup.id}</div>
-                  <div className="text-xs text-gray-400">Created: {formatDate(selectedBackup.createdAt || selectedBackup.startedAt)}</div>
+                  <div className="text-xs text-gray-500">Created: {formatDate(selectedBackup.createdAt || selectedBackup.startedAt)}</div>
                 </div>
               ) : (
                 <>

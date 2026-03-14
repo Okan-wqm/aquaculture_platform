@@ -3,6 +3,9 @@
  *
  * Implements integration with Open Policy Agent for policy-as-code rule evaluation.
  * Supports Rego policies, policy bundles, and decision logging.
+ *
+ * @deprecated This service is not registered in any NestJS module and is dead code.
+ * Retained for reference; scheduled for removal. See D10-F3.
  */
 
 import * as crypto from 'crypto';

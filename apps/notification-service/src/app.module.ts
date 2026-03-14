@@ -13,6 +13,7 @@ import {
   RequestContextMiddleware,
   UserContextMiddleware,
   TenantContextMiddleware,
+  RedisModule,
 } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
@@ -121,6 +122,19 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       useFactory: (configService: ConfigService) => ({
         natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
         streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+      }),
+    }),
+
+    // Redis Module (global – used for distributed rate limiting, etc.)
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        host: configService.get('REDIS_HOST', 'localhost'),
+        port: configService.get<number>('REDIS_PORT', 6379),
+        password: configService.get<string>('REDIS_PASSWORD'),
+        db: configService.get<number>('REDIS_DB', 0),
+        keyPrefix: 'aqua:notif:',
       }),
     }),
 

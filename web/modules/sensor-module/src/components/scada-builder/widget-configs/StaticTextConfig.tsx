@@ -19,7 +19,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
   return (
     <div className="space-y-3">
       {/* ── Typography ── */}
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Typography</div>
+      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Typography</div>
 
       {/* Text */}
       <div>
@@ -96,7 +96,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* ── Appearance ── */}
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-1">Appearance</div>
+      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide pt-1">Appearance</div>
 
       {/* Text Color */}
       <div>

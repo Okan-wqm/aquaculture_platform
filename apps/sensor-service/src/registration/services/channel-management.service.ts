@@ -1,6 +1,6 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, FindOptionsWhere } from 'typeorm';
+import { Repository, In, FindOptionsWhere, DataSource } from 'typeorm';
 
 interface MaxOrderResult {
   max: number | null;
@@ -67,6 +67,7 @@ export class ChannelManagementService {
   constructor(
     @InjectRepository(SensorDataChannel)
     private readonly channelRepository: Repository<SensorDataChannel>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -353,6 +354,77 @@ export class ChannelManagementService {
     this.logger.log(`Created ${saved.length} channels for sensor ${sensorId}`);
 
     return saved;
+  }
+
+  /**
+   * PERF-RISK-004: Bulk update alert thresholds for multiple channels in a single transaction.
+   * Replaces N individual mutations with one atomic operation.
+   *
+   * @param tenantId  Tenant scope for security isolation
+   * @param updates   Array of { channelId, alertThresholds } (max 100)
+   * @returns Number of channels successfully updated
+   */
+  async bulkUpdateChannelThresholds(
+    tenantId: string,
+    updates: Array<{ channelId: string; alertThresholds?: AlertThresholdConfig }>,
+  ): Promise<number> {
+    const MAX_BULK_ITEMS = 100;
+
+    if (updates.length === 0) {
+      return 0;
+    }
+
+    if (updates.length > MAX_BULK_ITEMS) {
+      throw new BadRequestException(
+        `Bulk update limited to ${MAX_BULK_ITEMS} items, received ${updates.length}`,
+      );
+    }
+
+    const channelIds = updates.map((u) => u.channelId);
+
+    // Load all channels in a single query, scoped to tenant for security
+    const channels = await this.channelRepository.find({
+      where: { id: In(channelIds), tenantId },
+    });
+
+    if (channels.length !== channelIds.length) {
+      const foundIds = new Set(channels.map((c) => c.id));
+      const missing = channelIds.filter((id) => !foundIds.has(id));
+      throw new NotFoundException(
+        `Channels not found or not accessible: ${missing.join(', ')}`,
+      );
+    }
+
+    // Build a lookup for quick access
+    const channelMap = new Map(channels.map((c) => [c.id, c]));
+
+    // Apply updates in a single transaction
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      for (const update of updates) {
+        const channel = channelMap.get(update.channelId)!;
+        if (update.alertThresholds !== undefined) {
+          channel.alertThresholds = update.alertThresholds;
+        }
+      }
+
+      await queryRunner.manager.save(channels);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Bulk updated thresholds for ${channels.length} channels (tenant: ${tenantId})`,
+      );
+
+      return channels.length;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**

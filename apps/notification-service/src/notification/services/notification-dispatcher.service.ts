@@ -1,6 +1,7 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
+import { RedisService } from '@platform/backend-common';
 import {
   NotificationLog,
   NotificationStatus,
@@ -121,11 +122,9 @@ function pLimit(concurrency: number) {
 // Exponential backoff base delay for retries (1 minute)
 const RETRY_BASE_DELAY_MS = 60 * 1000;
 
-// Rate limiting: track requests per tenant
-// NOTE: This in-memory rate limiting has limitations in multi-instance deployments.
-// For production horizontal scaling, replace with Redis-based INCRBY/EXPIRE.
-const tenantRequestCounts = new Map<string, { count: number; resetAt: number }>();
+// Rate limiting constants
 const MAX_NOTIFICATIONS_PER_MINUTE = 100;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 /**
  * Alert notification data
@@ -150,6 +149,12 @@ export interface AlertNotificationData {
 export class NotificationDispatcherService {
   private readonly logger = new Logger(NotificationDispatcherService.name);
 
+  /**
+   * In-memory fallback for rate limiting when Redis is unavailable.
+   * Only used as a best-effort safety net; primary rate limiting is Redis-based.
+   */
+  private readonly fallbackCounts = new Map<string, { count: number; resetAt: number }>();
+
   constructor(
     @InjectRepository(NotificationLog)
     private readonly logRepository: Repository<NotificationLog>,
@@ -157,6 +162,7 @@ export class NotificationDispatcherService {
     private readonly smsService: SmsService,
     private readonly pushService: PushService,
     private readonly dataSource: DataSource,
+    @Optional() private readonly redisService?: RedisService,
   ) {}
 
   /**
@@ -176,9 +182,9 @@ export class NotificationDispatcherService {
       throw new BadRequestException('At least one recipient is required');
     }
 
-    // Rate limiting check
+    // Rate limiting check (Redis-backed, with in-memory fallback)
     const totalNotifications = channels.length * recipients.length;
-    if (!this.checkRateLimit(tenantId, totalNotifications)) {
+    if (!(await this.checkRateLimit(tenantId, totalNotifications))) {
       this.logger.warn(
         `Rate limit exceeded for tenant ${tenantId}. Dropping ${totalNotifications} notifications.`,
       );
@@ -274,23 +280,56 @@ export class NotificationDispatcherService {
   }
 
   /**
-   * Check and update rate limit for a tenant
-   * NOTE: For multi-instance deployments, replace with Redis INCRBY/EXPIRE
+   * Check and update rate limit for a tenant using Redis (distributed).
+   * Falls back to in-memory counting when Redis is unavailable so that
+   * the service keeps working (deny-none, not deny-all).
+   *
+   * Redis pattern: INCRBY + EXPIRE on key `notif:rate:{tenantId}`.
+   * EXPIRE is only set when the key is freshly created (INCRBY returns a
+   * value equal to `count`, meaning no prior value existed) to avoid
+   * resetting the TTL on every request.
    */
-  private checkRateLimit(tenantId: string, count: number): boolean {
+  private async checkRateLimit(tenantId: string, count: number): Promise<boolean> {
+    // Try Redis first
+    if (this.redisService) {
+      try {
+        const key = `notif:rate:${tenantId}`;
+        const current = await this.redisService.incrby(key, count);
+
+        // If current equals count, the key was just created (no prior value).
+        // Set the expiry window atomically.
+        if (current === count) {
+          await this.redisService.expire(key, RATE_LIMIT_WINDOW_SECONDS);
+        }
+
+        return current <= MAX_NOTIFICATIONS_PER_MINUTE;
+      } catch (error) {
+        this.logger.warn(
+          `Redis rate-limit check failed, falling back to in-memory: ${(error as Error).message}`,
+        );
+        // Fall through to in-memory
+      }
+    }
+
+    // In-memory fallback (single-instance only; best-effort when Redis is down)
+    return this.checkRateLimitInMemory(tenantId, count);
+  }
+
+  /**
+   * In-memory rate limit check – used as fallback when Redis is unavailable.
+   */
+  private checkRateLimitInMemory(tenantId: string, count: number): boolean {
     const now = Date.now();
-    const entry = tenantRequestCounts.get(tenantId);
+    const entry = this.fallbackCounts.get(tenantId);
 
     // Handle expired or missing entry.
-    // Explicitly delete the stale entry before re-setting to prevent unbounded
-    // map growth in deployments with many infrequently-alerting tenants.
     if (!entry || entry.resetAt < now) {
       if (entry) {
-        tenantRequestCounts.delete(tenantId);
+        this.fallbackCounts.delete(tenantId);
       }
-      tenantRequestCounts.set(tenantId, {
+      this.fallbackCounts.set(tenantId, {
         count,
-        resetAt: now + 60000, // 1 minute window
+        resetAt: now + RATE_LIMIT_WINDOW_SECONDS * 1000,
       });
       return count <= MAX_NOTIFICATIONS_PER_MINUTE;
     }

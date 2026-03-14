@@ -8,11 +8,14 @@ import { Invitation } from './entities/invitation.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserModuleAssignment } from './entities/user-module-assignment.entity';
 import { User } from './entities/user.entity';
+import { WebAuthnCredential } from './entities/webauthn-credential.entity';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthResolver } from './resolvers/auth.resolver';
 import { MfaResolver } from './resolvers/mfa.resolver';
+import { WebAuthnResolver } from './resolvers/webauthn.resolver';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
+import { WebAuthnService } from './services/webauthn.service';
 
 @Module({
   imports: [
@@ -22,14 +25,16 @@ import { MfaService } from './services/mfa.service';
       Invitation,
       UserModuleAssignment,
       Tenant,
+      WebAuthnCredential,
     ]),
     AuditModule,
   ],
   providers: [
     AuthenticationService,
     MfaService,
+    WebAuthnService,
     // Token-based providers to break circular dependency between
-    // AuthenticationService <-> MfaService
+    // AuthenticationService <-> MfaService / WebAuthnService
     {
       provide: 'MFA_SERVICE',
       useExisting: MfaService,
@@ -40,9 +45,10 @@ import { MfaService } from './services/mfa.service';
     },
     AuthResolver,
     MfaResolver,
+    WebAuthnResolver,
     JwtAuthGuard,
   ],
-  exports: [AuthenticationService, MfaService, JwtAuthGuard, TypeOrmModule],
+  exports: [AuthenticationService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AuthenticationModule {}

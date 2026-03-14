@@ -271,7 +271,7 @@ const AuditDetailModal: React.FC<{
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-gray-900">Audit Entry Details</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -617,7 +617,7 @@ export const AuditTrailPage: React.FC = () => {
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="text"
                   placeholder="Search by entity, user, or action..."
@@ -793,10 +793,10 @@ export const AuditTrailPage: React.FC = () => {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button className="p-2 text-gray-400 hover:text-gray-600">
+                      <button className="p-2 text-gray-500 hover:text-gray-600">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button className="p-2 text-gray-400 hover:text-red-600">
+                      <button className="p-2 text-gray-500 hover:text-red-600">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -861,10 +861,10 @@ export const AuditTrailPage: React.FC = () => {
                       <p className="text-sm text-gray-500 mt-1">Condition: {rule.condition}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button className="p-2 text-gray-400 hover:text-gray-600">
+                      <button className="p-2 text-gray-500 hover:text-gray-600">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button className="p-2 text-gray-400 hover:text-red-600">
+                      <button className="p-2 text-gray-500 hover:text-red-600">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>

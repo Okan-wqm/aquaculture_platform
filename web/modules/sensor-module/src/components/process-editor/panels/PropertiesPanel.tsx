@@ -273,7 +273,7 @@ export const PropertiesPanel: React.FC = () => {
 
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center text-gray-500">
-            <Settings className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+            <Settings className="w-12 h-12 mx-auto mb-3 text-gray-500" />
             <p className="text-sm">Select a node or connection to view properties</p>
           </div>
         </div>
@@ -428,7 +428,7 @@ export const PropertiesPanel: React.FC = () => {
                         className="p-1 hover:bg-gray-100 rounded transition-colors"
                         title="Edit Name"
                       >
-                        <Edit3 className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+                        <Edit3 className="w-4 h-4 text-gray-500 hover:text-gray-600" />
                       </button>
                     </div>
                   )}
@@ -826,7 +826,7 @@ export const PropertiesPanel: React.FC = () => {
                             </span>
                             <span className="flex-1 truncate text-gray-700">{io.tagName}</span>
                             {io.engUnit && (
-                              <span className="text-xs text-gray-400">{io.engUnit}</span>
+                              <span className="text-xs text-gray-500">{io.engUnit}</span>
                             )}
                           </label>
                         );
@@ -845,7 +845,7 @@ export const PropertiesPanel: React.FC = () => {
               // Bağlanmamış durumu — device dropdown
               <div className="space-y-2">
                 {isEdgeDevicesLoading ? (
-                  <p className="text-xs text-gray-400 animate-pulse">Loading devices...</p>
+                  <p className="text-xs text-gray-500 animate-pulse">Loading devices...</p>
                 ) : edgeDevicesError ? (
                   <p className="text-xs text-red-500">Failed to load devices</p>
                 ) : (
@@ -950,7 +950,7 @@ export const PropertiesPanel: React.FC = () => {
                 {selectedNode.data.ioBindings
                   .filter((b: IoBinding) => b.ioType === 'AI' || b.ioType === 'AO')
                   .length > 0 && (
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     Analog tags are read-only in process editor.
                   </p>
                 )}

@@ -44,7 +44,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ icon, label, shortcut, disabled, on
   <button
     className={`flex w-full items-center gap-2 px-3 py-2 text-sm ${
       disabled
-        ? 'cursor-not-allowed text-gray-300'
+        ? 'cursor-not-allowed text-gray-500'
         : 'text-gray-700 hover:bg-gray-50'
     }`}
     disabled={disabled}
@@ -52,7 +52,7 @@ const MenuItem: React.FC<MenuItemProps> = ({ icon, label, shortcut, disabled, on
   >
     {icon}
     <span>{label}</span>
-    {shortcut && <span className="ml-auto text-xs text-gray-400">{shortcut}</span>}
+    {shortcut && <span className="ml-auto text-xs text-gray-500">{shortcut}</span>}
   </button>
 );
 

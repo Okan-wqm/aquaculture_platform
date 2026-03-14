@@ -1,6 +1,10 @@
 /**
  * Safe regex utility: validates, caches, and enforces limits on user-supplied
  * regular expression patterns to prevent ReDoS attacks.
+ *
+ * @deprecated Part of the rules-engine module which is not registered in any
+ * NestJS module and is dead code. Retained for reference; scheduled for
+ * removal. See D10-F3.
  */
 
 const MAX_PATTERN_LENGTH = 200;

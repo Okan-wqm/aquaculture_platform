@@ -212,6 +212,13 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * Increment a value by a given amount
+   */
+  async incrby(key: string, increment: number): Promise<number> {
+    return this.client.incrby(this.prefixKey(key), increment);
+  }
+
+  /**
    * Decrement a value
    */
   async decr(key: string): Promise<number> {

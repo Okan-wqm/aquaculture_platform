@@ -92,7 +92,7 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
               <p className="font-medium text-gray-900 truncate">{equipment.name}</p>
               <p className="text-sm text-gray-500 truncate">{equipment.code}</p>
               {equipment.equipmentType && (
-                <p className="text-xs text-gray-400 truncate capitalize">
+                <p className="text-xs text-gray-500 truncate capitalize">
                   {equipment.equipmentType.name}
                 </p>
               )}

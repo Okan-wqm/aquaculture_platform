@@ -97,7 +97,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
             onClick={handleClose}
             className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <X size={20} className="text-gray-400" />
+            <X size={20} className="text-gray-500" />
           </button>
         </div>
 
@@ -117,7 +117,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
           >
             {equipmentData.status}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             {equipmentData.equipmentCategory}
           </span>
         </div>
@@ -137,7 +137,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
             onClick={() => setViewMode(mode)}
             className={`
               p-1.5 rounded transition-colors
-              ${viewMode === mode ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}
+              ${viewMode === mode ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}
             `}
             title={label}
           >
@@ -172,7 +172,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
       <div className="flex-1 overflow-y-auto p-4">
         {readings.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            <Settings size={32} className="mx-auto mb-2 text-gray-300" />
+            <Settings size={32} className="mx-auto mb-2 text-gray-500" />
             <p className="text-sm">Bu ekipmana bağlı sensör bulunamadı</p>
           </div>
         ) : (
@@ -186,7 +186,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
                   {reading.sensorName}
                 </div>
                 {renderWidget(reading)}
-                <div className="text-xs text-gray-400 mt-2 text-right">
+                <div className="text-xs text-gray-500 mt-2 text-right">
                   Son güncelleme: {formatTimestamp(reading.timestamp)}
                 </div>
               </div>

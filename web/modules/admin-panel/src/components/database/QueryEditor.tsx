@@ -463,7 +463,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                     title={formatValue(row[column])}
                   >
                     {row[column] === null ? (
-                      <span className="text-gray-400 italic">NULL</span>
+                      <span className="text-gray-500 italic">NULL</span>
                     ) : typeof row[column] === 'object' ? (
                       <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
                         {formatValue(row[column]).substring(0, 50)}

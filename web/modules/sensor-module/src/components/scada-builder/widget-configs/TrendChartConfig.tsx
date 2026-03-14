@@ -50,7 +50,7 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             </div>
           ))}
           {tags.length === 0 && (
-            <p className="text-xs text-gray-400">No tags added yet</p>
+            <p className="text-xs text-gray-500">No tags added yet</p>
           )}
         </div>
       </div>

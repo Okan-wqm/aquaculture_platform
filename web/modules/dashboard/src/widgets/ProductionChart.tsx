@@ -23,12 +23,12 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
 }) => {
   return (
     <Card className={`p-4 ${className}`}>
-      <div className="text-center py-6 text-gray-400">
+      <div className="text-center py-6 text-gray-500">
         <TrendUpIcon className="w-8 h-8 mx-auto mb-2" />
         <p className="text-sm font-medium text-gray-500">Üretim Grafiği</p>
-        {farmId && <p className="text-xs text-gray-400 mt-1">Çiftlik: {farmId}</p>}
-        <p className="text-xs text-gray-400 mt-1">Dönem: {period}</p>
-        <p className="text-xs text-gray-400 mt-2">Veri bağlantısı kurulacak</p>
+        {farmId && <p className="text-xs text-gray-500 mt-1">Çiftlik: {farmId}</p>}
+        <p className="text-xs text-gray-500 mt-1">Dönem: {period}</p>
+        <p className="text-xs text-gray-500 mt-2">Veri bağlantısı kurulacak</p>
       </div>
     </Card>
   );

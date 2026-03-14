@@ -18,14 +18,14 @@ export const ScreenBreadcrumb: React.FC = () => {
 
   return (
     <div className="flex items-center gap-1 px-3 py-1 bg-gray-50 border-b border-gray-200 text-xs">
-      <Home className="w-3 h-3 text-gray-400" />
+      <Home className="w-3 h-3 text-gray-500" />
       {path.map((segment, index) => {
         const isLast = index === path.length - 1;
 
         return (
           <React.Fragment key={segment.id}>
             {index > 0 && (
-              <ChevronRight className="w-3 h-3 text-gray-300" />
+              <ChevronRight className="w-3 h-3 text-gray-500" />
             )}
             {isLast ? (
               <span className="text-gray-900 font-semibold">

@@ -11,6 +11,8 @@ import {
   DiscoverChannelsInput,
   SaveDiscoveredChannelsInput,
   ReorderChannelsInput,
+  BulkUpdateDataChannelsInput,
+  BulkUpdateDataChannelsResult,
 } from '../dto/data-channel.dto';
 import { ChannelDiscoveryService } from '../services/channel-discovery.service';
 import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
@@ -152,6 +154,29 @@ export class ChannelResolver {
       isEnabled: input.isEnabled,
       displayOrder: input.displayOrder,
     });
+  }
+
+  /**
+   * PERF-RISK-004: Bulk update data channel thresholds in a single transaction.
+   * Replaces N individual updateDataChannel mutations with one atomic call.
+   * Maximum 100 items per request.
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Mutation(() => BulkUpdateDataChannelsResult, { name: 'bulkUpdateDataChannels' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async bulkUpdateDataChannels(
+    @Args('input') input: BulkUpdateDataChannelsInput,
+    @Tenant() tenantId: string,
+  ): Promise<BulkUpdateDataChannelsResult> {
+    const count = await this.managementService.bulkUpdateChannelThresholds(
+      tenantId,
+      input.updates.map((u) => ({
+        channelId: u.channelId,
+        alertThresholds: u.alertThresholds,
+      })),
+    );
+
+    return { success: true, count };
   }
 
   /**

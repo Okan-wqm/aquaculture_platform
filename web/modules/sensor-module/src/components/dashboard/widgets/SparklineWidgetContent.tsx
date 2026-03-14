@@ -57,7 +57,7 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
 
   if (error || !data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-xs">
+      <div className="flex items-center justify-center h-full text-gray-500 text-xs">
         {error || 'No data'}
       </div>
     );
@@ -185,7 +185,7 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
         )}
       </div>
       {/* Last update time */}
-      <div className="flex items-center justify-center gap-1 text-xs text-gray-400 pt-1 border-t border-gray-100 mt-1">
+      <div className="flex items-center justify-center gap-1 text-xs text-gray-500 pt-1 border-t border-gray-100 mt-1">
         <Clock size={10} />
         <span>{formatTimeSince(reading.timestamp)}</span>
       </div>

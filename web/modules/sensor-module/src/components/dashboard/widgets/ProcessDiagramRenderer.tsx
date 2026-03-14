@@ -586,7 +586,7 @@ export const ProcessDiagramRenderer: React.FC<ProcessDiagramRendererProps> = ({
 
   if (nodes.length === 0) {
     return (
-      <div className={`flex items-center justify-center h-full text-gray-400 ${className}`}>
+      <div className={`flex items-center justify-center h-full text-gray-500 ${className}`}>
         No process diagram
       </div>
     );

@@ -331,7 +331,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
             </div>
             <button
               onClick={onClose}
-              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <X size={20} />
             </button>
@@ -454,7 +454,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Select Data Channel{' '}
                       {isSingleSelect && (
-                        <span className="text-gray-400">(single selection)</span>
+                        <span className="text-gray-500">(single selection)</span>
                       )}
                     </label>
                     {channelsLoading ? (
@@ -529,7 +529,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                                       }}
                                     />
                                     <div className="flex-1 min-w-0">
-                                      <p className={`font-medium truncate ${isAlreadyUsed ? 'text-gray-400' : 'text-gray-900'}`}>
+                                      <p className={`font-medium truncate ${isAlreadyUsed ? 'text-gray-500' : 'text-gray-900'}`}>
                                         {channel.displayLabel}
                                       </p>
                                       {isAlreadyUsed && (

@@ -50,7 +50,7 @@ function formatRelativeTime(dateStr: string | undefined): string {
 
 /** RSSI sinyal guc gostergesi — renk kodlu */
 function RssiIndicator({ rssi }: { rssi?: number }) {
-  if (rssi == null) return <span className="text-gray-400">--</span>;
+  if (rssi == null) return <span className="text-gray-500">--</span>;
 
   let color: string;
   let Icon: typeof Signal;
@@ -205,7 +205,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               maxLength={16}
               required
             />
-            <p className="text-xs text-gray-400 mt-0.5">{devEui.length}/16 hex karakter</p>
+            <p className="text-xs text-gray-500 mt-0.5">{devEui.length}/16 hex karakter</p>
           </div>
 
           {/* AppKey */}
@@ -224,13 +224,13 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAppKey(!showAppKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-600"
                 aria-label={showAppKey ? 'Gizle' : 'Goster'}
               >
                 {showAppKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">{appKey.length}/32 hex karakter</p>
+            <p className="text-xs text-gray-500 mt-0.5">{appKey.length}/32 hex karakter</p>
           </div>
 
           {/* Cihaz Adi + Tag Prefix */}
@@ -255,7 +255,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 placeholder="LORA_WQ_01"
                 maxLength={30}
               />
-              <p className="text-xs text-gray-400 mt-0.5">Bos birakilirsa isimden uretilir</p>
+              <p className="text-xs text-gray-500 mt-0.5">Bos birakilirsa isimden uretilir</p>
             </div>
           </div>
 
@@ -711,7 +711,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
                 <td className="px-3 py-2">
                   <div>
                     <span className="font-medium text-gray-900">{dev.name}</span>
-                    <span className="block text-xs text-gray-400">{dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}</span>
+                    <span className="block text-xs text-gray-500">{dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}</span>
                   </div>
                 </td>
                 {/* Durum */}

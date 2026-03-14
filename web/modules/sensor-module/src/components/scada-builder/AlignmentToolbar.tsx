@@ -144,7 +144,7 @@ export const AlignmentToolbar: React.FC = () => {
         className={`p-1.5 rounded ${
           canDistribute
             ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
-            : 'text-gray-300 cursor-not-allowed'
+            : 'text-gray-500 cursor-not-allowed'
         }`}
         title="Distribute Horizontally"
         disabled={!canDistribute}
@@ -158,7 +158,7 @@ export const AlignmentToolbar: React.FC = () => {
         className={`p-1.5 rounded ${
           canDistribute
             ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
-            : 'text-gray-300 cursor-not-allowed'
+            : 'text-gray-500 cursor-not-allowed'
         }`}
         title="Distribute Vertically"
         disabled={!canDistribute}

@@ -299,9 +299,9 @@ export const WidgetPalette: React.FC = () => {
             >
               <span>{category.name}</span>
               {expandedCategories.has(category.name) ? (
-                <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
               ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+                <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
               )}
             </button>
             {expandedCategories.has(category.name) && (
@@ -320,11 +320,11 @@ export const WidgetPalette: React.FC = () => {
                       onDragStart={(e) => handleDragStart(e, widget)}
                       className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-gray-200 bg-white hover:border-cyan-400 hover:bg-cyan-50 cursor-grab active:cursor-grabbing transition-colors group"
                     >
-                      <GripVertical className="w-3 h-3 text-gray-300 group-hover:text-cyan-400 flex-shrink-0" />
+                      <GripVertical className="w-3 h-3 text-gray-500 group-hover:text-cyan-400 flex-shrink-0" />
                       <span className="text-gray-600 flex-shrink-0">{widget.icon}</span>
                       <span className="text-xs text-gray-700 truncate flex-1">{widget.label}</span>
                       {pw > 0 && (
-                        <span className="text-[9px] text-gray-400 flex-shrink-0">
+                        <span className="text-[9px] text-gray-500 flex-shrink-0">
                           {pw}x{ph}
                         </span>
                       )}

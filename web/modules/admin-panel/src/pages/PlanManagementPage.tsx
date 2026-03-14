@@ -204,7 +204,7 @@ const PlanManagementPage: React.FC = () => {
                   </li>
                 ))}
                 {plan.features.coreFeatures.length > 3 && (
-                  <li className="text-gray-400 text-xs">
+                  <li className="text-gray-500 text-xs">
                     +{plan.features.coreFeatures.length - 3} more features
                   </li>
                 )}
@@ -347,7 +347,7 @@ const PlanManagementPage: React.FC = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       ) : (
-                        <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       )}

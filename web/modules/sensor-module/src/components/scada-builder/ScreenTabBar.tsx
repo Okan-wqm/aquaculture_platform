@@ -235,7 +235,7 @@ const ScreenTabBar: React.FC = () => {
           disabled={isLastScreen}
           className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
             isLastScreen
-              ? 'text-gray-300 cursor-not-allowed'
+              ? 'text-gray-500 cursor-not-allowed'
               : 'text-gray-500 hover:bg-red-100 hover:text-red-600'
           }`}
           title="Delete Screen"
@@ -307,7 +307,7 @@ const ScreenTabBar: React.FC = () => {
               disabled={isLastScreen}
               className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
                 isLastScreen
-                  ? 'text-gray-300 cursor-not-allowed'
+                  ? 'text-gray-500 cursor-not-allowed'
                   : 'text-red-600 hover:bg-red-50'
               }`}
             >

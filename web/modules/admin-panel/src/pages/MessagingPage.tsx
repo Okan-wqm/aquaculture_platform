@@ -264,7 +264,7 @@ export const MessagingPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => { fetchThreads(); fetchStats(); }}
-              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
             </button>
@@ -327,7 +327,7 @@ export const MessagingPage: React.FC = () => {
           {/* Search & Filter */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
               <input
                 type="text"
                 placeholder="Search conversations..."
@@ -378,7 +378,7 @@ export const MessagingPage: React.FC = () => {
               </div>
             ) : filteredThreads.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
-                <Inbox size={48} className="mb-2 text-gray-300" />
+                <Inbox size={48} className="mb-2 text-gray-500" />
                 <p>No conversations found</p>
               </div>
             ) : (
@@ -410,7 +410,7 @@ export const MessagingPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex flex-col items-end ml-2">
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         {thread.lastMessageAt ? formatTime(thread.lastMessageAt) : ''}
                       </span>
                       {thread.isClosed && (
@@ -466,11 +466,11 @@ export const MessagingPage: React.FC = () => {
                     )}
                     <button
                       onClick={() => handleArchiveThread(selectedThread.id)}
-                      className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                     >
                       <Archive size={18} />
                     </button>
-                    <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                       <MoreVertical size={18} />
                     </button>
                   </div>
@@ -485,7 +485,7 @@ export const MessagingPage: React.FC = () => {
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                    <MessageSquare size={48} className="mb-2 text-gray-300" />
+                    <MessageSquare size={48} className="mb-2 text-gray-500" />
                     <p>No messages yet</p>
                   </div>
                 ) : (
@@ -516,7 +516,7 @@ export const MessagingPage: React.FC = () => {
                             {message.senderName}
                           </span>
                           <span className={`text-xs ${
-                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-400'
+                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
                           }`}>
                             {formatTime(message.createdAt)}
                           </span>
@@ -543,7 +543,7 @@ export const MessagingPage: React.FC = () => {
                                 <Paperclip size={14} />
                                 <span className="text-sm truncate">{att.filename}</span>
                                 <span className={`text-xs ${
-                                  message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-400'
+                                  message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
                                 }`}>
                                   {formatFileSize(att.size)}
                                 </span>
@@ -600,7 +600,7 @@ export const MessagingPage: React.FC = () => {
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                      <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                         <Paperclip size={20} />
                       </button>
                       <button
@@ -612,7 +612,7 @@ export const MessagingPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-400 mt-2">
+                  <div className="text-xs text-gray-500 mt-2">
                     Press Cmd+Enter to send
                   </div>
                 </div>
@@ -621,7 +621,7 @@ export const MessagingPage: React.FC = () => {
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-gray-500">
-                <MessageSquare size={64} className="mx-auto mb-4 text-gray-300" />
+                <MessageSquare size={64} className="mx-auto mb-4 text-gray-500" />
                 <h3 className="text-lg font-medium text-gray-700">Select a conversation</h3>
                 <p className="mt-1">Choose a thread from the list to view messages</p>
               </div>
@@ -674,7 +674,7 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">Bulk Message</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
             <X size={24} />
           </button>
         </div>
@@ -772,7 +772,7 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">New Conversation</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
             <X size={24} />
           </button>
         </div>

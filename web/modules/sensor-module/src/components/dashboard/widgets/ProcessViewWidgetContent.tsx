@@ -75,7 +75,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
   // Error state
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         {error}
       </div>
     );
@@ -84,7 +84,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
   // No process
   if (!process) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         No process data
       </div>
     );
@@ -93,7 +93,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
   // No nodes
   if (!process.nodes || process.nodes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm">
         <p>Process: {process.name}</p>
         <p className="text-xs mt-1">No equipment nodes defined</p>
       </div>

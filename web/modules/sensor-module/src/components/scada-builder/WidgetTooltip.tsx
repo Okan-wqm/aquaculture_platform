@@ -36,9 +36,9 @@ export const WidgetTooltip: React.FC<WidgetTooltipProps> = ({
       style={{ left: x + 12, top: y + 12 }}
     >
       <div className="font-medium text-cyan-300">{widgetType}</div>
-      {label && <div className="text-gray-300">{label}</div>}
+      {label && <div className="text-gray-500">{label}</div>}
       {tagName && <div className="text-emerald-300 font-mono">{tagName}</div>}
-      <div className="text-gray-400 mt-0.5">
+      <div className="text-gray-500 mt-0.5">
         Position: ({position.col},{position.row}) Size: {position.w}x{position.h}
       </div>
       <div className="flex gap-2 mt-0.5">

@@ -96,7 +96,7 @@ const RecentActivityList: React.FC = () => {
       {!isLoading && !isError && (!activities || activities.length === 0) && (
         <div className="p-8 text-center">
           <p className="text-sm text-gray-500">Henuz aktivite yok</p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             Sistem aktiviteleri burada gorunecektir.
           </p>
         </div>
@@ -125,13 +125,13 @@ const RecentActivityList: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-gray-900">{activity.title}</p>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                       {formatRelativeTime(activity.timestamp)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-500 truncate">{activity.description}</p>
                   {activity.user && (
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       <span className="inline-flex items-center">
                         <UserIcon className="w-3 h-3 mr-1" />
                         {activity.user}

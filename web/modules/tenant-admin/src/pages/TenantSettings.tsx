@@ -629,7 +629,7 @@ const TenantSettings: React.FC = () => {
         return (
           <div className="space-y-6">
             <div className="p-6 bg-gray-50 rounded-lg text-center">
-              <Palette className="w-12 h-12 text-gray-400 mx-auto" />
+              <Palette className="w-12 h-12 text-gray-500 mx-auto" />
               <h3 className="mt-4 text-sm font-medium text-gray-900">
                 Appearance Settings
               </h3>
@@ -678,7 +678,7 @@ const TenantSettings: React.FC = () => {
     if (mobileUsers.length === 0) {
       return (
         <div className="py-12 text-center">
-          <Smartphone className="w-12 h-12 text-gray-300 mx-auto" />
+          <Smartphone className="w-12 h-12 text-gray-500 mx-auto" />
           <h3 className="mt-4 text-sm font-medium text-gray-900">No users found</h3>
           <p className="mt-1 text-sm text-gray-500">
             Add users to your tenant first to configure mobile access.
@@ -864,7 +864,7 @@ const TenantSettings: React.FC = () => {
                     className={`flex-shrink-0 ${
                       activeSection === section.id
                         ? 'text-tenant-600'
-                        : 'text-gray-400'
+                        : 'text-gray-500'
                     }`}
                   >
                     {section.icon}
@@ -879,7 +879,7 @@ const TenantSettings: React.FC = () => {
                     className={`w-4 h-4 flex-shrink-0 ${
                       activeSection === section.id
                         ? 'text-tenant-600'
-                        : 'text-gray-400'
+                        : 'text-gray-500'
                     }`}
                   />
                 </button>

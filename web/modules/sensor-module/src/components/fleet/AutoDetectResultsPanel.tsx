@@ -269,7 +269,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
           className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
           aria-label="Kapat"
         >
-          <X className="w-4 h-4 text-gray-400" />
+          <X className="w-4 h-4 text-gray-500" />
         </button>
       </div>
 
@@ -345,9 +345,9 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
                     <td colSpan={7} className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         {isCollapsed ? (
-                          <ChevronRight className="w-4 h-4 text-gray-400" />
+                          <ChevronRight className="w-4 h-4 text-gray-500" />
                         ) : (
-                          <ChevronDown className="w-4 h-4 text-gray-400" />
+                          <ChevronDown className="w-4 h-4 text-gray-500" />
                         )}
                         <SourceBadge source={source} />
                         <span className="text-xs text-gray-500">
@@ -389,7 +389,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
                         <>
                           {ch.moduleAddress}/{ch.channel}
                           {ch.gpioPin != null && (
-                            <span className="text-gray-400 ml-1">(GPIO {ch.gpioPin})</span>
+                            <span className="text-gray-500 ml-1">(GPIO {ch.gpioPin})</span>
                           )}
                         </>
                       );
@@ -403,11 +403,11 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
                       >
                         <td className="px-3 py-2">
                           {exists ? (
-                            <span className="text-gray-300">--</span>
+                            <span className="text-gray-500">--</span>
                           ) : isSelected ? (
                             <CheckSquare className="w-4 h-4 text-cyan-600" />
                           ) : (
-                            <Square className="w-4 h-4 text-gray-300" />
+                            <Square className="w-4 h-4 text-gray-500" />
                           )}
                         </td>
                         <td className="px-3 py-2 font-medium text-gray-900">{ch.tagName}</td>
@@ -443,9 +443,9 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       {/* Empty state */}
       {scanResult.discoveredChannels.length === 0 && (
         <div className="px-4 py-8 text-center text-gray-500">
-          <Search className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+          <Search className="w-8 h-8 mx-auto mb-2 text-gray-500" />
           <p className="text-sm">Hicbir I/O kanali bulunamadi.</p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             Cihazda I/O modulleri takildigından emin olun.
           </p>
         </div>

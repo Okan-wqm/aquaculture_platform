@@ -268,7 +268,7 @@ export function SensorRegistrationWizard({
             <h2 className="text-xl font-semibold text-gray-900">Register New Sensor Device</h2>
             <button
               onClick={handleClose}
-              className="text-gray-400 hover:text-gray-600 focus:outline-none"
+              className="text-gray-500 hover:text-gray-600 focus:outline-none"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path

@@ -1,6 +1,7 @@
 import { createElement, useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from 'react';
 import { get, set } from 'idb-keyval';
 import { useAuth } from './useAuth';
+import { authenticatedFetch } from '@/services/authenticated-fetch';
 
 export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer';
 
@@ -84,17 +85,14 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
     const cacheKey = getCacheKey(user.id);
 
     try {
-      const response = await fetch('/graphql', {
+      const response = await authenticatedFetch('/graphql', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
         body: JSON.stringify({ query: GET_MY_MOBILE_SETTINGS_QUERY }),
       });
 
       // SEC-04: On auth error, clear stale permissions
+      // Note: authenticatedFetch already retries once on 401, so if we still get 401
+      // here the refresh truly failed.
       if (response.status === 401) {
         setSettings({ ...DEFAULT_SETTINGS, isMobileEnabled: false });
         setIsLoaded(true);

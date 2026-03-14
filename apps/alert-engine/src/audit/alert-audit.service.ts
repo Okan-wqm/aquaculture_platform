@@ -3,12 +3,20 @@
  *
  * Comprehensive audit logging for all alert-related operations.
  * Tracks rule changes, incident lifecycle, escalations, notifications, and user actions.
+ *
+ * Persists audit entries to PostgreSQL via TypeORM. Falls back to in-memory
+ * storage when database writes fail to avoid losing audit data during transient
+ * DB outages. In-memory entries are flushed to the database on the next
+ * successful write cycle.
  */
 
 import * as crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { AuditEntryEntity } from './entities/audit-entry.entity';
 
 /**
  * Audit event category
@@ -215,19 +223,18 @@ export interface AuditReport {
 export class AlertAuditService implements OnModuleInit {
   private readonly logger = new Logger(AlertAuditService.name);
 
-  // In-memory storage for now - in production, use database
-  private readonly entries: AuditEntry[] = [];
-  // TODO: Migrate to database-backed audit store. In-memory is a temporary solution.
-  // Capped at 2000 to bound heap usage — 10k entries × ~5 KB = ~50 MB worst case.
-  // Historical queries should use the database, not this in-memory window.
-  private readonly maxEntriesInMemory = 2000;
+  /**
+   * In-memory fallback buffer for entries that failed to persist to the database.
+   * Capped at 2000 to bound heap usage. Entries are flushed to the DB on the
+   * next successful write cycle.
+   */
+  private readonly fallbackEntries: AuditEntry[] = [];
+  private readonly maxFallbackEntries = 2000;
 
   // PE-15: Use AsyncLocalStorage for request-scoped correlation IDs.
-  // A shared array (the previous approach) corrupts correlation IDs under
-  // concurrent async requests because push/pop operates on a shared stack.
   private readonly correlationStorage = new AsyncLocalStorage<string>();
 
-  // Metrics
+  // Metrics (kept in-memory for fast access)
   private metrics = {
     totalLogged: 0,
     byCategory: new Map<string, number>(),
@@ -237,7 +244,11 @@ export class AlertAuditService implements OnModuleInit {
     failureCount: 0,
   };
 
-  constructor(private readonly eventEmitter: EventEmitter2) {}
+  constructor(
+    @InjectRepository(AuditEntryEntity)
+    private readonly auditRepository: Repository<AuditEntryEntity>,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   onModuleInit(): void {
     this.setupEventListeners();
@@ -249,7 +260,7 @@ export class AlertAuditService implements OnModuleInit {
       description: 'Alert audit service started',
       success: true,
     });
-    this.logger.log('AlertAuditService initialized');
+    this.logger.log('AlertAuditService initialized with PostgreSQL persistence');
   }
 
   /**
@@ -307,7 +318,8 @@ export class AlertAuditService implements OnModuleInit {
   }
 
   /**
-   * Log an audit entry
+   * Log an audit entry.
+   * Persists to PostgreSQL. On DB failure, stores in the in-memory fallback buffer.
    */
   log(entry: Omit<AuditEntry, 'id' | 'timestamp'>): AuditEntry {
     const fullEntry: AuditEntry = {
@@ -317,16 +329,11 @@ export class AlertAuditService implements OnModuleInit {
       ...entry,
     };
 
-    // Add to in-memory storage
-    this.entries.push(fullEntry);
-
-    // Trim if too large - shift oldest entries instead of O(n) splice
-    while (this.entries.length > this.maxEntriesInMemory) {
-      this.entries.shift();
-    }
-
-    // Update metrics
+    // Update metrics synchronously
     this.updateMetrics(fullEntry);
+
+    // Persist to database asynchronously (fire-and-forget with fallback)
+    this.persistEntry(fullEntry);
 
     // Emit event for external handlers
     this.eventEmitter.emit('audit.logged', fullEntry);
@@ -339,6 +346,111 @@ export class AlertAuditService implements OnModuleInit {
     }
 
     return fullEntry;
+  }
+
+  /**
+   * Persist an audit entry to the database.
+   * On failure, push to the in-memory fallback buffer.
+   */
+  private async persistEntry(entry: AuditEntry): Promise<void> {
+    try {
+      // First, try to flush any pending fallback entries
+      await this.flushFallbackEntries();
+
+      // Save the current entry
+      const entity = this.toEntity(entry);
+      await this.auditRepository.save(entity);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to persist audit entry to DB, using in-memory fallback: ${(error as Error).message}`,
+      );
+
+      // In-memory fallback
+      this.fallbackEntries.push(entry);
+      while (this.fallbackEntries.length > this.maxFallbackEntries) {
+        this.fallbackEntries.shift();
+      }
+    }
+  }
+
+  /**
+   * Attempt to flush in-memory fallback entries to the database.
+   */
+  private async flushFallbackEntries(): Promise<void> {
+    if (this.fallbackEntries.length === 0) return;
+
+    try {
+      const entities = this.fallbackEntries.map(e => this.toEntity(e));
+      await this.auditRepository.save(entities);
+      this.fallbackEntries.length = 0;
+      this.logger.log(`Flushed ${entities.length} fallback audit entries to database`);
+    } catch {
+      // Silently keep entries in the fallback buffer for next attempt
+    }
+  }
+
+  /**
+   * Convert AuditEntry interface to AuditEntryEntity for persistence.
+   */
+  private toEntity(entry: AuditEntry): AuditEntryEntity {
+    const entity = new AuditEntryEntity();
+    entity.id = entry.id.replace('audit_', ''); // strip prefix for UUID column
+    entity.tenantId = entry.tenantId;
+    entity.category = entry.category;
+    entity.eventType = entry.eventType;
+    entity.severity = entry.severity;
+    entity.action = entry.action;
+    entity.description = entry.description;
+    entity.entityType = entry.entityType;
+    entity.entityId = entry.entityId;
+    entity.userId = entry.userId;
+    entity.userName = entry.userName;
+    entity.ipAddress = entry.ipAddress;
+    entity.userAgent = entry.userAgent;
+    entity.previousState = entry.previousState;
+    entity.newState = entry.newState;
+    entity.changes = entry.changes;
+    entity.metadata = entry.metadata;
+    entity.correlationId = entry.correlationId;
+    entity.parentAuditId = entry.parentAuditId;
+    entity.tags = entry.tags;
+    entity.duration = entry.duration;
+    entity.success = entry.success;
+    entity.errorMessage = entry.errorMessage;
+    entity.timestamp = entry.timestamp;
+    return entity;
+  }
+
+  /**
+   * Convert AuditEntryEntity to AuditEntry interface.
+   */
+  private toAuditEntry(entity: AuditEntryEntity): AuditEntry {
+    return {
+      id: `audit_${entity.id}`,
+      category: entity.category as AuditCategory,
+      eventType: entity.eventType as AuditEventType,
+      severity: entity.severity as AuditSeverity,
+      timestamp: entity.timestamp,
+      entityType: entity.entityType,
+      entityId: entity.entityId,
+      tenantId: entity.tenantId,
+      userId: entity.userId,
+      userName: entity.userName,
+      ipAddress: entity.ipAddress,
+      userAgent: entity.userAgent,
+      action: entity.action,
+      description: entity.description,
+      previousState: entity.previousState,
+      newState: entity.newState,
+      changes: entity.changes,
+      metadata: entity.metadata,
+      correlationId: entity.correlationId,
+      parentAuditId: entity.parentAuditId,
+      tags: entity.tags,
+      duration: entity.duration,
+      success: entity.success,
+      errorMessage: entity.errorMessage,
+    };
   }
 
   /**
@@ -504,8 +616,6 @@ export class AlertAuditService implements OnModuleInit {
 
   /**
    * Start a correlation context.
-   * PE-15: Uses AsyncLocalStorage so each async execution context gets its own
-   * isolated correlation ID, preventing cross-request ID leakage.
    */
   startCorrelation(correlationId?: string): string {
     const id = correlationId || this.generateCorrelationId();
@@ -514,12 +624,10 @@ export class AlertAuditService implements OnModuleInit {
   }
 
   /**
-   * End current correlation context (no-op with AsyncLocalStorage - context ends
-   * automatically when the async context exits).
+   * End current correlation context (no-op with AsyncLocalStorage).
    */
   endCorrelation(): void {
-    // AsyncLocalStorage contexts are scoped to the async execution context;
-    // no explicit cleanup is needed.
+    // AsyncLocalStorage contexts are scoped to the async execution context.
   }
 
   /**
@@ -530,123 +638,108 @@ export class AlertAuditService implements OnModuleInit {
   }
 
   /**
-   * Query audit entries
-   * PE-03: Build a predicate array and apply a single-pass filter rather than
-   * starting with a full O(n) copy of the entire entries array.
+   * Query audit entries from the database with pagination.
    */
-  query(options: AuditQueryOptions): AuditEntry[] {
-    // Build predicates lazily so we do a single pass over entries.
-    const predicates: Array<(e: AuditEntry) => boolean> = [];
+  async query(options: AuditQueryOptions): Promise<AuditEntry[]> {
+    const qb = this.auditRepository.createQueryBuilder('audit');
 
     if (options.category) {
-      predicates.push(e => e.category === options.category);
+      qb.andWhere('audit.category = :category', { category: options.category });
     }
     if (options.eventType) {
-      predicates.push(e => e.eventType === options.eventType);
+      qb.andWhere('audit.event_type = :eventType', { eventType: options.eventType });
     }
     if (options.severity) {
-      predicates.push(e => e.severity === options.severity);
+      qb.andWhere('audit.severity = :severity', { severity: options.severity });
     }
     if (options.entityType) {
-      predicates.push(e => e.entityType === options.entityType);
+      qb.andWhere('audit.entity_type = :entityType', { entityType: options.entityType });
     }
     if (options.entityId) {
-      predicates.push(e => e.entityId === options.entityId);
+      qb.andWhere('audit.entity_id = :entityId', { entityId: options.entityId });
     }
     if (options.tenantId) {
-      predicates.push(e => e.tenantId === options.tenantId);
+      qb.andWhere('audit.tenant_id = :tenantId', { tenantId: options.tenantId });
     }
     if (options.userId) {
-      predicates.push(e => e.userId === options.userId);
+      qb.andWhere('audit.user_id = :userId', { userId: options.userId });
     }
     if (options.startTime) {
-      const st = options.startTime;
-      predicates.push(e => e.timestamp >= st);
+      qb.andWhere('audit.timestamp >= :startTime', { startTime: options.startTime });
     }
     if (options.endTime) {
-      const et = options.endTime;
-      predicates.push(e => e.timestamp <= et);
+      qb.andWhere('audit.timestamp <= :endTime', { endTime: options.endTime });
     }
     if (options.correlationId) {
-      predicates.push(e => e.correlationId === options.correlationId);
-    }
-    if (options.tags && options.tags.length > 0) {
-      const tags = options.tags;
-      predicates.push(e => !!(e.tags && tags.some(tag => e.tags!.includes(tag))));
+      qb.andWhere('audit.correlation_id = :correlationId', { correlationId: options.correlationId });
     }
     if (options.success !== undefined) {
-      predicates.push(e => e.success === options.success);
-    }
-
-    let results: AuditEntry[];
-    if (predicates.length === 0) {
-      results = [...this.entries];
-    } else {
-      results = this.entries.filter(e => predicates.every(p => p(e)));
+      qb.andWhere('audit.success = :success', { success: options.success });
     }
 
     // Sort
     const orderBy = options.orderBy || 'timestamp';
     const orderDirection = options.orderDirection || 'DESC';
+    qb.orderBy(`audit.${orderBy === 'timestamp' ? 'timestamp' : 'severity'}`, orderDirection);
 
-    results.sort((a, b) => {
-      let comparison = 0;
-      if (orderBy === 'timestamp') {
-        comparison = a.timestamp.getTime() - b.timestamp.getTime();
-      } else if (orderBy === 'severity') {
-        const severityOrder = [
-          AuditSeverity.DEBUG,
-          AuditSeverity.INFO,
-          AuditSeverity.WARNING,
-          AuditSeverity.ERROR,
-          AuditSeverity.CRITICAL,
-        ];
-        comparison = severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity);
-      }
-      return orderDirection === 'DESC' ? -comparison : comparison;
-    });
-
-    // Apply pagination
+    // Pagination
     const offset = options.offset || 0;
     const limit = options.limit || 100;
+    qb.skip(offset).take(limit);
 
-    return results.slice(offset, offset + limit);
+    const entities = await qb.getMany();
+    return entities.map(e => this.toAuditEntry(e));
   }
 
   /**
    * Get audit entry by ID
    */
-  getById(id: string): AuditEntry | undefined {
-    return this.entries.find(e => e.id === id);
+  async getById(id: string): Promise<AuditEntry | undefined> {
+    const uuid = id.replace('audit_', '');
+    const entity = await this.auditRepository.findOne({ where: { id: uuid } });
+    return entity ? this.toAuditEntry(entity) : undefined;
   }
 
   /**
    * Get entries by correlation ID
    */
-  getByCorrelationId(correlationId: string): AuditEntry[] {
-    return this.entries.filter(e => e.correlationId === correlationId);
+  async getByCorrelationId(correlationId: string): Promise<AuditEntry[]> {
+    const entities = await this.auditRepository.find({
+      where: { correlationId },
+      order: { timestamp: 'ASC' },
+    });
+    return entities.map(e => this.toAuditEntry(e));
   }
 
   /**
    * Get entity history
    */
-  getEntityHistory(entityType: string, entityId: string): AuditEntry[] {
-    return this.entries
-      .filter(e => e.entityType === entityType && e.entityId === entityId)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  async getEntityHistory(entityType: string, entityId: string): Promise<AuditEntry[]> {
+    const entities = await this.auditRepository.find({
+      where: { entityType, entityId },
+      order: { timestamp: 'DESC' },
+    });
+    return entities.map(e => this.toAuditEntry(e));
   }
 
   /**
-   * Get statistics
+   * Get statistics.
+   * Queries the database for aggregate data.
    */
-  getStatistics(tenantId?: string, startTime?: Date, endTime?: Date): AuditStatistics {
-    // PE-03: Single-pass filter instead of chained full-array copies.
-    const entries = this.entries.filter(e => {
-      if (tenantId && e.tenantId !== tenantId) return false;
-      if (startTime && e.timestamp < startTime) return false;
-      if (endTime && e.timestamp > endTime) return false;
-      return true;
-    });
+  async getStatistics(tenantId?: string, startTime?: Date, endTime?: Date): Promise<AuditStatistics> {
+    const qb = this.auditRepository.createQueryBuilder('audit');
+
+    if (tenantId) {
+      qb.andWhere('audit.tenant_id = :tenantId', { tenantId });
+    }
+    if (startTime) {
+      qb.andWhere('audit.timestamp >= :startTime', { startTime });
+    }
+    if (endTime) {
+      qb.andWhere('audit.timestamp <= :endTime', { endTime });
+    }
+
+    const entries = await qb.getMany();
 
     // Calculate statistics
     const entriesByCategory: Record<string, number> = {};
@@ -703,7 +796,8 @@ export class AlertAuditService implements OnModuleInit {
     const recentErrors = entries
       .filter(e => e.severity === AuditSeverity.ERROR || e.severity === AuditSeverity.CRITICAL)
       .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      .slice(0, 10);
+      .slice(0, 10)
+      .map(e => this.toAuditEntry(e));
 
     return {
       totalEntries: entries.length,
@@ -721,9 +815,9 @@ export class AlertAuditService implements OnModuleInit {
   /**
    * Generate audit report
    */
-  generateReport(config: AuditReportConfig): AuditReport {
+  async generateReport(config: AuditReportConfig): Promise<AuditReport> {
     // Query entries
-    let entries = this.query({
+    let entries = await this.query({
       startTime: config.startTime,
       endTime: config.endTime,
       limit: config.maxEntries || 10000,
@@ -806,25 +900,23 @@ export class AlertAuditService implements OnModuleInit {
   /**
    * Export entries to JSON
    */
-  exportToJson(options?: AuditQueryOptions): string {
-    const entries = options ? this.query(options) : this.entries;
+  async exportToJson(options?: AuditQueryOptions): Promise<string> {
+    const entries = options ? await this.query(options) : await this.query({ limit: 10000 });
     return JSON.stringify(entries, null, 2);
   }
 
   /**
-   * Clear old entries
+   * Clear old entries from the database
    */
-  clearOldEntries(olderThanDays: number = 90): number {
+  async clearOldEntries(olderThanDays: number = 90): Promise<number> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - olderThanDays);
 
-    const initialLength = this.entries.length;
-    const filtered = this.entries.filter(e => e.timestamp >= cutoff);
+    const result = await this.auditRepository.delete({
+      timestamp: LessThan(cutoff),
+    });
 
-    this.entries.length = 0;
-    this.entries.push(...filtered);
-
-    const deletedCount = initialLength - this.entries.length;
+    const deletedCount = result.affected || 0;
 
     if (deletedCount > 0) {
       this.logger.log(`Cleared ${deletedCount} audit entries older than ${olderThanDays} days`);
@@ -870,6 +962,7 @@ export class AlertAuditService implements OnModuleInit {
     bySeverity: Record<string, number>;
     byEventType: Record<string, number>;
     successRate: number;
+    pendingFallbackEntries: number;
   } {
     return {
       totalLogged: this.metrics.totalLogged,
@@ -880,6 +973,7 @@ export class AlertAuditService implements OnModuleInit {
         this.metrics.totalLogged > 0
           ? this.metrics.successCount / this.metrics.totalLogged
           : 1,
+      pendingFallbackEntries: this.fallbackEntries.length,
     };
   }
 
@@ -961,7 +1055,7 @@ export class AlertAuditService implements OnModuleInit {
     entityType?: string,
     entityId?: string,
   ): AuditEntry {
-    // Log the full stack trace server-side only — never store it in the audit record.
+    // Log the full stack trace server-side only -- never store it in the audit record.
     this.logger.error(`[logError] ${error.message}`, error.stack);
 
     return this.log({
@@ -974,7 +1068,6 @@ export class AlertAuditService implements OnModuleInit {
       description: error.message,
       metadata: {
         ...context,
-        // Omit error.stack — stack traces contain internal file paths and module names.
         name: error.name,
       },
       success: false,

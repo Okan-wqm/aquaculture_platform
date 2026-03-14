@@ -51,3 +51,6 @@ export * from './security';
 
 // Pagination - Standard pagination types and utilities
 export * from './pagination';
+
+// Health - Standard K8s health check controller and module
+export * from './health';

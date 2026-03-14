@@ -338,8 +338,8 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
           )}
 
           <div className="flex items-center justify-between mt-1">
-            <span className="text-xs text-gray-400">{alert.source}</span>
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-500">{alert.source}</span>
+            <span className="text-xs text-gray-500">
               {formatRelativeTime(alert.triggeredAt)}
             </span>
           </div>

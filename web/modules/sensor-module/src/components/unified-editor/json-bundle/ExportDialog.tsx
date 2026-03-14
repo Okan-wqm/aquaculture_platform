@@ -124,7 +124,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-200 rounded"
+            className="p-1 text-gray-500 hover:text-gray-200 rounded"
           >
             <X className="w-4 h-4" />
           </button>
@@ -134,7 +134,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Program Info */}
           <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-            <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+            <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
               Program
             </h3>
             <div className="grid grid-cols-2 gap-2 text-sm">
@@ -189,10 +189,10 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
 
           {/* Options */}
           <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-            <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+            <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
               Options
             </h3>
-            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer">
               <input
                 type="checkbox"
                 checked={includeSteps}
@@ -201,7 +201,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
               />
               Include SFC steps ({steps.length})
             </label>
-            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer">
               <input
                 type="checkbox"
                 checked={includeTransitions}
@@ -227,7 +227,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           {/* Preview Toggle */}
           <button
             onClick={() => setShowPreview(!showPreview)}
-            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200"
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-200"
           >
             {showPreview ? (
               <EyeOff className="w-3.5 h-3.5" />
@@ -240,7 +240,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           {/* Preview Pane */}
           {showPreview && (
             <div className="bg-gray-950 rounded border border-gray-700 p-3 max-h-64 overflow-auto">
-              <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap break-all">
+              <pre className="text-xs text-gray-500 font-mono whitespace-pre-wrap break-all">
                 {bundleJson}
               </pre>
             </div>
@@ -251,7 +251,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-700">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 rounded"
+            className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-200 rounded"
           >
             Cancel
           </button>

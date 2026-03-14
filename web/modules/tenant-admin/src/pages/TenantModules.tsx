@@ -180,7 +180,7 @@ const AssignManagerModal: React.FC<{
 
           <div className="px-6 py-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="text"
                 placeholder="Search users..."
@@ -200,7 +200,7 @@ const AssignManagerModal: React.FC<{
           <div className="px-6 pb-4 max-h-64 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-8">
-                <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
+                <RefreshCw className="w-6 h-6 animate-spin text-gray-500" />
               </div>
             ) : (
               <div className="space-y-2">
@@ -231,7 +231,7 @@ const AssignManagerModal: React.FC<{
                     {selectedUserId === user.id ? (
                       <CheckCircle className="w-4 h-4 text-tenant-600" />
                     ) : (
-                      <Shield className="w-4 h-4 text-gray-400" />
+                      <Shield className="w-4 h-4 text-gray-500" />
                     )}
                   </button>
                 ))}
@@ -315,7 +315,7 @@ const ModuleDetailsModal: React.FC<{
                 {module.status === 'active' ? (
                   <CheckCircle className="w-4 h-4 text-green-500" />
                 ) : (
-                  <XCircle className="w-4 h-4 text-gray-400" />
+                  <XCircle className="w-4 h-4 text-gray-500" />
                 )}
                 <span className={`text-sm ${module.status === 'active' ? 'text-green-600' : 'text-gray-500'}`}>
                   {module.status === 'active' ? 'Active' : 'Inactive'}
@@ -338,7 +338,7 @@ const ModuleDetailsModal: React.FC<{
                 ))}
               </div>
               {module.features.length === 0 && (
-                <p className="text-sm text-gray-400 italic">No features listed</p>
+                <p className="text-sm text-gray-500 italic">No features listed</p>
               )}
             </div>
 
@@ -567,7 +567,7 @@ const TenantModules: React.FC = () => {
       <div className="bg-white rounded-xl border border-gray-100 p-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
               type="text"
               placeholder="Search modules..."
@@ -609,7 +609,7 @@ const TenantModules: React.FC = () => {
                     <StatusBadge status={module.status} />
                   </div>
                 </div>
-                <button className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                <button className="p-1.5 rounded-lg text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors">
                   <MoreVertical className="w-4 h-4" />
                 </button>
               </div>
@@ -621,13 +621,13 @@ const TenantModules: React.FC = () => {
             {/* Module Stats */}
             <div className="px-6 py-4 bg-gray-50 grid grid-cols-2 gap-4">
               <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-gray-400" />
+                <Users className="w-4 h-4 text-gray-500" />
                 <span className="text-sm text-gray-600">
                   {module.assignedUsers} users
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
+                <Calendar className="w-4 h-4 text-gray-500" />
                 <span className="text-sm text-gray-500 truncate">
                   {module.lastActivity}
                 </span>
@@ -673,7 +673,7 @@ const TenantModules: React.FC = () => {
             <div className="p-4 border-t border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-gray-400" />
+                  <Shield className="w-4 h-4 text-gray-500" />
                   <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Module Manager
                   </span>
@@ -757,7 +757,7 @@ const TenantModules: React.FC = () => {
               )}
               {(!getModuleRoute(module) || module.status !== 'active') && (
                 <button
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-400 bg-gray-100 rounded-lg cursor-not-allowed"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-500 bg-gray-100 rounded-lg cursor-not-allowed"
                   disabled
                   title={module.status !== 'active' ? 'Module is not active' : 'Dashboard not available'}
                 >
@@ -772,7 +772,7 @@ const TenantModules: React.FC = () => {
       {/* Empty State */}
       {filteredModules.length === 0 && !loading && (
         <div className="bg-white rounded-xl border border-gray-100 py-12 text-center">
-          <Package className="w-12 h-12 text-gray-300 mx-auto" />
+          <Package className="w-12 h-12 text-gray-500 mx-auto" />
           <h3 className="mt-4 text-sm font-medium text-gray-900">
             {modules.length === 0 ? 'No modules assigned' : 'No modules found'}
           </h3>

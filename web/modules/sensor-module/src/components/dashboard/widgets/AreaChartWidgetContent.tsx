@@ -41,6 +41,7 @@ function formatTimeSince(dateInput: Date | string): string {
 
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { downsampleChartData, MAX_CHART_POINTS } from '../../../utils/downsample';
 
 interface AreaChartWidgetContentProps {
   config: WidgetConfig;
@@ -74,7 +75,7 @@ export const AreaChartWidgetContent: React.FC<AreaChartWidgetContentProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         {error}
       </div>
     );
@@ -103,9 +104,12 @@ export const AreaChartWidgetContent: React.FC<AreaChartWidgetContentProps> = ({
     groupedData[timeKey][point.sensorName] = point.value;
   });
 
-  const finalChartData = Object.values(groupedData).sort(
+  const sortedChartData = Object.values(groupedData).sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
+
+  // PERF-RISK-002: Downsample to prevent SVG DOM explosion with large datasets
+  const finalChartData = downsampleChartData(sortedChartData, MAX_CHART_POINTS);
 
   // Get unique sensor names (filter out undefined/null)
   const sensorNames = [...new Set(
@@ -114,7 +118,7 @@ export const AreaChartWidgetContent: React.FC<AreaChartWidgetContentProps> = ({
 
   if (finalChartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
         No historical data
       </div>
     );
@@ -224,7 +228,7 @@ export const AreaChartWidgetContent: React.FC<AreaChartWidgetContentProps> = ({
       </div>
       {/* Last update time */}
       {latestTimestamp && (
-        <div className="flex items-center justify-center gap-1 text-xs text-gray-400 pt-1 border-t border-gray-100">
+        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 pt-1 border-t border-gray-100">
           <Clock size={10} />
           <span>Last update: {formatTimeSince(latestTimestamp)}</span>
         </div>

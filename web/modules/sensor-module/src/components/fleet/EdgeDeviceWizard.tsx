@@ -132,7 +132,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
               </div>
               <div>
                 <h2 className="text-xl font-semibold text-white">Yeni Edge Controller Kaydet</h2>
-                <p className="text-sm text-gray-300">Industrial IoT kontrol cihazınızı sisteme ekleyin</p>
+                <p className="text-sm text-gray-500">Industrial IoT kontrol cihazınızı sisteme ekleyin</p>
               </div>
             </div>
             <button

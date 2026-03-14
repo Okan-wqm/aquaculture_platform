@@ -67,7 +67,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg px-2 py-1.5">
       {/* Edge Type Selector */}
       <div className="flex flex-col gap-0.5 border-r border-gray-200 pr-2">
-        <span className="text-[9px] text-gray-400 font-medium leading-none px-0.5">Line Shape</span>
+        <span className="text-[9px] text-gray-500 font-medium leading-none px-0.5">Line Shape</span>
         <div className="flex items-center gap-0.5">
           {EDGE_TYPE_OPTIONS.map((opt) => (
             <button
@@ -90,7 +90,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
       {/* Connection Type Selector */}
       <div className="relative">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[9px] text-gray-400 font-medium leading-none px-0.5">Connection Type</span>
+          <span className="text-[9px] text-gray-500 font-medium leading-none px-0.5">Connection Type</span>
           <button
             onClick={() => setShowConnectionTypes(!showConnectionTypes)}
             className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 transition-colors text-xs font-medium text-gray-700"
@@ -120,7 +120,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
           <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-40">
             {/* Process Lines */}
             <div className="px-3 pt-1.5 pb-0.5">
-              <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">Process Lines</span>
+              <span className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Process Lines</span>
             </div>
             {processLines.map((ct) => (
               <button
@@ -149,7 +149,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
 
             {/* Signal Lines */}
             <div className="px-3 pt-2.5 pb-0.5 border-t border-gray-100 mt-1">
-              <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">Signal Lines</span>
+              <span className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Signal Lines</span>
             </div>
             {signalLines.map((ct) => (
               <button
@@ -187,7 +187,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
             &#9998; Selected edge
           </span>
         ) : (
-          <span className="text-[10px] text-gray-400 font-medium">
+          <span className="text-[10px] text-gray-500 font-medium">
             (new connection)
           </span>
         )}

@@ -148,7 +148,7 @@ export function InstallerCommandModal({
                   </span>
                 </div>
                 <div className="flex items-center">
-                  <Clock className="w-4 h-4 text-gray-400 mr-1" />
+                  <Clock className="w-4 h-4 text-gray-500 mr-1" />
                   <span className="text-gray-500">Token suresi:</span>
                   <span
                     className={`ml-2 font-medium ${
@@ -195,7 +195,7 @@ export function InstallerCommandModal({
                 </div>
                 <button
                   onClick={handleCopyCommand}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-white transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 hover:text-white transition-colors"
                   title="Kopyala"
                 >
                   {copied ? (
@@ -221,7 +221,7 @@ export function InstallerCommandModal({
                 </div>
                 <button
                   onClick={handleCopyUrl}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 hover:text-gray-600 transition-colors"
                   title="Kopyala"
                 >
                   {copiedUrl ? (

@@ -197,7 +197,7 @@ const ProcessListPage: React.FC = () => {
       <div className="flex gap-4 mb-6">
         {/* Search */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <input
             type="text"
             placeholder="Search processes..."
@@ -209,7 +209,7 @@ const ProcessListPage: React.FC = () => {
 
         {/* Status Filter */}
         <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -227,7 +227,7 @@ const ProcessListPage: React.FC = () => {
       {/* Process List */}
       {filteredProcesses.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <FileText className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+          <FileText className="w-12 h-12 mx-auto text-gray-500 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No processes found</h3>
           <p className="text-gray-500 mb-4">
             {searchTerm || statusFilter !== 'all'
@@ -303,7 +303,7 @@ const ProcessListPage: React.FC = () => {
                         {formatDate(process.updatedAt)}
                       </div>
                       {process.createdBy && (
-                        <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
+                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
                           <User className="w-3 h-3" />
                           {process.createdBy}
                         </div>
@@ -312,7 +312,7 @@ const ProcessListPage: React.FC = () => {
                     <td className="px-6 py-4 text-right">
                       <div className="relative inline-block">
                         {isActionLoading ? (
-                          <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                          <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
                         ) : (
                           <>
                             <button

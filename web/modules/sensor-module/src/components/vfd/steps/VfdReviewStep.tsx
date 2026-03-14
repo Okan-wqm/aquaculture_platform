@@ -247,7 +247,7 @@ function ReviewItem({ label, value, required }: ReviewItemProps) {
       {value ? (
         <span className="font-medium text-gray-900">{value}</span>
       ) : (
-        <span className={`text-sm ${required ? 'text-red-500' : 'text-gray-400'}`}>
+        <span className={`text-sm ${required ? 'text-red-500' : 'text-gray-500'}`}>
           {required ? 'Gerekli' : 'Belirtilmedi'}
         </span>
       )}

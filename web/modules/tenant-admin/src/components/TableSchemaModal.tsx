@@ -123,7 +123,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               {/* Columns Section */}
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <Type className="w-4 h-4 text-gray-400" />
+                  <Type className="w-4 h-4 text-gray-500" />
                   Columns ({columns.length})
                 </h3>
                 <div className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
@@ -185,7 +185,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
                                   : col.columnDefault}
                               </code>
                             ) : (
-                              <span className="text-xs text-gray-400">-</span>
+                              <span className="text-xs text-gray-500">-</span>
                             )}
                           </td>
                           <td className="px-4 py-3">
@@ -209,7 +209,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
                                 </span>
                               )}
                               {!col.isPrimaryKey && !col.isForeignKey && (
-                                <span className="text-xs text-gray-400">-</span>
+                                <span className="text-xs text-gray-500">-</span>
                               )}
                             </div>
                           </td>
@@ -224,7 +224,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               {indexes && indexes.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <Key className="w-4 h-4 text-gray-400" />
+                    <Key className="w-4 h-4 text-gray-500" />
                     Indexes ({indexes.length})
                   </h3>
                   <div className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
@@ -295,7 +295,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               {columns.some(col => col.isForeignKey) && (
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center gap-2">
-                    <Link2 className="w-4 h-4 text-gray-400" />
+                    <Link2 className="w-4 h-4 text-gray-500" />
                     Foreign Key References
                   </h3>
                   <div className="grid gap-2">
@@ -309,7 +309,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
                           <Link2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
                           <span className="font-mono text-sm text-gray-700">
                             <span className="font-semibold">{col.columnName}</span>
-                            <span className="text-gray-400 mx-2">→</span>
+                            <span className="text-gray-500 mx-2">→</span>
                             <span className="text-blue-600">
                               {col.foreignKeyTable}.{col.foreignKeyColumn}
                             </span>

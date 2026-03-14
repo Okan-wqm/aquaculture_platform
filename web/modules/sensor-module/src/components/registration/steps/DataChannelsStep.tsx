@@ -271,7 +271,7 @@ export function DataChannelsStep({
                       )}
                     </div>
                     {alreadyAdded && (
-                      <span className="text-xs text-gray-400">Already added</span>
+                      <span className="text-xs text-gray-500">Already added</span>
                     )}
                   </label>
                 );
@@ -307,7 +307,7 @@ export function DataChannelsStep({
 
         {channels.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            <svg className="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-12 h-12 mx-auto text-gray-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <p className="text-sm">No data channels configured yet.</p>
@@ -327,7 +327,7 @@ export function DataChannelsStep({
                   <button
                     onClick={() => handleMoveChannel(index, 'up')}
                     disabled={index === 0}
-                    className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                    className="p-0.5 text-gray-500 hover:text-gray-600 disabled:opacity-30"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -336,7 +336,7 @@ export function DataChannelsStep({
                   <button
                     onClick={() => handleMoveChannel(index, 'down')}
                     disabled={index === channels.length - 1}
-                    className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                    className="p-0.5 text-gray-500 hover:text-gray-600 disabled:opacity-30"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -396,7 +396,7 @@ export function DataChannelsStep({
                   {/* Edit button */}
                   <button
                     onClick={() => onEditChannel(channel)}
-                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                    className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
                     title="Edit channel"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -407,7 +407,7 @@ export function DataChannelsStep({
                   {/* Delete button */}
                   <button
                     onClick={() => handleRemoveChannel(channel.channelKey)}
-                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                    className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
                     title="Remove channel"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -318,7 +318,7 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
       {/* BUG-009: Render orphan group fields that reference unknown group names */}
       {orphanGroupKeys.map((groupKey) => (
         <div key={groupKey} className="border border-gray-200 rounded-lg p-4">
-          <p className="text-xs text-gray-400 mb-3 uppercase">{groupKey}</p>
+          <p className="text-xs text-gray-500 mb-3 uppercase">{groupKey}</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {groupedFields[groupKey].map((field) => renderField(field))}
           </div>

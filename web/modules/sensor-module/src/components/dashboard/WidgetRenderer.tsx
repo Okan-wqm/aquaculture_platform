@@ -33,13 +33,13 @@ export const WidgetRenderer: React.FC<WidgetRendererProps> = ({ config }) => {
     case 'alert':
       // TODO: Implement AlertWidgetContent
       return (
-        <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
           Alert widget - Yakında
         </div>
       );
     default:
       return (
-        <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
           Bilinmeyen widget türü
         </div>
       );

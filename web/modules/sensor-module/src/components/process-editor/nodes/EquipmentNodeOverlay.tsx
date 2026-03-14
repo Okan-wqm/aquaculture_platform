@@ -119,7 +119,7 @@ export const EquipmentNodeOverlay: React.FC<EquipmentNodeOverlayProps> = ({
       ))}
       {/* Gizlenen tag sayısını göster */}
       {hiddenCount > 0 && (
-        <span className="text-[9px] text-gray-400 self-center">
+        <span className="text-[9px] text-gray-500 self-center">
           +{hiddenCount}
         </span>
       )}

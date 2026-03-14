@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 
 export interface ShiftInfo {
   id: string;
@@ -91,43 +92,16 @@ function getWeekMonday(date: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-interface GraphQLResponse {
-  data?: { weeklyPlans: { items: WeeklyPlan[]; total: number } };
-  errors?: Array<{ message: string }>;
-}
-
 async function fetchMySchedule(
-  accessToken: string,
-  tenantId: string,
   userId: string,
   weekStartDate: string,
 ): Promise<WeeklyPlan | null> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-      'X-Tenant-Id': tenantId,
-      // SEC-06: CSRF defense header
-      'X-Requested-With': 'XMLHttpRequest',
-    },
-    body: JSON.stringify({
-      query: MY_WEEKLY_PLAN_QUERY,
-      variables: { employeeId: userId, weekStartDate },
-    }),
-  });
+  const result = await graphqlRequest<{ weeklyPlans: { items: WeeklyPlan[]; total: number } }>(
+    MY_WEEKLY_PLAN_QUERY,
+    { employeeId: userId, weekStartDate },
+  );
 
-  if (!response.ok) {
-    throw new Error(`HTTP error: ${response.status}`);
-  }
-
-  const result = (await response.json()) as GraphQLResponse;
-
-  if (result.errors?.length) {
-    throw new Error(result.errors[0]?.message || 'Failed to fetch schedule');
-  }
-
-  const items = result.data?.weeklyPlans?.items;
+  const items = result.weeklyPlans?.items;
   return items && items.length > 0 ? items[0] : null;
 }
 
@@ -159,7 +133,7 @@ export function useMySchedule(weekOffset = 0) {
       }
 
       try {
-        const plan = await fetchMySchedule(accessToken, tenantId, scheduleId, weekStartDate);
+        const plan = await fetchMySchedule(scheduleId, weekStartDate);
         if (plan) {
           await cacheData(cacheKey, plan, 1000 * 60 * 30); // 30 min TTL
         }

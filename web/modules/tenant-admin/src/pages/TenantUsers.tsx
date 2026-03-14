@@ -439,7 +439,7 @@ const TenantUsers: React.FC = () => {
       <div className="bg-white rounded-xl border border-gray-100 p-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
               type="text"
               placeholder="Search users by name or email..."
@@ -557,27 +557,27 @@ const TenantUsers: React.FC = () => {
                         <>
                           <button
                             onClick={() => { setEditingUser(user); setSaveError(null); setIsModalOpen(true); }}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                             title="Edit user"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => { setDeletingUser(user); setDeleteError(null); }}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                             title="Delete user"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                           <button
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                             title="More options"
                           >
                             <MoreVertical className="w-4 h-4" />
                           </button>
                         </>
                       ) : (
-                        <span className="text-xs text-gray-400">View only</span>
+                        <span className="text-xs text-gray-500">View only</span>
                       )}
                     </div>
                   </td>
@@ -590,7 +590,7 @@ const TenantUsers: React.FC = () => {
         {/* Empty State */}
         {filteredUsers.length === 0 && !loading && (
           <div className="py-12 text-center">
-            <Users className="w-12 h-12 text-gray-300 mx-auto" />
+            <Users className="w-12 h-12 text-gray-500 mx-auto" />
             <h3 className="mt-4 text-sm font-medium text-gray-900">
               {users.length === 0 ? 'No users yet' : 'No users found'}
             </h3>

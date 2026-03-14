@@ -68,7 +68,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
     <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
       <div className="p-2 border-b border-gray-100">
         <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded border border-gray-200">
-          <Search className="w-3 h-3 text-gray-400" />
+          <Search className="w-3 h-3 text-gray-500" />
           <input
             type="text"
             value={search}
@@ -81,7 +81,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
       </div>
       <div className="overflow-y-auto flex-1">
         {filtered.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-4">
+          <p className="text-xs text-gray-500 text-center py-4">
             {allWidgets.length === 0 ? 'No widgets on screens' : 'No results found'}
           </p>
         ) : (
@@ -97,7 +97,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
                   <span className="text-[10px] text-cyan-600 font-mono truncate block">tag: {w.tag}</span>
                 )}
               </div>
-              <span className="text-gray-400 truncate text-[10px] shrink-0">{w.widgetType}</span>
+              <span className="text-gray-500 truncate text-[10px] shrink-0">{w.widgetType}</span>
             </button>
           ))
         )}
@@ -133,9 +133,9 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
       </div>
       <div className="overflow-y-auto flex-1">
         {isLoading ? (
-          <p className="text-xs text-gray-400 text-center py-4">Loading...</p>
+          <p className="text-xs text-gray-500 text-center py-4">Loading...</p>
         ) : available.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-4">
+          <p className="text-xs text-gray-500 text-center py-4">
             {programs.length === 0 ? 'No approved programs' : 'All programs added'}
           </p>
         ) : (
@@ -152,8 +152,8 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[10px] text-gray-400 font-mono">{p.programCode}</span>
-                <span className="text-[10px] text-gray-400">{p.variableCount} variable{p.variableCount !== 1 ? 's' : ''}</span>
+                <span className="text-[10px] text-gray-500 font-mono">{p.programCode}</span>
+                <span className="text-[10px] text-gray-500">{p.variableCount} variable{p.variableCount !== 1 ? 's' : ''}</span>
               </div>
             </button>
           ))
@@ -196,7 +196,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-medium text-gray-800 truncate">{binding.programName}</div>
-          <span className="text-[10px] text-gray-400 font-mono">{binding.programCode}</span>
+          <span className="text-[10px] text-gray-500 font-mono">{binding.programCode}</span>
         </div>
         <span className="text-[10px] text-gray-500">
           {boundCount}/{totalCount}
@@ -214,14 +214,14 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
       {expanded && (
         <div className="divide-y divide-gray-100">
           {binding.variableBindings.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-3">No I/O variables</p>
+            <p className="text-xs text-gray-500 text-center py-3">No I/O variables</p>
           ) : (
             binding.variableBindings.map((v) => (
               <div key={v.variableId} className="px-3 py-2 relative">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-xs font-mono text-gray-700">{v.varName}</span>
                   <ScopeLabel scope={v.scope} />
-                  <span className="text-[10px] text-gray-400">{v.dataType}</span>
+                  <span className="text-[10px] text-gray-500">{v.dataType}</span>
                 </div>
                 {v.boundWidgetId ? (
                   <div className="flex items-center gap-1.5">
@@ -229,7 +229,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
                     <span className="text-[10px] text-green-700 font-mono flex-1 truncate">{v.boundTag}</span>
                     <button
                       onClick={() => unbindVariable(binding.programId, v.variableId)}
-                      className="text-gray-400 hover:text-red-500 p-0.5"
+                      className="text-gray-500 hover:text-red-500 p-0.5"
                       title="Remove binding"
                     >
                       <Unlink className="w-3 h-3" />
@@ -249,7 +249,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
                   </div>
                 )}
                 {v.ioTagName && (
-                  <div className="text-[10px] text-gray-400 mt-0.5">I/O: {v.ioTagName}</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">I/O: {v.ioTagName}</div>
                 )}
 
                 {pickerVarId === v.variableId && (
@@ -384,8 +384,8 @@ export const AutomationBindingPanel: React.FC = () => {
 
       {/* Program Cards */}
       {automationBindings.length === 0 ? (
-        <div className="flex flex-col items-center py-8 text-center text-gray-400">
-          <Zap className="w-8 h-8 mb-2 text-gray-300" />
+        <div className="flex flex-col items-center py-8 text-center text-gray-500">
+          <Zap className="w-8 h-8 mb-2 text-gray-500" />
           <p className="text-xs">No programs linked yet</p>
           <p className="text-[10px] mt-1">
             Use "Add Program" to select an automation program

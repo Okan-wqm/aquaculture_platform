@@ -142,7 +142,7 @@ const STEditor: React.FC<STEditorProps> = ({
 
   const editorFallback = (
     <div style={{ height }} className="border border-gray-200 rounded-lg overflow-hidden flex items-center justify-center bg-gray-900">
-      <div className="text-gray-400 text-sm">Loading editor...</div>
+      <div className="text-gray-500 text-sm">Loading editor...</div>
     </div>
   );
 

@@ -29,7 +29,7 @@ const spinnerSizes = {
 const spinnerColors = {
   primary: 'text-blue-600',
   white: 'text-white',
-  gray: 'text-gray-400',
+  gray: 'text-gray-500',
 };
 
 /**

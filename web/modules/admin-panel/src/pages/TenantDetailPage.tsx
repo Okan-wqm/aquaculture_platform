@@ -415,7 +415,7 @@ const TenantDetailPage: React.FC = () => {
                     <p className="text-sm text-gray-500">{tenant.primaryContact.role}</p>
                   </>
                 ) : (
-                  <p className="text-gray-400">Not specified</p>
+                  <p className="text-gray-500">Not specified</p>
                 )}
               </div>
               <div className="p-3 bg-gray-50 rounded-lg">
@@ -426,7 +426,7 @@ const TenantDetailPage: React.FC = () => {
                     <p className="text-sm text-gray-600">{tenant.billingContact.email}</p>
                   </>
                 ) : (
-                  <p className="text-gray-400">Not specified</p>
+                  <p className="text-gray-500">Not specified</p>
                 )}
               </div>
             </div>

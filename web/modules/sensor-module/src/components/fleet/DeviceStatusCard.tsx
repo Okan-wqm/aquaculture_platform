@@ -59,7 +59,7 @@ const ProgressBar: React.FC<{
 
   return (
     <div className="flex items-center gap-2">
-      <div className="text-gray-400 w-5">{icon}</div>
+      <div className="text-gray-500 w-5">{icon}</div>
       <div className="flex-1">
         <div className="flex justify-between text-xs mb-1">
           <span className="text-gray-500">{label}</span>
@@ -101,7 +101,7 @@ const OnlineIndicator: React.FC<{ isOnline: boolean; connectionQuality?: number 
 
   return (
     <div className="flex items-center gap-1">
-      <WifiOff size={16} className="text-gray-400" />
+      <WifiOff size={16} className="text-gray-500" />
     </div>
   );
 };
@@ -269,7 +269,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
             />
             {device.temperatureCelsius != null && (
               <div className="flex items-center gap-2">
-                <div className="text-gray-400 w-5">
+                <div className="text-gray-500 w-5">
                   <Thermometer size={14} />
                 </div>
                 <div className="flex-1">
@@ -310,7 +310,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
           <div className="text-center">
             <div
               className={`text-lg font-semibold ${
-                (device.activeAlarmCount ?? 0) > 0 ? 'text-red-500' : 'text-gray-400'
+                (device.activeAlarmCount ?? 0) > 0 ? 'text-red-500' : 'text-gray-500'
               }`}
             >
               {device.activeAlarmCount ?? 0}

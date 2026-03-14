@@ -324,9 +324,9 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
         className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <ChevronDown className="h-4 w-4 text-gray-500 flex-shrink-0" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <ChevronRight className="h-4 w-4 text-gray-500 flex-shrink-0" />
         )}
         <Zap className="h-4 w-4 text-indigo-500 flex-shrink-0" />
         <span className="text-sm font-medium text-gray-700">
@@ -359,7 +359,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
               In Sync
             </span>
           )}
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             {detectedVars.length} variables
           </span>
         </div>
@@ -554,7 +554,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
               {comparison.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-400">
+                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">
                     No variables to compare.
                   </td>
                 </tr>

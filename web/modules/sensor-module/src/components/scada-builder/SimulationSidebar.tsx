@@ -104,13 +104,13 @@ const Section: React.FC<{
     <div className="border-b border-gray-700">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-750 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-500 hover:bg-gray-750 transition-colors"
       >
         {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         {icon}
         <span className="flex-1 text-left">{title}</span>
         {badge !== undefined && (
-          <span className="px-1.5 py-0.5 rounded-full bg-gray-600 text-gray-300 text-[10px] font-medium">
+          <span className="px-1.5 py-0.5 rounded-full bg-gray-600 text-gray-500 text-[10px] font-medium">
             {badge}
           </span>
         )}
@@ -137,7 +137,7 @@ const TagRow: React.FC<{
       className={`flex items-center gap-2 py-1 px-1 rounded transition-colors duration-500 ${bgClass}`}
     >
       <div className="flex-1 min-w-0">
-        <div className="text-[11px] text-gray-300 truncate" title={tag.tagName}>
+        <div className="text-[11px] text-gray-500 truncate" title={tag.tagName}>
           {tag.tagName}
         </div>
         <div className="text-[9px] text-gray-500">{tag.widgetType}</div>
@@ -572,7 +572,7 @@ export const SimulationSidebar: React.FC = () => {
               </div>
               <button
                 onClick={clearSimTagValues}
-                className="mt-2 flex items-center gap-1 px-2 py-1 text-[10px] text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                className="mt-2 flex items-center gap-1 px-2 py-1 text-[10px] text-gray-500 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
                 Reset All
@@ -588,7 +588,7 @@ export const SimulationSidebar: React.FC = () => {
               <button
                 key={sc.id}
                 onClick={() => handleApplyScenario(sc)}
-                className="w-full text-left px-2 py-1.5 text-[11px] text-gray-300 hover:bg-gray-700 rounded transition-colors"
+                className="w-full text-left px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-700 rounded transition-colors"
               >
                 {sc.name}
               </button>
@@ -600,7 +600,7 @@ export const SimulationSidebar: React.FC = () => {
                   <div key={sc.id} className="flex items-center gap-1">
                     <button
                       onClick={() => handleApplyScenario(sc)}
-                      className="flex-1 text-left px-2 py-1.5 text-[11px] text-gray-300 hover:bg-gray-700 rounded transition-colors truncate"
+                      className="flex-1 text-left px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-700 rounded transition-colors truncate"
                     >
                       {sc.name}
                     </button>
@@ -627,7 +627,7 @@ export const SimulationSidebar: React.FC = () => {
             <button
               onClick={handleSaveScenario}
               disabled={!newScenarioName.trim()}
-              className="p-1 text-gray-400 hover:text-cyan-400 disabled:opacity-30 transition-colors"
+              className="p-1 text-gray-500 hover:text-cyan-400 disabled:opacity-30 transition-colors"
               title="Save current values as scenario"
             >
               <Save className="w-3.5 h-3.5" />
@@ -662,7 +662,7 @@ export const SimulationSidebar: React.FC = () => {
                     </span>
                     <span className="text-[11px] text-gray-200 truncate">{alarm.message}</span>
                   </div>
-                  <div className="text-[10px] text-gray-400">
+                  <div className="text-[10px] text-gray-500">
                     {alarm.tag}: {alarm.currentValue} {alarm.condition} {alarm.threshold}
                   </div>
                 </div>
@@ -681,7 +681,7 @@ export const SimulationSidebar: React.FC = () => {
           >
             {/* Scan interval selector */}
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] text-gray-400">Scan:</span>
+              <span className="text-[10px] text-gray-500">Scan:</span>
               <select
                 value={scanInterval}
                 onChange={(e) => setScanInterval(Number(e.target.value))}
@@ -720,7 +720,7 @@ export const SimulationSidebar: React.FC = () => {
                       <span className="text-[11px] text-gray-200 font-medium truncate">
                         {binding.programName}
                       </span>
-                      <span className="text-[9px] text-gray-400">
+                      <span className="text-[9px] text-gray-500">
                         {boundCount}/{totalCount}
                       </span>
                     </div>

@@ -50,7 +50,7 @@ export const CalibrationWizardConfig: React.FC<WidgetConfigProps> = ({ config, o
             </div>
           ))}
           {sensors.length === 0 && (
-            <p className="text-xs text-gray-400">No sensors added yet</p>
+            <p className="text-xs text-gray-500">No sensors added yet</p>
           )}
         </div>
       </div>

@@ -62,7 +62,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
         <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
           <div className="flex items-center gap-2">
             {draggable && (
-              <MoreVertical size={14} className="text-gray-400 cursor-grab" />
+              <MoreVertical size={14} className="text-gray-500 cursor-grab" />
             )}
             <h4 className="text-sm font-medium text-gray-700 truncate">
               {title || reading.type.replace('_', ' ')}
@@ -75,7 +75,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
                 title="Expand"
               >
-                <Maximize2 size={14} className="text-gray-400" />
+                <Maximize2 size={14} className="text-gray-500" />
               </button>
             )}
             {onRemove && (
@@ -84,7 +84,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
                 className="p-1 hover:bg-red-50 rounded transition-colors"
                 title="Remove"
               >
-                <X size={14} className="text-gray-400 hover:text-red-500" />
+                <X size={14} className="text-gray-500 hover:text-red-500" />
               </button>
             )}
           </div>
@@ -95,7 +95,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
       <div className="p-3">{renderWidget()}</div>
 
       {/* Last update */}
-      <div className="px-3 pb-2 text-xs text-gray-400 text-right">
+      <div className="px-3 pb-2 text-xs text-gray-500 text-right">
         {formatTimestamp(reading.timestamp)}
       </div>
     </div>

@@ -177,7 +177,7 @@ const StatCard: React.FC<{
         <div>
           <p className="text-sm text-gray-500">{label}</p>
           <p className="text-2xl font-bold text-gray-900">{value}</p>
-          {subValue && <p className="text-xs text-gray-400">{subValue}</p>}
+          {subValue && <p className="text-xs text-gray-500">{subValue}</p>}
         </div>
       </div>
     </div>
@@ -553,7 +553,7 @@ const TenantDatabase: React.FC = () => {
         <div className="p-6 border-b border-gray-100">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Layers className="w-5 h-5 text-gray-400" />
+              <Layers className="w-5 h-5 text-gray-500" />
               <h2 className="text-lg font-semibold text-gray-900">Tables</h2>
               <span className="text-sm text-gray-500">
                 ({filteredTables.length} tables)
@@ -707,7 +707,7 @@ const TenantDatabase: React.FC = () => {
         {/* Empty State */}
         {filteredTables.length === 0 && (
           <div className="py-12 text-center">
-            <Table className="w-12 h-12 text-gray-300 mx-auto" />
+            <Table className="w-12 h-12 text-gray-500 mx-auto" />
             <h3 className="mt-4 text-sm font-medium text-gray-900">
               No tables found
             </h3>

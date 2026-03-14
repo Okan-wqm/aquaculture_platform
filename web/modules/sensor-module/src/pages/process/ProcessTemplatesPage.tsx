@@ -182,7 +182,7 @@ const ProcessTemplatesPage: React.FC = () => {
 
       {/* Empty State / Custom */}
       <div className="mt-8 p-6 bg-gray-50 rounded-lg border border-gray-200 text-center">
-        <Cog className="w-10 h-10 mx-auto text-gray-400 mb-3" />
+        <Cog className="w-10 h-10 mx-auto text-gray-500 mb-3" />
         <h3 className="text-lg font-medium text-gray-900 mb-2">
           Need something different?
         </h3>

@@ -32,7 +32,7 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
         <div>
           <p className="text-sm text-gray-500 mb-1">Aktif Cihaz</p>
           <p className="text-2xl font-bold text-gray-900">
-            {joined} <span className="text-sm font-normal text-gray-400">/ {total}</span>
+            {joined} <span className="text-sm font-normal text-gray-500">/ {total}</span>
           </p>
           <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
             <div

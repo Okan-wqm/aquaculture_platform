@@ -113,7 +113,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
 
         {/* Search */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
             value={searchTerm}
@@ -132,7 +132,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
             >
               Expand All
             </button>
-            <span className="text-gray-300">|</span>
+            <span className="text-gray-500">|</span>
             <button
               onClick={collapseAll}
               className="text-xs text-gray-500 hover:text-cyan-600 transition-colors"
@@ -147,11 +147,11 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
       <div className="flex-1 overflow-y-auto p-2">
         {categoryEntries.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            <Package className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+            <Package className="w-12 h-12 mx-auto mb-2 text-gray-500" />
             <p className="text-sm">
               {searchTerm ? 'No matching equipment found' : 'No visible equipment found'}
             </p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-500 mt-1">
               Enable "Show in Sensor Module" in equipment settings
             </p>
           </div>
@@ -168,9 +168,9 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                   className="w-full flex items-center gap-2 px-2 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
                 >
                   {isExpanded ? (
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                    <ChevronDown className="w-4 h-4 text-gray-500" />
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <ChevronRight className="w-4 h-4 text-gray-500" />
                   )}
                   <span className="flex-1 text-left">{getCategoryLabel(category)}</span>
                   {linkedInCategory > 0 && (
@@ -178,7 +178,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                       {linkedInCategory}
                     </span>
                   )}
-                  <span className="text-xs text-gray-400">{equipmentList.length}</span>
+                  <span className="text-xs text-gray-500">{equipmentList.length}</span>
                 </button>
 
                 {/* Equipment Items */}
@@ -211,7 +211,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                           {equipment.isLinked ? (
                             <Check className="w-4 h-4 text-cyan-600 flex-shrink-0" />
                           ) : (
-                            <Link2 className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                            <Link2 className="w-4 h-4 text-gray-500 flex-shrink-0" />
                           )}
                         </button>
                       );

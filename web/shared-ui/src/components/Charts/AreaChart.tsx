@@ -138,7 +138,7 @@ export const AreaChart: React.FC<AreaChartProps> = ({
   if (!data || data.length === 0) {
     return (
       <div className={`flex items-center justify-center ${className}`} style={{ width, height }}>
-        <span className="text-gray-400 text-sm">No data available</span>
+        <span className="text-gray-500 text-sm">No data available</span>
       </div>
     );
   }

@@ -177,7 +177,7 @@ const SubscriptionManagementPage: React.FC = () => {
             <div className="mt-1 text-2xl font-bold text-green-600">
               {formatCurrency(stats.mrr)}
             </div>
-            <div className="text-xs text-gray-400">
+            <div className="text-xs text-gray-500">
               ARR: {formatCurrency(stats.arr)}
             </div>
           </Card>
@@ -187,7 +187,7 @@ const SubscriptionManagementPage: React.FC = () => {
             <div className="mt-1 text-2xl font-bold text-gray-900">
               {stats.totalSubscriptions}
             </div>
-            <div className="text-xs text-gray-400">
+            <div className="text-xs text-gray-500">
               Active: {stats.byStatus[SubscriptionStatus.ACTIVE] || 0}
             </div>
           </Card>
@@ -197,7 +197,7 @@ const SubscriptionManagementPage: React.FC = () => {
             <div className="mt-1 text-2xl font-bold text-orange-600">
               {stats.churnRate.toFixed(1)}%
             </div>
-            <div className="text-xs text-gray-400">
+            <div className="text-xs text-gray-500">
               Trial Conversion: {stats.trialConversionRate.toFixed(1)}%
             </div>
           </Card>
@@ -207,7 +207,7 @@ const SubscriptionManagementPage: React.FC = () => {
             <div className="mt-1 text-2xl font-bold text-red-600">
               {stats.pastDueCount}
             </div>
-            <div className="text-xs text-gray-400">
+            <div className="text-xs text-gray-500">
               Expiring this month: {stats.expiringThisMonth}
             </div>
           </Card>

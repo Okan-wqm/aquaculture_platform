@@ -160,7 +160,7 @@ export const BarChart: React.FC<BarChartProps> = ({
   if (!datasets || datasets.length === 0) {
     return (
       <div className={`flex items-center justify-center ${className}`} style={{ width, height }}>
-        <span className="text-gray-400 text-sm">No data available</span>
+        <span className="text-gray-500 text-sm">No data available</span>
       </div>
     );
   }
@@ -297,7 +297,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                       className="w-2 h-2 rounded"
                       style={{ backgroundColor: item.color }}
                     />
-                    <span className="text-gray-300">{item.label}</span>
+                    <span className="text-gray-500">{item.label}</span>
                   </div>
                   <span className="font-medium">{item.value}</span>
                 </div>

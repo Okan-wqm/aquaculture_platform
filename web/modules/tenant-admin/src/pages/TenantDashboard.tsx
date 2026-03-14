@@ -372,8 +372,9 @@ const TenantDashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+      <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
+        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" aria-hidden="true" />
+        <span className="sr-only">Dashboard loading...</span>
       </div>
     );
   }
@@ -503,7 +504,7 @@ const TenantDashboard: React.FC = () => {
                   {stat.value}
                 </p>
                 {stat.changeLabel && (
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     {stat.changeLabel}
                   </p>
                 )}
@@ -532,9 +533,9 @@ const TenantDashboard: React.FC = () => {
           </div>
           {modules.length === 0 ? (
             <div className="p-8 text-center">
-              <Package className="w-12 h-12 text-gray-300 mx-auto" />
+              <Package className="w-12 h-12 text-gray-500 mx-auto" />
               <p className="text-sm text-gray-500 mt-3">No modules assigned yet</p>
-              <p className="text-xs text-gray-400 mt-1">Contact your administrator to get modules assigned</p>
+              <p className="text-xs text-gray-500 mt-1">Contact your administrator to get modules assigned</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -560,7 +561,7 @@ const TenantDashboard: React.FC = () => {
                     <div className="flex items-center gap-4">
                       <StatusBadge status={module.status} />
                       <button className="p-1 rounded hover:bg-gray-100 transition-colors">
-                        <MoreVertical className="w-4 h-4 text-gray-400" />
+                        <MoreVertical className="w-4 h-4 text-gray-500" />
                       </button>
                     </div>
                   </div>
@@ -581,7 +582,7 @@ const TenantDashboard: React.FC = () => {
           </div>
           {activities.length === 0 ? (
             <div className="p-8 text-center">
-              <Activity className="w-12 h-12 text-gray-300 mx-auto" />
+              <Activity className="w-12 h-12 text-gray-500 mx-auto" />
               <p className="text-sm text-gray-500 mt-3">No recent activity</p>
             </div>
           ) : (
@@ -611,7 +612,7 @@ const TenantDashboard: React.FC = () => {
                     <p className="text-sm text-gray-900 line-clamp-2">
                       {activity.description}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       {activity.timestamp}
                     </p>
                   </div>

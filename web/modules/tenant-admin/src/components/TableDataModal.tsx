@@ -177,7 +177,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
                           idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
                         }`}
                       >
-                        <td className="px-4 py-3 text-xs text-gray-400 font-mono">
+                        <td className="px-4 py-3 text-xs text-gray-500 font-mono">
                           {data.offset + idx + 1}
                         </td>
                         {data.columns.map((col) => (
@@ -232,7 +232,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
                     className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                       hasPrevPage
                         ? 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
-                        : 'text-gray-400 bg-gray-100 cursor-not-allowed'
+                        : 'text-gray-500 bg-gray-100 cursor-not-allowed'
                     }`}
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -247,7 +247,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
                     className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                       hasNextPage
                         ? 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
-                        : 'text-gray-400 bg-gray-100 cursor-not-allowed'
+                        : 'text-gray-500 bg-gray-100 cursor-not-allowed'
                     }`}
                   >
                     Next

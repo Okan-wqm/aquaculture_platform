@@ -166,7 +166,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+          <button onClick={onClose} className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -271,7 +271,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                         <span className={`ml-2 px-1.5 py-0.5 rounded-full ${key.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                           {key.isActive ? 'Active' : 'Revoked'}
                         </span>
-                        <span className="ml-2 text-gray-400">{key.usedCount} devices</span>
+                        <span className="ml-2 text-gray-500">{key.usedCount} devices</span>
                       </div>
                       {key.isActive && (
                         <button
@@ -300,7 +300,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                 </pre>
                 <button
                   onClick={() => handleCopy(result.installerCommand)}
-                  className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-300 hover:text-white rounded-md text-xs transition-colors"
+                  className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-500 hover:text-white rounded-md text-xs transition-colors"
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                   {copied ? 'Kopyaland\u0131!' : 'Kopyala'}

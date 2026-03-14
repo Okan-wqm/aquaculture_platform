@@ -33,12 +33,12 @@ export const UndoRedoToolbar: React.FC = () => {
         className={`relative flex items-center gap-1 px-2 py-1.5 text-sm rounded-lg transition-colors ${
           canUndoNow
             ? 'text-gray-700 hover:bg-gray-100'
-            : 'text-gray-300 cursor-not-allowed'
+            : 'text-gray-500 cursor-not-allowed'
         }`}
       >
         <Undo2 className="w-4 h-4" />
         {undoCount > 0 && (
-          <span className="text-[10px] text-gray-400">{undoCount}</span>
+          <span className="text-[10px] text-gray-500">{undoCount}</span>
         )}
       </button>
       <button
@@ -48,12 +48,12 @@ export const UndoRedoToolbar: React.FC = () => {
         className={`relative flex items-center gap-1 px-2 py-1.5 text-sm rounded-lg transition-colors ${
           canRedoNow
             ? 'text-gray-700 hover:bg-gray-100'
-            : 'text-gray-300 cursor-not-allowed'
+            : 'text-gray-500 cursor-not-allowed'
         }`}
       >
         <Redo2 className="w-4 h-4" />
         {redoCount > 0 && (
-          <span className="text-[10px] text-gray-400">{redoCount}</span>
+          <span className="text-[10px] text-gray-500">{redoCount}</span>
         )}
       </button>
     </div>

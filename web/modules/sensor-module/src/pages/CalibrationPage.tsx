@@ -117,7 +117,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
       <td className="px-4 py-3">
         <div>
           <span className="font-medium text-gray-900">{channel.displayLabel}</span>
-          <p className="text-xs text-gray-400 font-mono">{channel.channelKey}</p>
+          <p className="text-xs text-gray-500 font-mono">{channel.channelKey}</p>
         </div>
       </td>
 
@@ -221,7 +221,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
             {new Date(channel.nextCalibrationDue).toLocaleDateString('tr-TR')}
           </span>
         ) : (
-          <span className="text-sm text-gray-400">-</span>
+          <span className="text-sm text-gray-500">-</span>
         )}
       </td>
 
@@ -244,7 +244,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
             <button
               onClick={handleCancel}
               disabled={saving}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               title="Iptal"
             >
               <X className="w-4 h-4" />
@@ -254,7 +254,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
           <button
             onClick={handleEdit}
             disabled={updating}
-            className="p-1.5 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
             title="Duzenle"
           >
             <Edit className="w-4 h-4" />
@@ -354,7 +354,7 @@ const CalibrationPage: React.FC = () => {
   // Loading state
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]">
+      <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
           <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
           <p className="text-gray-500">Kalibrasyon verileri yukleniyor...</p>
@@ -404,7 +404,7 @@ const CalibrationPage: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
           <div className="flex items-center gap-3">
-            <Activity className="w-7 h-7 text-gray-400" />
+            <Activity className="w-7 h-7 text-gray-500" />
             <div>
               <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
               <p className="text-sm text-gray-500">Toplam Kanal</p>
@@ -440,7 +440,7 @@ const CalibrationPage: React.FC = () => {
         </div>
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <AlertCircle className="w-7 h-7 text-gray-400" />
+            <AlertCircle className="w-7 h-7 text-gray-500" />
             <div>
               <p className="text-2xl font-bold text-gray-700">{stats.neverCalibrated}</p>
               <p className="text-sm text-gray-500">Hic Kalibre Edilmemis</p>
@@ -475,7 +475,7 @@ const CalibrationPage: React.FC = () => {
       {/* Empty State */}
       {sensorIds.length === 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Gauge className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <Gauge className="w-12 h-12 text-gray-500 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 mb-2">Kalibre Edilecek Kanal Yok</h3>
           <p className="text-gray-500 text-sm">
             Kalibrasyon ayarlarini duzenlemek icin once sensor kaydedip veri kanallari olusturmaniz gerekiyor.

@@ -164,7 +164,7 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
               </h2>
               <button
                 onClick={handleClose}
-                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                className="p-1 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
               >
                 <X size={20} />
               </button>
@@ -178,7 +178,7 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                   <div className="relative mb-4">
                     <Search
                       size={18}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
                     />
                     <input
                       type="text"
@@ -235,7 +235,7 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                                   {TYPE_LABELS[sensor.type?.toUpperCase() || ''] || sensor.type || 'Bilinmiyor'}
                                 </span>
                                 {sensor.serialNumber && (
-                                  <span className="text-xs text-gray-400">
+                                  <span className="text-xs text-gray-500">
                                     • {sensor.serialNumber}
                                   </span>
                                 )}
@@ -247,13 +247,13 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                               {sensor.connectionStatus?.isConnected ? (
                                 <Wifi size={16} className="text-green-500" />
                               ) : (
-                                <WifiOff size={16} className="text-gray-400" />
+                                <WifiOff size={16} className="text-gray-500" />
                               )}
                             </div>
 
                             {/* Arrow */}
                             {!isAdded && (
-                              <ChevronRight size={18} className="text-gray-400" />
+                              <ChevronRight size={18} className="text-gray-500" />
                             )}
                           </button>
                         );

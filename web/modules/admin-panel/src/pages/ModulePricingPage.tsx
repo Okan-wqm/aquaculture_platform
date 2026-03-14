@@ -415,7 +415,7 @@ const ModulePricingPage: React.FC = () => {
                     <span className="font-medium">
                       {formatCurrency(metric.price)}
                       {metric.includedQuantity ? (
-                        <span className="text-gray-400 text-xs ml-1">
+                        <span className="text-gray-500 text-xs ml-1">
                           ({metric.includedQuantity} free)
                         </span>
                       ) : null}
@@ -423,7 +423,7 @@ const ModulePricingPage: React.FC = () => {
                   </div>
                 ))}
               {(pricing.pricingMetrics || []).filter((m) => !isBasePrice(m.type)).length > 4 && (
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-gray-500">
                   +{(pricing.pricingMetrics || []).filter((m) => !isBasePrice(m.type)).length - 4} more metrics
                 </div>
               )}

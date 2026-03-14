@@ -310,7 +310,7 @@ const TenantBillingPage: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-100 p-8 text-center">
-          <CreditCard className="w-12 h-12 text-gray-300 mx-auto" />
+          <CreditCard className="w-12 h-12 text-gray-500 mx-auto" />
           <h3 className="mt-4 text-sm font-medium text-gray-900">No subscription data</h3>
           <p className="mt-1 text-sm text-gray-500">
             Subscription information will appear here once billing is configured.
@@ -413,7 +413,7 @@ const TenantBillingPage: React.FC = () => {
                     <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-gray-400" />
+                          <FileText className="w-4 h-4 text-gray-500" />
                           <div>
                             <p className="text-sm font-medium text-gray-900">
                               {invoice.invoiceNumber}
@@ -448,7 +448,7 @@ const TenantBillingPage: React.FC = () => {
             </div>
           ) : (
             <div className="py-12 text-center">
-              <FileText className="w-12 h-12 text-gray-300 mx-auto" />
+              <FileText className="w-12 h-12 text-gray-500 mx-auto" />
               <h3 className="mt-4 text-sm font-medium text-gray-900">No invoices</h3>
               <p className="mt-1 text-sm text-gray-500">
                 Invoices will appear here once billing is active.
@@ -491,7 +491,7 @@ const TenantBillingPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
-                            <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                            <Calendar className="w-3.5 h-3.5 text-gray-500" />
                             <span className="text-sm text-gray-600">
                               {invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString() : '--'}
                             </span>

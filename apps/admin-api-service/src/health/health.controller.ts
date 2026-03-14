@@ -1,94 +1,137 @@
-import { SkipThrottle } from '@aquaculture/backend-common';
-import { Controller, Get, HttpCode, HttpStatus, NotFoundException, Param, Post, Res } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import {
-  HealthCheck,
-  HealthCheckService,
-  TypeOrmHealthIndicator,
-  MemoryHealthIndicator,
-} from '@nestjs/terminus';
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  NotFoundException,
+  Param,
+  Post,
+  Res,
+} from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@aquaculture/backend-common';
 import { Response } from 'express';
 
 import { Public } from '../decorators/public.decorator';
 
 import { HealthService } from './health.service';
 
-
+/**
+ * Admin API Health Controller
+ *
+ * Standardized K8s probe endpoints:
+ *   GET /health/live    - Liveness: always 200 if process is alive
+ *   GET /health/ready   - Readiness: 200 if database reachable, 503 otherwise
+ *   GET /health         - General: sanitized status (timestamp, uptime, version)
+ *   GET /health/startup - Startup probe for K8s (200 after full init)
+ *
+ * Internal (auth required):
+ *   GET  /health/metrics              - Process metrics
+ *   GET  /health/circuit-breakers     - Circuit breaker states
+ *   POST /health/circuit-breakers/:name/reset - Reset a circuit breaker
+ */
 @ApiTags('Health')
 @Controller('health')
 @SkipThrottle()
 export class HealthController {
-  constructor(
-    private readonly health: HealthCheckService,
-    private readonly db: TypeOrmHealthIndicator,
-    private readonly memory: MemoryHealthIndicator,
-    private readonly healthService: HealthService,
-  ) {}
+  constructor(private readonly healthService: HealthService) {}
 
-  @Get()
-  @Public()
-  @HealthCheck()
-  check() {
-    return this.health.check([
-      () => this.db.pingCheck('database'),
-      () => this.memory.checkHeap('memory_heap', 500 * 1024 * 1024),
-      () => this.memory.checkRSS('memory_rss', 1024 * 1024 * 1024),
-    ]);
-  }
-
+  /**
+   * K8s Liveness Probe.
+   * Returns 200 as long as the process is running.
+   */
   @Get('live')
   @Public()
   @HttpCode(HttpStatus.OK)
-  liveness() {
-    return { status: 'ok', timestamp: new Date().toISOString() };
+  liveness(): { status: 'ok' } {
+    return { status: 'ok' };
   }
 
+  /**
+   * K8s Readiness Probe.
+   * Returns 200 if database is reachable, 503 otherwise.
+   * Also reports draining status during graceful shutdown.
+   */
   @Get('ready')
   @Public()
-  async readiness(@Res() res: Response) {
+  async readiness(@Res() res: Response): Promise<void> {
     const draining = this.healthService.isDraining();
     const dbHealthy = draining ? false : await this.healthService.checkDatabase();
     const smtpStatus = this.healthService.getSmtpStatus();
     const isReady = dbHealthy && !draining;
 
+    const status = isReady ? 'ok' : 'not_ready';
+    const httpStatus = isReady ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+
     const body = {
-      status: isReady ? 'ok' : 'not_ready',
-      timestamp: new Date().toISOString(),
+      status,
       checks: {
-        database: dbHealthy,
-        smtp: smtpStatus.state,
-        ...(draining ? { draining: true } : {}),
+        database: dbHealthy ? 'ok' : 'error',
+        smtp: smtpStatus.state === 'closed' ? 'ok' : 'error',
+        ...(draining ? { draining: 'error' as const } : {}),
       },
     };
 
-    res.status(isReady ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE).json(body);
+    res.status(httpStatus).json(body);
   }
 
   /**
-   * Startup probe — returns 200 only after the application has fully initialized.
-   * Use as Kubernetes startupProbe to avoid premature liveness/readiness checks.
+   * General Health Endpoint (sanitized, public).
+   * Returns timestamp, uptime, version. No sensitive data.
+   */
+  @Get()
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  health(): {
+    status: 'ok';
+    timestamp: string;
+    uptime: number;
+    version: string;
+  } {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: process.env.APP_VERSION || '0.0.0',
+    };
+  }
+
+  /**
+   * Startup probe for K8s.
+   * Returns 200 only after the application has fully initialized.
    */
   @Get('startup')
   @Public()
-  startup(@Res() res: Response) {
+  startup(@Res() res: Response): void {
     const ready = this.healthService.isStartupComplete();
-    const body = {
-      status: ready ? 'started' : 'starting',
+    const status = ready ? 'ok' : 'not_ready';
+    const httpStatus = ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+
+    res.status(httpStatus).json({
+      status,
       timestamp: new Date().toISOString(),
-    };
-    res.status(ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE).json(body);
+    });
   }
 
+  /**
+   * Internal metrics endpoint (auth required).
+   */
   @Get('metrics')
   async metrics() {
     return this.healthService.getMetrics();
   }
 
+  /**
+   * Internal circuit breaker status (auth required).
+   */
   @Get('circuit-breakers')
   getCircuitBreakers() {
     return this.healthService.getCircuitBreakers();
   }
 
+  /**
+   * Reset a circuit breaker (auth required).
+   */
   @Post('circuit-breakers/:name/reset')
   @HttpCode(HttpStatus.OK)
   resetCircuitBreaker(@Param('name') name: string) {

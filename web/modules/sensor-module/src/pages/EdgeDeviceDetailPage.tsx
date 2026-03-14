@@ -1223,7 +1223,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
                         )}
                       </span>
                     ) : (
-                      <span className="text-gray-400">--</span>
+                      <span className="text-gray-500">--</span>
                     )}
                   </td>
                   {/* Alarm */}
@@ -1343,7 +1343,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+          <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
           <span className="text-sm text-gray-500">Kurulum komutlari yukleniyor...</span>
         </div>
       </div>
@@ -1371,7 +1371,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
             </pre>
             <button
               onClick={() => handleCopy(commands.installCommand, 'install')}
-              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors"
+              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-500 hover:text-white transition-colors"
               title="Kopyala"
             >
               {copiedField === 'install' ? (
@@ -1394,7 +1394,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
             </pre>
             <button
               onClick={() => handleCopy(commands.uninstallCommand, 'uninstall')}
-              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors"
+              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-500 hover:text-white transition-colors"
               title="Kopyala"
             >
               {copiedField === 'uninstall' ? (
@@ -1696,7 +1696,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
               {device.isOnline ? (
                 <span className="flex items-center gap-1 text-xs text-green-600"><Wifi className="w-3.5 h-3.5" />Cevrimici</span>
               ) : (
-                <span className="flex items-center gap-1 text-xs text-gray-400"><WifiOff className="w-3.5 h-3.5" />Cevrimdisi</span>
+                <span className="flex items-center gap-1 text-xs text-gray-500"><WifiOff className="w-3.5 h-3.5" />Cevrimdisi</span>
               )}
             </div>
             <p className="text-gray-500 text-sm mt-0.5">
@@ -1797,12 +1797,12 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </div>
 
             <div className="space-y-0">
-              <InfoRow label="Cihaz Kodu" value={device.deviceCode} icon={<Tag className="w-3.5 h-3.5 text-gray-400" />} />
+              <InfoRow label="Cihaz Kodu" value={device.deviceCode} icon={<Tag className="w-3.5 h-3.5 text-gray-500" />} />
               <InfoRow label="IP Adresi" value={device.ipAddress} />
               <InfoRow label="Firmware" value={device.firmwareVersion || 'Bilinmiyor'} />
-              <InfoRow label="Bolge" value={device.siteId} icon={<MapPin className="w-3.5 h-3.5 text-gray-400" />} />
+              <InfoRow label="Bolge" value={device.siteId} icon={<MapPin className="w-3.5 h-3.5 text-gray-500" />} />
               <InfoRow label="Tarama Hizi" value={device.scanRateMs ? `${device.scanRateMs}ms` : null} />
-              <InfoRow label="Son Gorulme" value={formatLastSeen(device.lastSeenAt)} icon={<Clock className="w-3.5 h-3.5 text-gray-400" />} />
+              <InfoRow label="Son Gorulme" value={formatLastSeen(device.lastSeenAt)} icon={<Clock className="w-3.5 h-3.5 text-gray-500" />} />
               <InfoRow label="Kayit Tarihi" value={new Date(device.createdAt).toLocaleDateString('tr-TR')} />
             </div>
           </div>
@@ -1819,7 +1819,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 <MetricBar label="Sicaklik" value={device.temperatureCelsius} unit="°C" icon={<Thermometer className="w-4 h-4 text-red-500" />} />
               </div>
               {!device.cpuUsage && !device.memoryUsage && !device.storageUsage && !device.temperatureCelsius && (
-                <p className="text-gray-400 text-sm text-center py-4">Metrik verisi henuz gelmedi</p>
+                <p className="text-gray-500 text-sm text-center py-4">Metrik verisi henuz gelmedi</p>
               )}
             </div>
 

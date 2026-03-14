@@ -212,7 +212,7 @@ const IndustryTemplateSelector: React.FC<IndustryTemplateSelectorProps> = ({ onT
           className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium text-sm transition-colors ${
             selectedKey && !applying
               ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
         >
           {applying && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -8,8 +8,8 @@
  */
 
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
-import { getAccessToken } from '@aquaculture/shared-ui';
+import type { Socket } from 'socket.io-client';
+import { getSocket, releaseSocket } from './socketFactory';
 import type { IoTagValue, IoAlarmEvent } from './useEdgeIoSocket';
 
 export type { IoTagValue, IoAlarmEvent };
@@ -37,45 +37,12 @@ export interface ScadaLiveDataResult {
   getTagValue: (deviceCode: string, tagName: string) => any;
 }
 
-const MAX_RECONNECT_ATTEMPTS = 10;
-
-// Singleton socket for SCADA live data (reuses same /sensors namespace)
-let scadaSocket: Socket | null = null;
-let socketRefCount = 0;
-
+/**
+ * Get or create the shared socket via the pool factory.
+ * Token refresh on reconnect is handled by the factory itself.
+ */
 function getOrCreateScadaSocket(): Socket | null {
-  const token = getAccessToken();
-  if (!token) return null;
-
-  if (scadaSocket && scadaSocket.connected) {
-    return scadaSocket;
-  }
-
-  // If there's a disconnected socket, clean it up
-  if (scadaSocket) {
-    scadaSocket.removeAllListeners();
-    scadaSocket.disconnect();
-    scadaSocket = null;
-  }
-
-  scadaSocket = io(WS_URL, {
-    auth: { token },
-    transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-  });
-
-  // Refresh token on reconnect attempts
-  scadaSocket.on('reconnect_attempt', () => {
-    const freshToken = getAccessToken();
-    if (freshToken && scadaSocket) {
-      (scadaSocket as any).auth = { token: freshToken };
-    }
-  });
-
-  return scadaSocket;
+  return getSocket(WS_URL);
 }
 
 export function useScadaLiveData(options: ScadaLiveDataOptions): ScadaLiveDataResult {
@@ -109,8 +76,6 @@ export function useScadaLiveData(options: ScadaLiveDataOptions): ScadaLiveDataRe
       forceUpdate();
       return;
     }
-
-    socketRefCount++;
 
     const targetCodes = new Set(deviceCodes);
     const tagFilter = tagNames && tagNames.length > 0 ? new Set(tagNames) : null;
@@ -246,12 +211,8 @@ export function useScadaLiveData(options: ScadaLiveDataOptions): ScadaLiveDataRe
       }
       subscribedCodesRef.current = new Set();
 
-      // Disconnect singleton when no consumers remain
-      socketRefCount--;
-      if (socketRefCount === 0 && scadaSocket) {
-        scadaSocket.disconnect();
-        scadaSocket = null;
-      }
+      // Release our reference so the pool can clean up when no consumers remain
+      releaseSocket(WS_URL);
     };
   }, [deviceCodesKey, tagNamesKey, enabled, debounceMs, forceUpdate]);
 

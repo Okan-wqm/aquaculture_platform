@@ -12,9 +12,9 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { create } from 'zustand';
-import { getAccessToken } from '@aquaculture/shared-ui';
+import { getSocket, releaseSocket } from './socketFactory';
 
 // Same WS_URL resolution as useSensorSocket
 const WS_URL =
@@ -81,46 +81,37 @@ export const useEdgeIoStore = create<EdgeIoState>((set) => ({
   setConnected: (connected) => set({ isConnected: connected }),
 }));
 
-// Singleton socket instance
-let socketInstance: Socket | null = null;
+let edgeListenersAttached = false;
 let connectionAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
 function getOrCreateSocket(): Socket | null {
-  const token = getAccessToken();
-  if (!token) return null;
+  const socket = getSocket(WS_URL);
+  if (!socket) return null;
 
-  if (socketInstance && socketInstance.connected) {
-    return socketInstance;
+  // Attach edge-specific connection listeners only once
+  if (!edgeListenersAttached) {
+    edgeListenersAttached = true;
+
+    socket.on('connect', () => {
+      connectionAttempts = 0;
+      useEdgeIoStore.getState().setConnected(true);
+    });
+
+    socket.on('disconnect', () => {
+      useEdgeIoStore.getState().setConnected(false);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.warn('[EdgeIoSocket] Connection error:', error.message);
+      connectionAttempts++;
+      if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('[EdgeIoSocket] Max reconnection attempts reached');
+      }
+    });
   }
 
-  socketInstance = io(WS_URL, {
-    auth: { token },
-    transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-  });
-
-  socketInstance.on('connect', () => {
-    connectionAttempts = 0;
-    useEdgeIoStore.getState().setConnected(true);
-  });
-
-  socketInstance.on('disconnect', () => {
-    useEdgeIoStore.getState().setConnected(false);
-  });
-
-  socketInstance.on('connect_error', (error) => {
-    console.warn('[EdgeIoSocket] Connection error:', error.message);
-    connectionAttempts++;
-    if (connectionAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error('[EdgeIoSocket] Max reconnection attempts reached');
-    }
-  });
-
-  return socketInstance;
+  return socket;
 }
 
 /**
@@ -190,6 +181,10 @@ export function useEdgeIoSocket(deviceCode?: string | null) {
         socket.emit('unsubscribeEdgeIo', { deviceCode: subscribedRef.current });
       }
       subscribedRef.current = null;
+
+      // Release our reference so the pool can clean up when no consumers remain
+      releaseSocket(WS_URL);
+      edgeListenersAttached = false;
     };
   }, [deviceCode, updateTags, addAlarms, setConnected]);
 

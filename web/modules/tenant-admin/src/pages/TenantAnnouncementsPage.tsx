@@ -281,7 +281,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
             <button
               onClick={fetchAnnouncements}
               disabled={loading}
-              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
               title="Refresh"
             >
               <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
@@ -302,7 +302,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
         <div className="grid grid-cols-4 gap-4 mt-4">
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="flex items-center gap-2">
-              <Megaphone className="w-4 h-4 text-gray-400" />
+              <Megaphone className="w-4 h-4 text-gray-500" />
               <span className="text-sm text-gray-500">Total</span>
             </div>
             <div className="text-xl font-semibold text-gray-900 mt-1">{announcements.length}</div>
@@ -337,7 +337,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
       <div className="bg-white border-b border-gray-200 px-6 py-3">
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
             <input
               type="text"
               placeholder="Search announcements..."
@@ -399,7 +399,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
           ) : filteredAnnouncements.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-gray-500">
               <div className="text-center">
-                <Megaphone size={48} className="mx-auto mb-3 text-gray-300" />
+                <Megaphone size={48} className="mx-auto mb-3 text-gray-500" />
                 <p className="font-medium">No announcements found</p>
                 <p className="text-sm mt-1">Try adjusting your filters</p>
               </div>
@@ -435,7 +435,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                         )}
                       </div>
                       <p className="text-sm text-gray-500 mt-1 line-clamp-2">{announcement.content}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Clock size={12} />
                           {formatDate(announcement.publishedAt || announcement.createdAt)}
@@ -479,7 +479,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setSelectedAnnouncement(null)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <X size={20} />
                 </button>

@@ -138,6 +138,7 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {/* Metrik Kartlari */}
+      <div aria-live="polite" aria-atomic="true">
       {isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
@@ -199,11 +200,12 @@ const DashboardPage: React.FC = () => {
       ) : (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
           <p className="text-sm text-gray-500">Henuz veri yok</p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             Ciftlik ve sensor verileriniz burada gorunecektir.
           </p>
         </div>
       )}
+      </div>
 
       {/* Icerik Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

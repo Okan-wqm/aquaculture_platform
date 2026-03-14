@@ -76,7 +76,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
         </span>
         <ChevronDown
           size={18}
-          className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
@@ -86,7 +86,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
           {/* Search */}
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
                 type="text"
                 placeholder="Proses ara..."
@@ -145,7 +145,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
                           <span className={`text-xs px-1.5 py-0.5 rounded ${status.color}`}>
                             {status.label}
                           </span>
-                          <span className="text-xs text-gray-400">
+                          <span className="text-xs text-gray-500">
                             {process.nodes.length} ekipman
                           </span>
                         </div>

@@ -234,7 +234,7 @@ export const DeployScadaDialog: React.FC<DeployScadaDialogProps> = ({
                         <span className="text-sm font-medium text-gray-900 truncate">
                           {device.deviceName}
                         </span>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-500">
                           {device.deviceCode}
                         </span>
                       </div>
@@ -251,7 +251,7 @@ export const DeployScadaDialog: React.FC<DeployScadaDialogProps> = ({
                       ) : (
                         <>
                           <span className="w-2 h-2 rounded-full bg-gray-400" />
-                          <WifiOff className="w-4 h-4 text-gray-400" />
+                          <WifiOff className="w-4 h-4 text-gray-500" />
                         </>
                       )}
                     </div>

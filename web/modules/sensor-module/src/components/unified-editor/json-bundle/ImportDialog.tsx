@@ -192,7 +192,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           </div>
           <button
             onClick={handleClose}
-            className="p-1 text-gray-400 hover:text-gray-200 rounded"
+            className="p-1 text-gray-500 hover:text-gray-200 rounded"
           >
             <X className="w-4 h-4" />
           </button>
@@ -224,7 +224,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
                     dragOver ? 'text-blue-400' : 'text-gray-500'
                   }`}
                 />
-                <p className="text-sm text-gray-300">
+                <p className="text-sm text-gray-500">
                   Drag & drop a .json file here
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
@@ -248,7 +248,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
               <button
                 onClick={handlePaste}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg text-sm text-gray-300"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg text-sm text-gray-500"
               >
                 <Clipboard className="w-4 h-4" />
                 Paste from Clipboard
@@ -260,7 +260,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           {stage === 'validating' && (
             <div className="flex flex-col items-center py-8 gap-3">
               <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-              <p className="text-sm text-gray-400">Validating bundle...</p>
+              <p className="text-sm text-gray-500">Validating bundle...</p>
             </div>
           )}
 
@@ -292,7 +292,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
               <button
                 onClick={reset}
-                className="w-full px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-300 rounded"
+                className="w-full px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-500 rounded"
               >
                 Try Again
               </button>
@@ -324,7 +324,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
               {/* Program Preview */}
               <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Program Details
                 </h3>
                 <div className="grid grid-cols-2 gap-2 text-sm">
@@ -379,10 +379,10 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
               {/* Code Preview */}
               {result.bundle.program.structuredTextCode && (
                 <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-                  <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Code Preview
                   </h3>
-                  <pre className="text-xs text-gray-300 font-mono bg-gray-950 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap">
+                  <pre className="text-xs text-gray-500 font-mono bg-gray-950 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap">
                     {result.bundle.program.structuredTextCode.slice(0, 500)}
                     {result.bundle.program.structuredTextCode.length > 500 &&
                       '\n...'}
@@ -417,7 +417,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={handleClose}
-              className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 rounded"
+              className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-200 rounded"
             >
               Cancel
             </button>

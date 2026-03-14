@@ -102,7 +102,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
 
-  const config = KIND_CONFIG[node.kind] ?? { icon: Hash, color: 'text-gray-400' };
+  const config = KIND_CONFIG[node.kind] ?? { icon: Hash, color: 'text-gray-500' };
   const Icon = config.icon;
 
   const isActive =
@@ -127,7 +127,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       <div
         onClick={handleClick}
         className={`flex items-center gap-1 py-0.5 pr-2 cursor-pointer hover:bg-gray-800 ${
-          isActive ? 'bg-gray-800/60 text-white' : 'text-gray-300'
+          isActive ? 'bg-gray-800/60 text-white' : 'text-gray-500'
         }`}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
       >
@@ -135,7 +135,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         {hasChildren ? (
           <button
             onClick={handleToggle}
-            className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-gray-500 hover:text-gray-300"
+            className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-gray-500 hover:text-gray-500"
           >
             {expanded ? (
               <ChevronDown className="w-3 h-3" />

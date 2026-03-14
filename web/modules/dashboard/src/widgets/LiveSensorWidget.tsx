@@ -123,10 +123,10 @@ export const LiveSensorWidget: React.FC<LiveSensorWidgetProps> = ({
   if (!sensorId) {
     return (
       <Card className={`p-4 ${className}`}>
-        <div className="text-center py-6 text-gray-400">
+        <div className="text-center py-6 text-gray-500">
           <SensorIcon className="w-8 h-8 mx-auto mb-2" />
           <p className="text-sm font-medium text-gray-500">Canli Sensor</p>
-          <p className="text-xs text-gray-400 mt-2">Sensor ID gerekli</p>
+          <p className="text-xs text-gray-500 mt-2">Sensor ID gerekli</p>
         </div>
       </Card>
     );
@@ -176,7 +176,7 @@ export const LiveSensorWidget: React.FC<LiveSensorWidgetProps> = ({
     <Card className={`p-4 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
-          <SensorIcon className="w-4 h-4 text-gray-400" />
+          <SensorIcon className="w-4 h-4 text-gray-500" />
           <h4 className="text-sm font-medium text-gray-700">{sensorName}</h4>
         </div>
         <Badge variant={statusColor} size="sm">
@@ -190,7 +190,7 @@ export const LiveSensorWidget: React.FC<LiveSensorWidgetProps> = ({
             {reading.value.toFixed(2)}
           </p>
           <p className="text-sm text-gray-500 mt-1">{reading.unit}</p>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-xs text-gray-500 mt-2">
             Son okuma: {formatRelativeTime(new Date(reading.timestamp))}
           </p>
           {/* Live indicator */}
@@ -201,8 +201,8 @@ export const LiveSensorWidget: React.FC<LiveSensorWidgetProps> = ({
         </div>
       ) : (
         <div className="text-center py-4">
-          <p className="text-sm text-gray-400">Henuz okuma yok</p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-sm text-gray-500">Henuz okuma yok</p>
+          <p className="text-xs text-gray-500 mt-1">
             Sensor ID: {sensorId.slice(0, 8)}...
           </p>
         </div>

@@ -100,7 +100,7 @@ const EmptyWidget: React.FC<{ title: string; message: string }> = ({ title, mess
   <Card className="p-4">
     <div className="text-center py-4">
       <h3 className="text-sm font-medium text-gray-500 mb-2">{title}</h3>
-      <p className="text-xs text-gray-400">{message}</p>
+      <p className="text-xs text-gray-500">{message}</p>
     </div>
   </Card>
 );
@@ -319,11 +319,11 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
                     : 'bg-gray-300'
                 }`}
               />
-              <span className={task.status === 'COMPLETED' ? 'text-gray-400 line-through' : 'text-gray-700'}>
+              <span className={task.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-gray-700'}>
                 {task.title}
               </span>
             </div>
-            <span className="text-gray-400 text-xs">
+            <span className="text-gray-500 text-xs">
               {task.dueTime ?? task.priority}
             </span>
           </div>

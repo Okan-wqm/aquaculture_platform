@@ -419,7 +419,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             onClick={() => onCollapsedChange(!collapsed)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             className={`
-              p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg
+              p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg
               transition-all duration-200
               ${collapsed ? 'rotate-180' : ''}
             `}

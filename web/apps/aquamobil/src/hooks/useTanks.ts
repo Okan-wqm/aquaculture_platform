@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Tank } from '@/types';
 
 // tenantId comes from X-Tenant-Id header (extracted from JWT by backend)
@@ -32,41 +33,14 @@ const TANKS_QUERY = `
   }
 `;
 
-interface GraphQLResponse {
-  data?: { tanks: { items: Tank[]; total: number } };
-  errors?: Array<{ message: string }>;
-}
+async function fetchTanks(): Promise<Tank[]> {
+  const result = await graphqlRequest<{ tanks: { items: Tank[]; total: number } }>(TANKS_QUERY);
 
-async function fetchTanks(accessToken: string, tenantId: string): Promise<Tank[]> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-      'X-Tenant-Id': tenantId,
-      // SEC-06: CSRF defense header
-      'X-Requested-With': 'XMLHttpRequest',
-    },
-    body: JSON.stringify({
-      query: TANKS_QUERY,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error: ${response.status}`);
-  }
-
-  const result = await response.json() as GraphQLResponse;
-
-  if (result.errors && result.errors.length > 0) {
-    throw new Error(result.errors[0]?.message || 'Failed to fetch tanks');
-  }
-
-  if (!result.data?.tanks?.items) {
+  if (!result.tanks?.items) {
     throw new Error('Invalid response: no tanks data');
   }
 
-  return result.data.tanks.items;
+  return result.tanks.items;
 }
 
 export function useTanks() {
@@ -80,7 +54,7 @@ export function useTanks() {
       }
 
       try {
-        const tanks = await fetchTanks(accessToken, tenantId);
+        const tanks = await fetchTanks();
         // PERF-05: Write to IndexedDB only as an offline fallback.
         // React Query's own gcTime handles in-memory caching for the online path,
         // eliminating the duplicate cache layer.

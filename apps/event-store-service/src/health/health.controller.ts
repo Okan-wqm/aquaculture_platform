@@ -1,33 +1,19 @@
-import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
-import { HealthService, HealthStatus } from './health.service';
+import { Controller } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { StandardHealthController } from '@platform/backend-common';
+import { DataSource } from 'typeorm';
 
+/**
+ * Event Store Service Health Controller
+ * Extends the standard health controller with consistent K8s probe format.
+ */
 @Controller('health')
-export class HealthController {
-  constructor(private readonly healthService: HealthService) {}
-
-  @Get()
-  async check(): Promise<HealthStatus> {
-    const health = await this.healthService.check();
-    if (health.status !== 'healthy') {
-      throw new HttpException(health, HttpStatus.SERVICE_UNAVAILABLE);
-    }
-    return health;
-  }
-
-  @Get('live')
-  liveness(): { status: string } {
-    return { status: 'ok' };
-  }
-
-  @Get('ready')
-  async readiness(): Promise<{ status: string }> {
-    const health = await this.healthService.check();
-    if (health.status !== 'healthy') {
-      throw new HttpException(
-        { status: 'not ready' },
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
-    }
-    return { status: 'ok' };
+export class HealthController extends StandardHealthController {
+  constructor(
+    @InjectDataSource()
+    dataSource: DataSource,
+  ) {
+    super(dataSource);
+    this.serviceName = 'event-store-service';
   }
 }

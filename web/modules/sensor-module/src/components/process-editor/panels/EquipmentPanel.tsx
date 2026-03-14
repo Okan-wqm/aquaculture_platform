@@ -202,7 +202,7 @@ function ScadaNodeItem({ tpl, onDragStart }: { tpl: ScadaTemplate; onDragStart: 
       onDragStart={(e) => startScadaDrag(e, tpl, onDragStart)}
       className={`flex items-center gap-2 px-3 py-2 ${c.bg} ${c.hover} rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent ${c.border}`}
     >
-      <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+      <GripVertical className="w-4 h-4 text-gray-500 group-hover:text-gray-500" />
       <div className={`w-5 h-5 ${c.badgeBg} rounded text-white text-xs flex items-center justify-center font-bold`}>
         {tpl.badge}
       </div>
@@ -222,7 +222,7 @@ function FarmEquipmentItem({ type, onDragStart }: { type: EquipmentType; onDragS
       onDragStart={(e) => onDragStart(e, type)}
       className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-blue-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-blue-200"
     >
-      <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+      <GripVertical className="w-4 h-4 text-gray-500 group-hover:text-gray-500" />
       <div className="text-gray-600 group-hover:text-blue-600">
         <Icon size={20} />
       </div>
@@ -335,7 +335,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
     >
       {expandedCategories.has(categoryKey) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
       <span>{label}</span>
-      <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{count}</span>
+      <span className="ml-auto text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{count}</span>
     </button>
   );
 
@@ -345,7 +345,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
       <div className="p-4 border-b border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900 mb-3">SCADA Nodes</h3>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
             placeholder="Search node types..."
@@ -390,7 +390,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   }}
                   className="flex items-center gap-2 px-3 py-2 bg-green-50 hover:bg-green-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-green-200"
                 >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+                  <GripVertical className="w-4 h-4 text-gray-500 group-hover:text-gray-500" />
                   <div className="text-green-600 group-hover:text-green-700"><Activity size={20} /></div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">{SENSOR_NODE_TEMPLATE.name}</div>
@@ -424,7 +424,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   }}
                   className="flex items-center gap-2 px-3 py-2 bg-yellow-50 hover:bg-yellow-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-yellow-200"
                 >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+                  <GripVertical className="w-4 h-4 text-gray-500 group-hover:text-gray-500" />
                   <div className="w-5 h-5 rounded-full bg-yellow-400 border-2 border-yellow-600" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">{CONNECTION_POINT_TEMPLATE.name}</div>
@@ -458,7 +458,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                     }}
                     className="flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-emerald-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-emerald-200"
                   >
-                    <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+                    <GripVertical className="w-4 h-4 text-gray-500 group-hover:text-gray-500" />
                     <div className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ backgroundColor: bag.color }} />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-gray-900 truncate">{bag.name}</div>
@@ -491,7 +491,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   }}
                   className="flex items-center gap-2 px-3 py-2 bg-cyan-50 hover:bg-cyan-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-cyan-200"
                 >
-                  <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+                  <GripVertical className="w-4 h-4 text-gray-500 group-hover:text-gray-500" />
                   <div className="text-cyan-600 group-hover:text-cyan-700"><BarChart2 size={20} /></div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">{CHART_WIDGET_TEMPLATE.name}</div>

@@ -11,7 +11,9 @@ export default defineConfig({
       // PERF-10: autoUpdate ensures field workers always run the latest version
       // without needing to manually dismiss an update prompt.
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'icons/*.png'],
+      // Prevent build failure when glob patterns match no files (Docker isolated build)
+      mode: 'production',
+      includeAssets: ['icons/*.png'],
       manifest: {
         name: 'AquaMobil',
         short_name: 'AquaMobil',
@@ -41,10 +43,13 @@ export default defineConfig({
           },
         ],
       },
+      selfDestroying: false,
       workbox: {
-        // All static assets handled by runtimeCaching -- no precache needed
-        // This prevents build failures when glob patterns don't match any files in Docker
+        // Disable precaching entirely -- all assets use runtimeCaching
+        // This prevents vite-plugin-pwa from failing when glob patterns match no files in Docker builds
         globPatterns: [],
+        // Prevent workbox from erroring when no precache entries exist
+        disableDevLogs: true,
         runtimeCaching: [
           // CRIT-2 / SEC-02 / PERF-01: GraphQL runtime caching has been intentionally
           // removed. Reasons:

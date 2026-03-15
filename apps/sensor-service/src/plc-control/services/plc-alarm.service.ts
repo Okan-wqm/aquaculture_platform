@@ -118,8 +118,9 @@ export class PlcAlarmService {
       );
     }
 
-    // Apply sorting
-    const sortBy = pagination?.sortBy || 'timestamp';
+    // Apply sorting — whitelist allowed columns to prevent SQL injection
+    const allowedSortColumns = ['timestamp', 'severity', 'source', 'alarmCode', 'createdAt', 'acknowledged'];
+    const sortBy = allowedSortColumns.includes(pagination?.sortBy || '') ? pagination!.sortBy! : 'timestamp';
     const sortOrder = pagination?.sortOrder || 'DESC';
     queryBuilder.orderBy(`alarm.${sortBy}`, sortOrder);
 

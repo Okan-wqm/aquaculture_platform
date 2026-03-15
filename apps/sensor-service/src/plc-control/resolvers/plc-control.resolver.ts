@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, BadRequestException } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -39,6 +39,13 @@ import {
   ActuatorUsageStatsDto,
   LatestTelemetrySummaryDto,
   TelemetryTimeRangeDto,
+  DiscoveredEndpointDto,
+  NodeBrowseResultDto,
+  HistoricalDataPointDto,
+  ReadHistoricalDataInputDto,
+  CallMethodInputDto,
+  MethodCallResultDto,
+  WriteNodeInputDto,
 } from '../dto';
 
 import {
@@ -198,6 +205,35 @@ export class PlcControlResolver {
   }
 
   /**
+   * Discover available endpoints on an OPC UA server
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER role
+   */
+  @Query(() => [DiscoveredEndpointDto], { name: 'discoverOpcUaEndpoints' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async discoverOpcUaEndpoints(
+    @Args('endpointUrl', { type: () => String }) endpointUrl: string,
+    @Tenant() tenantId: string,
+  ): Promise<DiscoveredEndpointDto[]> {
+    this.logger.log(`Discovering OPC UA endpoints at: ${endpointUrl}`);
+    return this.plcConnectionService.discoverEndpoints(endpointUrl);
+  }
+
+  /**
+   * Browse OPC UA server address space
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER role
+   */
+  @Query(() => [NodeBrowseResultDto], { name: 'browseOpcUaNodes' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async browseOpcUaNodes(
+    @Args('plcConnectionId', { type: () => ID }) plcConnectionId: string,
+    @Args('parentNodeId', { type: () => String, nullable: true }) parentNodeId: string | undefined,
+    @Tenant() tenantId: string,
+  ): Promise<NodeBrowseResultDto[]> {
+    this.logger.log(`Browsing OPC UA nodes for connection: ${plcConnectionId}`);
+    return this.plcConnectionService.browseNodes(plcConnectionId, tenantId, parentNodeId);
+  }
+
+  /**
    * Activate a PLC connection
    * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER role
    */
@@ -221,6 +257,94 @@ export class PlcControlResolver {
     @Tenant() tenantId: string,
   ): Promise<PlcConnection> {
     return this.plcConnectionService.deactivate(id, tenantId);
+  }
+
+  // ==================== Advanced OPC UA Operations ====================
+
+  /**
+   * Read historical data from OPC UA server (HDA)
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER role
+   */
+  @Query(() => [HistoricalDataPointDto], { name: 'readOpcUaHistoricalData' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async readOpcUaHistoricalData(
+    @Args('plcConnectionId', { type: () => ID }) plcConnectionId: string,
+    @Args('input') input: ReadHistoricalDataInputDto,
+    @Tenant() tenantId: string,
+  ): Promise<HistoricalDataPointDto[]> {
+    this.logger.log(`Reading historical data for connection: ${plcConnectionId}`);
+    const results = await this.plcConnectionService.readHistoricalData(
+      plcConnectionId,
+      tenantId,
+      input.nodeId,
+      input.startTime,
+      input.endTime,
+      input.maxValues,
+    );
+    return results.map(r => ({
+      timestamp: r.timestamp,
+      value: r.value !== undefined ? JSON.stringify(r.value) : undefined,
+    }));
+  }
+
+  /**
+   * Call a method on OPC UA server
+   * SECURITY: Requires TENANT_ADMIN role
+   */
+  @Mutation(() => MethodCallResultDto, { name: 'callOpcUaMethod' })
+  @Roles(Role.TENANT_ADMIN)
+  async callOpcUaMethod(
+    @Args('plcConnectionId', { type: () => ID }) plcConnectionId: string,
+    @Args('input') input: CallMethodInputDto,
+    @Tenant() tenantId: string,
+  ): Promise<MethodCallResultDto> {
+    this.logger.log(`Calling method ${input.methodId} on connection: ${plcConnectionId}`);
+    const args = input.inputArguments?.map(a => {
+      try {
+        return { dataType: a.dataType, value: JSON.parse(a.value) };
+      } catch {
+        throw new BadRequestException(`Invalid JSON in method argument value: ${a.value.substring(0, 100)}`);
+      }
+    });
+    const result = await this.plcConnectionService.callMethod(
+      plcConnectionId,
+      tenantId,
+      input.objectId,
+      input.methodId,
+      args,
+    );
+    return {
+      statusCode: result.statusCode,
+      outputArguments: result.outputArguments.map(a => JSON.stringify(a)),
+    };
+  }
+
+  /**
+   * Write a value to an OPC UA node
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER role
+   */
+  @Mutation(() => Boolean, { name: 'writeOpcUaNode' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async writeOpcUaNode(
+    @Args('plcConnectionId', { type: () => ID }) plcConnectionId: string,
+    @Args('input') input: WriteNodeInputDto,
+    @Tenant() tenantId: string,
+  ): Promise<boolean> {
+    this.logger.log(`Writing to node ${input.nodeId} on connection: ${plcConnectionId}`);
+    let parsedValue: unknown;
+    try {
+      parsedValue = JSON.parse(input.value);
+    } catch {
+      throw new BadRequestException(`Invalid JSON in write value: ${input.value.substring(0, 100)}`);
+    }
+    await this.plcConnectionService.writeNodeValue(
+      plcConnectionId,
+      tenantId,
+      input.nodeId,
+      parsedValue,
+      input.dataType,
+    );
+    return true;
   }
 
   // ==================== Feeding Parameter Queries ====================
@@ -474,8 +598,10 @@ export class PlcControlResolver {
 
   /**
    * Acknowledge an alarm
+   * SECURITY: Requires TENANT_ADMIN, MODULE_MANAGER, or OPERATOR role
    */
   @Mutation(() => PlcAlarm, { name: 'acknowledgePlcAlarm' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async acknowledgePlcAlarm(
     @Args('id', { type: () => ID }) id: string,
     @Args('input', { type: () => AcknowledgeAlarmDto, nullable: true }) input: AcknowledgeAlarmDto | undefined,
@@ -488,8 +614,10 @@ export class PlcControlResolver {
 
   /**
    * Bulk acknowledge alarms
+   * SECURITY: Requires TENANT_ADMIN, MODULE_MANAGER, or OPERATOR role
    */
   @Mutation(() => Int, { name: 'bulkAcknowledgePlcAlarms' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async bulkAcknowledgePlcAlarms(
     @Args('input') input: BulkAcknowledgeAlarmsDto,
     @Tenant() tenantId: string,
@@ -527,8 +655,10 @@ export class PlcControlResolver {
 
   /**
    * Add notes to an alarm
+   * SECURITY: Requires TENANT_ADMIN, MODULE_MANAGER, or OPERATOR role
    */
   @Mutation(() => PlcAlarm, { name: 'addAlarmNotes' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async addAlarmNotes(
     @Args('id', { type: () => ID }) id: string,
     @Args('notes', { type: () => String }) notes: string,

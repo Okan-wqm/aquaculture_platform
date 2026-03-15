@@ -69,7 +69,7 @@ export class PlcConnection {
   securityMode!: PlcSecurityMode;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true, default: 'None' })
   securityPolicy?: string;
 
   @Field(() => PlcAuthMode)
@@ -82,6 +82,16 @@ export class PlcConnection {
 
   @Column({ nullable: true })
   password?: string; // Not exposed in GraphQL
+
+  // Certificate authentication
+  @Column({ type: 'text', nullable: true })
+  clientCertificate?: string; // PEM format client certificate
+
+  @Column({ type: 'text', nullable: true })
+  clientPrivateKey?: string; // PEM format private key (encrypted at rest)
+
+  @Column({ type: 'text', nullable: true })
+  serverCertificate?: string; // PEM format trusted server certificate
 
   @Field(() => PlcConnectionStatus)
   @Column({ type: 'varchar', default: PlcConnectionStatus.OFFLINE })
@@ -106,6 +116,41 @@ export class PlcConnection {
   @Field()
   @Column({ default: 60000 })
   sessionTimeoutMs!: number;
+
+  // Connection timeouts
+  @Field()
+  @Column({ default: 5000 })
+  connectTimeoutMs!: number;
+
+  @Field()
+  @Column({ default: 60000 })
+  requestTimeoutMs!: number;
+
+  // Reconnection settings
+  @Field()
+  @Column({ default: true })
+  autoReconnect!: boolean;
+
+  @Field()
+  @Column({ default: -1 })
+  maxReconnectAttempts!: number; // -1 = infinite
+
+  @Field()
+  @Column({ default: 1000 })
+  reconnectDelayMs!: number;
+
+  @Field()
+  @Column({ default: 30000 })
+  maxReconnectDelayMs!: number;
+
+  @Field()
+  @Column({ default: 5000 })
+  keepAliveIntervalMs!: number;
+
+  // Failover
+  @Field({ nullable: true })
+  @Column({ nullable: true })
+  failoverEndpointUrl?: string;
 
   // OPC UA Node IDs for different data types
   @Field(() => String, { nullable: true })

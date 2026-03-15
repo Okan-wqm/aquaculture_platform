@@ -49,6 +49,8 @@ import {
   PLC_TELEMETRY_STATS_QUERY,
   FEEDING_STATS_QUERY,
   ACTUATOR_USAGE_STATS_QUERY,
+  DISCOVER_OPCUA_ENDPOINTS_QUERY,
+  BROWSE_OPCUA_NODES_QUERY,
 } from '../graphql/plc.operations';
 
 // ============================================================================
@@ -98,6 +100,17 @@ export interface PlcConnection {
   telemetryNodeId?: string;
   alarmsNodeId?: string;
   statusNodeId?: string;
+  clientCertificate?: string;
+  clientPrivateKey?: string;
+  serverCertificate?: string;
+  connectTimeoutMs: number;
+  requestTimeoutMs: number;
+  autoReconnect: boolean;
+  maxReconnectAttempts: number;
+  reconnectDelayMs: number;
+  maxReconnectDelayMs: number;
+  keepAliveIntervalMs: number;
+  failoverEndpointUrl?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -121,6 +134,26 @@ export interface PlcConnectionTestResult {
   testedAt: string;
 }
 
+export interface DiscoveredEndpoint {
+  endpointUrl: string;
+  securityMode: string;
+  securityPolicy: string;
+  securityLevel: number;
+  serverCertificate?: string;
+  transportProfileUri?: string;
+}
+
+export interface NodeBrowseResult {
+  nodeId: string;
+  browseName: string;
+  displayName: string;
+  nodeClass: string;
+  dataType?: string;
+  hasChildren: boolean;
+  description?: string;
+  value?: string;
+}
+
 export interface CreatePlcConnectionInput {
   name: string;
   description?: string;
@@ -139,6 +172,17 @@ export interface CreatePlcConnectionInput {
   telemetryNodeId?: string;
   alarmsNodeId?: string;
   statusNodeId?: string;
+  clientCertificate?: string;
+  clientPrivateKey?: string;
+  serverCertificate?: string;
+  connectTimeoutMs?: number;
+  requestTimeoutMs?: number;
+  autoReconnect?: boolean;
+  maxReconnectAttempts?: number;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
+  keepAliveIntervalMs?: number;
+  failoverEndpointUrl?: string;
 }
 
 export interface UpdatePlcConnectionInput {
@@ -158,6 +202,17 @@ export interface UpdatePlcConnectionInput {
   telemetryNodeId?: string;
   alarmsNodeId?: string;
   statusNodeId?: string;
+  clientCertificate?: string;
+  clientPrivateKey?: string;
+  serverCertificate?: string;
+  connectTimeoutMs?: number;
+  requestTimeoutMs?: number;
+  autoReconnect?: boolean;
+  maxReconnectAttempts?: number;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
+  keepAliveIntervalMs?: number;
+  failoverEndpointUrl?: string;
   isActive?: boolean;
 }
 
@@ -496,6 +551,36 @@ export function usePlcConnectionMutations() {
     activate: activateMutation,
     deactivate: deactivateMutation,
   };
+}
+
+export function useDiscoverEndpoints(endpointUrl: string) {
+  return useQuery({
+    queryKey: ['discoverEndpoints', endpointUrl],
+    queryFn: async () => {
+      const data = await graphqlFetch<{ discoverOpcUaEndpoints: DiscoveredEndpoint[] }>(
+        DISCOVER_OPCUA_ENDPOINTS_QUERY,
+        { endpointUrl },
+      );
+      return data.discoverOpcUaEndpoints;
+    },
+    enabled: false, // Manual trigger only
+    staleTime: 30000,
+  });
+}
+
+export function useBrowseOpcUaNodes(plcConnectionId: string, parentNodeId?: string) {
+  return useQuery({
+    queryKey: ['browseOpcUaNodes', plcConnectionId, parentNodeId],
+    queryFn: async () => {
+      const data = await graphqlFetch<{ browseOpcUaNodes: NodeBrowseResult[] }>(
+        BROWSE_OPCUA_NODES_QUERY,
+        { plcConnectionId, parentNodeId },
+      );
+      return data.browseOpcUaNodes;
+    },
+    enabled: false, // Manual trigger only
+    staleTime: 30000,
+  });
 }
 
 // ============================================================================

@@ -30,6 +30,13 @@ import {
   X,
   Clock,
   RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  Upload,
+  Eye,
+  EyeOff,
+  Radar,
+  FolderTree,
 } from 'lucide-react';
 import {
   usePlcConnections,
@@ -40,7 +47,10 @@ import {
   CreatePlcConnectionInput,
   UpdatePlcConnectionInput,
   PlcConnectionFilter,
+  DiscoveredEndpoint,
 } from '../../hooks/usePlcControl';
+import { graphqlFetch } from '../../config/api';
+import { DISCOVER_OPCUA_ENDPOINTS_QUERY } from '../../graphql/plc.operations';
 
 // ============================================================================
 // Constants
@@ -63,6 +73,13 @@ const SECURITY_MODE_LABELS: Record<string, string> = {
   None: 'Yok',
   Sign: 'Imzali',
   SignAndEncrypt: 'Imzali & Sifreli',
+};
+
+const SECURITY_POLICY_LABELS: Record<string, string> = {
+  None: 'Yok',
+  Basic256Sha256: 'Basic256Sha256',
+  'Aes128_Sha256_RsaOaep': 'AES-128',
+  'Aes256_Sha256_RsPss': 'AES-256',
 };
 
 function formatDate(dateStr?: string): string {
@@ -102,7 +119,51 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
     telemetryNodeId: connection?.telemetryNodeId || '',
     alarmsNodeId: connection?.alarmsNodeId || '',
     statusNodeId: connection?.statusNodeId || '',
+    securityPolicy: connection?.securityPolicy || 'None',
+    clientCertificate: connection?.clientCertificate || '',
+    clientPrivateKey: connection?.clientPrivateKey || '',
+    serverCertificate: connection?.serverCertificate || '',
+    connectTimeoutMs: connection?.connectTimeoutMs || 5000,
+    requestTimeoutMs: connection?.requestTimeoutMs || 60000,
+    autoReconnect: connection?.autoReconnect ?? true,
+    maxReconnectAttempts: connection?.maxReconnectAttempts ?? -1,
+    reconnectDelayMs: connection?.reconnectDelayMs || 1000,
+    maxReconnectDelayMs: connection?.maxReconnectDelayMs || 30000,
+    keepAliveIntervalMs: connection?.keepAliveIntervalMs || 5000,
+    failoverEndpointUrl: connection?.failoverEndpointUrl || '',
   });
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredEndpoints, setDiscoveredEndpoints] = useState<DiscoveredEndpoint[]>([]);
+
+  const handleDiscover = async () => {
+    if (!form.endpointUrl || !form.endpointUrl.startsWith('opc.tcp://')) return;
+    setDiscovering(true);
+    setDiscoveredEndpoints([]);
+    try {
+      const data = await graphqlFetch<{ discoverOpcUaEndpoints: DiscoveredEndpoint[] }>(
+        DISCOVER_OPCUA_ENDPOINTS_QUERY,
+        { endpointUrl: form.endpointUrl },
+      );
+      const eps = data.discoverOpcUaEndpoints || [];
+      setDiscoveredEndpoints(eps);
+      // Auto-select the highest security level endpoint
+      if (eps.length > 0) {
+        const best = eps.reduce((a, b) => (b.securityLevel > a.securityLevel ? b : a));
+        updateField('securityMode', best.securityMode);
+        updateField('securityPolicy', best.securityPolicy);
+        if (best.serverCertificate) {
+          updateField('serverCertificate', atob(best.serverCertificate));
+        }
+      }
+    } catch (err) {
+      console.error('Discovery failed:', err);
+    } finally {
+      setDiscovering(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,16 +240,50 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL *</label>
-                <input
-                  type="text"
-                  required
-                  value={form.endpointUrl}
-                  onChange={(e) => updateField('endpointUrl', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="opc.tcp://192.168.1.100:4840"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={form.endpointUrl}
+                    onChange={(e) => updateField('endpointUrl', e.target.value)}
+                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    placeholder="opc.tcp://192.168.1.100:4840"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleDiscover}
+                    disabled={discovering || !form.endpointUrl.startsWith('opc.tcp://')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                    title="Sunucu endpoint'lerini kesfet"
+                  >
+                    {discovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />}
+                    Kesfet
+                  </button>
+                </div>
+                {discoveredEndpoints.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                    <h4 className="text-xs font-semibold text-indigo-800 mb-2">Bulunan Endpoint&apos;ler ({discoveredEndpoints.length})</h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {discoveredEndpoints.map((ep, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            updateField('securityMode', ep.securityMode);
+                            updateField('securityPolicy', ep.securityPolicy);
+                            if (ep.serverCertificate) updateField('serverCertificate', atob(ep.serverCertificate));
+                          }}
+                          className="flex w-full items-center justify-between rounded px-2 py-1 text-xs hover:bg-indigo-100"
+                        >
+                          <span className="font-mono">{ep.securityMode}/{ep.securityPolicy}</span>
+                          <span className="text-indigo-600">Seviye: {ep.securityLevel}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Modu</label>
                   <select
@@ -201,6 +296,20 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                     <option value="SignAndEncrypt">Imzali & Sifreli</option>
                   </select>
                 </div>
+                {form.securityMode !== 'None' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Politikasi</label>
+                    <select
+                      value={form.securityPolicy}
+                      onChange={(e) => updateField('securityPolicy', e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="Basic256Sha256">Basic256Sha256</option>
+                      <option value="Aes128_Sha256_RsaOaep">Aes128_Sha256_RsaOaep</option>
+                      <option value="Aes256_Sha256_RsPss">Aes256_Sha256_RsPss</option>
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Kimlik Dogrulama</label>
                   <select
@@ -233,6 +342,111 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                       onChange={(e) => updateField('password', e.target.value)}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
+                  </div>
+                </div>
+              )}
+              {form.authMode === 'Certificate' && (
+                <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <h4 className="text-sm font-medium text-amber-800">Sertifika Kimlik Dogrulama</h4>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Client Sertifikasi (PEM) *
+                    </label>
+                    <div className="flex gap-2">
+                      <textarea
+                        value={form.clientCertificate}
+                        onChange={(e) => updateField('clientCertificate', e.target.value)}
+                        rows={3}
+                        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                      />
+                      <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                        <Upload className="h-4 w-4" />
+                        <input
+                          type="file"
+                          accept=".pem,.crt,.cer"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (ev) => updateField('clientCertificate', ev.target?.result as string);
+                              reader.readAsText(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Client Ozel Anahtar (PEM) *
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <textarea
+                          value={form.clientPrivateKey}
+                          onChange={(e) => updateField('clientPrivateKey', e.target.value)}
+                          rows={3}
+                          className={`w-full rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${!showPrivateKey ? 'text-security-disc' : ''}`}
+                          placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                          style={!showPrivateKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPrivateKey(!showPrivateKey)}
+                          className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+                        >
+                          {showPrivateKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                        <Upload className="h-4 w-4" />
+                        <input
+                          type="file"
+                          accept=".pem,.key"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (ev) => updateField('clientPrivateKey', ev.target?.result as string);
+                              reader.readAsText(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Sunucu Sertifikasi (PEM, opsiyonel)
+                    </label>
+                    <div className="flex gap-2">
+                      <textarea
+                        value={form.serverCertificate}
+                        onChange={(e) => updateField('serverCertificate', e.target.value)}
+                        rows={3}
+                        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                      />
+                      <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                        <Upload className="h-4 w-4" />
+                        <input
+                          type="file"
+                          accept=".pem,.crt,.cer"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (ev) => updateField('serverCertificate', ev.target?.result as string);
+                              reader.readAsText(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
                   </div>
                 </div>
               )}
@@ -321,6 +535,120 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                 />
               </div>
             </div>
+          </div>
+
+          {/* Advanced Settings */}
+          <div className="border rounded-lg">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+            >
+              <span>Gelismis Ayarlar</span>
+              {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            {showAdvanced && (
+              <div className="border-t px-4 py-4 space-y-4">
+                {/* Reconnection */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yeniden Baglanti</h4>
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={form.autoReconnect}
+                        onChange={(e) => updateField('autoReconnect', e.target.checked)}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-gray-700">Otomatik Yeniden Baglan</span>
+                    </label>
+                    {form.autoReconnect && (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Maks Deneme (-1=sinirsiz)</label>
+                          <input
+                            type="number"
+                            min={-1} max={1000}
+                            value={form.maxReconnectAttempts}
+                            onChange={(e) => updateField('maxReconnectAttempts', parseInt(e.target.value))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Baslangic Gecikme (ms)</label>
+                          <input
+                            type="number"
+                            min={100} max={60000}
+                            value={form.reconnectDelayMs}
+                            onChange={(e) => updateField('reconnectDelayMs', parseInt(e.target.value))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Maks Gecikme (ms)</label>
+                          <input
+                            type="number"
+                            min={1000} max={300000}
+                            value={form.maxReconnectDelayMs}
+                            onChange={(e) => updateField('maxReconnectDelayMs', parseInt(e.target.value))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Timeouts */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Zaman Asimlari</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Baglanti (ms)</label>
+                      <input
+                        type="number"
+                        min={1000} max={60000}
+                        value={form.connectTimeoutMs}
+                        onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Istek (ms)</label>
+                      <input
+                        type="number"
+                        min={5000} max={300000}
+                        value={form.requestTimeoutMs}
+                        onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Keep-Alive (ms)</label>
+                      <input
+                        type="number"
+                        min={1000} max={60000}
+                        value={form.keepAliveIntervalMs}
+                        onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Failover */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yedek Baglanti (Failover)</h4>
+                  <input
+                    type="text"
+                    value={form.failoverEndpointUrl}
+                    onChange={(e) => updateField('failoverEndpointUrl', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    placeholder="opc.tcp://backup-plc:4840"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit */}
@@ -586,6 +914,9 @@ const PlcConnectionsPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600">
                       <div>{SECURITY_MODE_LABELS[conn.securityMode] || conn.securityMode}</div>
+                      {conn.securityPolicy && conn.securityPolicy !== 'None' && (
+                        <div className="text-gray-500">{SECURITY_POLICY_LABELS[conn.securityPolicy] || conn.securityPolicy}</div>
+                      )}
                       <div className="text-gray-400">{AUTH_MODE_LABELS[conn.authMode] || conn.authMode}</div>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">

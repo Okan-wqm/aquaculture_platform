@@ -24,6 +24,9 @@ import {
   ParameterSendResultDto,
 } from '../dto';
 import { PlcPaginationDto } from '../dto/plc-connection.dto';
+import { OpcUaAdapter } from '../../protocol/adapters/industrial/opcua.adapter';
+import { ConnectionHandle } from '../../protocol/adapters/base-protocol.adapter';
+import { buildOpcUaConfig } from './opcua-config.builder';
 
 /**
  * Result interface for paginated feeding parameters
@@ -49,6 +52,7 @@ export class FeedingParameterService {
     private readonly feedingParameterRepository: Repository<FeedingParameter>,
     @InjectRepository(PlcConnection)
     private readonly plcConnectionRepository: Repository<PlcConnection>,
+    private readonly opcUaAdapter: OpcUaAdapter,
   ) {}
 
   /**
@@ -152,8 +156,9 @@ export class FeedingParameterService {
       );
     }
 
-    // Apply sorting
-    const sortBy = pagination?.sortBy || 'createdAt';
+    // Apply sorting — whitelist allowed columns to prevent SQL injection
+    const allowedSortColumns = ['name', 'status', 'version', 'createdAt', 'updatedAt', 'sentAt', 'activatedAt'];
+    const sortBy = allowedSortColumns.includes(pagination?.sortBy || '') ? pagination!.sortBy! : 'createdAt';
     const sortOrder = pagination?.sortOrder || 'DESC';
     queryBuilder.orderBy(`fp.${sortBy}`, sortOrder);
 
@@ -240,8 +245,7 @@ export class FeedingParameterService {
   }
 
   /**
-   * Send parameters to PLC
-   * Note: Actual OPC UA write would be implemented here
+   * Send parameters to PLC via OPC UA write
    */
   async sendToPlc(
     id: string,
@@ -255,21 +259,67 @@ export class FeedingParameterService {
       );
     }
 
-    this.logger.log(`Sending parameter ${id} to PLC ${parameter.plcConnectionId}`);
+    // Load full PLC connection entity (includes password & certificates)
+    const connection = await this.plcConnectionRepository.findOne({
+      where: { id: parameter.plcConnectionId, tenantId },
+    });
+
+    if (!connection) {
+      throw new NotFoundException(
+        `PLC connection ${parameter.plcConnectionId} not found`,
+      );
+    }
+
+    if (!connection.parametersNodeId) {
+      throw new BadRequestException(
+        `PLC connection "${connection.name}" has no parametersNodeId configured. ` +
+        'Configure a parameters node ID before sending feeding parameters.',
+      );
+    }
+
+    this.logger.log(
+      `Sending parameter ${id} to PLC ${connection.name} (${connection.endpointUrl}), ` +
+      `node: ${connection.parametersNodeId}`,
+    );
+
+    // Mark as PENDING before attempting the write
+    parameter.status = ParameterStatus.PENDING;
+    parameter.errorMessage = undefined as unknown as string;
+    await this.feedingParameterRepository.save(parameter);
+
+    let handle: ConnectionHandle | null = null;
 
     try {
-      // Update status to PENDING
-      parameter.status = ParameterStatus.PENDING;
-      await this.feedingParameterRepository.save(parameter);
+      // Build OPC UA config from connection entity
+      const config = buildOpcUaConfig(connection);
 
-      // TODO: Implement actual OPC UA write
-      // In production, this would:
-      // 1. Connect to PLC via OPC UA
-      // 2. Write parameter data to designated node
-      // 3. Wait for acknowledgment
+      // Connect to OPC UA server
+      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
 
-      // Simulate sending
-      await this.simulateSendToPlc(parameter);
+      // Serialize parameter data for PLC write
+      const parameterPayload = JSON.stringify({
+        id: parameter.id,
+        version: parameter.version,
+        checksum: parameter.checksum,
+        biomassKg: parameter.biomassKg,
+        fcr: parameter.fcr,
+        targetDailyFeedKg: parameter.targetDailyFeedKg,
+        schedule: parameter.schedule,
+        thresholds: parameter.thresholds,
+        vfdSettings: parameter.vfdSettings,
+      });
+
+      // Write parameter data to the designated OPC UA node
+      await this.opcUaAdapter.writeData(
+        handle,
+        connection.parametersNodeId,
+        parameterPayload,
+        'String',
+      );
+
+      this.logger.log(
+        `Parameter ${id} successfully written to node ${connection.parametersNodeId}`,
+      );
 
       // Update status to SENT
       parameter.status = ParameterStatus.SENT;
@@ -283,8 +333,12 @@ export class FeedingParameterService {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to send parameter ${id} to PLC: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
+      );
 
-      // Update status to ERROR
+      // Update status to ERROR with diagnostic info
       parameter.status = ParameterStatus.ERROR;
       parameter.errorMessage = errorMessage;
       await this.feedingParameterRepository.save(parameter);
@@ -294,6 +348,18 @@ export class FeedingParameterService {
         error: errorMessage,
         sentAt: new Date(),
       };
+    } finally {
+      // Always disconnect, even on error
+      if (handle) {
+        try {
+          await this.opcUaAdapter.disconnect(handle);
+        } catch (disconnectError) {
+          this.logger.warn(
+            `Failed to disconnect OPC UA session after sending parameter ${id}`,
+            disconnectError instanceof Error ? disconnectError.message : disconnectError,
+          );
+        }
+      }
     }
   }
 
@@ -497,17 +563,4 @@ export class FeedingParameterService {
     return `${parts[0]}.${minor}`;
   }
 
-  /**
-   * Simulate sending parameters to PLC (placeholder for actual OPC UA implementation)
-   */
-  private async simulateSendToPlc(_parameter: FeedingParameter): Promise<void> {
-    // Simulate network latency
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    // In production, this would:
-    // 1. Serialize parameter data
-    // 2. Connect to PLC via OPC UA
-    // 3. Write to designated parameter node
-    // 4. Verify write success
-  }
 }

@@ -20,6 +20,8 @@ import {
   PlcPaginationDto,
   PlcConnectionTestResultDto,
 } from '../dto';
+import { OpcUaAdapter } from '../../protocol/adapters/industrial/opcua.adapter';
+import { buildOpcUaConfig } from './opcua-config.builder';
 
 /**
  * Result interface for paginated PLC connections
@@ -51,6 +53,7 @@ export class PlcConnectionService {
   constructor(
     @InjectRepository(PlcConnection)
     private readonly plcConnectionRepository: Repository<PlcConnection>,
+    private readonly opcUaAdapter: OpcUaAdapter,
   ) {}
 
   /**
@@ -66,7 +69,13 @@ export class PlcConnectionService {
     this.validateEndpointUrl(input.endpointUrl);
 
     // Validate authentication configuration
-    this.validateAuthConfiguration(input.authMode, input.username, input.password);
+    this.validateAuthConfiguration(
+      input.authMode,
+      input.username,
+      input.password,
+      input.clientCertificate,
+      input.clientPrivateKey,
+    );
 
     const connection = this.plcConnectionRepository.create({
       ...input,
@@ -141,8 +150,9 @@ export class PlcConnectionService {
       );
     }
 
-    // Apply sorting
-    const sortBy = pagination?.sortBy || 'createdAt';
+    // Apply sorting — whitelist allowed columns to prevent SQL injection
+    const allowedSortColumns = ['name', 'status', 'endpointUrl', 'createdAt', 'updatedAt', 'lastConnectedAt'];
+    const sortBy = allowedSortColumns.includes(pagination?.sortBy || '') ? pagination!.sortBy! : 'createdAt';
     const sortOrder = pagination?.sortOrder || 'DESC';
     queryBuilder.orderBy(`plc.${sortBy}`, sortOrder);
 
@@ -182,6 +192,8 @@ export class PlcConnectionService {
         input.authMode,
         input.username || connection.username,
         input.password || connection.password,
+        input.clientCertificate || connection.clientCertificate,
+        input.clientPrivateKey || connection.clientPrivateKey,
       );
     }
 
@@ -271,8 +283,7 @@ export class PlcConnectionService {
   }
 
   /**
-   * Test connection to PLC
-   * Note: Actual OPC UA connection testing would be implemented here
+   * Test connection to PLC using real OPC UA adapter
    */
   async testConnection(
     id: string,
@@ -284,36 +295,111 @@ export class PlcConnectionService {
     this.logger.log(`Testing connection to PLC: ${connection.name} (${connection.endpointUrl})`);
 
     try {
-      // TODO: Implement actual OPC UA connection test
-      // For now, return a simulated result
-      // In production, this would use node-opcua to connect and verify
-
-      // Simulate connection test
-      await this.simulateConnectionTest(connection);
-
+      const config = buildOpcUaConfig(connection);
+      const result = await this.opcUaAdapter.testConnection(config as unknown as Record<string, unknown>);
       const latencyMs = Date.now() - startTime;
 
-      // Update connection status on successful test
-      await this.updateStatus(id, tenantId, PlcConnectionStatus.ONLINE);
+      if (result.success) {
+        await this.updateStatus(id, tenantId, PlcConnectionStatus.ONLINE);
 
-      return {
-        success: true,
-        latencyMs,
-        serverInfo: `OPC UA Server at ${connection.endpointUrl}`,
-        testedAt: new Date(),
-      };
+        const serverInfo = result.diagnostics
+          ? JSON.stringify(result.diagnostics)
+          : `OPC UA Server at ${connection.endpointUrl}`;
+
+        return {
+          success: true,
+          latencyMs: result.latencyMs || latencyMs,
+          serverInfo,
+          testedAt: new Date(),
+        };
+      } else {
+        await this.updateStatus(id, tenantId, PlcConnectionStatus.ERROR, result.error);
+
+        return {
+          success: false,
+          latencyMs: result.latencyMs || latencyMs,
+          error: result.error || 'Connection test failed',
+          errorCode: 'CONNECTION_FAILED',
+          testedAt: new Date(),
+        };
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-      // Update connection status on failed test
       await this.updateStatus(id, tenantId, PlcConnectionStatus.ERROR, errorMessage);
 
       return {
         success: false,
+        latencyMs: Date.now() - startTime,
         error: errorMessage,
-        errorCode: 'CONNECTION_FAILED',
+        errorCode: 'CONNECTION_ERROR',
         testedAt: new Date(),
       };
+    }
+  }
+
+  /**
+   * Discover available endpoints on an OPC UA server
+   */
+  async discoverEndpoints(endpointUrl: string): Promise<{
+    endpointUrl: string;
+    securityMode: string;
+    securityPolicy: string;
+    securityLevel: number;
+    serverCertificate?: string;
+    transportProfileUri?: string;
+  }[]> {
+    this.logger.log(`Discovering endpoints at: ${endpointUrl}`);
+    this.validateEndpointUrl(endpointUrl);
+
+    try {
+      return await this.opcUaAdapter.discoverEndpoints(endpointUrl);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Endpoint discovery failed for ${endpointUrl}: ${msg}`);
+      throw new BadRequestException(`Failed to discover endpoints: ${msg}`);
+    }
+  }
+
+  /**
+   * Browse OPC UA server address space
+   */
+  async browseNodes(
+    id: string,
+    tenantId: string,
+    parentNodeId?: string,
+  ): Promise<{
+    nodeId: string;
+    browseName: string;
+    displayName: string;
+    nodeClass: string;
+    dataType?: string;
+    hasChildren: boolean;
+    description?: string;
+    value?: string;
+  }[]> {
+    const connection = await this.findById(id, tenantId);
+
+    if (connection.status !== PlcConnectionStatus.ONLINE) {
+      throw new BadRequestException('PLC connection must be online to browse nodes');
+    }
+
+    this.logger.log(`Browsing nodes on ${connection.name}, parent: ${parentNodeId || 'RootFolder'}`);
+
+    const config = buildOpcUaConfig(connection);
+    let handle;
+
+    try {
+      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      const results = await this.opcUaAdapter.browseNodes(handle, parentNodeId);
+      return results;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Node browsing failed: ${msg}`);
+      throw new BadRequestException(`Failed to browse nodes: ${msg}`);
+    } finally {
+      if (handle) {
+        try { await this.opcUaAdapter.disconnect(handle); } catch { /* ignore */ }
+      }
     }
   }
 
@@ -394,6 +480,8 @@ export class PlcConnectionService {
     authMode?: PlcAuthMode,
     username?: string,
     password?: string,
+    clientCertificate?: string,
+    clientPrivateKey?: string,
   ): void {
     if (authMode === PlcAuthMode.USERNAME) {
       if (!username || !password) {
@@ -402,24 +490,120 @@ export class PlcConnectionService {
         );
       }
     }
+    if (authMode === PlcAuthMode.CERTIFICATE) {
+      if (!clientCertificate || !clientPrivateKey) {
+        throw new BadRequestException(
+          'Client certificate and private key are required for Certificate authentication mode',
+        );
+      }
+    }
+  }
+
+  // ==================== Advanced OPC UA Operations ====================
+
+  /**
+   * Read historical data from OPC UA server (HDA)
+   */
+  async readHistoricalData(
+    id: string,
+    tenantId: string,
+    nodeId: string,
+    startTime: Date,
+    endTime: Date,
+    maxValues?: number,
+  ): Promise<{ timestamp: Date; value: unknown }[]> {
+    const connection = await this.findById(id, tenantId);
+
+    if (connection.status !== PlcConnectionStatus.ONLINE) {
+      throw new BadRequestException('PLC connection must be online to read historical data');
+    }
+
+    this.logger.log(`Reading historical data from ${connection.name}, node: ${nodeId}`);
+
+    const config = buildOpcUaConfig(connection);
+    let handle;
+
+    try {
+      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      return await this.opcUaAdapter.readHistoricalData(handle, nodeId, startTime, endTime, maxValues);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Historical data read failed: ${msg}`);
+      throw new BadRequestException(`Failed to read historical data: ${msg}`);
+    } finally {
+      if (handle) {
+        try { await this.opcUaAdapter.disconnect(handle); } catch { /* ignore */ }
+      }
+    }
   }
 
   /**
-   * Simulate connection test (placeholder for actual OPC UA implementation)
+   * Call a method on OPC UA server
    */
-  private async simulateConnectionTest(connection: PlcConnection): Promise<void> {
-    // Simulate network latency
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  async callMethod(
+    id: string,
+    tenantId: string,
+    objectId: string,
+    methodId: string,
+    inputArguments?: { dataType: string; value: unknown }[],
+  ): Promise<{ statusCode: number; outputArguments: unknown[] }> {
+    const connection = await this.findById(id, tenantId);
 
-    // Validate URL is reachable (basic check)
-    if (!connection.endpointUrl.includes('://')) {
-      throw new Error('Invalid endpoint URL format');
+    if (connection.status !== PlcConnectionStatus.ONLINE) {
+      throw new BadRequestException('PLC connection must be online to call methods');
     }
 
-    // In production, this would:
-    // 1. Create OPC UA client
-    // 2. Connect to endpoint
-    // 3. Browse server namespace
-    // 4. Disconnect
+    this.logger.log(`Calling method ${methodId} on ${connection.name}`);
+
+    const config = buildOpcUaConfig(connection);
+    let handle;
+
+    try {
+      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      return await this.opcUaAdapter.callMethod(handle, objectId, methodId, inputArguments);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Method call failed: ${msg}`);
+      throw new BadRequestException(`Failed to call method: ${msg}`);
+    } finally {
+      if (handle) {
+        try { await this.opcUaAdapter.disconnect(handle); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  /**
+   * Write a value to an OPC UA node
+   */
+  async writeNodeValue(
+    id: string,
+    tenantId: string,
+    nodeId: string,
+    value: unknown,
+    dataType?: string,
+  ): Promise<void> {
+    const connection = await this.findById(id, tenantId);
+
+    if (connection.status !== PlcConnectionStatus.ONLINE) {
+      throw new BadRequestException('PLC connection must be online to write values');
+    }
+
+    this.logger.log(`Writing value to node ${nodeId} on ${connection.name}`);
+
+    const config = buildOpcUaConfig(connection);
+    let handle;
+
+    try {
+      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      await this.opcUaAdapter.writeData(handle, nodeId, value, dataType);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Write failed: ${msg}`);
+      throw new BadRequestException(`Failed to write to node: ${msg}`);
+    } finally {
+      if (handle) {
+        try { await this.opcUaAdapter.disconnect(handle); } catch { /* ignore */ }
+      }
+    }
   }
 }

@@ -14,6 +14,14 @@ export {
   PaginatedPlcConnectionsDto,
   PlcConnectionCountByStatusDto,
   PlcConnectionTestResultDto,
+  DiscoveredEndpointDto,
+  NodeBrowseResultDto,
+  HistoricalDataPointDto,
+  ReadHistoricalDataInputDto,
+  MethodArgumentInputDto,
+  CallMethodInputDto,
+  MethodCallResultDto,
+  WriteNodeInputDto,
 } from './plc-connection.dto';
 
 // Feeding Parameter DTOs

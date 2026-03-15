@@ -32,6 +32,14 @@ const PLC_CONNECTION_FIELDS = `
   createdAt
   updatedAt
   activeAlarmCount
+  connectTimeoutMs
+  requestTimeoutMs
+  autoReconnect
+  maxReconnectAttempts
+  reconnectDelayMs
+  maxReconnectDelayMs
+  keepAliveIntervalMs
+  failoverEndpointUrl
 `;
 
 const PLC_CONNECTION_WITH_TELEMETRY = `
@@ -194,6 +202,34 @@ export const DEACTIVATE_PLC_CONNECTION_MUTATION = `
   mutation DeactivatePlcConnection($id: ID!) {
     deactivatePlcConnection(id: $id) {
       ${PLC_CONNECTION_FIELDS}
+    }
+  }
+`;
+
+export const DISCOVER_OPCUA_ENDPOINTS_QUERY = `
+  query DiscoverOpcUaEndpoints($endpointUrl: String!) {
+    discoverOpcUaEndpoints(endpointUrl: $endpointUrl) {
+      endpointUrl
+      securityMode
+      securityPolicy
+      securityLevel
+      serverCertificate
+      transportProfileUri
+    }
+  }
+`;
+
+export const BROWSE_OPCUA_NODES_QUERY = `
+  query BrowseOpcUaNodes($plcConnectionId: ID!, $parentNodeId: String) {
+    browseOpcUaNodes(plcConnectionId: $plcConnectionId, parentNodeId: $parentNodeId) {
+      nodeId
+      browseName
+      displayName
+      nodeClass
+      dataType
+      hasChildren
+      description
+      value
     }
   }
 `;

@@ -72,6 +72,7 @@ import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
 import { CreateDynamicSensorTypes1740200000000 } from './database/migrations/1740200000000-CreateDynamicSensorTypes';
 import { CreateProcessesTable1740300000000 } from './database/migrations/1740300000000-CreateProcessesTable';
 import { CreateAutomationTables1740300001000 } from './database/migrations/1740300001000-CreateAutomationTables';
+import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrations/1741100000000-AddEnterprisePlcConnectionFields';
 
 @Module({
   imports: [
@@ -140,6 +141,7 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
           CreateDynamicSensorTypes1740200000000,
           CreateProcessesTable1740300000000,
           CreateAutomationTables1740300001000,
+          AddEnterprisePlcConnectionFields1741100000000,
         ],
         // When sync is on (initial deploy), skip migrations to avoid index conflicts.
         // When sync is off (production), run migrations for structural changes.

@@ -15,6 +15,9 @@ import {
   PlcTelemetryService,
 } from './services';
 
+// Protocol Adapters
+import { OpcUaAdapter } from '../protocol/adapters/industrial/opcua.adapter';
+
 // Resolvers
 import {
   PlcControlResolver,
@@ -59,6 +62,9 @@ import {
     PlcAlarmService,
     PlcTelemetryService,
 
+    // Protocol Adapters
+    OpcUaAdapter,
+
     // Resolvers
     PlcControlResolver,
     PlcConnectionResolver,
@@ -70,6 +76,7 @@ import {
     FeedingParameterService,
     PlcAlarmService,
     PlcTelemetryService,
+    OpcUaAdapter,
   ],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class

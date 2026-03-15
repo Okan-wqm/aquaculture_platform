@@ -18,18 +18,41 @@ import {
   ErrorCallback,
 } from '../base-protocol.adapter';
 
+export interface DiscoveredEndpoint {
+  endpointUrl: string;
+  securityMode: string;
+  securityPolicy: string;
+  securityLevel: number;
+  serverCertificate?: string;
+  transportProfileUri?: string;
+}
+
+export interface NodeBrowseResult {
+  nodeId: string;
+  browseName: string;
+  displayName: string;
+  nodeClass: string;
+  dataType?: string;
+  hasChildren: boolean;
+  description?: string;
+  value?: string;
+}
+
 export interface OpcUaConfiguration {
   sensorId?: string;
   tenantId?: string;
   endpointUrl: string;
   securityMode: 'None' | 'Sign' | 'SignAndEncrypt';
-  securityPolicy: 'None' | 'Basic256Sha256' | 'Aes128_Sha256_RsaOaep';
+  securityPolicy: 'None' | 'Basic256Sha256' | 'Aes128_Sha256_RsaOaep' | 'Aes256_Sha256_RsPss';
   authMode: 'Anonymous' | 'Username' | 'Certificate';
   username?: string;
   password?: string;
   clientCertPath?: string;
   clientKeyPath?: string;
   serverCertPath?: string;
+  clientCertificate?: string;  // PEM string
+  clientPrivateKey?: string;   // PEM string
+  serverCertificate?: string;  // PEM string
   sessionTimeout: number;
   publishingInterval: number;
   samplingInterval: number;
@@ -37,6 +60,14 @@ export interface OpcUaConfiguration {
   // Advanced
   requestedSessionTimeout: number;
   secureChannelLifetime: number;
+  connectTimeoutMs?: number;
+  requestTimeoutMs?: number;
+  autoReconnect?: boolean;
+  maxReconnectAttempts?: number;
+  reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
+  keepAliveIntervalMs?: number;
+  failoverEndpointUrl?: string;
 }
 
 interface OpcUaSessionData {
@@ -64,6 +95,8 @@ interface OpcUaUserIdentity {
   type: number;
   userName?: string;
   password?: string;
+  certificateData?: Buffer;
+  privateKey?: Buffer;
 }
 
 interface OpcUaMonitoredItem {
@@ -111,6 +144,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       'None': SecurityPolicy.None,
       'Basic256Sha256': SecurityPolicy.Basic256Sha256,
       'Aes128_Sha256_RsaOaep': SecurityPolicy.Aes128_Sha256_RsaOaep,
+      'Aes256_Sha256_RsPss': SecurityPolicy.Aes256_Sha256_RsaPss,
     } as const;
 
     const client = OPCUAClient.create({
@@ -118,6 +152,17 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       securityMode: securityModeMap[opcConfig.securityMode] ?? MessageSecurityMode.None,
       securityPolicy: securityPolicyMap[opcConfig.securityPolicy] ?? SecurityPolicy.None,
       requestedSessionTimeout: opcConfig.requestedSessionTimeout || 60000,
+      connectionStrategy: {
+        maxRetry: opcConfig.maxReconnectAttempts ?? -1,
+        initialDelay: opcConfig.reconnectDelayMs ?? 1000,
+        maxDelay: opcConfig.maxReconnectDelayMs ?? 30000,
+      },
+      keepAliveInterval: opcConfig.keepAliveIntervalMs ?? 5000,
+      ...(opcConfig.clientCertificate ? {
+        certificateFile: undefined,
+        certificatePEM: opcConfig.clientCertificate,
+        privateKeyPEM: opcConfig.clientPrivateKey,
+      } : {}),
     } as Parameters<typeof OPCUAClient.create>[0]) as unknown as OpcUaClient;
 
     await client.connect(opcConfig.endpointUrl);
@@ -128,6 +173,12 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
         type: UserTokenType.UserName as number,
         userName: opcConfig.username,
         password: opcConfig.password,
+      };
+    } else if (opcConfig.authMode === 'Certificate' && opcConfig.clientCertificate) {
+      userIdentity = {
+        type: UserTokenType.Certificate as number,
+        certificateData: Buffer.from(opcConfig.clientCertificate, 'utf-8'),
+        privateKey: Buffer.from(opcConfig.clientPrivateKey || '', 'utf-8'),
       };
     }
 
@@ -273,6 +324,187 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     };
   }
 
+  async discoverEndpoints(endpointUrl: string): Promise<DiscoveredEndpoint[]> {
+    const { OPCUAClient } = await import('node-opcua');
+
+    const client = OPCUAClient.create({
+      endpointMustExist: false,
+    } as Parameters<typeof OPCUAClient.create>[0]) as unknown as OpcUaClient;
+
+    try {
+      await (client as any).connect(endpointUrl);
+      const endpoints = await (client as any).getEndpoints();
+
+      return (endpoints || []).map((ep: any) => ({
+        endpointUrl: ep.endpointUrl || endpointUrl,
+        securityMode: this.reverseSecurityMode(ep.securityMode),
+        securityPolicy: this.reverseSecurityPolicy(ep.securityPolicyUri),
+        securityLevel: ep.securityLevel || 0,
+        serverCertificate: ep.serverCertificate ? Buffer.from(ep.serverCertificate).toString('base64') : undefined,
+        transportProfileUri: ep.transportProfileUri,
+      }));
+    } finally {
+      try { await (client as any).disconnect(); } catch { /* ignore */ }
+    }
+  }
+
+  async browseNodes(handle: ConnectionHandle, parentNodeId?: string): Promise<NodeBrowseResult[]> {
+    const sessionData = this.sessions.get(handle.id);
+    if (!sessionData) throw new Error('Session not found');
+
+    const { ReferenceTypeIds, NodeClass } = await import('node-opcua');
+    const session = sessionData.session as any;
+
+    const nodeId = parentNodeId || 'RootFolder';
+    const browseResult = await session.browse({
+      nodeId,
+      referenceTypeId: ReferenceTypeIds.HierarchicalReferences,
+      includeSubtypes: true,
+      resultMask: 63, // all fields
+    });
+
+    const results: NodeBrowseResult[] = [];
+    for (const ref of (browseResult.references || [])) {
+      const nodeClassStr = this.nodeClassToString(ref.nodeClass);
+      let dataType: string | undefined;
+      let value: string | undefined;
+
+      // Read data type for Variable nodes
+      if (ref.nodeClass === NodeClass.Variable) {
+        try {
+          const dv = await session.read({ nodeId: ref.nodeId.toString() });
+          value = dv.value?.value !== undefined ? String(dv.value.value) : undefined;
+          dataType = dv.value?.dataType?.toString();
+        } catch { /* ignore read errors */ }
+      }
+
+      results.push({
+        nodeId: ref.nodeId.toString(),
+        browseName: ref.browseName.toString(),
+        displayName: ref.displayName?.text || ref.browseName.toString(),
+        nodeClass: nodeClassStr,
+        dataType,
+        hasChildren: ref.nodeClass === NodeClass.Object || ref.nodeClass === 1,
+        description: ref.description?.text,
+        value,
+      });
+    }
+
+    return results;
+  }
+
+  async writeData(handle: ConnectionHandle, nodeId: string, value: unknown, dataType?: string): Promise<void> {
+    const sessionData = this.sessions.get(handle.id);
+    if (!sessionData) throw new Error('Session not found');
+
+    const { DataType, Variant } = await import('node-opcua');
+    const session = sessionData.session as any;
+
+    const dataTypeEnum = dataType ? (DataType as any)[dataType] : DataType.Float;
+
+    const statusCode = await session.write({
+      nodeId,
+      attributeId: 13, // AttributeIds.Value
+      value: {
+        value: new Variant({ dataType: dataTypeEnum, value }),
+      },
+    });
+
+    if (statusCode && statusCode.value !== 0) {
+      throw new Error(`Write failed with status: ${statusCode.toString()}`);
+    }
+  }
+
+  async readHistoricalData(
+    handle: ConnectionHandle,
+    nodeId: string,
+    startTime: Date,
+    endTime: Date,
+    maxValues?: number
+  ): Promise<{ timestamp: Date; value: unknown }[]> {
+    const sessionData = this.sessions.get(handle.id);
+    if (!sessionData) throw new Error('Session not found');
+
+    const { ReadRawModifiedDetails, HistoryReadRequest, TimestampsToReturn } = await import('node-opcua');
+    const session = sessionData.session as any;
+
+    const details = new ReadRawModifiedDetails({
+      startTime,
+      endTime,
+      numValuesPerNode: maxValues || 1000,
+      isReadModified: false,
+      returnBounds: false,
+    });
+
+    const result = await session.performMessageTransaction(
+      new HistoryReadRequest({
+        historyReadDetails: details,
+        timestampsToReturn: TimestampsToReturn.Both,
+        nodesToRead: [{ nodeId }],
+      })
+    );
+
+    const historyData = result?.results?.[0]?.historyData?.dataValues || [];
+    return historyData.map((dv: any) => ({
+      timestamp: dv.sourceTimestamp || dv.serverTimestamp || new Date(),
+      value: dv.value?.value,
+    }));
+  }
+
+  async callMethod(
+    handle: ConnectionHandle,
+    objectId: string,
+    methodId: string,
+    inputArguments?: { dataType: string; value: unknown }[]
+  ): Promise<{ statusCode: number; outputArguments: unknown[] }> {
+    const sessionData = this.sessions.get(handle.id);
+    if (!sessionData) throw new Error('Session not found');
+
+    const { DataType, Variant } = await import('node-opcua');
+    const session = sessionData.session as any;
+
+    const args = (inputArguments || []).map(arg => {
+      const dt = (DataType as any)[arg.dataType] || DataType.String;
+      return new Variant({ dataType: dt, value: arg.value });
+    });
+
+    const result = await session.call({
+      objectId,
+      methodId,
+      inputArguments: args,
+    });
+
+    return {
+      statusCode: result.statusCode?.value || 0,
+      outputArguments: (result.outputArguments || []).map((v: any) => v.value),
+    };
+  }
+
+  private reverseSecurityMode(mode: number): string {
+    switch (mode) {
+      case 1: return 'None';
+      case 2: return 'Sign';
+      case 3: return 'SignAndEncrypt';
+      default: return 'None';
+    }
+  }
+
+  private reverseSecurityPolicy(uri?: string): string {
+    if (!uri) return 'None';
+    if (uri.includes('Basic256Sha256')) return 'Basic256Sha256';
+    if (uri.includes('Aes128_Sha256_RsaOaep')) return 'Aes128_Sha256_RsaOaep';
+    if (uri.includes('Aes256_Sha256_RsPss')) return 'Aes256_Sha256_RsPss';
+    return 'None';
+  }
+
+  private nodeClassToString(nodeClass: number): string {
+    const map: Record<number, string> = {
+      1: 'Object', 2: 'Variable', 4: 'Method', 8: 'ObjectType',
+      16: 'VariableType', 32: 'ReferenceType', 64: 'DataType', 128: 'View',
+    };
+    return map[nodeClass] || 'Unknown';
+  }
+
   validateConfiguration(config: unknown): ValidationResult {
     const errors = [];
     const warnings = [];
@@ -324,7 +556,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
         securityPolicy: {
           type: 'string',
           title: 'Security Policy',
-          enum: ['None', 'Basic256Sha256', 'Aes128_Sha256_RsaOaep'],
+          enum: ['None', 'Basic256Sha256', 'Aes128_Sha256_RsaOaep', 'Aes256_Sha256_RsPss'],
           default: 'None',
           'ui:order': 3,
           'ui:group': 'security',
@@ -379,13 +611,97 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
           'ui:order': 10,
           'ui:group': 'advanced',
         },
+        clientCertificate: {
+          type: 'string',
+          title: 'Client Certificate (PEM)',
+          description: 'PEM-encoded client certificate for Certificate authentication',
+          'ui:widget': 'textarea',
+          'ui:order': 11,
+          'ui:group': 'certificates',
+        },
+        clientPrivateKey: {
+          type: 'string',
+          title: 'Client Private Key (PEM)',
+          description: 'PEM-encoded private key for Certificate authentication',
+          'ui:widget': 'textarea',
+          'ui:order': 12,
+          'ui:group': 'certificates',
+        },
+        serverCertificate: {
+          type: 'string',
+          title: 'Server Certificate (PEM)',
+          description: 'PEM-encoded server certificate for trust validation',
+          'ui:widget': 'textarea',
+          'ui:order': 13,
+          'ui:group': 'certificates',
+        },
+        connectTimeoutMs: {
+          type: 'integer',
+          title: 'Connect Timeout (ms)',
+          default: 10000,
+          'ui:order': 14,
+          'ui:group': 'reconnection',
+        },
+        requestTimeoutMs: {
+          type: 'integer',
+          title: 'Request Timeout (ms)',
+          default: 60000,
+          'ui:order': 15,
+          'ui:group': 'reconnection',
+        },
+        autoReconnect: {
+          type: 'boolean',
+          title: 'Auto Reconnect',
+          default: true,
+          'ui:order': 16,
+          'ui:group': 'reconnection',
+        },
+        maxReconnectAttempts: {
+          type: 'integer',
+          title: 'Max Reconnect Attempts',
+          description: '-1 for unlimited',
+          default: -1,
+          'ui:order': 17,
+          'ui:group': 'reconnection',
+        },
+        reconnectDelayMs: {
+          type: 'integer',
+          title: 'Reconnect Delay (ms)',
+          default: 1000,
+          'ui:order': 18,
+          'ui:group': 'reconnection',
+        },
+        maxReconnectDelayMs: {
+          type: 'integer',
+          title: 'Max Reconnect Delay (ms)',
+          default: 30000,
+          'ui:order': 19,
+          'ui:group': 'reconnection',
+        },
+        keepAliveIntervalMs: {
+          type: 'integer',
+          title: 'Keep Alive Interval (ms)',
+          default: 5000,
+          'ui:order': 20,
+          'ui:group': 'reconnection',
+        },
+        failoverEndpointUrl: {
+          type: 'string',
+          title: 'Failover Endpoint URL',
+          description: 'Secondary OPC UA server endpoint for failover',
+          'ui:placeholder': 'opc.tcp://backup-server:4840',
+          'ui:order': 21,
+          'ui:group': 'reconnection',
+        },
       },
       'ui:groups': [
         { name: 'connection', title: 'Connection', fields: ['endpointUrl'] },
         { name: 'security', title: 'Security', fields: ['securityMode', 'securityPolicy'] },
         { name: 'authentication', title: 'Authentication', fields: ['authMode', 'username', 'password'] },
+        { name: 'certificates', title: 'Certificates', fields: ['clientCertificate', 'clientPrivateKey', 'serverCertificate'] },
         { name: 'nodes', title: 'Nodes', fields: ['nodeIds'] },
         { name: 'advanced', title: 'Advanced', fields: ['sessionTimeout', 'publishingInterval', 'samplingInterval'] },
+        { name: 'reconnection', title: 'Reconnection', fields: ['connectTimeoutMs', 'requestTimeoutMs', 'autoReconnect', 'maxReconnectAttempts', 'reconnectDelayMs', 'maxReconnectDelayMs', 'keepAliveIntervalMs', 'failoverEndpointUrl'] },
       ],
     };
   }
@@ -411,6 +727,9 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
       supportsSubscription: true,
       supportsAuthentication: true,
       supportsEncryption: true,
+      supportsHistoricalData: true,
+      supportsMethodCall: true,
+      supportsWriting: true,
       supportedDataTypes: ['int16', 'int32', 'int64', 'uint16', 'uint32', 'uint64', 'float', 'double', 'boolean', 'string', 'datetime'],
     };
   }

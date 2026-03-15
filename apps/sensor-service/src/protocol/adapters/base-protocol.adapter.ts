@@ -228,6 +228,9 @@ export interface ProtocolCapabilities {
   supportsSubscription: boolean;
   supportsAuthentication: boolean;
   supportsEncryption: boolean;
+  supportsHistoricalData?: boolean;
+  supportsMethodCall?: boolean;
+  supportsWriting?: boolean;
   maxConnectionsPerInstance?: number;
   supportedDataTypes: string[];
   minimumPollingIntervalMs?: number;

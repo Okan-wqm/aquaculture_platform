@@ -11,6 +11,8 @@ import {
   Max,
   MaxLength,
   MinLength,
+  Matches,
+  IsIn,
 } from 'class-validator';
 
 import {
@@ -59,8 +61,7 @@ export class CreatePlcConnectionDto {
 
   @Field({ nullable: true })
   @IsOptional()
-  @IsString()
-  @MaxLength(255)
+  @IsIn(['None', 'Basic256Sha256', 'Aes128_Sha256_RsaOaep', 'Aes256_Sha256_RsPss'], { message: 'securityPolicy must be one of: None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsPss' })
   securityPolicy?: string;
 
   @Field(() => String, { nullable: true, defaultValue: PlcAuthMode.ANONYMOUS })
@@ -79,6 +80,80 @@ export class CreatePlcConnectionDto {
   @IsString()
   @MaxLength(255)
   password?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16384)
+  @Matches(/^-----BEGIN CERTIFICATE-----/, { message: 'clientCertificate must be PEM-encoded (BEGIN CERTIFICATE)' })
+  clientCertificate?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16384)
+  @Matches(/^-----BEGIN (RSA |EC |ENCRYPTED )?PRIVATE KEY-----/, { message: 'clientPrivateKey must be PEM-encoded (BEGIN PRIVATE KEY)' })
+  clientPrivateKey?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16384)
+  @Matches(/^-----BEGIN CERTIFICATE-----/, { message: 'serverCertificate must be PEM-encoded (BEGIN CERTIFICATE)' })
+  serverCertificate?: string;
+
+  @Field(() => Int, { nullable: true, defaultValue: 5000 })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(60000)
+  connectTimeoutMs?: number;
+
+  @Field(() => Int, { nullable: true, defaultValue: 60000 })
+  @IsOptional()
+  @IsInt()
+  @Min(5000)
+  @Max(300000)
+  requestTimeoutMs?: number;
+
+  @Field({ nullable: true, defaultValue: true })
+  @IsOptional()
+  autoReconnect?: boolean;
+
+  @Field(() => Int, { nullable: true, defaultValue: -1 })
+  @IsOptional()
+  @IsInt()
+  @Min(-1)
+  @Max(1000)
+  maxReconnectAttempts?: number;
+
+  @Field(() => Int, { nullable: true, defaultValue: 1000 })
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(60000)
+  reconnectDelayMs?: number;
+
+  @Field(() => Int, { nullable: true, defaultValue: 30000 })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(300000)
+  maxReconnectDelayMs?: number;
+
+  @Field(() => Int, { nullable: true, defaultValue: 5000 })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(60000)
+  keepAliveIntervalMs?: number;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^opc\.tcp:\/\//, { message: 'failoverEndpointUrl must start with opc.tcp://' })
+  failoverEndpointUrl?: string;
 
   @Field(() => Int, { nullable: true, defaultValue: 1000 })
   @IsOptional()
@@ -105,24 +180,28 @@ export class CreatePlcConnectionDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'parametersNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   parametersNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'telemetryNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   telemetryNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'alarmsNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   alarmsNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'statusNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   statusNodeId?: string;
 }
 
@@ -162,8 +241,7 @@ export class UpdatePlcConnectionDto {
 
   @Field({ nullable: true })
   @IsOptional()
-  @IsString()
-  @MaxLength(255)
+  @IsIn(['None', 'Basic256Sha256', 'Aes128_Sha256_RsaOaep', 'Aes256_Sha256_RsPss'], { message: 'securityPolicy must be one of: None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsPss' })
   securityPolicy?: string;
 
   @Field(() => String, { nullable: true })
@@ -182,6 +260,80 @@ export class UpdatePlcConnectionDto {
   @IsString()
   @MaxLength(255)
   password?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16384)
+  @Matches(/^-----BEGIN CERTIFICATE-----/, { message: 'clientCertificate must be PEM-encoded (BEGIN CERTIFICATE)' })
+  clientCertificate?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16384)
+  @Matches(/^-----BEGIN (RSA |EC |ENCRYPTED )?PRIVATE KEY-----/, { message: 'clientPrivateKey must be PEM-encoded (BEGIN PRIVATE KEY)' })
+  clientPrivateKey?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16384)
+  @Matches(/^-----BEGIN CERTIFICATE-----/, { message: 'serverCertificate must be PEM-encoded (BEGIN CERTIFICATE)' })
+  serverCertificate?: string;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(60000)
+  connectTimeoutMs?: number;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(5000)
+  @Max(300000)
+  requestTimeoutMs?: number;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  autoReconnect?: boolean;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(-1)
+  @Max(1000)
+  maxReconnectAttempts?: number;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(60000)
+  reconnectDelayMs?: number;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(300000)
+  maxReconnectDelayMs?: number;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(60000)
+  keepAliveIntervalMs?: number;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^opc\.tcp:\/\//, { message: 'failoverEndpointUrl must start with opc.tcp://' })
+  failoverEndpointUrl?: string;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -208,24 +360,28 @@ export class UpdatePlcConnectionDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'parametersNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   parametersNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'telemetryNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   telemetryNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'alarmsNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   alarmsNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'statusNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   statusNodeId?: string;
 
   @Field({ nullable: true })
@@ -285,6 +441,7 @@ export class PlcPaginationDto {
   @Field({ nullable: true, defaultValue: 'createdAt' })
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   sortBy?: string;
 
   @Field({ nullable: true, defaultValue: 'DESC' })
@@ -351,4 +508,162 @@ export class PlcConnectionTestResultDto {
 
   @Field()
   testedAt!: Date;
+}
+
+/**
+ * Discovered OPC UA endpoint from server
+ */
+@ObjectType('DiscoveredOpcUaEndpoint')
+export class DiscoveredEndpointDto {
+  @Field()
+  endpointUrl!: string;
+
+  @Field()
+  securityMode!: string;
+
+  @Field()
+  securityPolicy!: string;
+
+  @Field(() => Int)
+  securityLevel!: number;
+
+  @Field({ nullable: true })
+  serverCertificate?: string;
+
+  @Field({ nullable: true })
+  transportProfileUri?: string;
+}
+
+/**
+ * Node browse result from OPC UA server
+ */
+@ObjectType('OpcUaNodeBrowseResult')
+export class NodeBrowseResultDto {
+  @Field()
+  nodeId!: string;
+
+  @Field()
+  browseName!: string;
+
+  @Field()
+  displayName!: string;
+
+  @Field()
+  nodeClass!: string;
+
+  @Field({ nullable: true })
+  dataType?: string;
+
+  @Field()
+  hasChildren!: boolean;
+
+  @Field({ nullable: true })
+  description?: string;
+
+  @Field({ nullable: true })
+  value?: string;
+}
+
+/**
+ * Historical data point
+ */
+@ObjectType('OpcUaHistoricalDataPoint')
+export class HistoricalDataPointDto {
+  @Field()
+  timestamp!: Date;
+
+  @Field({ nullable: true })
+  value?: string; // JSON serialized value
+}
+
+/**
+ * Input for reading historical data
+ */
+@InputType('ReadHistoricalDataInput')
+export class ReadHistoricalDataInputDto {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  nodeId!: string;
+
+  @Field()
+  startTime!: Date;
+
+  @Field()
+  endTime!: Date;
+
+  @Field(() => Int, { nullable: true, defaultValue: 1000 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  maxValues?: number;
+}
+
+/**
+ * Method argument input
+ */
+@InputType('OpcUaMethodArgumentInput')
+export class MethodArgumentInputDto {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  dataType!: string;
+
+  @Field()
+  @IsString()
+  value!: string; // JSON serialized value
+}
+
+/**
+ * Method call input
+ */
+@InputType('OpcUaCallMethodInput')
+export class CallMethodInputDto {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  objectId!: string;
+
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  methodId!: string;
+
+  @Field(() => [MethodArgumentInputDto], { nullable: true })
+  @IsOptional()
+  inputArguments?: MethodArgumentInputDto[];
+}
+
+/**
+ * Method call result
+ */
+@ObjectType('OpcUaMethodCallResult')
+export class MethodCallResultDto {
+  @Field(() => Int)
+  statusCode!: number;
+
+  @Field(() => [String])
+  outputArguments!: string[];
+}
+
+/**
+ * Write node value input
+ */
+@InputType('WriteOpcUaNodeInput')
+export class WriteNodeInputDto {
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  nodeId!: string;
+
+  @Field()
+  @IsString()
+  @IsNotEmpty()
+  value!: string; // JSON serialized
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  dataType?: string;
 }

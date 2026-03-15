@@ -217,14 +217,16 @@ export class SystemMetricsService {
 
     // Add checks for other services (would use HTTP calls in real implementation)
     const serviceEndpoints = [
-      { name: 'auth-service', url: 'http://aqua-auth:4001/health/live' },
+      { name: 'auth-service', url: 'http://aqua-auth:3000/health/live' },
       { name: 'gateway-api', url: 'http://aqua-gateway:3000/health/live' },
-      { name: 'farm-service', url: 'http://aqua-farm:4002/health/live' },
-      { name: 'sensor-service', url: 'http://aqua-sensor:4003/health/live' },
-      { name: 'alert-engine', url: 'http://aqua-alert:4004/health/live' },
-      { name: 'notification-service', url: 'http://aqua-notification:4007/health/live' },
-      { name: 'billing-service', url: 'http://aqua-billing:4005/health/live' },
+      { name: 'farm-service', url: 'http://aqua-farm:3000/health/live' },
+      { name: 'sensor-service', url: 'http://aqua-sensor:3000/health/live' },
+      { name: 'alert-engine', url: 'http://aqua-alert:3000/health/live' },
+      { name: 'notification-service', url: 'http://aqua-notification:3000/health/live' },
+      { name: 'billing-service', url: 'http://aqua-billing:3000/health/live' },
       { name: 'config-service', url: 'http://aqua-config:3000/health/live' },
+      { name: 'hr-service', url: 'http://aqua-hr:3000/health/live' },
+      { name: 'hydroponics-service', url: 'http://aqua-hydroponics:3000/health/live' },
     ];
 
     // C-3 fix: Report status as 'degraded' with a note instead of falsely claiming 'healthy'.

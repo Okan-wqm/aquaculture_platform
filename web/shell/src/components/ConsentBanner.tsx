@@ -41,11 +41,13 @@ const ConsentBanner: React.FC = () => {
   }, [status]);
 
   // Determine if banner should show
+  // If consent queries fail (e.g. resolver not reachable), don't block the user
   const shouldShow =
     isAuthenticated &&
     !dismissed &&
     !isOutdatedLoading &&
     !isStatusLoading &&
+    !statusError &&
     (isOutdated || (status && status.consents.length === 0));
 
   const handleAcceptAll = useCallback(async () => {
@@ -63,10 +65,10 @@ const ConsentBanner: React.FC = () => {
       await recordBulkConsent(
         allConsentTypes.map((ct) => ({ consentType: ct, granted: true })),
       );
-      setDismissed(true);
     } catch {
-      // Error is handled by the mutation's error state
+      // Don't block the user if consent recording fails
     }
+    setDismissed(true);
   }, [recordBulkConsent]);
 
   const handleSavePreferences = useCallback(async () => {
@@ -85,10 +87,10 @@ const ConsentBanner: React.FC = () => {
 
     try {
       await recordBulkConsent(consents);
-      setDismissed(true);
     } catch {
-      // Error is handled by the mutation's error state
+      // Don't block the user if consent recording fails
     }
+    setDismissed(true);
   }, [localConsents, recordBulkConsent]);
 
   const handleEssentialOnly = useCallback(async () => {
@@ -109,10 +111,10 @@ const ConsentBanner: React.FC = () => {
           granted: ct === 'essential',
         })),
       );
-      setDismissed(true);
     } catch {
-      // Error is handled by the mutation's error state
+      // Don't block the user if consent recording fails
     }
+    setDismissed(true);
   }, [recordBulkConsent]);
 
   const handleToggleConsent = useCallback((consentType: ConsentType) => {

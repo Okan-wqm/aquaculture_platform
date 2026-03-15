@@ -154,6 +154,7 @@ export function useConsent() {
       return data.myConsentStatus;
     },
     staleTime: 2 * 60 * 1000, // 2 minutes
+    retry: 1, // Don't block UI with excessive retries
   });
 
   /**
@@ -168,6 +169,7 @@ export function useConsent() {
       return data.isConsentOutdated;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1, // Don't block UI with excessive retries
   });
 
   /**

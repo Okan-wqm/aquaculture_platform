@@ -129,7 +129,7 @@ export class User {
    * Defaults are applied at the application layer when null.
    */
   @HideField()
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, select: false })
   notificationPreferences?: {
     emailEnabled: boolean;
     smsEnabled: boolean;

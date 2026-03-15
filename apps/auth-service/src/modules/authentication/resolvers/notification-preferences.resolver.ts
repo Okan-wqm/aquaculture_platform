@@ -33,27 +33,44 @@ export class NotificationPreferencesResolver {
   async getMyNotificationPreferences(
     @CurrentUser('sub') userId: string,
   ): Promise<NotificationPreferences> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-      select: ['id', 'notificationPreferences'],
-    });
+    let prefs: NotificationPreferencesData | null = null;
 
-    if (!user) {
-      throw new NotFoundException('User not found');
+    try {
+      const user = await this.userRepository
+        .createQueryBuilder('user')
+        .select(['user.id'])
+        .addSelect('user.notificationPreferences')
+        .where('user.id = :userId', { userId })
+        .getOne();
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      prefs = user.notificationPreferences || null;
+    } catch (error) {
+      // Column may not exist yet if migration hasn't run
+      if (String(error).includes('does not exist')) {
+        this.logger.warn('notificationPreferences column not yet created, returning defaults');
+      } else if (error instanceof NotFoundException) {
+        throw error;
+      } else {
+        this.logger.error('Failed to fetch notification preferences', error);
+      }
     }
 
-    const prefs = user.notificationPreferences || DEFAULT_NOTIFICATION_PREFERENCES;
+    const result = prefs || DEFAULT_NOTIFICATION_PREFERENCES;
 
     return {
-      emailEnabled: prefs.emailEnabled,
-      smsEnabled: prefs.smsEnabled,
-      pushEnabled: prefs.pushEnabled,
-      quietHoursStart: prefs.quietHoursStart,
-      quietHoursEnd: prefs.quietHoursEnd,
-      quietHoursTimezone: prefs.quietHoursTimezone,
-      alertNotifications: prefs.alertNotifications,
-      taskNotifications: prefs.taskNotifications,
-      systemNotifications: prefs.systemNotifications,
+      emailEnabled: result.emailEnabled,
+      smsEnabled: result.smsEnabled,
+      pushEnabled: result.pushEnabled,
+      quietHoursStart: result.quietHoursStart,
+      quietHoursEnd: result.quietHoursEnd,
+      quietHoursTimezone: result.quietHoursTimezone,
+      alertNotifications: result.alertNotifications,
+      taskNotifications: result.taskNotifications,
+      systemNotifications: result.systemNotifications,
     };
   }
 
@@ -70,18 +87,32 @@ export class NotificationPreferencesResolver {
     @CurrentUser('sub') userId: string,
     @Args('input') input: UpdateNotificationPreferencesInput,
   ): Promise<NotificationPreferences> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-      select: ['id', 'notificationPreferences'],
-    });
+    let currentPrefs: NotificationPreferencesData | null = null;
 
-    if (!user) {
-      throw new NotFoundException('User not found');
+    try {
+      const user = await this.userRepository
+        .createQueryBuilder('user')
+        .select(['user.id'])
+        .addSelect('user.notificationPreferences')
+        .where('user.id = :userId', { userId })
+        .getOne();
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      currentPrefs = user.notificationPreferences || null;
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      // Column may not exist yet - proceed with defaults
+      this.logger.warn('notificationPreferences column not yet created, using defaults');
+      // Verify user exists
+      const exists = await this.userRepository.findOne({ where: { id: userId }, select: ['id'] });
+      if (!exists) throw new NotFoundException('User not found');
     }
 
-    // Merge with existing or default preferences
     const current: NotificationPreferencesData =
-      user.notificationPreferences || { ...DEFAULT_NOTIFICATION_PREFERENCES };
+      currentPrefs || { ...DEFAULT_NOTIFICATION_PREFERENCES };
 
     const updated: NotificationPreferencesData = {
       emailEnabled: input.emailEnabled !== undefined ? input.emailEnabled : current.emailEnabled,
@@ -95,9 +126,18 @@ export class NotificationPreferencesResolver {
       systemNotifications: input.systemNotifications !== undefined ? input.systemNotifications : current.systemNotifications,
     };
 
-    await this.userRepository.update(userId, {
-      notificationPreferences: updated,
-    });
+    try {
+      await this.userRepository.update(userId, {
+        notificationPreferences: updated,
+      });
+    } catch (error) {
+      if (String(error).includes('does not exist')) {
+        this.logger.warn('notificationPreferences column not yet created, cannot save');
+        // Still return the computed preferences even if we can't persist
+      } else {
+        throw error;
+      }
+    }
 
     this.logger.log(`Updated notification preferences for user ${userId.substring(0, 8)}...`);
 

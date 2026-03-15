@@ -280,6 +280,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
       const meData = await fetchMe();
       if (meData) {
+        // Restore tenant ID from server response — critical when localStorage
+        // was cleared (e.g. after a failed token refresh called clearTokens())
+        if (meData.user.tenantId) {
+          setTenantId(meData.user.tenantId);
+        }
         dispatch({ type: 'AUTH_SUCCESS', payload: meData });
       } else {
         clearTokens();
@@ -479,6 +484,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   const refreshAuth = useCallback(async (): Promise<void> => {
     const meData = await fetchMe();
     if (meData) {
+      if (meData.user.tenantId) {
+        setTenantId(meData.user.tenantId);
+      }
       dispatch({ type: 'AUTH_SUCCESS', payload: meData });
     } else {
       dispatch({ type: 'AUTH_FAILURE', payload: 'Session refresh failed' });

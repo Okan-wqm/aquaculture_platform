@@ -90,7 +90,7 @@ function installAuthGlobal(): void {
   if (typeof window === 'undefined') return;
   if (authGlobalInstalled) return;
 
-  const authObj = Object.freeze({ getAccessToken });
+  const authObj = Object.freeze({ getAccessToken, getTenantId });
 
   try {
     Object.defineProperty(window, '__AQUACULTURE_AUTH__', {
@@ -231,6 +231,15 @@ export function setTenantId(id: string | null): void {
 export function getTenantId(): string | null {
   // Check memory first (set explicitly via setTenantId)
   if (tenantId) return tenantId;
+
+  // Module Federation fallback: check window global if module-level var is empty
+  if (typeof window !== 'undefined') {
+    const authGlobal = (window as any).__AQUACULTURE_AUTH__;
+    if (authGlobal?.getTenantId && authGlobal.getTenantId !== getTenantId) {
+      const globalTenantId = authGlobal.getTenantId();
+      if (globalTenantId) return globalTenantId;
+    }
+  }
 
   // Fall back to localStorage — but do NOT cache to module-level var
   // so that tenant switches are always reflected without a page reload

@@ -400,16 +400,73 @@ export class PerformanceMonitoringService {
       this.logger.warn('Failed to get disk stats');
     }
 
+    // Container health checks
+    let containerCount = 0;
+    let healthyContainers = 0;
+    let networkLatency = 0;
+
+    try {
+      const serviceEndpoints = [
+        { name: 'auth-service', url: 'http://aqua-auth:3000/health/live' },
+        { name: 'gateway-api', url: 'http://aqua-gateway:3000/health/live' },
+        { name: 'farm-service', url: 'http://aqua-farm:3000/health/live' },
+        { name: 'sensor-service', url: 'http://aqua-sensor:3000/health/live' },
+        { name: 'alert-engine', url: 'http://aqua-alert:3000/health/live' },
+        { name: 'notification-service', url: 'http://aqua-notification:3000/health/live' },
+        { name: 'billing-service', url: 'http://aqua-billing:3000/health/live' },
+        { name: 'config-service', url: 'http://aqua-config:3000/health/live' },
+        { name: 'hr-service', url: 'http://aqua-hr:3000/health/live' },
+        { name: 'hydroponics-service', url: 'http://aqua-hydroponics:3000/health/live' },
+      ];
+
+      const healthResults = await Promise.allSettled(
+        serviceEndpoints.map(async (endpoint) => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 2000);
+          const start = Date.now();
+          try {
+            const response = await fetch(endpoint.url, { signal: controller.signal });
+            const latency = Date.now() - start;
+            return { reachable: true, healthy: response.ok, latency };
+          } finally {
+            clearTimeout(timeout);
+          }
+        }),
+      );
+
+      const latencies: number[] = [];
+      for (const result of healthResults) {
+        if (result.status === 'fulfilled' && result.value.reachable) {
+          containerCount++;
+          if (result.value.healthy) {
+            healthyContainers++;
+          }
+          latencies.push(result.value.latency);
+        }
+      }
+
+      if (latencies.length > 0) {
+        networkLatency = Math.round(
+          latencies.reduce((sum, l) => sum + l, 0) / latencies.length * 100,
+        ) / 100;
+      }
+    } catch (error) {
+      this.logger.warn('Failed to check container health', error);
+      containerCount = 0;
+      healthyContainers = 0;
+      networkLatency = 0;
+    }
+
     return {
       cpuUsage: Math.round(cpuUsage * 100) / 100,
       memoryUsage: Math.round(memoryUsage * 100) / 100,
       memoryTotal: totalMem,
       diskUsage: Math.round(diskUsage * 100) / 100,
       diskTotal,
-      networkLatency: 0,
-      containerCount: 0,
-      healthyContainers: 0,
-      podRestarts: 0,
+      networkLatency,
+      containerCount,
+      healthyContainers,
+      podRestarts: 0, // Requires Kubernetes API access
     };
   }
 

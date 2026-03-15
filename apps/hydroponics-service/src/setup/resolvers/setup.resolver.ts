@@ -44,7 +44,7 @@ export class SetupResolver {
   /**
    * List configurations with optional configName filter
    */
-  @Query(() => [HydroponicsConfig], { name: 'configurations', description: 'List hydroponics configurations' })
+  @Query(() => [HydroponicsConfig], { name: 'hydroponicsConfigurations', description: 'List hydroponics configurations' })
   @Roles(Role.MODULE_USER)
   async listConfigurations(
     @CurrentTenant() tenantId: string,
@@ -66,7 +66,7 @@ export class SetupResolver {
   /**
    * Get a single configuration by ID
    */
-  @Query(() => HydroponicsConfig, { name: 'configuration', description: 'Get a hydroponics configuration by ID' })
+  @Query(() => HydroponicsConfig, { name: 'hydroponicsConfiguration', description: 'Get a hydroponics configuration by ID' })
   @Roles(Role.MODULE_USER)
   async getConfiguration(
     @Args('id', { type: () => ID }) id: string,
@@ -92,9 +92,9 @@ export class SetupResolver {
   /**
    * Create a new configuration
    */
-  @Mutation(() => HydroponicsConfig, { description: 'Create a hydroponics configuration' })
+  @Mutation(() => HydroponicsConfig, { name: 'createHydroponicsConfiguration', description: 'Create a hydroponics configuration' })
   @Roles(Role.MODULE_USER)
-  async createConfiguration(
+  async createHydroponicsConfiguration(
     @Args('input') input: CreateHydroponicsConfigInput,
     @CurrentTenant() tenantId: string,
   ): Promise<HydroponicsConfig> {
@@ -112,9 +112,9 @@ export class SetupResolver {
   /**
    * Update an existing configuration
    */
-  @Mutation(() => HydroponicsConfig, { description: 'Update a hydroponics configuration' })
+  @Mutation(() => HydroponicsConfig, { name: 'updateHydroponicsConfiguration', description: 'Update a hydroponics configuration' })
   @Roles(Role.MODULE_USER)
-  async updateConfiguration(
+  async updateHydroponicsConfiguration(
     @Args('input') input: UpdateHydroponicsConfigInput,
     @CurrentTenant() tenantId: string,
   ): Promise<HydroponicsConfig> {
@@ -141,9 +141,9 @@ export class SetupResolver {
   /**
    * Delete a configuration
    */
-  @Mutation(() => Boolean, { description: 'Delete a hydroponics configuration' })
+  @Mutation(() => Boolean, { name: 'deleteHydroponicsConfiguration', description: 'Delete a hydroponics configuration' })
   @Roles(Role.MODULE_USER)
-  async deleteConfiguration(
+  async deleteHydroponicsConfiguration(
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
   ): Promise<boolean> {

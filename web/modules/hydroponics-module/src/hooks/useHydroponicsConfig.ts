@@ -64,11 +64,11 @@ export function useConfigurations(type?: string) {
         throw new Error('Tenant context required');
       }
 
-      const data = await graphqlClient.request<{ configurations: HydroponicsConfig[] }>(
+      const data = await graphqlClient.request<{ hydroponicsConfigurations: HydroponicsConfig[] }>(
         CONFIGURATIONS_QUERY,
         type ? { type } : {}
       );
-      return data.configurations;
+      return data.hydroponicsConfigurations;
     },
     staleTime: 30000,
     enabled: !authLoading && isAuthenticated && !!token && !!tenantId,
@@ -94,11 +94,11 @@ export function useConfiguration(id: string | null) {
   return useQuery({
     queryKey: [HYDRO_CONFIG_KEY, 'detail', id],
     queryFn: async () => {
-      const data = await graphqlClient.request<{ configuration: HydroponicsConfig }>(
+      const data = await graphqlClient.request<{ hydroponicsConfiguration: HydroponicsConfig }>(
         CONFIGURATION_QUERY,
         { id }
       );
-      return data.configuration;
+      return data.hydroponicsConfiguration;
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId && !!id,
@@ -135,11 +135,11 @@ export function useCreateConfiguration() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ createConfiguration: HydroponicsConfig }>(
+      const data = await graphqlClient.request<{ createHydroponicsConfiguration: HydroponicsConfig }>(
         CREATE_CONFIGURATION_MUTATION,
         { input }
       );
-      return data.createConfiguration;
+      return data.createHydroponicsConfiguration;
     },
     onSuccess: () => {
       invalidateAllConfigQueries(queryClient);
@@ -162,11 +162,11 @@ export function useUpdateConfiguration() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ updateConfiguration: HydroponicsConfig }>(
+      const data = await graphqlClient.request<{ updateHydroponicsConfiguration: HydroponicsConfig }>(
         UPDATE_CONFIGURATION_MUTATION,
         { input }
       );
-      return data.updateConfiguration;
+      return data.updateHydroponicsConfiguration;
     },
     onSuccess: () => {
       invalidateAllConfigQueries(queryClient);
@@ -189,11 +189,11 @@ export function useDeleteConfiguration() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      const data = await graphqlClient.request<{ deleteConfiguration: boolean }>(
+      const data = await graphqlClient.request<{ deleteHydroponicsConfiguration: boolean }>(
         DELETE_CONFIGURATION_MUTATION,
         { id }
       );
-      return data.deleteConfiguration;
+      return data.deleteHydroponicsConfiguration;
     },
     onSuccess: () => {
       invalidateAllConfigQueries(queryClient);

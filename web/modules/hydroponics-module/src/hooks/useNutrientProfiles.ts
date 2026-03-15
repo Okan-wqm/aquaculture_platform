@@ -87,11 +87,11 @@ export function useNutrientProfiles() {
     initialLoadDone.current = true;
 
     graphqlClient
-      .request<{ configurations: HydroponicsConfig[] }>(CONFIGURATIONS_QUERY, {
+      .request<{ hydroponicsConfigurations: HydroponicsConfig[] }>(CONFIGURATIONS_QUERY, {
         type: CONFIG_NAME,
       })
       .then((data) => {
-        const configs = data.configurations;
+        const configs = data.hydroponicsConfigurations;
         if (configs.length > 0) {
           const remote = configs[0];
           configIdRef.current = remote.id;
@@ -124,16 +124,16 @@ export function useNutrientProfiles() {
 
       try {
         if (configIdRef.current) {
-          await graphqlClient.request<{ updateConfiguration: HydroponicsConfig }>(
+          await graphqlClient.request<{ updateHydroponicsConfiguration: HydroponicsConfig }>(
             UPDATE_CONFIGURATION_MUTATION,
             { input: { id: configIdRef.current, settings } }
           );
         } else {
-          const data = await graphqlClient.request<{ createConfiguration: HydroponicsConfig }>(
+          const data = await graphqlClient.request<{ createHydroponicsConfiguration: HydroponicsConfig }>(
             CREATE_CONFIGURATION_MUTATION,
             { input: { configName: CONFIG_NAME, settings } }
           );
-          configIdRef.current = data.createConfiguration.id;
+          configIdRef.current = data.createHydroponicsConfiguration.id;
         }
       } catch {
         // Backend sync failed — data is safe in localStorage

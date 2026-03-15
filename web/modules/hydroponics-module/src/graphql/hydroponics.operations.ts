@@ -28,8 +28,8 @@ const HYDROPONICS_CONFIG_FIELDS = `
  * List configurations with optional type filter
  */
 export const CONFIGURATIONS_QUERY = `
-  query Configurations($type: String) {
-    configurations(type: $type) {
+  query HydroponicsConfigurations($type: String) {
+    hydroponicsConfigurations(type: $type) {
       ${HYDROPONICS_CONFIG_FIELDS}
     }
   }
@@ -39,8 +39,8 @@ export const CONFIGURATIONS_QUERY = `
  * Get a single configuration by ID
  */
 export const CONFIGURATION_QUERY = `
-  query Configuration($id: ID!) {
-    configuration(id: $id) {
+  query HydroponicsConfiguration($id: ID!) {
+    hydroponicsConfiguration(id: $id) {
       ${HYDROPONICS_CONFIG_FIELDS}
     }
   }
@@ -54,8 +54,8 @@ export const CONFIGURATION_QUERY = `
  * Create a new configuration
  */
 export const CREATE_CONFIGURATION_MUTATION = `
-  mutation CreateConfiguration($input: CreateHydroponicsConfigInput!) {
-    createConfiguration(input: $input) {
+  mutation CreateHydroponicsConfiguration($input: CreateHydroponicsConfigInput!) {
+    createHydroponicsConfiguration(input: $input) {
       ${HYDROPONICS_CONFIG_FIELDS}
     }
   }
@@ -65,8 +65,8 @@ export const CREATE_CONFIGURATION_MUTATION = `
  * Update an existing configuration
  */
 export const UPDATE_CONFIGURATION_MUTATION = `
-  mutation UpdateConfiguration($input: UpdateHydroponicsConfigInput!) {
-    updateConfiguration(input: $input) {
+  mutation UpdateHydroponicsConfiguration($input: UpdateHydroponicsConfigInput!) {
+    updateHydroponicsConfiguration(input: $input) {
       ${HYDROPONICS_CONFIG_FIELDS}
     }
   }
@@ -76,7 +76,7 @@ export const UPDATE_CONFIGURATION_MUTATION = `
  * Delete a configuration
  */
 export const DELETE_CONFIGURATION_MUTATION = `
-  mutation DeleteConfiguration($id: ID!) {
-    deleteConfiguration(id: $id)
+  mutation DeleteHydroponicsConfiguration($id: ID!) {
+    deleteHydroponicsConfiguration(id: $id)
   }
 `;

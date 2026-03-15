@@ -274,11 +274,11 @@ export const SolutionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     solutionLoadDone.current = true;
 
     graphqlClient
-      .request<{ configurations: HydroponicsConfig[] }>(CONFIGURATIONS_QUERY, {
+      .request<{ hydroponicsConfigurations: HydroponicsConfig[] }>(CONFIGURATIONS_QUERY, {
         type: SOLUTION_CONFIG_NAME,
       })
       .then((data) => {
-        const configs = data.configurations;
+        const configs = data.hydroponicsConfigurations;
         if (configs.length > 0) {
           const remote = configs[0];
           solutionConfigIdRef.current = remote.id;
@@ -347,7 +347,7 @@ export const SolutionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     if (solutionConfigIdRef.current) {
       graphqlClient
-        .request<{ updateConfiguration: HydroponicsConfig }>(UPDATE_CONFIGURATION_MUTATION, {
+        .request<{ updateHydroponicsConfiguration: HydroponicsConfig }>(UPDATE_CONFIGURATION_MUTATION, {
           input: { id: solutionConfigIdRef.current, settings },
         })
         .catch(() => {
@@ -355,11 +355,11 @@ export const SolutionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
     } else {
       graphqlClient
-        .request<{ createConfiguration: HydroponicsConfig }>(CREATE_CONFIGURATION_MUTATION, {
+        .request<{ createHydroponicsConfiguration: HydroponicsConfig }>(CREATE_CONFIGURATION_MUTATION, {
           input: { configName: SOLUTION_CONFIG_NAME, settings },
         })
         .then((data) => {
-          solutionConfigIdRef.current = data.createConfiguration.id;
+          solutionConfigIdRef.current = data.createHydroponicsConfiguration.id;
         })
         .catch(() => {
           // Backend sync failed — user can retry save

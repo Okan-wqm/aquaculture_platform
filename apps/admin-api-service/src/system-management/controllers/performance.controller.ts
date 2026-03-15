@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsNumber, IsObject, IsArray } from 'class-validator';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { MetricType } from '../entities/performance-metric.entity';
@@ -18,17 +20,38 @@ import { PerformanceMonitoringService, MetricThreshold } from '../services/perfo
 // ============================================================================
 
 class RecordMetricDto {
+  @IsString()
   metricType!: MetricType;
+
+  @IsString()
   name!: string;
+
+  @IsNumber()
   value!: number;
+
+  @IsOptional()
+  @IsString()
   unit?: string;
+
+  @IsOptional()
+  @IsString()
   service?: string;
+
+  @IsOptional()
+  @IsObject()
   dimensions?: Record<string, string | undefined>;
+
+  @IsOptional()
+  @IsObject()
   percentiles?: { p50?: number; p90?: number; p95?: number; p99?: number };
+
+  @IsOptional()
+  @IsNumber()
   sampleCount?: number;
 }
 
 class UpdateThresholdsDto {
+  @IsArray()
   thresholds!: MetricThreshold[];
 }
 

@@ -19,6 +19,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject } from 'class-validator';
+
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
@@ -31,51 +33,118 @@ import { TicketService } from '../services/ticket.service';
 // ============================================================================
 
 class CreateTicketDto {
+  @IsString()
   tenantId!: string;
+
+  @IsOptional()
+  @IsString()
   tenantName?: string;
+
+  @IsString()
   createdByName!: string;
+
+  @IsOptional()
+  @IsString()
   createdByEmail?: string;
+
+  @IsString()
   subject!: string;
+
+  @IsString()
   description!: string;
+
+  @IsOptional()
+  @IsString()
   category?: TicketCategory;
+
+  @IsOptional()
+  @IsString()
   priority?: TicketPriority;
+
+  @IsOptional()
+  @IsArray()
   tags?: string[];
 }
 
 class UpdateTicketDto {
+  @IsOptional()
+  @IsString()
   subject?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
   category?: TicketCategory;
+
+  @IsOptional()
+  @IsString()
   priority?: TicketPriority;
+
+  @IsOptional()
+  @IsString()
   status?: TicketStatus;
+
+  @IsOptional()
+  @IsArray()
   tags?: string[];
+
+  @IsOptional()
+  @IsString()
   dueAt?: string;
 }
 
 class AssignTicketDto {
+  @IsString()
   assignedTo!: string;
+
+  @IsString()
   assignedToName!: string;
 }
 
 class AddCommentDto {
+  @IsString()
   content!: string;
+
+  @IsOptional()
+  @IsString()
   authorName?: string;
+
+  @IsOptional()
+  @IsBoolean()
   isInternal?: boolean;
+
+  @IsOptional()
+  @IsArray()
   attachments?: TicketAttachment[];
 }
 
 class ChangeStatusDto {
+  @IsString()
   status!: TicketStatus;
+
+  @IsOptional()
+  @IsString()
   changedByName?: string;
 }
 
 class ChangePriorityDto {
+  @IsString()
   priority!: TicketPriority;
+
+  @IsOptional()
+  @IsString()
   changedByName?: string;
 }
 
 class SatisfactionRatingDto {
+  @IsNumber()
   rating!: number;
+
+  @IsOptional()
+  @IsString()
   feedback?: string;
 }
 

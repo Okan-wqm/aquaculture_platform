@@ -19,6 +19,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsNumber, IsIn } from 'class-validator';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { OnboardingStatus, TrainingSession } from '../entities/support.entity';
@@ -29,31 +31,56 @@ import { OnboardingService } from '../services/onboarding.service';
 // ============================================================================
 
 class InitializeOnboardingDto {
+  @IsString()
   tenantId!: string;
+
+  @IsString()
   tenantName!: string;
 }
 
 class SendWelcomeEmailDto {
+  @IsString()
   recipientEmail!: string;
+
+  @IsString()
   recipientName!: string;
 }
 
 class ScheduleTrainingDto {
+  @IsString()
   title!: string;
+
+  @IsIn(['video_call', 'webinar', 'in_person'])
   type!: 'video_call' | 'webinar' | 'in_person';
+
+  @IsString()
   scheduledAt!: string;
+
+  @IsNumber()
   duration!: number;
+
+  @IsString()
   trainer!: string;
+
+  @IsOptional()
+  @IsString()
   meetingUrl?: string;
 }
 
 class UpdateTrainingDto {
+  @IsIn(['completed', 'cancelled'])
   status!: 'completed' | 'cancelled';
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 
 class AssignGuideDto {
+  @IsString()
   guideId!: string;
+
+  @IsString()
   guideName!: string;
 }
 

@@ -15,6 +15,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined } from 'class-validator';
+
 import { Public } from '../../decorators/public.decorator';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
@@ -37,82 +39,246 @@ import { GlobalSettingsService } from '../services/global-settings.service';
 // ============================================================================
 
 class CreateFeatureToggleDto {
+  @IsString()
   key!: string;
+
+  @IsString()
   name!: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
   scope?: FeatureToggleScope;
+
+  @IsOptional()
+  @IsString()
   status?: FeatureToggleStatus;
+
+  @IsOptional()
+  @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsArray()
   conditions?: FeatureCondition[];
+
+  @IsOptional()
+  @IsNumber()
   rolloutPercentage?: number;
+
+  @IsOptional()
   defaultValue?: unknown;
+
+  @IsOptional()
+  @IsArray()
   variants?: Array<{ key: string; value: unknown; weight: number; description?: string }>;
+
+  @IsOptional()
+  @IsBoolean()
   requiresRestart?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   isExperimental?: boolean;
 }
 
 class UpdateFeatureToggleDto {
+  @IsOptional()
+  @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
   status?: FeatureToggleStatus;
+
+  @IsOptional()
+  @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsArray()
   conditions?: FeatureCondition[];
+
+  @IsOptional()
+  @IsNumber()
   rolloutPercentage?: number;
+
+  @IsOptional()
+  @IsArray()
   enabledTenants?: string[];
+
+  @IsOptional()
+  @IsArray()
   disabledTenants?: string[];
+
+  @IsOptional()
   defaultValue?: unknown;
+
+  @IsOptional()
+  @IsArray()
   variants?: Array<{ key: string; value: unknown; weight: number; description?: string }>;
+
+  @IsOptional()
   deprecatedAt?: Date;
+
+  @IsOptional()
+  @IsString()
   deprecationMessage?: string;
 }
 
 class EvaluateFeatureToggleDto {
+  @IsOptional()
+  @IsString()
   tenantId?: string;
+
+  @IsOptional()
+  @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsString()
   userRole?: string;
+
+  @IsOptional()
+  @IsString()
   planType?: string;
+
+  @IsOptional()
+  @IsString()
   region?: string;
+
+  @IsOptional()
+  @IsObject()
   custom?: Record<string, string>;
 }
 
 class CreateMaintenanceDto {
+  @IsString()
   title!: string;
+
+  @IsString()
   description!: string;
+
+  @IsOptional()
+  @IsString()
   scope?: MaintenanceScope;
+
+  @IsOptional()
+  @IsString()
   type?: MaintenanceType;
+
+  @IsOptional()
+  @IsString()
   tenantId?: string;
+
+  @IsOptional()
+  @IsArray()
   affectedTenants?: string[];
+
+  @IsOptional()
+  @IsArray()
   affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+
+  @IsDefined()
   scheduledStart!: Date;
+
+  @IsOptional()
   scheduledEnd?: Date;
+
+  @IsOptional()
+  @IsNumber()
   estimatedDurationMinutes?: number;
+
+  @IsOptional()
+  @IsString()
   userMessage?: string;
+
+  @IsOptional()
+  @IsBoolean()
   allowReadOnlyAccess?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   bypassForSuperAdmins?: boolean;
+
+  @IsOptional()
+  @IsArray()
   whitelistedIPs?: string[];
 }
 
 class CreateVersionDto {
+  @IsString()
   version!: string;
+
+  @IsString()
   releaseType!: ReleaseType;
+
+  @IsString()
   title!: string;
+
+  @IsOptional()
+  @IsString()
   summary?: string;
+
+  @IsOptional()
+  @IsArray()
   changelog?: ChangelogEntry[];
+
+  @IsOptional()
+  @IsArray()
   breakingChanges?: string[];
+
+  @IsOptional()
+  @IsArray()
   deprecations?: string[];
+
+  @IsOptional()
+  @IsArray()
   newFeatures?: string[];
+
+  @IsOptional()
+  @IsString()
   releaseNotes?: string;
+
+  @IsOptional()
+  @IsString()
   upgradeGuide?: string;
 }
 
 class CreateConfigDto {
+  @IsString()
   key!: string;
+
+  @IsString()
   name!: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
   category?: ConfigCategory;
+
+  @IsOptional()
+  @IsString()
   valueType?: ConfigValueType;
+
+  @IsDefined()
   value!: unknown;
+
+  @IsOptional()
   defaultValue?: unknown;
+
+  @IsOptional()
+  @IsObject()
   validation?: {
     required?: boolean;
     min?: number;
@@ -122,14 +288,30 @@ class CreateConfigDto {
     pattern?: string;
     allowedValues?: unknown[];
   };
+
+  @IsOptional()
+  @IsBoolean()
   isSecret?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   isReadOnly?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   requiresRestart?: boolean;
+
+  @IsOptional()
+  @IsString()
   helpText?: string;
 }
 
 class UpdateConfigDto {
+  @IsDefined()
   value!: unknown;
+
+  @IsOptional()
+  @IsString()
   reason?: string;
 }
 

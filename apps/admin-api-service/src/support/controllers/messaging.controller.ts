@@ -18,6 +18,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsBoolean, IsArray, IsObject } from 'class-validator';
+
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
@@ -29,24 +31,54 @@ import { MessagingService } from '../services/messaging.service';
 // ============================================================================
 
 class CreateThreadDto {
+  @IsString()
   tenantId!: string;
+
+  @IsString()
   subject!: string;
+
+  @IsString()
   content!: string;
+
+  @IsOptional()
+  @IsString()
   senderName?: string;
 }
 
 class AddMessageDto {
+  @IsString()
   content!: string;
+
+  @IsOptional()
+  @IsString()
   senderName?: string;
+
+  @IsOptional()
+  @IsBoolean()
   isInternal?: boolean;
+
+  @IsOptional()
+  @IsArray()
   attachments?: MessageAttachment[];
 }
 
 class BulkMessageDto {
+  @IsString()
   subject!: string;
+
+  @IsString()
   content!: string;
+
+  @IsOptional()
+  @IsObject()
   targetCriteria?: AnnouncementTarget;
+
+  @IsOptional()
+  @IsArray()
   tenantIds?: string[];
+
+  @IsOptional()
+  @IsBoolean()
   sendEmail?: boolean;
 }
 

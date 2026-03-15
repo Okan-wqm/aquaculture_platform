@@ -21,6 +21,8 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
+import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsIn } from 'class-validator';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
@@ -42,64 +44,156 @@ import {
 // ============================================================================
 
 class CreateDataRequestDto {
+  @IsString()
   requestType!: DataRequestType;
+
+  @IsString()
   complianceFramework!: ComplianceType;
+
+  @IsString()
   tenantId!: string;
+
+  @IsString()
   tenantName!: string;
+
   // Fix: C6 -- requesterId removed from client input; set from JWT
+  @IsString()
   requesterName!: string;
+
+  @IsString()
   requesterEmail!: string;
+
+  @IsString()
   description!: string;
+
+  @IsOptional()
+  @IsArray()
   dataCategories?: string[];
+
+  @IsOptional()
+  @IsString()
   specificData?: string;
 }
 
 class UpdateDataRequestDto {
+  @IsOptional()
+  @IsString()
   status?: DataRequestStatus;
+
+  @IsOptional()
+  @IsString()
   assignedTo?: string;
+
+  @IsOptional()
+  @IsString()
   assignedToName?: string;
+
+  @IsOptional()
+  @IsString()
   completionNotes?: string;
+
+  @IsOptional()
+  @IsString()
   rejectionReason?: string;
 }
 
 class VerifyIdentityDto {
   // Fix: C6 -- verifiedBy removed from client input; set from JWT
+  @IsString()
   verificationMethod!: string;
 }
 
 class CompleteDataRequestDto {
   // Fix: C6 -- completedBy removed from client input; set from JWT
+  @IsString()
   completionNotes!: string;
+
+  @IsOptional()
+  @IsIn(['json', 'csv', 'pdf', 'xml'])
   deliveryFormat?: 'json' | 'csv' | 'pdf' | 'xml';
+
+  @IsOptional()
+  @IsString()
   downloadUrl?: string;
+
+  @IsOptional()
+  @IsString()
   downloadExpiresAt?: string;
 }
 
 class QueryDataRequestsDto {
+  @IsOptional()
+  @IsNumber()
   page?: number;
+
+  @IsOptional()
+  @IsNumber()
   limit?: number;
+
+  @IsOptional()
+  @IsString()
   tenantId?: string;
+
+  @IsOptional()
+  @IsString()
   requestType?: DataRequestType;
+
+  @IsOptional()
+  @IsString()
   status?: DataRequestStatus;
+
+  @IsOptional()
+  @IsString()
   complianceFramework?: ComplianceType;
+
+  @IsOptional()
+  @IsString()
   startDate?: string;
+
+  @IsOptional()
+  @IsString()
   endDate?: string;
+
+  @IsOptional()
+  @IsBoolean()
   overdue?: boolean;
 }
 
 class GenerateReportDto {
+  @IsString()
   complianceType!: ComplianceType;
+
+  @IsString()
   reportPeriodStart!: string;
+
+  @IsString()
   reportPeriodEnd!: string;
+
+  @IsOptional()
+  @IsArray()
   includedTenants?: string[];
   // Fix: C6 -- generatedBy/generatedByName removed from client input; set from JWT
 }
 
 class QueryReportsDto {
+  @IsOptional()
+  @IsNumber()
   page?: number;
+
+  @IsOptional()
+  @IsNumber()
   limit?: number;
+
+  @IsOptional()
+  @IsString()
   complianceType?: ComplianceType;
+
+  @IsOptional()
+  @IsString()
   startDate?: string;
+
+  @IsOptional()
+  @IsString()
   endDate?: string;
 }
 

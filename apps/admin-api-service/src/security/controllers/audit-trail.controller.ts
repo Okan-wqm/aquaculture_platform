@@ -22,7 +22,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, Min, Max } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, IsObject, Min, Max } from 'class-validator';
 import { Response } from 'express';
 
 import { ActivityLog, ActivityCategory, ActivitySeverity, RetentionPolicyEntity, ComplianceType } from '../entities/security.entity';
@@ -124,44 +124,120 @@ class QueryAuditTrailDto {
 }
 
 class ExportAuditTrailDto {
+  @IsIn(['csv', 'json', 'pdf'])
   format!: 'csv' | 'json' | 'pdf';
+
+  @IsOptional()
+  @IsString()
   tenantId?: string;
+
+  @IsOptional()
+  @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsString()
   category?: ActivityCategory;
+
+  @IsString()
   startDate!: string;
+
+  @IsString()
   endDate!: string;
+
+  @IsOptional()
+  @IsBoolean()
   includeMetadata?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   includeChanges?: boolean;
 }
 
 class CreateRetentionPolicyDto {
+  @IsString()
   name!: string;
+
+  @IsString()
   category!: ActivityCategory;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsNumber()
   retentionDays!: number;
+
+  @IsOptional()
+  @IsNumber()
   archiveAfterDays?: number;
+
+  @IsOptional()
+  @IsNumber()
   deleteAfterArchiveDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
   isGlobal?: boolean;
+
+  @IsOptional()
+  @IsArray()
   specificTenants?: string[];
+
+  @IsOptional()
+  @IsArray()
   complianceFrameworks?: ComplianceType[];
 }
 
 class UpdateRetentionPolicyDto {
+  @IsOptional()
+  @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsNumber()
   retentionDays?: number;
+
+  @IsOptional()
+  @IsNumber()
   archiveAfterDays?: number;
+
+  @IsOptional()
+  @IsNumber()
   deleteAfterArchiveDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
   isGlobal?: boolean;
+
+  @IsOptional()
+  @IsArray()
   specificTenants?: string[];
+
+  @IsOptional()
+  @IsArray()
   complianceFrameworks?: ComplianceType[];
+
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
 }
 
 class CreateAlertRuleDto {
+  @IsString()
   name!: string;
+
+  @IsString()
   description!: string;
+
+  @IsBoolean()
   isActive!: boolean;
+
+  @IsObject()
   conditions!: {
     category?: ActivityCategory[];
     severity?: ActivitySeverity[];
@@ -171,8 +247,14 @@ class CreateAlertRuleDto {
     failureOnly?: boolean;
     ipPatterns?: string[];
   };
+
+  @IsArray()
   alertChannels!: ('email' | 'webhook' | 'slack' | 'sms')[];
+
+  @IsArray()
   recipients!: string[];
+
+  @IsNumber()
   cooldownMinutes!: number;
 }
 

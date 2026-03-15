@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsNumber, IsObject, IsArray } from 'class-validator';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job-queue.entity';
@@ -23,38 +25,109 @@ import { JobQueueService, JobDefinition } from '../services/job-queue.service';
 // ============================================================================
 
 class CreateQueueDto {
+  @IsString()
   name!: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsNumber()
   concurrency?: number;
+
+  @IsOptional()
+  @IsNumber()
   maxJobsPerSecond?: number;
+
+  @IsOptional()
+  @IsNumber()
   defaultMaxRetries?: number;
+
+  @IsOptional()
+  @IsNumber()
   defaultTimeoutMs?: number;
+
+  @IsOptional()
+  @IsObject()
   retryPolicy?: JobRetryPolicy;
 }
 
 class CreateJobDto {
+  @IsString()
   name!: string;
+
+  @IsString()
   queueName!: string;
+
+  @IsOptional()
+  @IsString()
   jobType?: JobType;
+
+  @IsOptional()
+  @IsNumber()
   priority?: number;
+
+  @IsOptional()
+  @IsObject()
   payload?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
   scheduledAt?: string;
+
+  @IsOptional()
+  @IsString()
   cronExpression?: string;
+
+  @IsOptional()
+  @IsNumber()
   timeoutMs?: number;
+
+  @IsOptional()
+  @IsNumber()
   maxAttempts?: number;
+
+  @IsOptional()
+  @IsObject()
   retryPolicy?: JobRetryPolicy;
+
+  @IsOptional()
+  @IsString()
   tenantId?: string;
+
+  @IsOptional()
+  @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsArray()
   dependencies?: string[];
+
+  @IsOptional()
+  @IsArray()
   tags?: string[];
+
+  @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 }
 
 class UpdateJobProgressDto {
+  @IsNumber()
   current!: number;
+
+  @IsNumber()
   total!: number;
+
+  @IsNumber()
   percentage!: number;
+
+  @IsOptional()
+  @IsString()
   message?: string;
+
+  @IsOptional()
   checkpoint?: unknown;
 }
 

@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsObject, IsArray, IsNumber } from 'class-validator';
+
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
@@ -23,31 +25,85 @@ import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.se
 // ============================================================================
 
 class ReportErrorDto {
+  @IsString()
   message!: string;
+
+  @IsOptional()
+  @IsString()
   errorType?: string;
+
+  @IsOptional()
+  @IsString()
   stackTrace?: string;
+
+  @IsOptional()
+  @IsString()
   severity?: ErrorSeverity;
+
+  @IsOptional()
+  @IsObject()
   context?: ErrorContext;
+
+  @IsOptional()
+  @IsString()
   service?: string;
+
+  @IsOptional()
+  @IsString()
   environment?: string;
+
+  @IsOptional()
+  @IsString()
   release?: string;
+
+  @IsOptional()
+  @IsString()
   tenantId?: string;
+
+  @IsOptional()
+  @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsString()
   ipAddress?: string;
+
+  @IsOptional()
+  @IsString()
   userAgent?: string;
+
+  @IsOptional()
+  @IsObject()
   metadata?: Record<string, unknown>;
 }
 
 class UpdateErrorGroupDto {
+  @IsOptional()
+  @IsString()
   status?: ErrorStatus;
+
+  @IsOptional()
+  @IsString()
   assignedTo?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
   linkedTicketUrl?: string;
 }
 
 class CreateAlertRuleDto {
+  @IsString()
   name!: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsObject()
   conditions!: {
     severity?: ErrorSeverity[];
     service?: string[];
@@ -57,10 +113,15 @@ class CreateAlertRuleDto {
     timeWindowMinutes?: number;
     userCountThreshold?: number;
   };
+
+  @IsArray()
   actions!: Array<{
     type: 'email' | 'slack' | 'pagerduty' | 'webhook' | 'sms';
     config: Record<string, unknown>;
   }>;
+
+  @IsOptional()
+  @IsNumber()
   cooldownMinutes?: number;
 }
 

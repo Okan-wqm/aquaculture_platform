@@ -20,6 +20,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { IsIn, IsString, IsOptional, IsBoolean, IsObject, IsArray } from 'class-validator';
 import { Response } from 'express';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
@@ -40,46 +41,120 @@ import { ReportsService } from '../services/reports.service';
 // ============================================================================
 
 class GenerateReportDto {
+  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
   type!: ReportType;
+
+  @IsIn(['json', 'csv', 'excel', 'pdf'])
   format!: ReportFormat;
+
+  @IsString()
   startDate!: string;
+
+  @IsString()
   endDate!: string;
+
+  @IsOptional()
+  @IsObject()
   filters?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsBoolean()
   includeCharts?: boolean;
 }
 
 class CreateDefinitionDto {
+  @IsString()
   name!: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
   type!: ReportType;
+
+  @IsOptional()
+  @IsIn(['json', 'csv', 'excel', 'pdf'])
   defaultFormat?: ReportFormat;
+
+  @IsOptional()
+  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
   schedule?: ReportSchedule;
+
+  @IsOptional()
+  @IsObject()
   defaultFilters?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
   recipients?: string[];
+
+  @IsOptional()
+  @IsBoolean()
   includeCharts?: boolean;
 }
 
 class UpdateDefinitionDto {
+  @IsOptional()
+  @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsIn(['json', 'csv', 'excel', 'pdf'])
   defaultFormat?: ReportFormat;
+
+  @IsOptional()
+  @IsIn(['active', 'inactive', 'draft'])
   status?: ReportDefinitionStatus;
+
+  @IsOptional()
+  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
   schedule?: ReportSchedule;
+
+  @IsOptional()
+  @IsObject()
   defaultFilters?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
   recipients?: string[];
+
+  @IsOptional()
+  @IsBoolean()
   includeCharts?: boolean;
 }
 
 class ExecuteReportDto {
+  @IsOptional()
+  @IsString()
   reportId?: string;
+
+  @IsIn(['json', 'csv', 'excel', 'pdf'])
   format!: ReportFormat;
+
+  @IsOptional()
+  @IsObject()
   filters?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
   startDate?: string;
+
+  @IsOptional()
+  @IsString()
   endDate?: string;
 }
 
 class QuickReportDto {
+  @IsIn(['json', 'csv', 'excel', 'pdf'])
   format!: ReportFormat;
+
+  @IsOptional()
+  @IsObject()
   filters?: Record<string, unknown>;
 }
 

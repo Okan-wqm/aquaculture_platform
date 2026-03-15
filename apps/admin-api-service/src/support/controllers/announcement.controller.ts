@@ -20,6 +20,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
+
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
@@ -31,30 +33,77 @@ import { AnnouncementService } from '../services/announcement.service';
 // ============================================================================
 
 class CreateAnnouncementDto {
+  @IsString()
   title!: string;
+
+  @IsString()
   content!: string;
+
+  @IsString()
   type!: AnnouncementType;
+
+  @IsBoolean()
   isGlobal!: boolean;
+
+  @IsOptional()
+  @IsObject()
   targetCriteria?: AnnouncementTarget;
+
+  @IsOptional()
+  @IsString()
   publishAt?: string;
+
+  @IsOptional()
+  @IsString()
   expiresAt?: string;
+
+  @IsOptional()
+  @IsBoolean()
   requiresAcknowledgment?: boolean;
 }
 
 class UpdateAnnouncementDto {
+  @IsOptional()
+  @IsString()
   title?: string;
+
+  @IsOptional()
+  @IsString()
   content?: string;
+
+  @IsOptional()
+  @IsString()
   type?: AnnouncementType;
+
+  @IsOptional()
+  @IsBoolean()
   isGlobal?: boolean;
+
+  @IsOptional()
+  @IsObject()
   targetCriteria?: AnnouncementTarget;
+
+  @IsOptional()
+  @IsString()
   publishAt?: string;
+
+  @IsOptional()
+  @IsString()
   expiresAt?: string;
+
+  @IsOptional()
+  @IsBoolean()
   requiresAcknowledgment?: boolean;
 }
 
 class AcknowledgeDto {
+  @IsString()
   tenantId!: string;
+
+  @IsString()
   userId!: string;
+
+  @IsString()
   userName!: string;
 }
 

@@ -777,7 +777,7 @@ export class FeedingProgramResolver {
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
-    @Args('reason', { nullable: true }) reason?: string,
+    @Args('reason', { type: () => String, nullable: true }) reason?: string,
   ): Promise<FeedingProgram> {
     this.validateTenantAndUser(tenantId, user, 'pauseFeedingProgram');
 
@@ -871,7 +871,7 @@ export class FeedingProgramResolver {
     @CurrentUser() user: UserContext,
     @Args('input', { nullable: true }) input?: RemoveTankFromProgramInput,
     @Args('feedingProgramTankId', { type: () => ID, nullable: true }) feedingProgramTankId?: string,
-    @Args('reason', { nullable: true }) reason?: string,
+    @Args('reason', { type: () => String, nullable: true }) reason?: string,
   ): Promise<FeedingProgramTank> {
     this.validateTenantAndUser(tenantId, user, 'removeTankFromProgram');
 
@@ -1174,7 +1174,7 @@ export class FeedingProgramResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeFeedingProgram(
     @Args('id', { type: () => ID }) id: string,
-    @Args('notes', { nullable: true }) notes: string | undefined,
+    @Args('notes', { type: () => String, nullable: true }) notes: string | undefined,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<FeedingProgram> {
@@ -1423,7 +1423,7 @@ export class FeedingProgramResolver {
   async assignTemperatureSensor(
     @Args('feedingProgramTankId', { type: () => ID }) feedingProgramTankId: string,
     @Args('sensorId', { type: () => ID }) sensorId: string,
-    @Args('sensorCode', { nullable: true }) sensorCode: string | undefined,
+    @Args('sensorCode', { type: () => String, nullable: true }) sensorCode: string | undefined,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<FeedingProgramTank> {
@@ -1476,7 +1476,7 @@ export class FeedingProgramResolver {
     @Args('newFeedId', { type: () => ID }) newFeedId: string,
     @Args('newFeedCode') newFeedCode: string,
     @Args('rangeIndex', { type: () => Int }) rangeIndex: number,
-    @Args('notes', { nullable: true }) notes: string | undefined,
+    @Args('notes', { type: () => String, nullable: true }) notes: string | undefined,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<FeedingProgramTank> {

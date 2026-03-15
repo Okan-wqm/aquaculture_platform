@@ -19,6 +19,7 @@ const ConsentBanner: React.FC = () => {
   const {
     status,
     isStatusLoading,
+    statusError,
     isOutdated,
     isOutdatedLoading,
     recordBulkConsent,

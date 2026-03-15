@@ -11,6 +11,7 @@ import {
 import {
   CurrentUser,
   SuperAdminOnly,
+  SkipTenantGuard,
   ConsentType,
 } from '@platform/backend-common';
 import {
@@ -68,6 +69,7 @@ interface GraphQLRequest {
  * - userConsentHistory: View any user's consent history
  */
 @Resolver()
+@SkipTenantGuard()
 export class UserConsentResolver {
   private readonly logger = new Logger(UserConsentResolver.name);
 

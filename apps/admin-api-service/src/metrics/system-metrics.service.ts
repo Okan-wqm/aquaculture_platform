@@ -217,21 +217,21 @@ export class SystemMetricsService {
 
     // Add checks for other services (would use HTTP calls in real implementation)
     const serviceEndpoints = [
-      { name: 'auth-service', url: 'http://auth-service:3001/api/v1/health' },
-      { name: 'gateway-api', url: 'http://gateway-api:3000/api/v1/health' },
-      { name: 'farm-service', url: 'http://farm-service:3002/api/v1/health' },
-      { name: 'sensor-service', url: 'http://sensor-service:3003/api/v1/health' },
-      { name: 'alert-engine', url: 'http://alert-engine:3004/api/v1/health' },
-      { name: 'notification-service', url: 'http://notification-service:3005/api/v1/health' },
-      { name: 'billing-service', url: 'http://billing-service:3006/api/v1/health' },
-      { name: 'config-service', url: 'http://config-service:3007/api/v1/health' },
+      { name: 'auth-service', url: 'http://aqua-auth:4001/health/live' },
+      { name: 'gateway-api', url: 'http://aqua-gateway:3000/health/live' },
+      { name: 'farm-service', url: 'http://aqua-farm:4002/health/live' },
+      { name: 'sensor-service', url: 'http://aqua-sensor:4003/health/live' },
+      { name: 'alert-engine', url: 'http://aqua-alert:4004/health/live' },
+      { name: 'notification-service', url: 'http://aqua-notification:4007/health/live' },
+      { name: 'billing-service', url: 'http://aqua-billing:4005/health/live' },
+      { name: 'config-service', url: 'http://aqua-config:3000/health/live' },
     ];
 
     // C-3 fix: Report status as 'degraded' with a note instead of falsely claiming 'healthy'.
     // Real implementation requires actual HTTP health check calls.
     for (const endpoint of serviceEndpoints) {
+      const startTime = Date.now();
       try {
-        // Attempt a real health check via HTTP
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
         const response = await fetch(endpoint.url, { signal: controller.signal }).catch(() => null);
@@ -240,6 +240,7 @@ export class SystemMetricsService {
         services.push({
           name: endpoint.name,
           status: response?.ok ? 'healthy' : 'degraded',
+          responseTime: Date.now() - startTime,
           lastCheck: new Date(),
           details: response ? { statusCode: response.status } : { error: 'unreachable' },
         });
@@ -247,6 +248,7 @@ export class SystemMetricsService {
         services.push({
           name: endpoint.name,
           status: 'degraded',
+          responseTime: Date.now() - startTime,
           lastCheck: new Date(),
           details: { error: 'Health check not available' },
         });

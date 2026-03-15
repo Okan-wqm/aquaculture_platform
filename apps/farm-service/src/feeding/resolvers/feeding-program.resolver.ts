@@ -372,7 +372,7 @@ export class FeedingProgramResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async feedingPrograms(
     @Tenant() tenantId: string,
-    @Args('filter', { nullable: true }) filter?: FeedingProgramFilterInput,
+    @Args('filter', { type: () => FeedingProgramFilterInput, nullable: true }) filter?: FeedingProgramFilterInput,
   ): Promise<FeedingProgram[]> {
     try {
       if (!tenantId) {
@@ -869,7 +869,7 @@ export class FeedingProgramResolver {
   async removeTankFromProgram(
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
-    @Args('input', { nullable: true }) input?: RemoveTankFromProgramInput,
+    @Args('input', { type: () => RemoveTankFromProgramInput, nullable: true }) input?: RemoveTankFromProgramInput,
     @Args('feedingProgramTankId', { type: () => ID, nullable: true }) feedingProgramTankId?: string,
     @Args('reason', { type: () => String, nullable: true }) reason?: string,
   ): Promise<FeedingProgramTank> {
@@ -952,9 +952,9 @@ export class FeedingProgramResolver {
   async generateDailyPlan(
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
-    @Args('input', { nullable: true }) input?: GenerateDailyPlanInput,
+    @Args('input', { type: () => GenerateDailyPlanInput, nullable: true }) input?: GenerateDailyPlanInput,
     @Args('programId', { type: () => ID, nullable: true }) programIdArg?: string,
-    @Args('date', { nullable: true }) dateArg?: Date,
+    @Args('date', { type: () => Date, nullable: true }) dateArg?: Date,
   ): Promise<GenerateDailyPlanResult> {
     this.validateTenantAndUser(tenantId, user, 'generateDailyPlan');
 
@@ -1611,7 +1611,7 @@ export class FeedingProgramResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recalculateDailyPlan(
     @Args('executionId', { type: () => ID }) executionId: string,
-    @Args('newParameters', { nullable: true }) newParameters: RecalculateParametersInput | undefined,
+    @Args('newParameters', { type: () => RecalculateParametersInput, nullable: true }) newParameters: RecalculateParametersInput | undefined,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<DailyFeedingExecution> {

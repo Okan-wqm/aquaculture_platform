@@ -24,7 +24,7 @@ import {
 import { IEventBus } from '@platform/event-bus';
 import { DataSource, Repository } from 'typeorm';
 
-import { AuditLogService, CreateAuditLogDto } from '../../../audit/audit-log.service';
+import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
 import { Tenant } from '../../tenant/entities/tenant.entity';
@@ -33,11 +33,13 @@ import { LoginInput } from '../dto/login.dto';
 import { RegisterInput } from '../dto/register.dto';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
-import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { MfaService } from './mfa.service';
+import { TokenService, parseExpiresIn } from './token.service';
+import type { JwtPayload } from './token.service';
 
-// Forward reference type to avoid circular dependency
-import type { MfaService } from './mfa.service';
+// Re-export JwtPayload from its canonical location for backward compatibility
+export type { JwtPayload } from './token.service';
 
 /**
  * Generic authentication error message
@@ -46,50 +48,13 @@ import type { MfaService } from './mfa.service';
 const INVALID_CREDENTIALS_MSG = 'Invalid email or password';
 const GENERIC_AUTH_ERROR_MSG = 'Authentication failed';
 
-/**
- * JWT Payload structure
- */
-export interface JwtPayload {
-  sub: string;
-  email: string;
-  role: Role;
-  roles: Role[];
-  tenantId: string | null;
-  modules?: string[];
-  resourcePermissions?: string[];
-  jti?: string; // JWT ID for blacklisting
-  iat?: number;
-  exp?: number;
-}
-
-/**
- * Tenant module query result row
- */
-interface TenantModuleRow {
-  code: string;
-  name: string;
-  defaultRoute: string;
-}
-
 @Injectable()
 export class AuthenticationService {
   private readonly logger = new Logger(AuthenticationService.name);
   private readonly maxFailedAttempts: number;
   private readonly lockoutDurationMinutes: number;
-  private readonly refreshTokenExpiryDays: number;
-  private readonly maxSessionsPerUser: number;
   private readonly hashRefreshTokens: boolean;
   private readonly minLoginDurationMs: number;
-  private readonly jwtExpiresInSeconds: number;
-
-  // PERF: In-memory cache for user module assignments (CRIT-03)
-  // Keyed by userId, value is { modules, cachedAt }
-  // TTL: 5 minutes — module assignments are stable between admin actions
-  private readonly moduleCache = new Map<string, {
-    modules: Array<{ code: string; name: string; defaultRoute: string }>;
-    cachedAt: number;
-  }>();
-  private readonly moduleCacheTtlMs = 5 * 60 * 1000; // 5 minutes
 
   constructor(
     @InjectRepository(User)
@@ -98,8 +63,6 @@ export class AuthenticationService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(Invitation)
     private readonly invitationRepository: Repository<Invitation>,
-    @InjectRepository(UserModuleAssignment)
-    private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
     private readonly dataSource: DataSource,
@@ -107,10 +70,11 @@ export class AuthenticationService {
     private readonly configService: ConfigService,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    private readonly tokenService: TokenService,
+    private readonly mfaService: MfaService,
     @Optional() private readonly timingSafe?: TimingSafeService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
-    @Optional() @Inject('MFA_SERVICE') private readonly mfaService?: MfaService,
   ) {
     this.maxFailedAttempts = this.configService.get<number>(
       'MAX_FAILED_ATTEMPTS',
@@ -120,23 +84,11 @@ export class AuthenticationService {
       'LOCKOUT_DURATION_MINUTES',
       SECURITY_CONSTANTS.DEFAULT_LOCKOUT_DURATION_MINUTES,
     );
-    this.refreshTokenExpiryDays = this.configService.get<number>(
-      'REFRESH_TOKEN_EXPIRY_DAYS',
-      SECURITY_CONSTANTS.DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
-    );
-    this.maxSessionsPerUser = this.configService.get<number>(
-      'MAX_SESSIONS_PER_USER',
-      SECURITY_CONSTANTS.DEFAULT_MAX_SESSIONS_PER_USER,
-    );
     this.hashRefreshTokens = this.configService.get<boolean>('HASH_REFRESH_TOKENS', true);
-    // Minimum login duration to prevent timing attacks
     this.minLoginDurationMs = this.configService.get<number>(
       'MIN_LOGIN_DURATION_MS',
       SECURITY_CONSTANTS.MIN_LOGIN_DURATION_MS,
     );
-    // PERF: Cache parsed JWT expiration at startup (MED-07)
-    const expiresInStr = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-    this.jwtExpiresInSeconds = this.parseExpiresIn(expiresInStr);
   }
 
   /**
@@ -224,7 +176,7 @@ export class AuthenticationService {
       version: 1,
     });
 
-    return this.generateTokens(savedUser);
+    return this.tokenService.generateTokens(savedUser);
   }
 
   /**
@@ -383,11 +335,6 @@ export class AuthenticationService {
       user.lastLoginAt = new Date();
       await this.userRepository.save(user);
 
-      // Enforce concurrent session limit
-      if (this.sessionManager) {
-        await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
-      }
-
       this.logger.log(`User logged in: ${user.email} (role: ${user.role})`);
 
       // PERF: Parallelize audit log + event publish — both are independent
@@ -412,7 +359,7 @@ export class AuthenticationService {
       ]);
 
       await this.ensureMinDuration(startTime);
-      return this.generateTokens(user, ipAddress, userAgent);
+      return this.tokenService.generateTokens(user, ipAddress, userAgent);
     } catch (error) {
       await this.ensureMinDuration(startTime);
       throw error;
@@ -546,7 +493,7 @@ export class AuthenticationService {
       }),
     ]);
 
-    return this.generateTokens(result, ipAddress);
+    return this.tokenService.generateTokens(result, ipAddress);
   }
 
   /**
@@ -644,7 +591,7 @@ export class AuthenticationService {
       refreshToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(refreshToken);
 
-      return this.generateTokens(
+      return this.tokenService.generateTokens(
         user,
         refreshToken.ipAddress ?? undefined,
         refreshToken.userAgent ?? undefined,
@@ -722,7 +669,7 @@ export class AuthenticationService {
       matchedToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(matchedToken);
 
-      return this.generateTokens(
+      return this.tokenService.generateTokens(
         user,
         matchedToken.ipAddress ?? undefined,
         matchedToken.userAgent ?? undefined,
@@ -771,7 +718,7 @@ export class AuthenticationService {
     // Blacklist all user tokens
     if (this.tokenBlacklist) {
       const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = this.parseExpiresIn(expiresIn);
+      const expiresInSeconds = parseExpiresIn(expiresIn);
       const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
       await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'logout_all_devices');
     }
@@ -840,7 +787,7 @@ export class AuthenticationService {
     }
 
     // Get user's accessible modules
-    const modules = await this.getUserModules(user);
+    const modules = await this.tokenService.getUserModules(user);
 
     // Determine redirect path based on role
     let redirectPath: string;
@@ -875,130 +822,6 @@ export class AuthenticationService {
     return this.userRepository.findOne({
       where: { id: userId },
     });
-  }
-
-  /**
-   * Get modules accessible by user based on their role.
-   * PERF: Results are cached in-memory with 5-minute TTL (CRIT-03).
-   * Module assignments only change when an admin explicitly reassigns modules.
-   */
-  private async getUserModules(user: User): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
-    // SUPER_ADMIN has no modules (they manage the system)
-    if (user.role === Role.SUPER_ADMIN) {
-      return [];
-    }
-
-    // Check cache first
-    const cached = this.moduleCache.get(user.id);
-    if (cached && (Date.now() - cached.cachedAt) < this.moduleCacheTtlMs) {
-      return cached.modules;
-    }
-
-    let modules: Array<{ code: string; name: string; defaultRoute: string }>;
-
-    // TENANT_ADMIN has access to all tenant modules
-    if (user.role === Role.TENANT_ADMIN && user.tenantId) {
-      // Query tenant_modules join with modules to get all modules for this tenant
-      const tenantModules = await this.userRepository.manager.query<TenantModuleRow[]>(
-        `SELECT m.code, m.name, m."defaultRoute"
-         FROM auth.tenant_modules tm
-         JOIN auth.modules m ON tm."moduleId" = m.id
-         WHERE tm."tenantId" = $1 AND tm."isEnabled" = true
-         ORDER BY m.name`,
-        [user.tenantId],
-      );
-
-      modules = tenantModules.map((tm) => ({
-        code: tm.code,
-        name: tm.name,
-        defaultRoute: tm.defaultRoute,
-      }));
-    } else {
-      // MODULE_MANAGER and MODULE_USER have specific module assignments
-      const assignments = await this.userModuleAssignmentRepository.find({
-        where: { userId: user.id, isActive: true },
-        relations: ['module'],
-      });
-
-      modules = assignments
-        .filter((a) => a.isAccessible() && a.module)
-        .map((a) => ({
-          code: a.module.code,
-          name: a.module.name,
-          defaultRoute: a.module.defaultRoute,
-        }));
-    }
-
-    // Cache the result
-    this.moduleCache.set(user.id, { modules, cachedAt: Date.now() });
-
-    return modules;
-  }
-
-  /**
-   * Invalidate module cache for a user (call when module assignments change)
-   */
-  invalidateModuleCache(userId: string): void {
-    this.moduleCache.delete(userId);
-  }
-
-  /**
-   * Get user's tenant-level resource permissions from their role assignment.
-   *
-   * SUPER_ADMIN and TENANT_ADMIN are excluded -- they bypass permission checks entirely.
-   * For MODULE_MANAGER and MODULE_USER, queries the tenant schema to fetch the
-   * resource_permissions array from the user's assigned role.
-   *
-   * Returns a flat string array (e.g., ["tanks:create", "sensors:view"]).
-   * Empty array if the user has no role assignment or no permissions.
-   */
-  private async getUserResourcePermissions(user: User): Promise<string[]> {
-    // SUPER_ADMIN and TENANT_ADMIN don't need resource permissions -- they have full access
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.TENANT_ADMIN) {
-      return [];
-    }
-
-    // No tenant context means no tenant-level permissions
-    if (!user.tenantId) {
-      return [];
-    }
-
-    try {
-      // Compute tenant schema name (same logic as SchemaManagerService.getTenantSchemaName)
-      const cleanId = user.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-      const schemaName = `tenant_${cleanId}`;
-
-      // Query user's active role assignments and their resource permissions
-      // A user may have multiple roles; merge all resource permissions (union)
-      const rows: Array<{ resource_permissions: string[] | null }> = await this.dataSource.query(
-        `
-        SELECT trp.resource_permissions
-        FROM "${schemaName}"."user_role_assignments" ura
-        JOIN "${schemaName}"."tenant_role_permissions" trp ON ura.role_id = trp.role_id
-        WHERE ura.user_id = $1 AND ura.is_active = true
-        `,
-        [user.id],
-      );
-
-      // Merge permissions from all assigned roles, deduplicate
-      const permissionSet = new Set<string>();
-      for (const row of rows) {
-        if (Array.isArray(row.resource_permissions)) {
-          for (const perm of row.resource_permissions) {
-            permissionSet.add(perm);
-          }
-        }
-      }
-
-      return Array.from(permissionSet);
-    } catch (error) {
-      // If the tenant schema or tables don't exist yet, return empty
-      // This is non-fatal -- the user simply won't have fine-grained permissions
-      this.logger.warn(
-        `Failed to load resource permissions for user ${user.id} in tenant ${user.tenantId}: ${(error as Error).message}`,
-      );
-      return [];
-    }
   }
 
   /**
@@ -1039,113 +862,6 @@ export class AuthenticationService {
     }
 
     return updatedAttempts;
-  }
-
-  private async generateTokens(
-    user: User,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<AuthPayload> {
-    // Get user's module codes for JWT
-    const modules = await this.getUserModules(user);
-    const moduleCodes = modules.map((m) => m.code);
-
-    // Get user's tenant-level resource permissions for JWT (MODULE_MANAGER, MODULE_USER only)
-    const resourcePermissions = await this.getUserResourcePermissions(user);
-
-    // Generate JWT ID for token blacklisting
-    const jti = crypto.randomUUID();
-
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      roles: [user.role], // Include as array for consistency
-      tenantId: user.tenantId ?? null,
-      modules: moduleCodes.length > 0 ? moduleCodes : undefined,
-      resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
-      jti, // Include JTI for token blacklisting
-    };
-
-    // SECURITY: Include audience claim to prevent cross-service token replay
-    const accessToken = await this.jwtService.signAsync(payload, {
-      audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
-    });
-    const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
-
-    // SECURITY: Prefix refresh token with userId so the lookup can be scoped per-user.
-    // Token format sent to client: {userId}:{randomBytes}
-    // Only the random part is hashed and stored in DB; userId is used as a lookup key.
-    const refreshTokenValue = this.hashRefreshTokens
-      ? `${user.id}:${refreshTokenRandom}`
-      : refreshTokenRandom;
-
-    // SECURITY: Hash refresh token before storage
-    // The client gets the plain token, we store the hash
-    let tokenToStore = refreshTokenRandom;
-    if (this.hashRefreshTokens) {
-      tokenToStore = await bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
-    }
-
-    // Create refresh token
-    const refreshToken = this.refreshTokenRepository.create({
-      token: tokenToStore,
-      userId: user.id,
-      tenantId: user.tenantId,
-      expiresAt: new Date(Date.now() + this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000),
-      ipAddress,
-      userAgent,
-    });
-
-    await this.refreshTokenRepository.save(refreshToken);
-
-    // Create session if session manager is available
-    if (this.sessionManager) {
-      await this.sessionManager.createSession(user.id, {
-        ipAddress,
-        userAgent,
-        tenantId: user.tenantId ?? undefined,
-      });
-    }
-
-    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-    const expiresInSeconds = this.parseExpiresIn(expiresIn);
-
-    // Determine redirect URL based on role
-    const redirectUrl = this.getRedirectUrl(user, modules);
-
-    return {
-      accessToken,
-      refreshToken: refreshTokenValue, // Return plain token to client
-      user,
-      expiresIn: expiresInSeconds,
-      tokenType: 'Bearer',
-      redirectUrl,
-    };
-  }
-
-  /**
-   * Get redirect URL based on user role
-   */
-  private getRedirectUrl(
-    user: User,
-    modules: Array<{ code: string; name: string; defaultRoute: string }>,
-  ): string {
-    switch (user.role) {
-      case Role.SUPER_ADMIN:
-        return '/admin';
-      case Role.TENANT_ADMIN:
-        return '/tenant';
-      case Role.MODULE_MANAGER:
-      case Role.MODULE_USER:
-        // Redirect to first/primary module
-        if (modules.length > 0 && modules[0]) {
-          return modules[0].defaultRoute;
-        }
-        return '/no-access';
-      default:
-        return '/';
-    }
   }
 
   /**
@@ -1280,7 +996,7 @@ export class AuthenticationService {
     // Blacklist all existing access tokens for this user
     if (this.tokenBlacklist) {
       const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = this.parseExpiresIn(expiresIn);
+      const expiresInSeconds = parseExpiresIn(expiresIn);
       const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
       await this.tokenBlacklist.blacklistUserTokens(user.id, expiryDate, 'password_reset');
     }
@@ -1313,115 +1029,6 @@ export class AuthenticationService {
     ]);
 
     // Generate new tokens so user is immediately logged in
-    return this.generateTokens(user, ipAddress, userAgent);
-  }
-
-  /**
-   * Generate full auth tokens for a user after MFA verification.
-   * This is called by MfaService after successful MFA challenge.
-   *
-   * SECURITY: This method must only be called from MfaService after MFA
-   * verification succeeds. It bypasses password validation (already done in login).
-   */
-  async generateTokensForMfa(
-    user: User,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<AuthPayload> {
-    // Enforce concurrent session limit
-    if (this.sessionManager) {
-      await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
-    }
-
-    this.logger.log(`MFA verified, generating tokens for: ${user.email} (role: ${user.role})`);
-
-    // Audit log + event publish in parallel
-    await Promise.allSettled([
-      this.logSecurityEvent('LOGIN_SUCCESS_MFA', {
-        userId: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        ipAddress,
-        userAgent,
-        success: true,
-      }),
-      this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'UserLoggedIn',
-        timestamp: new Date(),
-        tenantId: user.tenantId ?? 'system',
-        userId: user.id,
-        version: 1,
-      }),
-    ]);
-
-    return this.generateTokens(user, ipAddress, userAgent);
-  }
-
-  /**
-   * Generate full auth tokens for a user after WebAuthn (biometric) verification.
-   * This is called by WebAuthnService after successful biometric authentication.
-   *
-   * SECURITY: This method must only be called from WebAuthnService after
-   * credential verification succeeds. It bypasses password validation
-   * (biometric authentication replaces password).
-   */
-  async generateTokensForWebAuthn(
-    user: User,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<AuthPayload> {
-    // Enforce concurrent session limit
-    if (this.sessionManager) {
-      await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
-    }
-
-    this.logger.log(`WebAuthn verified, generating tokens for: ${user.email} (role: ${user.role})`);
-
-    // Audit log + event publish in parallel
-    await Promise.allSettled([
-      this.logSecurityEvent('LOGIN_SUCCESS_WEBAUTHN', {
-        userId: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        ipAddress,
-        userAgent,
-        success: true,
-      }),
-      this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'UserLoggedIn',
-        timestamp: new Date(),
-        tenantId: user.tenantId ?? 'system',
-        userId: user.id,
-        version: 1,
-      }),
-    ]);
-
-    return this.generateTokens(user, ipAddress, userAgent);
-  }
-
-  private parseExpiresIn(expiresIn: string): number {
-    // L-03: Support 'w' (weeks) unit in addition to s/m/h/d
-    const match = expiresIn.match(/^(\d+)([smhdw])$/);
-    if (!match || !match[1] || !match[2]) return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
-
-    const value = parseInt(match[1], 10);
-    const unit = match[2];
-
-    switch (unit) {
-      case 's':
-        return value;
-      case 'm':
-        return value * 60;
-      case 'h':
-        return value * 60 * 60;
-      case 'd':
-        return value * 24 * 60 * 60;
-      case 'w':
-        return value * 7 * 24 * 60 * 60;
-      default:
-        return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
-    }
+    return this.tokenService.generateTokens(user, ipAddress, userAgent);
   }
 }

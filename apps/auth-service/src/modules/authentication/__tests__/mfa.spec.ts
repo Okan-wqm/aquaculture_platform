@@ -17,6 +17,7 @@ import { Role } from '@platform/backend-common';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
 import { MfaService } from '../services/mfa.service';
+import { TokenService } from '../services/token.service';
 
 // ============================================================================
 // Mock Helpers
@@ -70,7 +71,8 @@ const mockJwtService = {
 const mockConfigService = {
   get: jest.fn((key: string, defaultValue?: any) => {
     const config: Record<string, any> = {
-      MFA_ENCRYPTION_KEY: null, // No encryption in tests (dev mode)
+      // 64-char hex key so MfaService doesn't disable itself
+      MFA_ENCRYPTION_KEY: 'a'.repeat(64),
       MFA_ISSUER_NAME: 'TestApp',
       NODE_ENV: 'test',
     };
@@ -82,8 +84,8 @@ const mockAuditLogService = {
   log: jest.fn().mockResolvedValue(undefined),
 };
 
-const mockAuthenticationService = {
-  generateTokensForMfa: jest.fn().mockResolvedValue({
+const mockTokenService = {
+  generateTokens: jest.fn().mockResolvedValue({
     accessToken: 'full-access-token',
     refreshToken: 'full-refresh-token',
     user: createMockUser({ mfaEnabled: true }),
@@ -110,13 +112,11 @@ describe('MfaService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AuditLogService, useValue: mockAuditLogService },
-        { provide: 'AUTH_SERVICE', useValue: mockAuthenticationService },
+        { provide: TokenService, useValue: mockTokenService },
       ],
     }).compile();
 
     service = module.get<MfaService>(MfaService);
-    // Manually call onModuleInit since Test.createTestingModule doesn't
-    service.onModuleInit();
   });
 
   // ==========================================================================
@@ -377,7 +377,7 @@ describe('MfaService', () => {
       const result = await service.verifyMfaLogin('valid-mfa-token', validCode, '127.0.0.1');
 
       expect(result.accessToken).toBe('full-access-token');
-      expect(mockAuthenticationService.generateTokensForMfa).toHaveBeenCalledWith(
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'user-uuid-123' }),
         '127.0.0.1',
         undefined,

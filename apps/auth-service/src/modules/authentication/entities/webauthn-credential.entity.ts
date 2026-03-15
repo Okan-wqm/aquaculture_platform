@@ -40,7 +40,7 @@ export class WebAuthnCredential {
    * Used to identify which credential to use during authentication.
    */
   @Field()
-  @Column({ type: 'varchar', length: 512, unique: true })
+  @Column({ type: 'varchar', length: 512 })
   credentialId!: string;
 
   /**

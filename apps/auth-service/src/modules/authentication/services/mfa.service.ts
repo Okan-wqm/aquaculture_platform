@@ -5,9 +5,7 @@ import {
   Logger,
   BadRequestException,
   UnauthorizedException,
-  OnModuleInit,
   ForbiddenException,
-  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -24,7 +22,7 @@ import {
   RegenerateMfaRecoveryCodesResponse,
 } from '../dto/mfa.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
-import type { AuthenticationService } from './authentication.service';
+import { TokenService } from './token.service';
 
 // ============================================================================
 // Constants
@@ -199,7 +197,7 @@ function verifyTOTP(
 // ============================================================================
 
 @Injectable()
-export class MfaService implements OnModuleInit {
+export class MfaService {
   private readonly logger = new Logger(MfaService.name);
   private encryptionKey: Buffer | null = null;
   private mfaDisabled = false;
@@ -211,15 +209,13 @@ export class MfaService implements OnModuleInit {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
-    @Inject('AUTH_SERVICE') private readonly authenticationService: AuthenticationService,
+    private readonly tokenService: TokenService,
   ) {
     this.issuerName = this.configService.get<string>(
       'MFA_ISSUER_NAME',
       'AquaculturePlatform',
     );
-  }
 
-  onModuleInit(): void {
     const masterKey = this.configService.get<string>('MFA_ENCRYPTION_KEY');
     if (!masterKey) {
       this.logger.warn(
@@ -544,9 +540,7 @@ export class MfaService implements OnModuleInit {
 
     await this.logMfaEvent('MFA_VERIFY_SUCCESS', user, true);
 
-    // Delegate to AuthenticationService to generate full tokens
-    // We call the internal method via a public wrapper
-    return this.authenticationService.generateTokensForMfa(user, ipAddress, userAgent);
+    return this.tokenService.generateTokens(user, ipAddress, userAgent);
   }
 
   // ==========================================================================

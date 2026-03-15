@@ -12,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { IS_PUBLIC_KEY, ITokenBlacklist, TOKEN_BLACKLIST } from '@platform/backend-common';
 import { Request } from 'express';
 
-import { JwtPayload } from '../services/authentication.service';
+import { JwtPayload } from '../services/token.service';
 
 /**
  * Extended request with user payload

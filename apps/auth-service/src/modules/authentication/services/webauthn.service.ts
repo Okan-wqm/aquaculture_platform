@@ -5,7 +5,6 @@ import {
   UnauthorizedException,
   BadRequestException,
   Logger,
-  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,7 +24,7 @@ import {
   WebAuthnRemoveResponse,
 } from '../dto/webauthn.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
-import type { AuthenticationService } from './authentication.service';
+import { TokenService } from './token.service';
 
 /**
  * In-memory challenge store with TTL.
@@ -58,7 +57,7 @@ export class WebAuthnService {
     private readonly userRepository: Repository<User>,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
-    @Inject('AUTH_SERVICE') private readonly authService: AuthenticationService,
+    private readonly tokenService: TokenService,
   ) {
     // RP ID is the domain without protocol or port
     this.rpId = this.configService.get<string>('WEBAUTHN_RP_ID', 'localhost');
@@ -398,8 +397,7 @@ export class WebAuthnService {
       ipAddress,
     });
 
-    // Generate auth tokens via AuthenticationService
-    return this.authService.generateTokensForWebAuthn(user, ipAddress, userAgent);
+    return this.tokenService.generateTokens(user, ipAddress, userAgent);
   }
 
   // ==========================================================================

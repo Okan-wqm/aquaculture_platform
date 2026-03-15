@@ -15,6 +15,7 @@ import { MfaResolver } from './resolvers/mfa.resolver';
 import { WebAuthnResolver } from './resolvers/webauthn.resolver';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
+import { TokenService } from './services/token.service';
 import { WebAuthnService } from './services/webauthn.service';
 
 @Module({
@@ -30,25 +31,16 @@ import { WebAuthnService } from './services/webauthn.service';
     AuditModule,
   ],
   providers: [
-    AuthenticationService,
+    TokenService,
     MfaService,
     WebAuthnService,
-    // Token-based providers to break circular dependency between
-    // AuthenticationService <-> MfaService / WebAuthnService
-    {
-      provide: 'MFA_SERVICE',
-      useExisting: MfaService,
-    },
-    {
-      provide: 'AUTH_SERVICE',
-      useExisting: AuthenticationService,
-    },
+    AuthenticationService,
     AuthResolver,
     MfaResolver,
     WebAuthnResolver,
     JwtAuthGuard,
   ],
-  exports: [AuthenticationService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],
+  exports: [AuthenticationService, TokenService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class AuthenticationModule {}

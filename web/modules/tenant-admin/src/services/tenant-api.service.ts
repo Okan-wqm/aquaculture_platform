@@ -349,40 +349,35 @@ import type { TenantRolePermissions } from '../types/permissions';
 export interface TenantRole {
   id: string;
   name: string;
-  displayName: string;
   description?: string;
+  color: string;
+  icon: string;
+  level: number;
+  isSystem: boolean;
   isDefault: boolean;
-  isSystemRole: boolean;
-  tenantId: string;
-  permissions?: TenantRolePermissions;
-  color?: string;
-  icon?: string;
-  level?: number;
-  userCount?: number;
+  userCount: number;
+  permissions?: TenantRolePermissions | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CreateTenantRoleInput {
   name: string;
-  displayName: string;
   description?: string;
-  isDefault?: boolean;
   color?: string;
   icon?: string;
   level?: number;
-  panelPermissions?: Record<string, Record<string, Record<string, boolean>>>;
+  isDefault?: boolean;
+  panelPermissions: Record<string, Record<string, Record<string, boolean>>>;
 }
 
 export interface UpdateTenantRoleInput {
-  id?: string; // Optional for create
   name?: string;
-  displayName?: string;
   description?: string;
-  isDefault?: boolean;
   color?: string;
   icon?: string;
   level?: number;
+  isDefault?: boolean;
   panelPermissions?: Record<string, Record<string, Record<string, boolean>>>;
 }
 
@@ -393,16 +388,16 @@ export interface UpdateTenantRoleInput {
 const TENANT_ROLES_QUERY = `
   query TenantRoles {
     tenantRoles {
-      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+      id name description color icon level isSystem isDefault userCount createdAt updatedAt
       permissions { id roleId panelPermissions resourcePermissions }
     }
   }
 `;
 
 const TENANT_ROLE_QUERY = `
-  query TenantRole($id: ID!) {
-    tenantRole(id: $id) {
-      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+  query TenantRole($roleId: ID!) {
+    tenantRole(roleId: $roleId) {
+      id name description color icon level isSystem isDefault userCount createdAt updatedAt
       permissions { id roleId panelPermissions resourcePermissions }
     }
   }
@@ -411,7 +406,7 @@ const TENANT_ROLE_QUERY = `
 const DEFAULT_TENANT_ROLE_QUERY = `
   query DefaultTenantRole {
     defaultTenantRole {
-      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+      id name description color icon level isSystem isDefault userCount createdAt updatedAt
       permissions { id roleId panelPermissions resourcePermissions }
     }
   }
@@ -426,29 +421,33 @@ const PERMISSION_CATEGORIES_QUERY = `
 const CREATE_TENANT_ROLE_MUTATION = `
   mutation CreateTenantRole($input: CreateTenantRoleInput!) {
     createTenantRole(input: $input) {
-      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+      id name description color icon level isSystem isDefault userCount createdAt updatedAt
+      permissions { id roleId panelPermissions resourcePermissions }
     }
   }
 `;
 
 const UPDATE_TENANT_ROLE_MUTATION = `
-  mutation UpdateTenantRole($input: UpdateTenantRoleInput!) {
-    updateTenantRole(input: $input) {
-      id name displayName description isDefault isSystemRole tenantId createdAt updatedAt
+  mutation UpdateTenantRole($roleId: ID!, $input: UpdateTenantRoleInput!) {
+    updateTenantRole(roleId: $roleId, input: $input) {
+      id name description color icon level isSystem isDefault userCount createdAt updatedAt
       permissions { id roleId panelPermissions resourcePermissions }
     }
   }
 `;
 
 const DELETE_TENANT_ROLE_MUTATION = `
-  mutation DeleteTenantRole($id: ID!) {
-    deleteTenantRole(id: $id)
+  mutation DeleteTenantRole($roleId: ID!) {
+    deleteTenantRole(roleId: $roleId)
   }
 `;
 
 const SEED_TENANT_ROLES_MUTATION = `
   mutation SeedTenantRoles {
-    seedTenantRoles { id name displayName }
+    seedTenantRoles {
+      id name description color icon level isSystem isDefault userCount createdAt updatedAt
+      permissions { id roleId panelPermissions resourcePermissions }
+    }
   }
 `;
 
@@ -459,8 +458,8 @@ export async function getTenantRoles(): Promise<TenantRole[]> {
   return data.tenantRoles;
 }
 
-export async function getTenantRole(id: string): Promise<TenantRole> {
-  const data = await graphqlRequest<{ tenantRole: TenantRole }>(TENANT_ROLE_QUERY, { id });
+export async function getTenantRole(roleId: string): Promise<TenantRole> {
+  const data = await graphqlRequest<{ tenantRole: TenantRole }>(TENANT_ROLE_QUERY, { roleId });
   return data.tenantRole;
 }
 
@@ -480,13 +479,12 @@ export async function createTenantRole(input: CreateTenantRoleInput): Promise<Te
 }
 
 export async function updateTenantRole(roleId: string, input: UpdateTenantRoleInput): Promise<TenantRole> {
-  // BUG-005: id must be inside input — mutation only accepts $input: UpdateTenantRoleInput!
-  const data = await graphqlRequest<{ updateTenantRole: TenantRole }>(UPDATE_TENANT_ROLE_MUTATION, { input: { ...input, id: roleId } });
+  const data = await graphqlRequest<{ updateTenantRole: TenantRole }>(UPDATE_TENANT_ROLE_MUTATION, { roleId, input });
   return data.updateTenantRole;
 }
 
-export async function deleteTenantRole(id: string): Promise<boolean> {
-  const data = await graphqlRequest<{ deleteTenantRole: boolean }>(DELETE_TENANT_ROLE_MUTATION, { id });
+export async function deleteTenantRole(roleId: string): Promise<boolean> {
+  const data = await graphqlRequest<{ deleteTenantRole: boolean }>(DELETE_TENANT_ROLE_MUTATION, { roleId });
   return data.deleteTenantRole;
 }
 

@@ -63,12 +63,20 @@ function createInitialState(config: SimConfig): SimState {
     basePump: 0,
     nutPump: 0,
     dilPump: 0,
-    state: 'IDLE',
+    state: 'IDLE' as const,
+    stateTimer: 0,
+    alarmLatched: false,
+    phPID: { integral: 0, prevError: 0, prevMeasurement: config.initialPH, prevPV: config.initialPH, prevDerivative: 0, output: 0 },
+    phHistory: [],
+    ecHistory: [],
+    hourlyResetTick: 0,
     acidTotalGrams: 0,
     baseTotalGrams: 0,
     nutTotalML: 0,
     co2Eq: co2MmToMg(CO2_EQ_MMOL),
     eqPH,
+    gainSchedule: 1.0,
+    bufferCapacity: 1.0,
   };
 }
 

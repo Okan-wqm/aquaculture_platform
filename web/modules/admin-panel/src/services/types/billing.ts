@@ -269,6 +269,75 @@ export interface InvoiceStats {
 }
 
 // ============================================================================
+// Payment Types
+// ============================================================================
+
+export enum PaymentStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  SUCCEEDED = 'succeeded',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled',
+  REFUNDED = 'refunded',
+  PARTIALLY_REFUNDED = 'partially_refunded',
+}
+
+export enum PaymentMethod {
+  CREDIT_CARD = 'credit_card',
+  DEBIT_CARD = 'debit_card',
+  BANK_TRANSFER = 'bank_transfer',
+  WIRE_TRANSFER = 'wire_transfer',
+  ACH = 'ach',
+  SEPA = 'sepa',
+  PAYPAL = 'paypal',
+  CHECK = 'check',
+  CASH = 'cash',
+  OTHER = 'other',
+}
+
+export interface RefundInfo {
+  amount: number;
+  reason: string;
+  refundedAt: string;
+  refundId?: string;
+}
+
+export interface PaymentOverview {
+  id: string;
+  tenantId: string;
+  transactionId: string;
+  invoiceId: string;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  paymentMethod: PaymentMethod;
+  paymentDate: string;
+  processedAt?: string;
+  failureReason?: string;
+  refunds?: RefundInfo[];
+  refundedAmount: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+}
+
+export interface RecordPaymentDto {
+  invoiceId: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  paymentDate?: string;
+  currency?: string;
+  notes?: string;
+}
+
+export interface RefundPaymentDto {
+  paymentId: string;
+  amount: number;
+  reason: string;
+}
+
+// ============================================================================
 // Module Pricing Types
 // ============================================================================
 
@@ -564,4 +633,88 @@ export interface UpdateCustomPlanDto {
   validTo?: string;
   notes?: string;
   updatedBy?: string;
+}
+
+// ============================================================================
+// Usage Metering Types
+// ============================================================================
+
+export enum AggregationPeriod {
+  HOURLY = 'hourly',
+  DAILY = 'daily',
+  WEEKLY = 'weekly',
+  MONTHLY = 'monthly',
+  QUARTERLY = 'quarterly',
+  YEARLY = 'yearly',
+}
+
+export enum MeterType {
+  API_CALLS = 'api_calls',
+  DATA_STORAGE = 'data_storage',
+  SENSOR_READINGS = 'sensor_readings',
+  ALERTS_SENT = 'alerts_sent',
+  REPORTS_GENERATED = 'reports_generated',
+  USERS_ACTIVE = 'users_active',
+  FARMS_ACTIVE = 'farms_active',
+  PONDS_ACTIVE = 'ponds_active',
+  SENSORS_ACTIVE = 'sensors_active',
+  DATA_EXPORT = 'data_export',
+  INTEGRATIONS = 'integrations',
+  CUSTOM = 'custom',
+}
+
+export interface MeterBreakdown {
+  meterType: MeterType;
+  totalUsage: number;
+  avgPerTenant: number;
+  maxPerTenant: number;
+  unit: string;
+  tenantCount: number;
+}
+
+export interface UsageSummaryStats {
+  totalTenants: number;
+  totalEvents: number;
+  meterBreakdown: MeterBreakdown[];
+  periodCovered: {
+    from: string;
+    to: string;
+  };
+}
+
+export interface TenantMeterUsage {
+  meterType: MeterType;
+  totalUsage: number;
+  unit: string;
+  eventCount: number;
+  peakUsage: number;
+  averageUsage: number;
+}
+
+export interface TenantUsageOverview {
+  tenantId: string;
+  tenantName?: string;
+  meters: TenantMeterUsage[];
+  totalEvents: number;
+  lastActivity?: string;
+}
+
+export interface UsageTrendPoint {
+  periodStart: string;
+  periodEnd: string;
+  meterType: MeterType;
+  totalUsage: number;
+  peakUsage: number;
+  averageUsage: number;
+  eventCount: number;
+  unit: string;
+}
+
+export interface TopTenantUsage {
+  tenantId: string;
+  tenantName?: string;
+  totalUsage: number;
+  meterType: MeterType;
+  unit: string;
+  eventCount: number;
 }

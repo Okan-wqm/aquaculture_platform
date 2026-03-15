@@ -144,6 +144,22 @@ export class SensorResolver {
   }
 
   /**
+   * Get latest readings for multiple sensors in a single batch query.
+   * Returns one reading per sensor (the most recent).
+   * Uses DISTINCT ON for O(1) DB round-trips instead of N+1.
+   */
+  @Query(() => [SensorReading], { name: 'latestReadingsBatch' })
+  async getLatestReadingsBatch(
+    @Args('sensorIds', { type: () => [ID] }) sensorIds: string[],
+    @Tenant() tenantId: string,
+  ): Promise<SensorReading[]> {
+    return await this.queryService.getLatestReadingsForSensors(
+      sensorIds,
+      tenantId,
+    );
+  }
+
+  /**
    * Get readings in a time range
    */
   @Query(() => [SensorReading], { name: 'readings' })

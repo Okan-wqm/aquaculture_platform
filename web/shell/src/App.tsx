@@ -11,6 +11,7 @@ import { useAuthContext, PageLoading } from '@aquaculture/shared-ui';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
 import LoginPage from './pages/LoginPage';
+import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import RemoteModuleLoader from './components/RemoteModuleLoader';
@@ -258,7 +259,8 @@ const App: React.FC = () => {
         />
 
         {/* Settings Page */}
-        <Route path="/settings/*" element={<div>Settings (TODO)</div>} />
+        <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
+        <Route path="/settings/*" element={<SettingsPage />} />
       </Route>
 
       {/* ================================================================ */}

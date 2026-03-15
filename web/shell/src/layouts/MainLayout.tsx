@@ -17,6 +17,8 @@ import {
   type SidebarTheme,
   type HeaderTheme,
 } from '@aquaculture/shared-ui';
+import { NotificationPanel } from '@/components/NotificationPanel';
+import ConsentBanner from '../components/ConsentBanner';
 
 // ============================================================================
 // Navigation Configuration - Role Based
@@ -75,7 +77,9 @@ const superAdminNavigation: NavigationItem[] = [
       { id: 'billing-module-pricing', label: 'Module Pricing', path: '/admin/billing/module-pricing' },
       { id: 'billing-subscriptions', label: 'Subscriptions', path: '/admin/billing/subscriptions' },
       { id: 'billing-invoices', label: 'Invoices', path: '/admin/billing/invoices' },
+      { id: 'billing-payments', label: 'Payments', path: '/admin/billing/payments' },
       { id: 'billing-discounts', label: 'Discounts', path: '/admin/billing/discounts' },
+      { id: 'billing-custom-plans', label: 'Custom Plans', path: '/admin/billing/custom-plans' },
     ],
   },
   {
@@ -226,6 +230,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sites-setup', label: 'Setup', path: '/sites/setup' },
       { id: 'sites-tanks', label: 'Tanks & Ponds', path: '/sites/tanks' },
       { id: 'sites-feeding', label: 'Feeding', path: '/sites/feeding' },
+      { id: 'sites-feeding-records', label: 'Feed Records & Inventory', path: '/sites/feeding/records' },
       { id: 'sites-water-chemistry', label: 'Water Chemistry', path: '/sites/water-chemistry' },
       { id: 'sites-storage', label: 'Storage & Stock', path: '/sites/storage' },
       { id: 'sites-tasks', label: 'Tasks', path: '/sites/tasks' },
@@ -245,6 +250,10 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sensor-readings', label: 'Readings', path: '/sensor/readings' },
       { id: 'sensor-alerts', label: 'Alerts', path: '/sensor/alerts' },
       { id: 'sensor-automation', label: 'Automation', path: '/sensor/automation', icon: 'cpu' },
+      { id: 'sensor-plc', label: 'PLC Control', path: '/sensor/plc', icon: 'server' },
+      { id: 'sensor-plc-connections', label: 'PLC Connections', path: '/sensor/plc/connections', icon: 'wifi' },
+      { id: 'sensor-plc-feeding', label: 'Feeding Params', path: '/sensor/plc/feeding', icon: 'bar-chart' },
+      { id: 'sensor-plc-alarms', label: 'PLC Alarms', path: '/sensor/plc/alarms', icon: 'bell' },
       { id: 'sensor-processes', label: 'Process Editor', path: '/sensor/processes' },
       { id: 'sensor-scada', label: 'SCADA Packages', path: '/sensor/scada-packages', icon: 'monitor' },
     ],
@@ -462,11 +471,10 @@ const MainLayout: React.FC = () => {
   }, []);
 
   /**
-   * Notifications click handler — placeholder until notification system is built.
+   * Notification panel element — self-contained bell icon with dropdown.
+   * Rendered as rightContent in the Header to replace the built-in bell button.
    */
-  const handleNotificationsClick = useCallback(() => {
-    // TODO: implement notification panel
-  }, []);
+  const notificationPanelElement = useMemo(() => <NotificationPanel />, []);
 
   /**
    * Logo element — memoized to avoid Sidebar re-renders
@@ -511,11 +519,11 @@ const MainLayout: React.FC = () => {
           user={user}
           tenant={tenant}
           onSearch={handleSearch}
-          onNotificationsClick={handleNotificationsClick}
           userMenuItems={userMenuItems}
           onLogout={handleLogout}
           theme={theme as HeaderTheme}
           leftContent={leftContent}
+          rightContent={notificationPanelElement}
         />
 
         {/* Page Content */}
@@ -523,6 +531,9 @@ const MainLayout: React.FC = () => {
           <Outlet />
         </main>
       </div>
+
+      {/* GDPR Consent Banner — shown when consent is outdated or missing */}
+      <ConsentBanner />
     </div>
   );
 };

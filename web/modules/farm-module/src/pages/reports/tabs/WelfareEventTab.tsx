@@ -3,6 +3,7 @@
  * Lists welfare events and provides quick-entry modal for immediate reporting
  */
 import React, { useState, useMemo } from 'react';
+import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import { getMockReports } from '../mock/helpers';
 import { WelfareEventReport, WelfareEventStatus } from '../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../utils/thresholds';
@@ -326,6 +327,9 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   const [selectedEvent, setSelectedEvent] = useState<WelfareEventReport | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'resolved'>('all');
 
+  // Regulatory settings (pre-populates contact info; welfare submission API TBD)
+  const { data: regulatorySettings } = useRegulatorySettings();
+
   // Fetch tank data for mortality warning banner
   const { data: tanksData } = useTanksList({ siteId, isActive: true });
   const tanks = tanksData?.items || [];
@@ -374,8 +378,16 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   };
 
   const handleModalSubmit = async (data: Partial<WelfareEventReport>): Promise<void> => {
-    console.log('Submitting welfare event:', data);
-    // In real app, this would call the API
+    // TODO: Replace with real welfare event submission mutation when backend endpoint is available
+    console.log('Submitting welfare event:', data, {
+      organisationNumber: regulatorySettings?.organisationNumber,
+      siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
+      contact: {
+        navn: regulatorySettings?.defaultContactName,
+        epost: regulatorySettings?.defaultContactEmail,
+        telefonnummer: regulatorySettings?.defaultContactPhone,
+      },
+    });
     setIsModalOpen(false);
     setSelectedEvent(null);
   };

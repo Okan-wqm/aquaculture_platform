@@ -48,11 +48,11 @@ interface RotationCalendarDay {
 // ============================================================================
 
 const ROTATION_TYPE_CONFIG: Record<RotationType, { label: string; color: string }> = {
-  offshore: { label: 'Offshore', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  onshore: { label: 'Onshore', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
-  field: { label: 'Field', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  vessel: { label: 'Vessel', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400' },
-  mixed: { label: 'Mixed', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
+  OFFSHORE: { label: 'Offshore', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  ONSHORE: { label: 'Onshore', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  FIELD: { label: 'Field', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  VESSEL: { label: 'Vessel', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  MIXED: { label: 'Mixed', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
 };
 
 const getDaysInMonth = (year: number, month: number): Date[] => {
@@ -134,7 +134,7 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
                   ROTATION_TYPE_CONFIG[rotation.rotationType].color
                 )}
               >
-                {rotation.rotationType === 'offshore' ? (
+                {rotation.rotationType === ('OFFSHORE' as RotationType) ? (
                   <Ship className="h-3 w-3" />
                 ) : (
                   <Building2 className="h-3 w-3" />
@@ -143,7 +143,7 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
               </span>
               <ArrowRight className="h-3 w-3 text-gray-400" />
               <span className="text-gray-600 dark:text-gray-400">
-                {rotation.rotationType === 'offshore' ? 'Onshore' : 'Offshore'}
+                {rotation.rotationType === ('OFFSHORE' as RotationType) ? 'Onshore' : 'Offshore'}
               </span>
             </div>
           </div>
@@ -195,8 +195,8 @@ export function OffshoreRotationsPage() {
     })
     .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime()) || [];
 
-  const offshoreRotationCount = activeRotations.filter((r) => r.rotationType === 'offshore').length;
-  const onshoreRotationCount = activeRotations.filter((r) => r.rotationType === 'onshore').length;
+  const offshoreRotationCount = activeRotations.filter((r) => r.rotationType === ('OFFSHORE' as RotationType)).length;
+  const onshoreRotationCount = activeRotations.filter((r) => r.rotationType === ('ONSHORE' as RotationType)).length;
 
   // Calendar days
   const calendarDays = useMemo(() => {
@@ -239,7 +239,7 @@ export function OffshoreRotationsPage() {
             ROTATION_TYPE_CONFIG[row.rotationType].color
           )}
         >
-          {row.rotationType === 'offshore' || row.rotationType === 'vessel' ? (
+          {row.rotationType === ('OFFSHORE' as RotationType) || row.rotationType === ('VESSEL' as RotationType) ? (
             <Ship className="h-3 w-3" />
           ) : (
             <Building2 className="h-3 w-3" />
@@ -555,7 +555,7 @@ export function OffshoreRotationsPage() {
                           key={rotation.id}
                           className={cn(
                             'truncate rounded px-1 py-0.5 text-xs',
-                            rotation.rotationType === 'offshore'
+                            rotation.rotationType === ('OFFSHORE' as RotationType)
                               ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
                               : 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300'
                           )}
@@ -581,12 +581,12 @@ export function OffshoreRotationsPage() {
       {activeTab === 'history' && (
         <div className="space-y-4">
           <DataTable
-            data={rotations?.filter((r) => r.status === 'completed') || []}
+            data={rotations?.filter((r) => r.status === ('COMPLETED' as RotationStatus)) || []}
             columns={rotationColumns}
             keyExtractor={(row) => row.id}
             isLoading={loadingRotations}
             emptyMessage="No rotation history found"
-            total={rotations?.filter((r) => r.status === 'completed').length}
+            total={rotations?.filter((r) => r.status === ('COMPLETED' as RotationStatus)).length}
             page={1}
             pageSize={20}
             onPageChange={() => {}}

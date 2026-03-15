@@ -18,8 +18,10 @@ export const emailTemplatesApi = {
     apiFetch<EmailTemplate>(`/settings/email-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteEmailTemplate: (id: string) =>
     apiFetch<void>(`/settings/email-templates/${id}`, { method: 'DELETE' }),
-  previewEmailTemplate: (id: string, sampleData: Record<string, unknown>) =>
-    apiFetch<{ html: string; text: string; subject: string }>(`/settings/email-templates/${id}/preview`, { method: 'POST', body: JSON.stringify({ sampleData }) }),
+  // Fix: backend uses GET (not POST) for preview, no body needed (uses sample data internally)
+  previewEmailTemplate: (id: string, _sampleData?: Record<string, unknown>) =>
+    apiFetch<{ html: string; text: string; subject: string }>(`/settings/email-templates/${id}/preview`),
+  // Fix: backend body uses { recipientEmail, variables } (not { to, sampleData })
   sendTestEmail: (id: string, to: string, sampleData: Record<string, unknown>) =>
-    apiFetch<{ success: boolean }>(`/settings/email-templates/${id}/test`, { method: 'POST', body: JSON.stringify({ to, sampleData }) }),
+    apiFetch<{ message: string; recipientEmail: string; rendered: unknown }>(`/settings/email-templates/${id}/test`, { method: 'POST', body: JSON.stringify({ recipientEmail: to, variables: sampleData }) }),
 };

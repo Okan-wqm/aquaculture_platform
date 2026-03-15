@@ -72,15 +72,13 @@ import {
 
 const mockRole = {
   id: 'role-1',
-  name: 'editor',
-  displayName: 'Editor',
+  name: 'Editor',
   description: 'Can edit content',
   color: '#3B82F6',
   icon: 'edit',
   level: 30,
-  isSystemRole: false,
+  isSystem: false,
   isDefault: false,
-  tenantId: 'tenant-1',
   userCount: 5,
   permissions: {
     id: 'perm-1',
@@ -95,8 +93,7 @@ const mockRole = {
 const mockDefaultRole = {
   ...mockRole,
   id: 'role-default',
-  name: 'viewer',
-  displayName: 'Viewer',
+  name: 'Viewer',
   isDefault: true,
 };
 
@@ -248,8 +245,7 @@ describe('useTenantRoles hooks', () => {
       const newRole = {
         ...mockRole,
         id: 'role-new',
-        name: 'manager',
-        displayName: 'Manager',
+        name: 'Manager',
       };
       mockCreateTenantRole.mockResolvedValue(newRole);
 
@@ -259,15 +255,15 @@ describe('useTenantRoles hooks', () => {
 
       await act(async () => {
         result.current.mutate({
-          name: 'manager',
-          displayName: 'Manager',
+          name: 'Manager',
+          panelPermissions: {},
         });
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(mockCreateTenantRole).toHaveBeenCalledWith({
-        name: 'manager',
-        displayName: 'Manager',
+        name: 'Manager',
+        panelPermissions: {},
       });
     });
 
@@ -282,7 +278,7 @@ describe('useTenantRoles hooks', () => {
       });
 
       act(() => {
-        result.current.mutate({ name: 'temp-role', displayName: 'Temp' });
+        result.current.mutate({ name: 'Temp Role', panelPermissions: {} });
       });
 
       // Wait for onMutate to fire — cache should optimistically include the new role
@@ -301,7 +297,7 @@ describe('useTenantRoles hooks', () => {
       });
 
       await act(async () => {
-        result.current.mutate({ name: 'bad-role', displayName: 'Bad' });
+        result.current.mutate({ name: 'bad-role', panelPermissions: {} });
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
@@ -318,7 +314,7 @@ describe('useTenantRoles hooks', () => {
 
   describe('useUpdateTenantRole', () => {
     it('should update role and invalidate queries on success', async () => {
-      const updatedRole = { ...mockRole, displayName: 'Senior Editor' };
+      const updatedRole = { ...mockRole, name: 'Senior Editor' };
       queryClient.setQueryData(roleKeys.lists(), mockRoles);
       queryClient.setQueryData(roleKeys.detail('role-1'), mockRole);
 
@@ -331,14 +327,14 @@ describe('useTenantRoles hooks', () => {
       await act(async () => {
         result.current.mutate({
           roleId: 'role-1',
-          input: { displayName: 'Senior Editor' },
+          input: { name: 'Senior Editor' },
         });
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
       expect(mockUpdateTenantRole).toHaveBeenCalledWith('role-1', {
-        displayName: 'Senior Editor',
+        name: 'Senior Editor',
       });
 
       // Detail cache should be updated
@@ -357,13 +353,13 @@ describe('useTenantRoles hooks', () => {
       act(() => {
         result.current.mutate({
           roleId: 'role-1',
-          input: { displayName: 'Updated Name' },
+          input: { name: 'Updated Name' },
         });
       });
 
       await waitFor(() => {
-        const cached = queryClient.getQueryData<Array<{ displayName: string }>>(roleKeys.lists());
-        expect(cached?.[0]?.displayName).toBe('Updated Name');
+        const cached = queryClient.getQueryData<Array<{ name: string }>>(roleKeys.lists());
+        expect(cached?.[0]?.name).toBe('Updated Name');
       });
     });
 
@@ -379,15 +375,15 @@ describe('useTenantRoles hooks', () => {
       await act(async () => {
         result.current.mutate({
           roleId: 'role-1',
-          input: { displayName: 'Should Fail' },
+          input: { name: 'Should Fail' },
         });
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
 
       // Should be rolled back
-      const cached = queryClient.getQueryData<Array<{ displayName: string }>>(roleKeys.lists());
-      expect(cached?.[0]?.displayName).toBe('Editor');
+      const cached = queryClient.getQueryData<Array<{ name: string }>>(roleKeys.lists());
+      expect(cached?.[0]?.name).toBe('Editor');
     });
   });
 
@@ -499,7 +495,7 @@ describe('useTenantRoles hooks', () => {
       });
 
       await act(async () => {
-        result.current.mutate({ name: '', displayName: '' });
+        result.current.mutate({ name: '', panelPermissions: {} });
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));

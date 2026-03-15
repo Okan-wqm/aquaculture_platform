@@ -34,8 +34,10 @@ export const securityApi = {
     apiFetch<PaginatedResult<ActivityLog>>(`/security/activities/user/${userId}?${buildQueryString(params || {})}`),
   getEntityActivities: (entityType: string, entityId: string, params?: PaginationParams) =>
     apiFetch<PaginatedResult<ActivityLog>>(`/security/activities/entity/${entityType}/${entityId}?${buildQueryString(params || {})}`),
-  exportActivityLogs: (format: 'csv' | 'json', params?: DateRangeParams) =>
-    apiFetch<{ url: string }>(`/security/activities/export?format=${format}&${buildQueryString(params || {})}`),
+  // TODO: No GET export on activities. Backend has POST /security/audit/export with body { format, startDate, endDate }
+  exportActivityLogs: (_format: 'csv' | 'json', _params?: DateRangeParams) => {
+    throw new Error('Not implemented: no backend GET endpoint for /security/activities/export. Use POST /security/audit/export instead.');
+  },
 
   // Audit Trail
   getAuditTrail: (params?: {
@@ -54,15 +56,19 @@ export const securityApi = {
     apiFetch<RetentionPolicy>(`/security/audit/retention-policies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteRetentionPolicy: (id: string) =>
     apiFetch<void>(`/security/audit/retention-policies/${id}`, { method: 'DELETE' }),
-  runRetentionPolicy: (id: string) =>
-    apiFetch<{ deletedCount: number; archivedCount: number }>(`/security/audit/retention-policies/${id}/run`, { method: 'POST' }),
+  // Fix: backend has POST /security/audit/retention-policies/apply (applies all, no per-policy run)
+  runRetentionPolicy: (_id: string) =>
+    apiFetch<{ success: boolean }>('/security/audit/retention-policies/apply', { method: 'POST' }),
 
   // Compliance
   getComplianceReports: () => apiFetch<ComplianceReport[]>('/security/compliance/reports'),
-  generateComplianceReport: (type: string) =>
-    apiFetch<ComplianceReport>('/security/compliance/reports/generate', { method: 'POST', body: JSON.stringify({ type }) }),
-  getComplianceDashboard: () =>
-    apiFetch<{ overallScore: number; byArea: Array<{ area: string; score: number; status: string }> }>('/security/compliance/dashboard'),
+  // Fix: backend POST /security/compliance/reports (not /reports/generate), body uses complianceType + reportPeriodStart/End
+  generateComplianceReport: (complianceType: string, reportPeriodStart?: string, reportPeriodEnd?: string, includedTenants?: string[]) =>
+    apiFetch<ComplianceReport>('/security/compliance/reports', { method: 'POST', body: JSON.stringify({ complianceType, reportPeriodStart: reportPeriodStart || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), reportPeriodEnd: reportPeriodEnd || new Date().toISOString(), includedTenants }) }),
+  // TODO: No backend endpoint for /security/compliance/dashboard - use checks and reports instead
+  getComplianceDashboard: () => {
+    throw new Error('Not implemented: no backend endpoint for /security/compliance/dashboard. Use getComplianceChecks() and getComplianceReports() instead.');
+  },
 
   // Data Subject Requests (GDPR)
   getDataRequests: (params?: { status?: string; type?: string } & PaginationParams) =>
@@ -70,11 +76,21 @@ export const securityApi = {
   getDataRequest: (id: string) => apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}`),
   createDataRequest: (data: Omit<DataSubjectRequest, 'id' | 'status' | 'requestedAt' | 'dueDate'>) =>
     apiFetch<DataSubjectRequest>('/security/compliance/data-requests', { method: 'POST', body: JSON.stringify(data) }),
-  processDataRequest: (id: string, action: 'approve' | 'reject', handledBy: string, notes?: string) =>
-    apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}/process`, {
-      method: 'POST',
-      body: JSON.stringify({ action, handledBy, notes })
-    }),
+  // Fix: backend has separate endpoints: POST .../verify and POST .../complete (no single /process)
+  // Use PUT to update status, or POST /verify + POST /complete separately
+  processDataRequest: (id: string, action: 'approve' | 'reject', _handledBy: string, notes?: string) => {
+    if (action === 'approve') {
+      return apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ completionNotes: notes || 'Approved' })
+      });
+    }
+    // For reject, use PUT to update status
+    return apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'rejected', rejectionReason: notes })
+    });
+  },
 
   // Security Events & Incidents
   getSecurityEvents: (params?: {
@@ -84,28 +100,36 @@ export const securityApi = {
   } & PaginationParams & DateRangeParams) =>
     apiFetch<PaginatedResult<SecurityEvent>>(`/security/monitoring/events?${buildQueryString(params || {})}`),
   getSecurityEvent: (id: string) => apiFetch<SecurityEvent>(`/security/monitoring/events/${id}`),
+  // Fix: backend uses PUT /security/monitoring/events/:id/status (not POST .../resolve)
   resolveSecurityEvent: (id: string, resolvedBy: string, notes?: string) =>
-    apiFetch<SecurityEvent>(`/security/monitoring/events/${id}/resolve`, { method: 'POST', body: JSON.stringify({ resolvedBy, notes }) }),
+    apiFetch<SecurityEvent>(`/security/monitoring/events/${id}/status`, { method: 'PUT', body: JSON.stringify({ status: 'resolved', resolvedBy, resolution: notes }) }),
 
   getSecurityIncidents: (params?: { status?: string; severity?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<SecurityIncident>>(`/security/monitoring/incidents?${buildQueryString(params || {})}`),
   getSecurityIncident: (id: string) => apiFetch<SecurityIncident>(`/security/monitoring/incidents/${id}`),
-  createSecurityIncident: (data: Omit<SecurityIncident, 'id' | 'timeline' | 'createdAt'>) =>
-    apiFetch<SecurityIncident>('/security/monitoring/incidents', { method: 'POST', body: JSON.stringify(data) }),
+  // TODO: No backend POST endpoint for creating incidents - incidents are auto-created from security events
+  createSecurityIncident: (_data: Omit<SecurityIncident, 'id' | 'timeline' | 'createdAt'>) => {
+    throw new Error('Not implemented: incidents are auto-created from security events, no POST /incidents endpoint');
+  },
   updateSecurityIncident: (id: string, data: Partial<SecurityIncident>) =>
     apiFetch<SecurityIncident>(`/security/monitoring/incidents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  addIncidentTimeline: (id: string, action: string, performedBy: string) =>
-    apiFetch<SecurityIncident>(`/security/monitoring/incidents/${id}/timeline`, { method: 'POST', body: JSON.stringify({ action, performedBy }) }),
+  // TODO: No backend endpoint for adding timeline entries directly
+  addIncidentTimeline: (_id: string, _action: string, _performedBy: string) => {
+    throw new Error('Not implemented: no backend endpoint for POST /incidents/:id/timeline');
+  },
 
   // Threat Intelligence
   getThreatIndicators: (params?: { type?: string; isBlocked?: boolean } & PaginationParams) =>
     apiFetch<PaginatedResult<ThreatIndicator>>(`/security/monitoring/threat-intelligence?${buildQueryString(params || {})}`),
   addThreatIndicator: (data: Omit<ThreatIndicator, 'id' | 'lastSeenAt' | 'createdAt'>) =>
     apiFetch<ThreatIndicator>('/security/monitoring/threat-intelligence', { method: 'POST', body: JSON.stringify(data) }),
-  blockThreatIndicator: (id: string) =>
-    apiFetch<ThreatIndicator>(`/security/monitoring/threat-intelligence/${id}/block`, { method: 'POST' }),
-  unblockThreatIndicator: (id: string) =>
-    apiFetch<ThreatIndicator>(`/security/monitoring/threat-intelligence/${id}/unblock`, { method: 'POST' }),
+  // TODO: No backend endpoint for blocking/unblocking individual threat indicators
+  blockThreatIndicator: (_id: string) => {
+    throw new Error('Not implemented: no backend endpoint for POST /threat-intelligence/:id/block');
+  },
+  unblockThreatIndicator: (_id: string) => {
+    throw new Error('Not implemented: no backend endpoint for POST /threat-intelligence/:id/unblock');
+  },
 
   // Security Dashboard
   getSecurityDashboard: () =>

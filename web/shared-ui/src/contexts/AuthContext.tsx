@@ -75,10 +75,32 @@ interface LoginPayload {
 }
 
 /**
+ * MFA challenge result — returned when MFA is required during login
+ */
+export interface MfaChallengeResult {
+  mfaRequired: true;
+  mfaToken: string;
+}
+
+/**
+ * Login result — either a redirect path (normal login) or MFA challenge
+ */
+export type LoginResult = { redirectPath: string } | MfaChallengeResult;
+
+/**
+ * Verify MFA login payload
+ */
+interface VerifyMfaLoginPayload {
+  mfaToken: string;
+  code: string;
+}
+
+/**
  * Auth context value
  */
 interface AuthContextValue extends AuthState {
-  login: (payload: LoginPayload) => Promise<{ redirectPath: string }>;
+  login: (payload: LoginPayload) => Promise<LoginResult>;
+  verifyMfaLogin: (payload: VerifyMfaLoginPayload) => Promise<{ redirectPath: string }>;
   logout: () => Promise<void>;
   clearError: () => void;
   refreshAuth: () => Promise<void>;
@@ -269,9 +291,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   }, [autoCheck, fetchMe]);
 
   /**
-   * Login - returns redirect path for navigation
+   * Login - returns redirect path for navigation, or MFA challenge if MFA is enabled
    */
-  const login = useCallback(async (payload: LoginPayload): Promise<{ redirectPath: string }> => {
+  const login = useCallback(async (payload: LoginPayload): Promise<LoginResult> => {
     dispatch({ type: 'AUTH_START' });
 
     try {
@@ -281,6 +303,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
             accessToken
             refreshToken
             redirectUrl
+            mfaRequired
+            mfaToken
             user {
               id
               email
@@ -299,6 +323,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           accessToken: string;
           refreshToken: string;
           redirectUrl: string;
+          mfaRequired?: boolean;
+          mfaToken?: string;
           user: AuthUser;
         };
       }>(LOGIN_MUTATION, {
@@ -310,6 +336,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
       if (!response?.login) {
         throw new Error('Invalid server response');
+      }
+
+      // MFA required — return challenge info without completing login
+      if (response.login.mfaRequired && response.login.mfaToken) {
+        // Stop loading state but don't set error — MFA challenge UI will take over
+        dispatch({ type: 'SET_LOADING', payload: false });
+        return {
+          mfaRequired: true,
+          mfaToken: response.login.mfaToken,
+        };
       }
 
       const { accessToken: loginAccessToken, user, redirectUrl } = response.login;
@@ -338,6 +374,81 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       return { redirectPath };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login failed';
+      dispatch({ type: 'AUTH_FAILURE', payload: message });
+      throw error;
+    }
+  }, [fetchMe]);
+
+  /**
+   * Verify MFA login — completes login after MFA challenge
+   */
+  const verifyMfaLogin = useCallback(async (payload: VerifyMfaLoginPayload): Promise<{ redirectPath: string }> => {
+    dispatch({ type: 'AUTH_START' });
+
+    try {
+      const VERIFY_MFA_LOGIN_MUTATION = `
+        mutation VerifyMfaLogin($input: VerifyMfaLoginInput!) {
+          verifyMfaLogin(input: $input) {
+            accessToken
+            refreshToken
+            redirectUrl
+            user {
+              id
+              email
+              firstName
+              lastName
+              role
+              tenantId
+              isActive
+            }
+          }
+        }
+      `;
+
+      const response = await graphqlClient.request<{
+        verifyMfaLogin: {
+          accessToken: string;
+          refreshToken: string;
+          redirectUrl: string;
+          user: AuthUser;
+        };
+      }>(VERIFY_MFA_LOGIN_MUTATION, {
+        input: {
+          mfaToken: payload.mfaToken,
+          code: payload.code,
+        },
+      });
+
+      if (!response?.verifyMfaLogin) {
+        throw new Error('Invalid server response');
+      }
+
+      const { accessToken: loginAccessToken, user, redirectUrl } = response.verifyMfaLogin;
+
+      // Save access token in memory (refresh token is set as httpOnly cookie by server)
+      setTokens(loginAccessToken);
+
+      // Save tenant ID for multi-tenant context
+      if (user.tenantId) {
+        setTenantId(user.tenantId);
+      }
+
+      // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
+      const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
+      const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
+
+      // Fetch user data with modules after login
+      const meData = await fetchMe();
+      const modules = meData?.modules || [];
+
+      dispatch({
+        type: 'AUTH_SUCCESS',
+        payload: { user, modules, redirectPath },
+      });
+
+      return { redirectPath };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'MFA verification failed';
       dispatch({ type: 'AUTH_FAILURE', payload: message });
       throw error;
     }
@@ -418,6 +529,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   const value = useMemo<AuthContextValue>(() => ({
     ...state,
     login,
+    verifyMfaLogin,
     logout,
     clearError,
     refreshAuth,
@@ -427,7 +539,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     isModuleUser,
     hasRoleOrHigher,
     hasModuleAccess,
-  }), [state, login, logout, clearError, refreshAuth,
+  }), [state, login, verifyMfaLogin, logout, clearError, refreshAuth,
       isSuperAdmin, isTenantAdmin, isModuleManager,
       isModuleUser, hasRoleOrHigher, hasModuleAccess]);
 
@@ -497,6 +609,12 @@ export function useAuthContext(): AuthContextValue {
     login: async () => {
       if (import.meta.env.DEV) {
         console.warn('Login not available in microfrontend context');
+      }
+      return { redirectPath: '/' };
+    },
+    verifyMfaLogin: async () => {
+      if (import.meta.env.DEV) {
+        console.warn('MFA verification not available in microfrontend context');
       }
       return { redirectPath: '/' };
     },

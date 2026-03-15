@@ -34,10 +34,10 @@ import {
  */
 @InputType()
 export class UpdateFeedingProgramInput {
-  @Field(() => ID)
-  @IsNotEmpty()
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
   @IsUUID()
-  id: string;
+  id?: string;
 
   @Field({ nullable: true })
   @IsOptional()

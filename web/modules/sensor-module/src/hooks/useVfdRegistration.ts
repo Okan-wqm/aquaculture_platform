@@ -52,28 +52,18 @@ const GET_VFD_DEVICE_QUERY = `
       name
       brand
       model
-      modelSeries
       serialNumber
-      firmwareVersion
       protocol
       protocolConfiguration
-      connectionStatus {
-        isConnected
-        lastConnectedAt
-        lastTestedAt
-        lastError
-        latencyMs
-        connectionQuality
-      }
+      connectionStatus
       status
-      installationDate
-      notes
-      tags
       tenantId
       farmId
       tankId
-      pumpId
       location
+      description
+      pollIntervalMs
+      isPollingEnabled
       createdAt
       updatedAt
       latestReading {
@@ -98,8 +88,9 @@ const GET_VFD_DEVICES_QUERY = `
         connectionStatus {
           isConnected
           lastTestedAt
+          lastSuccessAt
           latencyMs
-          connectionQuality
+          consecutiveFailures
         }
         status
         location
@@ -164,11 +155,15 @@ const UPDATE_VFD_MUTATION = `
       name
       model
       serialNumber
+      protocol
       protocolConfiguration
       status
       location
-      notes
-      tags
+      description
+      farmId
+      tankId
+      pollIntervalMs
+      isPollingEnabled
       updatedAt
     }
   }

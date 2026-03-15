@@ -271,3 +271,23 @@ export class ForceFeedTransitionInput {
   @MaxLength(500)
   transitionReason?: string;
 }
+
+// ============================================================================
+// GENERATE DAILY PLAN INPUT
+// ============================================================================
+
+/**
+ * Gunluk yemleme plani olusturma input
+ * Frontend bu input'u tek nesne olarak gonderir
+ */
+@InputType()
+export class GenerateDailyPlanInput {
+  @Field(() => ID)
+  @IsNotEmpty()
+  @IsUUID()
+  programId: string;
+
+  @Field()
+  @IsNotEmpty()
+  date: Date;
+}

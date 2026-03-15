@@ -16,6 +16,8 @@ import DeviceDetailPage from './pages/DeviceDetailPage';
 import EdgeDeviceDetailPage from './pages/EdgeDeviceDetailPage';
 import ReadingsPage from './pages/ReadingsPage';
 import AlertsPage from './pages/AlertsPage';
+import AlertRulesPage from './pages/AlertRulesPage';
+import EscalationPoliciesPage from './pages/EscalationPoliciesPage';
 import ThresholdsPage from './pages/ThresholdsPage';
 import CalibrationPage from './pages/CalibrationPage';
 import SensorAnalyticsPage from './pages/SensorAnalyticsPage';
@@ -36,6 +38,12 @@ const UnifiedEditorPage = lazy(() => import('./pages/unified/UnifiedEditorPage')
 // Automation Pages (lazy loaded)
 const AutomationProgramsPage = lazy(() => import('./pages/automation/AutomationProgramsPage'));
 const AutomationProgramEditorPage = lazy(() => import('./pages/automation/AutomationProgramEditorPage'));
+
+// PLC Control Pages (lazy loaded)
+const PlcDashboardPage = lazy(() => import('./pages/plc/PlcDashboardPage'));
+const PlcConnectionsPage = lazy(() => import('./pages/plc/PlcConnectionsPage'));
+const PlcFeedingParamsPage = lazy(() => import('./pages/plc/PlcFeedingParamsPage'));
+const PlcAlarmsPage = lazy(() => import('./pages/plc/PlcAlarmsPage'));
 
 // Loading fallback
 function PageLoader() {
@@ -78,6 +86,8 @@ const SensorModule: React.FC = () => {
 
         {/* Alerts */}
         <Route path="alerts" element={<AlertsPage />} />
+        <Route path="alert-rules" element={<AlertRulesPage />} />
+        <Route path="escalation-policies" element={<EscalationPoliciesPage />} />
 
         {/* Thresholds */}
         <Route path="thresholds" element={<ThresholdsPage />} />
@@ -107,6 +117,12 @@ const SensorModule: React.FC = () => {
         <Route path="automation" element={<AutomationProgramsPage />} />
         <Route path="automation/new" element={<AutomationProgramEditorPage />} />
         <Route path="automation/:programId" element={<AutomationProgramEditorPage />} />
+
+        {/* PLC Control */}
+        <Route path="plc" element={<PlcDashboardPage />} />
+        <Route path="plc/connections" element={<PlcConnectionsPage />} />
+        <Route path="plc/feeding" element={<PlcFeedingParamsPage />} />
+        <Route path="plc/alarms" element={<PlcAlarmsPage />} />
 
         {/* Unknown routes */}
         <Route path="*" element={<Navigate to="/sensor" replace />} />

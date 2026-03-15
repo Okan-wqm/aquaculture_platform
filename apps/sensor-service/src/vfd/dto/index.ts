@@ -69,4 +69,17 @@ export {
   VfdBrandInfoDto,
   VfdProtocolSchemaDto,
   VfdProtocolFieldDto,
+  PaginatedVfdDeviceListDto,
+  VfdRegistrationResultDto,
+  TestVfdConnectionInputDto,
+  VfdDeviceInfoDto,
+  VfdDiagnosticsDto,
+  VfdConnectionTestResultDto,
+  VfdStatsDto,
 } from './vfd-filter.dto';
+
+// Stats DTOs
+export { VfdReadingStats } from './vfd-stats.dto';
+
+// Read Result DTOs
+export { VfdReadResultDto } from './vfd-read-result.dto';

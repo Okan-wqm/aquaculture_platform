@@ -9,6 +9,16 @@
  * - Regulatory metadata from settings
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import {
+  useRegulatorySettings,
+  useSubmitPlannedSlaughterReport,
+  useSubmitExecutedSlaughterReport,
+} from '../../../hooks/useRegulatory';
+import type {
+  SubmitPlannedSlaughterInput,
+  SubmitExecutedSlaughterInput,
+  ReportSubmissionResult,
+} from '../../../hooks/useRegulatory';
 import { mockSlaughterReports } from '../mock/slaughterData';
 import {
   SlaughterReport,
@@ -1396,6 +1406,12 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   const { data: tanksData } = useTanksList();
   const batchOptions = useMemo(() => extractBatchOptions(tanksData?.items), [tanksData]);
 
+  // Regulatory settings & submit mutations
+  const { data: regulatorySettings } = useRegulatorySettings();
+  const submitPlannedMutation = useSubmitPlannedSlaughterReport();
+  const submitExecutedMutation = useSubmitExecutedSlaughterReport();
+  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
+
   // Filter reports
   const reports = useMemo(() => {
     let filtered = siteId
@@ -1443,17 +1459,97 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
+    setError(null);
+    setSubmissionResult(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      console.log('Submitting slaughter report:', formData);
+      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
+      const orgNr = formData.regulatory.organisasjonsnummer || regulatorySettings?.organisationNumber || '';
+      const lokNr = (typeof formData.regulatory.lokalitetsnummer === 'number' ? formData.regulatory.lokalitetsnummer : 0) || siteMapping?.lokalitetsnummer || 0;
+      const kontakt = {
+        navn: formData.regulatory.kontaktperson.navn || regulatorySettings?.defaultContactName || '',
+        epost: formData.regulatory.kontaktperson.epost || regulatorySettings?.defaultContactEmail || '',
+        telefonnummer: formData.regulatory.kontaktperson.telefonnummer || regulatorySettings?.defaultContactPhone || '',
+      };
+
+      if (formData.reportType === 'planned') {
+        // Group day plans by artskode for UkeplanPerArt
+        const artskodeSet = new Set(formData.dayPlans.map(d => d.artskode || 'SAL'));
+        const ukeplanPerArt = Array.from(artskodeSet).map(artskode => {
+          const artPlans = formData.dayPlans.filter(d => (d.artskode || 'SAL') === artskode);
+          return {
+            artskode,
+            mandagKg: artPlans.find(d => d.dayOfWeek === 0)?.biomassKg,
+            tirsdagKg: artPlans.find(d => d.dayOfWeek === 1)?.biomassKg,
+            onsdagKg: artPlans.find(d => d.dayOfWeek === 2)?.biomassKg,
+            torsdagKg: artPlans.find(d => d.dayOfWeek === 3)?.biomassKg,
+            fredagKg: artPlans.find(d => d.dayOfWeek === 4)?.biomassKg,
+            lordagKg: artPlans.find(d => d.dayOfWeek === 5)?.biomassKg,
+            sondagKg: artPlans.find(d => d.dayOfWeek === 6)?.biomassKg,
+          };
+        });
+
+        const plannedInput: SubmitPlannedSlaughterInput = {
+          klientReferanse: crypto.randomUUID(),
+          organisasjonsnummer: orgNr,
+          lokalitetsnummer: lokNr,
+          kontaktperson: kontakt,
+          uke: formData.weekNumber,
+          aar: formData.year,
+          godkjenningsnummer: formData.facility.approvalNumber,
+          planlagteLokaliteter: [{
+            organisasjonsnummer: orgNr,
+            lokalitetsnummer: lokNr,
+            ukeplanPerArt,
+          }],
+        };
+        const result = await submitPlannedMutation.mutateAsync(plannedInput);
+        setSubmissionResult(result);
+        if (!result.success) {
+          setError(result.feilmelding || 'Planned slaughter submission failed');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      if (formData.reportType === 'completed') {
+        const executedInput: SubmitExecutedSlaughterInput = {
+          klientReferanse: crypto.randomUUID(),
+          organisasjonsnummer: orgNr,
+          lokalitetsnummer: lokNr,
+          kontaktperson: kontakt,
+          slakteuke: formData.weekNumber,
+          slakteaar: formData.year,
+          godkjenningsnummer: formData.facility.approvalNumber,
+          utforteLokaliteter: [{
+            organisasjonsnummer: orgNr,
+            lokalitetsnummer: lokNr,
+            arter: [{
+              art: 'SAL',
+              superiorKg: formData.gradeDistribution.superior,
+              ordinaerKg: formData.gradeDistribution.ordinary,
+              produksjonsfiskKg: formData.gradeDistribution.production,
+              utkastKg: formData.gradeDistribution.discard,
+            }],
+          }],
+        };
+        const result = await submitExecutedMutation.mutateAsync(executedInput);
+        setSubmissionResult(result);
+        if (!result.success) {
+          setError(result.feilmelding || 'Executed slaughter submission failed');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       setIsWizardOpen(false);
       setFormData(getInitialFormData());
     } catch (err) {
+      console.error('Slaughter report submission error:', err);
       setError((err as Error).message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData]);
+  }, [formData, regulatorySettings, siteId, submitPlannedMutation, submitExecutedMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

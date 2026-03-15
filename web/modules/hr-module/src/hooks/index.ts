@@ -25,3 +25,6 @@ export * from './usePerformance';
 
 // Payroll management hooks
 export * from './usePayroll';
+
+// Scheduling hooks
+export * from './useScheduling';

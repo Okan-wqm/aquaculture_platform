@@ -157,7 +157,7 @@ const GeneralOptionsTab: React.FC = () => {
             <RadioGroup
               label="Cultivation Type"
               name="cultivationType"
-              options={CULTIVATION_TYPE_OPTIONS}
+              options={CULTIVATION_TYPE_OPTIONS as { value: string; label: string }[]}
               value={g.serviceDefinition.cultivationType ?? 'new_planting'}
               onChange={(val) => updateService('cultivationType', val)}
               vertical={false}

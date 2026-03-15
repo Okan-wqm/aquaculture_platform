@@ -341,6 +341,92 @@ export class VfdDeviceService {
   }
 
   /**
+   * Get fleet-level statistics: total, active, inactive, faulted, maintenance,
+   * counts by brand, protocol, and status.
+   */
+  async getStats(tenantId: string): Promise<{
+    total: number;
+    active: number;
+    inactive: number;
+    faulted: number;
+    maintenance: number;
+    byBrand: Record<string, number>;
+    byProtocol: Record<string, number>;
+    byStatus: Record<string, number>;
+  }> {
+    // Get counts by status
+    const statusCounts = await this.vfdDeviceRepository
+      .createQueryBuilder('vfd')
+      .select('vfd.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('vfd.tenantId = :tenantId', { tenantId })
+      .groupBy('vfd.status')
+      .getRawMany<StatusCountResult>();
+
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const status of Object.values(VfdDeviceStatus)) {
+      byStatus[status] = 0;
+    }
+    for (const row of statusCounts) {
+      const cnt = parseInt(row.count, 10);
+      byStatus[row.status] = cnt;
+      total += cnt;
+    }
+
+    // Get counts by brand
+    const brandCounts = await this.vfdDeviceRepository
+      .createQueryBuilder('vfd')
+      .select('vfd.brand', 'brand')
+      .addSelect('COUNT(*)', 'count')
+      .where('vfd.tenantId = :tenantId', { tenantId })
+      .groupBy('vfd.brand')
+      .getRawMany<{ brand: string; count: string }>();
+
+    const byBrand: Record<string, number> = {};
+    for (const brand of Object.values(VfdBrand)) {
+      byBrand[brand] = 0;
+    }
+    for (const row of brandCounts) {
+      byBrand[row.brand] = parseInt(row.count, 10);
+    }
+
+    // Get counts by protocol
+    const protocolCounts = await this.vfdDeviceRepository
+      .createQueryBuilder('vfd')
+      .select('vfd.protocol', 'protocol')
+      .addSelect('COUNT(*)', 'count')
+      .where('vfd.tenantId = :tenantId', { tenantId })
+      .groupBy('vfd.protocol')
+      .getRawMany<{ protocol: string; count: string }>();
+
+    const byProtocol: Record<string, number> = {};
+    for (const protocol of Object.values(VfdProtocol)) {
+      byProtocol[protocol] = 0;
+    }
+    for (const row of protocolCounts) {
+      byProtocol[row.protocol] = parseInt(row.count, 10);
+    }
+
+    // Map to frontend status categories
+    const active = byStatus[VfdDeviceStatus.ACTIVE] || 0;
+    const inactive = (byStatus[VfdDeviceStatus.SUSPENDED] || 0) + (byStatus[VfdDeviceStatus.OFFLINE] || 0);
+    const faulted = (byStatus[VfdDeviceStatus.TEST_FAILED] || 0);
+    const maintenance = (byStatus[VfdDeviceStatus.DRAFT] || 0) + (byStatus[VfdDeviceStatus.PENDING_TEST] || 0) + (byStatus[VfdDeviceStatus.TESTING] || 0);
+
+    return {
+      total,
+      active,
+      inactive,
+      faulted,
+      maintenance,
+      byBrand,
+      byProtocol,
+      byStatus,
+    };
+  }
+
+  /**
    * Validate protocol configuration
    */
   private validateProtocolConfiguration(

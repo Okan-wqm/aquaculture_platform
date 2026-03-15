@@ -218,11 +218,109 @@ const TenantSettings: React.FC = () => {
     }
   }, [tenantData]);
 
-  // Notification settings
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [alertNotifications, setAlertNotifications] = useState(true);
-  const [weeklyReports, setWeeklyReports] = useState(false);
-  const [userActivityAlerts, setUserActivityAlerts] = useState(true);
+  // Notification preferences (per-user, fetched from backend)
+  const [notifPrefs, setNotifPrefs] = useState({
+    emailEnabled: true,
+    smsEnabled: false,
+    pushEnabled: false,
+    quietHoursStart: '' as string,
+    quietHoursEnd: '' as string,
+    quietHoursTimezone: 'Europe/Istanbul',
+    alertNotifications: true,
+    taskNotifications: true,
+    systemNotifications: true,
+  });
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifDirty, setNotifDirty] = useState(false);
+
+  // Load notification preferences when section is active
+  useEffect(() => {
+    if (activeSection === 'notifications') {
+      setNotifLoading(true);
+      executeGraphQL<{ getMyNotificationPreferences: typeof notifPrefs }>(`
+        query GetMyNotificationPreferences {
+          getMyNotificationPreferences {
+            emailEnabled
+            smsEnabled
+            pushEnabled
+            quietHoursStart
+            quietHoursEnd
+            quietHoursTimezone
+            alertNotifications
+            taskNotifications
+            systemNotifications
+          }
+        }
+      `)
+        .then((data) => {
+          const p = data.getMyNotificationPreferences;
+          setNotifPrefs({
+            emailEnabled: p.emailEnabled,
+            smsEnabled: p.smsEnabled,
+            pushEnabled: p.pushEnabled,
+            quietHoursStart: p.quietHoursStart || '',
+            quietHoursEnd: p.quietHoursEnd || '',
+            quietHoursTimezone: p.quietHoursTimezone || 'Europe/Istanbul',
+            alertNotifications: p.alertNotifications,
+            taskNotifications: p.taskNotifications,
+            systemNotifications: p.systemNotifications,
+          });
+          setNotifDirty(false);
+        })
+        .catch((err) => {
+          logError('TenantSettings.loadNotificationPreferences', err);
+        })
+        .finally(() => setNotifLoading(false));
+    }
+  }, [activeSection]);
+
+  const updateNotifPref = <K extends keyof typeof notifPrefs>(key: K, value: (typeof notifPrefs)[K]) => {
+    setNotifPrefs((prev) => ({ ...prev, [key]: value }));
+    setNotifDirty(true);
+  };
+
+  const saveNotificationPreferences = async () => {
+    setNotifSaving(true);
+    setSaveError(null);
+    try {
+      await executeGraphQL(`
+        mutation UpdateMyNotificationPreferences($input: UpdateNotificationPreferencesInput!) {
+          updateMyNotificationPreferences(input: $input) {
+            emailEnabled
+            smsEnabled
+            pushEnabled
+            quietHoursStart
+            quietHoursEnd
+            quietHoursTimezone
+            alertNotifications
+            taskNotifications
+            systemNotifications
+          }
+        }
+      `, {
+        input: {
+          emailEnabled: notifPrefs.emailEnabled,
+          smsEnabled: notifPrefs.smsEnabled,
+          pushEnabled: notifPrefs.pushEnabled,
+          quietHoursStart: notifPrefs.quietHoursStart || null,
+          quietHoursEnd: notifPrefs.quietHoursEnd || null,
+          quietHoursTimezone: notifPrefs.quietHoursTimezone,
+          alertNotifications: notifPrefs.alertNotifications,
+          taskNotifications: notifPrefs.taskNotifications,
+          systemNotifications: notifPrefs.systemNotifications,
+        },
+      });
+      setNotifDirty(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      logError('TenantSettings.saveNotificationPreferences', err);
+      setSaveError(err instanceof Error ? err.message : 'Failed to save notification preferences');
+    } finally {
+      setNotifSaving(false);
+    }
+  };
 
   // Security settings
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
@@ -396,8 +494,13 @@ const TenantSettings: React.FC = () => {
       return;
     }
 
+    if (activeSection === 'notifications') {
+      await saveNotificationPreferences();
+      return;
+    }
+
     if (activeSection !== 'general') {
-      // SEC-005: Non-persisted sections (notifications, security, localization, appearance)
+      // SEC-005: Non-persisted sections (security, localization, appearance)
       // must NOT give false confirmation. The Save button is disabled for these sections
       // so this branch should not be reached, but return early as a safety guard.
       return;
@@ -420,7 +523,7 @@ const TenantSettings: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeSection, tenantName, contactEmail, contactPhone, address, updateSettingsMutation, saveMobileSettings]);
+  }, [activeSection, tenantName, contactEmail, contactPhone, address, updateSettingsMutation, saveMobileSettings, saveNotificationPreferences]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -479,42 +582,116 @@ const TenantSettings: React.FC = () => {
         );
 
       case 'notifications':
+        if (notifLoading) {
+          return (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="w-6 h-6 animate-spin text-tenant-600" />
+            </div>
+          );
+        }
         return (
-          <div className="space-y-4">
-            {/* SEC-005: Notifications settings are not yet persisted to the backend.
-                Display a clear notice so users are not misled into thinking changes are saved. */}
-            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <Info className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-amber-700">
-                <strong>Not yet available:</strong> Notification preferences are not currently persisted. Changes made here will not be saved. This section is coming soon.
+          <div className="space-y-6">
+            {/* Channel toggles */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2">Channels</h3>
+              <div className="divide-y divide-gray-100">
+                <Toggle
+                  enabled={notifPrefs.emailEnabled}
+                  onChange={(v) => updateNotifPref('emailEnabled', v)}
+                  label="Email Notifications"
+                  description="Receive important updates via email"
+                />
+                <Toggle
+                  enabled={notifPrefs.smsEnabled}
+                  onChange={(v) => updateNotifPref('smsEnabled', v)}
+                  label="SMS Notifications"
+                  description="Receive critical alerts via text message"
+                />
+                <Toggle
+                  enabled={notifPrefs.pushEnabled}
+                  onChange={(v) => updateNotifPref('pushEnabled', v)}
+                  label="Push Notifications"
+                  description="Receive push notifications on your devices"
+                />
+              </div>
+            </div>
+
+            {/* Category toggles */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2">Categories</h3>
+              <div className="divide-y divide-gray-100">
+                <Toggle
+                  enabled={notifPrefs.alertNotifications}
+                  onChange={(v) => updateNotifPref('alertNotifications', v)}
+                  label="Alert Notifications"
+                  description="Sensor threshold breaches and critical alerts"
+                />
+                <Toggle
+                  enabled={notifPrefs.taskNotifications}
+                  onChange={(v) => updateNotifPref('taskNotifications', v)}
+                  label="Task Notifications"
+                  description="Task assignments, updates, and reminders"
+                />
+                <Toggle
+                  enabled={notifPrefs.systemNotifications}
+                  onChange={(v) => updateNotifPref('systemNotifications', v)}
+                  label="System Notifications"
+                  description="System updates, maintenance notices, and reports"
+                />
+              </div>
+            </div>
+
+            {/* Quiet hours */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2">Quiet Hours</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                Suppress non-critical notifications during specified hours. Critical alerts are always delivered.
               </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                  <input
+                    type="time"
+                    value={notifPrefs.quietHoursStart}
+                    onChange={(e) => updateNotifPref('quietHoursStart', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                  <input
+                    type="time"
+                    value={notifPrefs.quietHoursEnd}
+                    onChange={(e) => updateNotifPref('quietHoursEnd', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
+                  <select
+                    value={notifPrefs.quietHoursTimezone}
+                    onChange={(e) => updateNotifPref('quietHoursTimezone', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                  >
+                    <option value="Europe/Istanbul">Europe/Istanbul (UTC+3)</option>
+                    <option value="UTC">UTC</option>
+                    <option value="America/New_York">America/New York (UTC-5)</option>
+                    <option value="America/Los_Angeles">America/Los Angeles (UTC-8)</option>
+                    <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
+                    <option value="Europe/London">Europe/London (UTC+0/+1)</option>
+                    <option value="Europe/Berlin">Europe/Berlin (UTC+1/+2)</option>
+                  </select>
+                </div>
+              </div>
             </div>
-            <div className="divide-y divide-gray-100 opacity-50 pointer-events-none">
-              <Toggle
-                enabled={emailNotifications}
-                onChange={setEmailNotifications}
-                label="Email Notifications"
-                description="Receive important updates via email"
-              />
-              <Toggle
-                enabled={alertNotifications}
-                onChange={setAlertNotifications}
-                label="Alert Notifications"
-                description="Get notified about critical alerts"
-              />
-              <Toggle
-                enabled={weeklyReports}
-                onChange={setWeeklyReports}
-                label="Weekly Reports"
-                description="Receive weekly summary reports"
-              />
-              <Toggle
-                enabled={userActivityAlerts}
-                onChange={setUserActivityAlerts}
-                label="User Activity Alerts"
-                description="Get notified about user login activities"
-              />
-            </div>
+
+            {/* Dirty indicator */}
+            {notifDirty && (
+              <div className="flex items-center gap-2 text-sm text-tenant-600">
+                <Info className="w-4 h-4" />
+                <span>You have unsaved changes</span>
+              </div>
+            )}
           </div>
         );
 
@@ -808,10 +985,11 @@ const TenantSettings: React.FC = () => {
               loading ||
               updateSettingsMutation.isPending ||
               (activeSection === 'mobileUsers' && (mobileSaving || dirtyUserIds.size === 0)) ||
-              ['notifications', 'security', 'localization', 'appearance'].includes(activeSection)
+              (activeSection === 'notifications' && (notifSaving || !notifDirty)) ||
+              ['security', 'localization', 'appearance'].includes(activeSection)
             }
             title={
-              ['notifications', 'security', 'localization', 'appearance'].includes(activeSection)
+              ['security', 'localization', 'appearance'].includes(activeSection)
                 ? 'This section is not yet persisted — settings cannot be saved'
                 : undefined
             }
@@ -822,7 +1000,7 @@ const TenantSettings: React.FC = () => {
                 <Check className="w-4 h-4" />
                 Saved!
               </>
-            ) : (loading || updateSettingsMutation.isPending || mobileSaving) ? (
+            ) : (loading || updateSettingsMutation.isPending || mobileSaving || notifSaving) ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Saving...

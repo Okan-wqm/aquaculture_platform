@@ -310,7 +310,7 @@ export interface SensorReading {
 /**
  * Alarm önem dereceleri
  */
-export type AlertSeverity = 'critical' | 'warning' | 'info';
+export type AlertSeverity = 'critical' | 'high' | 'medium' | 'warning' | 'low' | 'info';
 
 /**
  * Alarm durumları

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
 import {
   billingApi,
@@ -83,10 +84,12 @@ const QUANTITY_FIELD_MAP: Partial<Record<PricingMetricType, keyof ModuleQuantiti
 // ============================================================================
 
 const CustomPlanBuilderPage: React.FC = () => {
+  const navigate = useNavigate();
   const [availableModules, setAvailableModules] = useState<ModulePricingWithModule[]>([]);
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [pricing, setPricing] = useState<PricingCalculation | null>(null);
@@ -255,6 +258,46 @@ const CustomPlanBuilderPage: React.FC = () => {
     setError(null);
 
     try {
+      const createdPlan = await billingApi.createCustomPlan({
+        tenantId: config.tenantId,
+        name: config.name,
+        description: config.description,
+        tier: config.tier,
+        billingCycle: config.billingCycle,
+        modules: config.modules,
+        discountPercent: config.discountPercent,
+        discountAmount: config.discountAmount,
+        discountReason: config.discountReason,
+        validFrom: config.validFrom,
+        validTo: config.validTo || undefined,
+        notes: config.notes,
+        createdBy: 'admin',
+      });
+      // Auto-submit for approval after creation
+      try {
+        await billingApi.submitCustomPlanForApproval(createdPlan.id);
+        setSuccess('Custom plan created and submitted for approval! Redirecting...');
+      } catch {
+        setSuccess('Custom plan created as draft. Could not auto-submit for approval.');
+      }
+      setTimeout(() => navigate('/admin/billing/custom-plans'), 1500);
+    } catch (err) {
+      setError((err as Error).message || 'Failed to create custom plan');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveAsDraft = async () => {
+    if (!config.tenantId || !config.name) {
+      setError('Please fill in Tenant ID and Plan Name to save as draft.');
+      return;
+    }
+
+    setSavingDraft(true);
+    setError(null);
+
+    try {
       await billingApi.createCustomPlan({
         tenantId: config.tenantId,
         name: config.name,
@@ -270,22 +313,12 @@ const CustomPlanBuilderPage: React.FC = () => {
         notes: config.notes,
         createdBy: 'admin',
       });
-      setSuccess('Custom plan created successfully!');
-      // Reset form
-      setConfig({
-        ...config,
-        name: '',
-        description: '',
-        modules: [],
-        discountPercent: 0,
-        discountAmount: 0,
-        discountReason: '',
-        notes: '',
-      });
+      setSuccess('Plan saved as draft. Redirecting to plans list...');
+      setTimeout(() => navigate('/admin/billing/custom-plans'), 1500);
     } catch (err) {
-      setError((err as Error).message || 'Failed to create custom plan');
+      setError((err as Error).message || 'Failed to save plan as draft');
     } finally {
-      setSaving(false);
+      setSavingDraft(false);
     }
   };
 
@@ -311,6 +344,15 @@ const CustomPlanBuilderPage: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
+          <button
+            onClick={() => navigate('/admin/billing/custom-plans')}
+            className="text-sm text-blue-600 hover:text-blue-800 mb-1 flex items-center gap-1"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Custom Plans
+          </button>
           <h1 className="text-2xl font-bold text-gray-900">Custom Plan Builder</h1>
           <p className="mt-1 text-sm text-gray-500">
             Create custom plans for tenants with specific module configurations
@@ -663,12 +705,17 @@ const CustomPlanBuilderPage: React.FC = () => {
                     variant="primary"
                     className="w-full"
                     onClick={handleSavePlan}
-                    disabled={saving || !config.tenantId || !config.name}
+                    disabled={saving || savingDraft || !config.tenantId || !config.name || config.modules.length === 0}
                   >
-                    {saving ? 'Creating...' : 'Create Custom Plan'}
+                    {saving ? 'Creating...' : 'Create & Submit for Approval'}
                   </Button>
-                  <Button variant="outline" className="w-full">
-                    Save as Draft
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleSaveAsDraft}
+                    disabled={saving || savingDraft || !config.tenantId || !config.name}
+                  >
+                    {savingDraft ? 'Saving...' : 'Save as Draft'}
                   </Button>
                 </div>
               </>

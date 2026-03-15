@@ -468,11 +468,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     return sendCommand({ command: VfdCommandType.JOG_REVERSE });
   }, [sendCommand]);
 
-  // Coast stop
-  const coastStop = useCallback(async (): Promise<VfdCommandResult> => {
-    return sendCommand({ command: VfdCommandType.COAST_STOP });
-  }, [sendCommand]);
-
   // Quick stop
   const quickStop = useCallback(async (): Promise<VfdCommandResult> => {
     return sendCommand({ command: VfdCommandType.QUICK_STOP });
@@ -500,7 +495,6 @@ export function useVfdCommands(vfdDeviceId: string | undefined) {
     reverse,
     jogForward,
     jogReverse,
-    coastStop,
     quickStop,
 
     // Utilities
@@ -579,8 +573,6 @@ export function getCommandDescription(
       return 'İleri yönde jog hareketi';
     case VfdCommandType.JOG_REVERSE:
       return 'Geri yönde jog hareketi';
-    case VfdCommandType.COAST_STOP:
-      return 'Serbest duruş (Coast Stop)';
     case VfdCommandType.QUICK_STOP:
       return 'Hızlı duruş (Quick Stop)';
     default:

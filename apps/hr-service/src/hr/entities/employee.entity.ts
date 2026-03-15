@@ -53,7 +53,7 @@ import { WorkAreaType } from '../../common/enums';
 
 registerEnumType(EmployeeStatus, { name: 'EmployeeStatus' });
 registerEnumType(EmploymentType, { name: 'EmploymentType' });
-registerEnumType(Department, { name: 'Department' });
+registerEnumType(Department, { name: 'HRDepartment' });
 registerEnumType(PersonnelCategory, { name: 'PersonnelCategory' });
 // WorkAreaType is registered in common/enums.ts
 

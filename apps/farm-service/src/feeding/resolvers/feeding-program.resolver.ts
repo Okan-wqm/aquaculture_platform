@@ -26,6 +26,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { GraphQLError } from 'graphql';
+import GraphQLJSON from 'graphql-type-json';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -46,6 +47,7 @@ import {
 import {
   RecordDailyFeedingInput,
   SkipDailyFeedingInput,
+  GenerateDailyPlanInput,
 } from '../dto/record-daily-feeding.input';
 
 // Entities
@@ -90,7 +92,18 @@ import {
   IsString,
   IsEnum,
   IsUUID,
+  IsNotEmpty,
+  IsNumber,
+  IsDateString,
+  IsArray,
+  IsBoolean,
+  Min,
+  Max,
+  MaxLength,
+  ValidateNested,
+  ArrayMinSize,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 @InputType()
 export class FeedingProgramFilterInput {
@@ -136,6 +149,124 @@ export class DailyFeedingExecutionConnection {
 
   @Field()
   hasMore: boolean;
+}
+
+// ============================================================================
+// INPUT TYPES FOR MISSING MUTATIONS
+// ============================================================================
+
+/**
+ * Input for adding a single tank in bulk operation
+ */
+@InputType()
+export class AddTankInput {
+  @Field(() => ID)
+  @IsNotEmpty()
+  @IsUUID()
+  equipmentId: string;
+
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  temperatureSensorId?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  temperatureSensorCode?: string;
+}
+
+/**
+ * Input for recalculating daily plan parameters
+ */
+@InputType()
+export class RecalculateParametersInput {
+  @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  avgWeightG?: number;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  fishCount?: number;
+
+  @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  biomassKg?: number;
+
+  @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  waterTempC?: number;
+}
+
+// ============================================================================
+// RESPONSE TYPES FOR MISSING MUTATIONS
+// ============================================================================
+
+/**
+ * Failed bulk feeding entry
+ */
+@ObjectType()
+export class BulkFeedingFailure {
+  @Field(() => ID)
+  executionId: string;
+
+  @Field()
+  error: string;
+}
+
+/**
+ * Result of bulk feeding recording
+ */
+@ObjectType()
+export class BulkFeedingResult {
+  @Field(() => [DailyFeedingExecution])
+  successful: DailyFeedingExecution[];
+
+  @Field(() => [BulkFeedingFailure])
+  failed: BulkFeedingFailure[];
+
+  @Field(() => Int)
+  totalSuccessful: number;
+
+  @Field(() => Int)
+  totalFailed: number;
+}
+
+/**
+ * Extended execution result with recalculation info
+ */
+@ObjectType()
+export class RecalculatedExecution {
+  @Field(() => DailyFeedingExecution)
+  execution: DailyFeedingExecution;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  previousCalculations?: Record<string, unknown>;
+
+  @Field({ nullable: true })
+  changeReason?: string;
+}
+
+@ObjectType()
+export class GenerateDailyPlanResult {
+  @Field()
+  date: Date;
+
+  @Field(() => Int)
+  generatedCount: number;
+
+  @Field(() => [DailyFeedingExecution])
+  executions: DailyFeedingExecution[];
+
+  @Field(() => [String], { nullable: true })
+  warnings?: string[];
 }
 
 // ============================================================================
@@ -463,6 +594,9 @@ export class FeedingProgramResolver {
 
   /**
    * Update a feeding program
+   * Supports both signatures:
+   *   - updateFeedingProgram(input: { id, ... })           -- backend-native
+   *   - updateFeedingProgram(id: ID!, input: { ... })      -- frontend sends id separately
    */
   @Mutation(() => FeedingProgram, { description: 'Yemleme programini guncelle' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
@@ -470,8 +604,20 @@ export class FeedingProgramResolver {
     @Args('input') input: UpdateFeedingProgramInput,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
+    @Args('id', { type: () => ID, nullable: true }) id?: string,
   ): Promise<FeedingProgram> {
     this.validateTenantAndUser(tenantId, user, 'updateFeedingProgram');
+
+    // If id is provided as a separate argument, merge it into the input
+    if (id) {
+      input.id = id;
+    }
+
+    if (!input.id) {
+      throw new GraphQLError('Program ID is required (either in input.id or as a separate id argument)', {
+        extensions: { code: 'BAD_REQUEST' },
+      });
+    }
 
     try {
       // Verify program belongs to tenant
@@ -623,6 +769,7 @@ export class FeedingProgramResolver {
 
   /**
    * Pause a feeding program
+   * Frontend sends optional reason parameter for audit logging
    */
   @Mutation(() => FeedingProgram, { description: 'Yemleme programini duraklat' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
@@ -630,6 +777,7 @@ export class FeedingProgramResolver {
     @Args('id', { type: () => ID }) id: string,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
+    @Args('reason', { nullable: true }) reason?: string,
   ): Promise<FeedingProgram> {
     this.validateTenantAndUser(tenantId, user, 'pauseFeedingProgram');
 
@@ -654,6 +802,7 @@ export class FeedingProgramResolver {
         resourceId: id,
         userId: user.sub,
         tenantId,
+        details: reason ? { reason } : undefined,
       });
 
       return program;
@@ -711,24 +860,43 @@ export class FeedingProgramResolver {
 
   /**
    * Remove a tank from a feeding program
+   * Supports both signatures:
+   *   - removeTankFromProgram(input: { feedingProgramId, equipmentId })  -- backend-native
+   *   - removeTankFromProgram(feedingProgramTankId: ID!, reason: String) -- frontend sends tank record ID
    */
   @Mutation(() => FeedingProgramTank, { description: 'Programdan tank cikar' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async removeTankFromProgram(
-    @Args('input') input: RemoveTankFromProgramInput,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
+    @Args('input', { nullable: true }) input?: RemoveTankFromProgramInput,
+    @Args('feedingProgramTankId', { type: () => ID, nullable: true }) feedingProgramTankId?: string,
+    @Args('reason', { nullable: true }) reason?: string,
   ): Promise<FeedingProgramTank> {
     this.validateTenantAndUser(tenantId, user, 'removeTankFromProgram');
 
     try {
-      const programTank = await this.feedingProgramTankRepository.findOne({
-        where: {
-          feedingProgramId: input.feedingProgramId,
-          equipmentId: input.equipmentId,
-          tenantId,
-        },
-      });
+      let programTank: FeedingProgramTank | null = null;
+
+      if (feedingProgramTankId) {
+        // Frontend pattern: lookup by the junction record ID directly
+        programTank = await this.feedingProgramTankRepository.findOne({
+          where: { id: feedingProgramTankId, tenantId },
+        });
+      } else if (input) {
+        // Backend-native pattern: lookup by feedingProgramId + equipmentId
+        programTank = await this.feedingProgramTankRepository.findOne({
+          where: {
+            feedingProgramId: input.feedingProgramId,
+            equipmentId: input.equipmentId,
+            tenantId,
+          },
+        });
+      } else {
+        throw new GraphQLError('Either feedingProgramTankId or input must be provided', {
+          extensions: { code: 'BAD_REQUEST' },
+        });
+      }
 
       if (!programTank) {
         throw new GraphQLError('Tank not found in this program', {
@@ -744,8 +912,8 @@ export class FeedingProgramResolver {
 
       // Use service layer
       await this.feedingProgramService.removeTankFromProgram(
-        input.feedingProgramId,
-        input.equipmentId,
+        programTank.feedingProgramId,
+        programTank.equipmentId,
         tenantId,
       );
 
@@ -757,10 +925,14 @@ export class FeedingProgramResolver {
       this.auditLog({
         action: 'REMOVE_TANK',
         resourceType: 'FeedingProgram',
-        resourceId: input.feedingProgramId,
+        resourceId: programTank.feedingProgramId,
         userId: user.sub,
         tenantId,
-        details: { equipmentId: input.equipmentId },
+        details: {
+          equipmentId: programTank.equipmentId,
+          feedingProgramTankId: programTank.id,
+          ...(reason ? { reason } : {}),
+        },
       });
 
       return updatedTank || programTank;
@@ -771,16 +943,30 @@ export class FeedingProgramResolver {
 
   /**
    * Generate daily feeding plan for a program
+   * Supports both signatures:
+   *   - generateDailyPlan(programId: ID!, date: Date!)          -- backend-native
+   *   - generateDailyPlan(input: GenerateDailyPlanInput!)       -- frontend sends single input object
    */
-  @Mutation(() => [DailyFeedingExecution], { description: 'Gunluk yemleme plani olustur' })
+  @Mutation(() => GenerateDailyPlanResult, { description: 'Gunluk yemleme plani olustur' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async generateDailyPlan(
-    @Args('programId', { type: () => ID }) programId: string,
-    @Args('date') date: Date,
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
-  ): Promise<DailyFeedingExecution[]> {
+    @Args('input', { nullable: true }) input?: GenerateDailyPlanInput,
+    @Args('programId', { type: () => ID, nullable: true }) programIdArg?: string,
+    @Args('date', { nullable: true }) dateArg?: Date,
+  ): Promise<GenerateDailyPlanResult> {
     this.validateTenantAndUser(tenantId, user, 'generateDailyPlan');
+
+    // Resolve parameters from either input object or separate args
+    const programId = input?.programId ?? programIdArg;
+    const date = input?.date ?? dateArg;
+
+    if (!programId || !date) {
+      throw new GraphQLError('programId and date are required (either via input object or as separate arguments)', {
+        extensions: { code: 'BAD_REQUEST' },
+      });
+    }
 
     try {
       // Verify program belongs to tenant
@@ -797,7 +983,7 @@ export class FeedingProgramResolver {
       // Use service layer
       const result = await this.dailyFeedingExecutionService.generateDailyPlan(
         programId,
-        date,
+        date instanceof Date ? date : new Date(date),
         tenantId,
       );
 
@@ -807,10 +993,18 @@ export class FeedingProgramResolver {
         resourceId: programId,
         userId: user.sub,
         tenantId,
-        details: { date: date.toISOString(), executionsCreated: result.executionsCreated },
+        details: {
+          date: date instanceof Date ? date.toISOString() : date,
+          executionsCreated: result.executionsCreated,
+        },
       });
 
-      return result.executions;
+      return {
+        date: result.date,
+        generatedCount: result.executionsCreated,
+        executions: result.executions,
+        warnings: result.errors.length > 0 ? result.errors : undefined,
+      };
     } catch (error) {
       throw this.handleMutationError('generateDailyPlan', error);
     }
@@ -966,6 +1160,908 @@ export class FeedingProgramResolver {
       return updated;
     } catch (error) {
       throw this.handleMutationError('skipDailyFeeding', error);
+    }
+  }
+
+  // ==========================================================================
+  // MISSING MUTATIONS (14 mutations called by frontend)
+  // ==========================================================================
+
+  /**
+   * Complete a feeding program
+   */
+  @Mutation(() => FeedingProgram, { description: 'Yemleme programini tamamla' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async completeFeedingProgram(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('notes', { nullable: true }) notes: string | undefined,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'completeFeedingProgram');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      if (program.status !== FeedingProgramStatus.ACTIVE && program.status !== FeedingProgramStatus.PAUSED) {
+        throw new GraphQLError(
+          `Cannot complete program in '${program.status}' status. Only ACTIVE or PAUSED programs can be completed.`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      program.complete();
+      program.lastModifiedBy = user.sub;
+      if (notes) {
+        program.description = program.description
+          ? `${program.description}\n\nCompletion notes: ${notes}`
+          : `Completion notes: ${notes}`;
+      }
+
+      const saved = await this.feedingProgramRepository.save(program);
+
+      this.auditLog({
+        action: 'COMPLETE',
+        resourceType: 'FeedingProgram',
+        resourceId: id,
+        userId: user.sub,
+        tenantId,
+        details: { notes },
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('completeFeedingProgram', error);
+    }
+  }
+
+  /**
+   * Cancel a feeding program
+   */
+  @Mutation(() => FeedingProgram, { description: 'Yemleme programini iptal et' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async cancelFeedingProgram(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('reason') reason: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'cancelFeedingProgram');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      if (program.status === FeedingProgramStatus.COMPLETED || program.status === FeedingProgramStatus.CANCELLED) {
+        throw new GraphQLError(
+          `Cannot cancel program in '${program.status}' status.`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+        program.cancel();
+        program.lastModifiedBy = user.sub;
+        await queryRunner.manager.save(program);
+
+        await queryRunner.manager.update(
+          FeedingProgramTank,
+          { feedingProgramId: id, tenantId, isActive: true },
+          { isActive: false, removedAt: new Date() },
+        );
+
+        await queryRunner.commitTransaction();
+      } catch (err) {
+        await queryRunner.rollbackTransaction();
+        throw err;
+      } finally {
+        await queryRunner.release();
+      }
+
+      this.auditLog({
+        action: 'CANCEL',
+        resourceType: 'FeedingProgram',
+        resourceId: id,
+        userId: user.sub,
+        tenantId,
+        details: { reason },
+      });
+
+      return await this.feedingProgramRepository.findOneOrFail({ where: { id, tenantId } });
+    } catch (error) {
+      throw this.handleMutationError('cancelFeedingProgram', error);
+    }
+  }
+
+  /**
+   * Add multiple tanks to a program at once
+   */
+  @Mutation(() => [FeedingProgramTank], { description: 'Programa birden fazla tank ekle' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async addTanksToProgram(
+    @Args('feedingProgramId', { type: () => ID }) feedingProgramId: string,
+    @Args('tanks', { type: () => [AddTankInput] }) tanks: AddTankInput[],
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgramTank[]> {
+    this.validateTenantAndUser(tenantId, user, 'addTanksToProgram');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id: feedingProgramId, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      const results: FeedingProgramTank[] = [];
+      for (const tank of tanks) {
+        const programTank = await this.feedingProgramService.addTankToProgram(
+          feedingProgramId,
+          tank.equipmentId,
+          tenantId,
+          tank.temperatureSensorId,
+        );
+        results.push(programTank);
+      }
+
+      this.auditLog({
+        action: 'ADD_TANKS_BULK',
+        resourceType: 'FeedingProgram',
+        resourceId: feedingProgramId,
+        userId: user.sub,
+        tenantId,
+        details: { tankCount: tanks.length },
+      });
+
+      return results;
+    } catch (error) {
+      throw this.handleMutationError('addTanksToProgram', error);
+    }
+  }
+
+  /**
+   * Reactivate a removed tank in a program
+   */
+  @Mutation(() => FeedingProgramTank, { description: 'Tanki programa tekrar dahil et' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async reactivateTankInProgram(
+    @Args('feedingProgramTankId', { type: () => ID }) feedingProgramTankId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgramTank> {
+    this.validateTenantAndUser(tenantId, user, 'reactivateTankInProgram');
+
+    try {
+      const programTank = await this.feedingProgramTankRepository.findOne({
+        where: { id: feedingProgramTankId, tenantId },
+      });
+
+      if (!programTank) {
+        throw new GraphQLError('Program tank not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      if (programTank.isActiveInProgram()) {
+        throw new GraphQLError('Tank is already active in this program', {
+          extensions: { code: 'BAD_REQUEST' },
+        });
+      }
+
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+        programTank.reactivate();
+        programTank.lastModifiedBy = user.sub;
+        await queryRunner.manager.save(programTank);
+
+        const program = await queryRunner.manager.findOne(FeedingProgram, {
+          where: { id: programTank.feedingProgramId, tenantId },
+        });
+        if (program) {
+          const tankCount = await queryRunner.manager.count(FeedingProgramTank, {
+            where: { feedingProgramId: programTank.feedingProgramId, isActive: true },
+          });
+          program.totalTanks = tankCount;
+          await queryRunner.manager.save(program);
+        }
+
+        await queryRunner.commitTransaction();
+      } catch (err) {
+        await queryRunner.rollbackTransaction();
+        throw err;
+      } finally {
+        await queryRunner.release();
+      }
+
+      this.auditLog({
+        action: 'REACTIVATE_TANK',
+        resourceType: 'FeedingProgramTank',
+        resourceId: feedingProgramTankId,
+        userId: user.sub,
+        tenantId,
+      });
+
+      return await this.feedingProgramTankRepository.findOneOrFail({
+        where: { id: feedingProgramTankId, tenantId },
+      });
+    } catch (error) {
+      throw this.handleMutationError('reactivateTankInProgram', error);
+    }
+  }
+
+  /**
+   * Assign a temperature sensor to a program tank
+   */
+  @Mutation(() => FeedingProgramTank, { description: 'Tanka sicaklik sensoru bagla' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async assignTemperatureSensor(
+    @Args('feedingProgramTankId', { type: () => ID }) feedingProgramTankId: string,
+    @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Args('sensorCode', { nullable: true }) sensorCode: string | undefined,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgramTank> {
+    this.validateTenantAndUser(tenantId, user, 'assignTemperatureSensor');
+
+    try {
+      const programTank = await this.feedingProgramTankRepository.findOne({
+        where: { id: feedingProgramTankId, tenantId },
+      });
+
+      if (!programTank) {
+        throw new GraphQLError('Program tank not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      if (!programTank.isActiveInProgram()) {
+        throw new GraphQLError('Cannot assign sensor to an inactive tank', {
+          extensions: { code: 'BAD_REQUEST' },
+        });
+      }
+
+      programTank.updateTemperatureSensor(sensorId, sensorCode || null);
+      programTank.lastModifiedBy = user.sub;
+
+      const saved = await this.feedingProgramTankRepository.save(programTank);
+
+      this.auditLog({
+        action: 'ASSIGN_SENSOR',
+        resourceType: 'FeedingProgramTank',
+        resourceId: feedingProgramTankId,
+        userId: user.sub,
+        tenantId,
+        details: { sensorId, sensorCode },
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('assignTemperatureSensor', error);
+    }
+  }
+
+  /**
+   * Manually transition a tank's feed
+   */
+  @Mutation(() => FeedingProgramTank, { description: 'Tankin yem gecisini manuel yap' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async transitionTankFeed(
+    @Args('feedingProgramTankId', { type: () => ID }) feedingProgramTankId: string,
+    @Args('newFeedId', { type: () => ID }) newFeedId: string,
+    @Args('newFeedCode') newFeedCode: string,
+    @Args('rangeIndex', { type: () => Int }) rangeIndex: number,
+    @Args('notes', { nullable: true }) notes: string | undefined,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgramTank> {
+    this.validateTenantAndUser(tenantId, user, 'transitionTankFeed');
+
+    try {
+      const programTank = await this.feedingProgramTankRepository.findOne({
+        where: { id: feedingProgramTankId, tenantId },
+      });
+
+      if (!programTank) {
+        throw new GraphQLError('Program tank not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      if (!programTank.isActiveInProgram()) {
+        throw new GraphQLError('Cannot transition feed for an inactive tank', {
+          extensions: { code: 'BAD_REQUEST' },
+        });
+      }
+
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+        programTank.transitionToFeed(newFeedId, newFeedCode, rangeIndex);
+        programTank.lastModifiedBy = user.sub;
+        if (notes) {
+          programTank.notes = notes;
+        }
+        await queryRunner.manager.save(programTank);
+
+        await queryRunner.manager.increment(
+          FeedingProgram,
+          { id: programTank.feedingProgramId, tenantId },
+          'totalFeedTransitions',
+          1,
+        );
+
+        await queryRunner.commitTransaction();
+      } catch (err) {
+        await queryRunner.rollbackTransaction();
+        throw err;
+      } finally {
+        await queryRunner.release();
+      }
+
+      this.auditLog({
+        action: 'TRANSITION_FEED',
+        resourceType: 'FeedingProgramTank',
+        resourceId: feedingProgramTankId,
+        userId: user.sub,
+        tenantId,
+        details: { newFeedId, newFeedCode, rangeIndex },
+      });
+
+      return await this.feedingProgramTankRepository.findOneOrFail({
+        where: { id: feedingProgramTankId, tenantId },
+      });
+    } catch (error) {
+      throw this.handleMutationError('transitionTankFeed', error);
+    }
+  }
+
+  /**
+   * Record bulk feeding for multiple tanks
+   */
+  @Mutation(() => BulkFeedingResult, { description: 'Toplu yemleme kaydi' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  async recordBulkFeeding(
+    @Args('inputs', { type: () => [RecordDailyFeedingInput] }) inputs: RecordDailyFeedingInput[],
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<BulkFeedingResult> {
+    this.validateTenantAndUser(tenantId, user, 'recordBulkFeeding');
+
+    const successful: DailyFeedingExecution[] = [];
+    const failed: BulkFeedingFailure[] = [];
+
+    for (const input of inputs) {
+      try {
+        if (input.actualKg < 0) {
+          failed.push({ executionId: input.executionId, error: 'Actual feed amount cannot be negative' });
+          continue;
+        }
+
+        const execution = await this.dailyFeedingExecutionRepository.findOne({
+          where: { id: input.executionId, tenantId },
+        });
+
+        if (!execution) {
+          failed.push({ executionId: input.executionId, error: 'Daily feeding execution not found' });
+          continue;
+        }
+
+        await this.dailyFeedingExecutionService.recordActualFeeding(
+          input.executionId, input.actualKg, user.sub, tenantId, input.notes,
+        );
+
+        const updated = await this.dailyFeedingExecutionRepository.findOne({
+          where: { id: input.executionId, tenantId },
+        });
+        if (updated) {
+          successful.push(updated);
+        }
+      } catch (error) {
+        failed.push({
+          executionId: input.executionId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    this.auditLog({
+      action: 'RECORD_BULK_FEEDING',
+      resourceType: 'DailyFeedingExecution',
+      resourceId: 'bulk',
+      userId: user.sub,
+      tenantId,
+      details: { totalInputs: inputs.length, successful: successful.length, failed: failed.length },
+    });
+
+    return { successful, failed, totalSuccessful: successful.length, totalFailed: failed.length };
+  }
+
+  /**
+   * Recalculate daily plan for an execution
+   */
+  @Mutation(() => DailyFeedingExecution, { description: 'Gunluk plani yeniden hesapla' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async recalculateDailyPlan(
+    @Args('executionId', { type: () => ID }) executionId: string,
+    @Args('newParameters', { nullable: true }) newParameters: RecalculateParametersInput | undefined,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<DailyFeedingExecution> {
+    this.validateTenantAndUser(tenantId, user, 'recalculateDailyPlan');
+
+    try {
+      const execution = await this.dailyFeedingExecutionRepository.findOne({
+        where: { id: executionId, tenantId },
+        relations: ['feedingProgram', 'feedingProgramTank'],
+      });
+
+      if (!execution) {
+        throw new GraphQLError('Daily feeding execution not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      if (execution.status !== ExecutionStatus.PLANNED) {
+        throw new GraphQLError(
+          `Cannot recalculate execution in '${execution.status}' status. Only PLANNED executions can be recalculated.`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      if (newParameters) {
+        if (newParameters.avgWeightG !== undefined) execution.calculations.avgWeightG = newParameters.avgWeightG;
+        if (newParameters.fishCount !== undefined) execution.calculations.fishCount = newParameters.fishCount;
+        if (newParameters.biomassKg !== undefined) execution.calculations.biomassKg = newParameters.biomassKg;
+        if (newParameters.waterTempC !== undefined) execution.calculations.waterTempC = newParameters.waterTempC;
+
+        const biomassKg = execution.calculations.biomassKg;
+        const feedingRate = execution.calculations.feedingRatePercent;
+        const mealsPerDay = execution.calculations.mealsPerDay;
+
+        execution.calculations.plannedFeedKg = (biomassKg * feedingRate) / 100;
+        if (mealsPerDay > 0) {
+          execution.calculations.perMealKg = execution.calculations.plannedFeedKg / mealsPerDay;
+        }
+      }
+
+      execution.lastModifiedBy = user.sub;
+      const saved = await this.dailyFeedingExecutionRepository.save(execution);
+
+      this.auditLog({
+        action: 'RECALCULATE_PLAN',
+        resourceType: 'DailyFeedingExecution',
+        resourceId: executionId,
+        userId: user.sub,
+        tenantId,
+        details: { newParameters },
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('recalculateDailyPlan', error);
+    }
+  }
+
+  /**
+   * Add a feed assignment to an existing program
+   */
+  @Mutation(() => FeedingProgram, { description: 'Programa yem atamasi ekle' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async addFeedAssignment(
+    @Args('feedingProgramId', { type: () => ID }) feedingProgramId: string,
+    @Args('assignment') assignment: FeedAssignmentInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'addFeedAssignment');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id: feedingProgramId, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      if (!program.isEditable() && program.status !== FeedingProgramStatus.ACTIVE) {
+        throw new GraphQLError(
+          `Cannot modify feed assignments in '${program.status}' status`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      const newAssignment: FeedAssignment = {
+        feedId: assignment.feedId,
+        feedCode: '',
+        feedName: '',
+        minWeightG: assignment.minWeightG,
+        maxWeightG: assignment.maxWeightG,
+        priority: assignment.priority ?? program.feedAssignments.length + 1,
+        notes: assignment.notes,
+      };
+
+      try {
+        const feedRepo = this.dataSource.getRepository('Feed');
+        const feed = await feedRepo.findOne({ where: { id: assignment.feedId, tenantId }, select: ['id', 'code', 'name'] });
+        if (feed) {
+          newAssignment.feedCode = (feed as { code: string }).code;
+          newAssignment.feedName = (feed as { name: string }).name;
+        }
+      } catch { /* Feed lookup failed */ }
+
+      program.feedAssignments = [...program.feedAssignments, newAssignment];
+      program.lastModifiedBy = user.sub;
+      const saved = await this.feedingProgramRepository.save(program);
+
+      this.auditLog({
+        action: 'ADD_FEED_ASSIGNMENT',
+        resourceType: 'FeedingProgram',
+        resourceId: feedingProgramId,
+        userId: user.sub,
+        tenantId,
+        details: { feedId: assignment.feedId },
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('addFeedAssignment', error);
+    }
+  }
+
+  /**
+   * Update an existing feed assignment in a program
+   */
+  @Mutation(() => FeedingProgram, { description: 'Yem atamasini guncelle' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateFeedAssignment(
+    @Args('feedingProgramId', { type: () => ID }) feedingProgramId: string,
+    @Args('feedId', { type: () => ID }) feedId: string,
+    @Args('assignment') assignment: FeedAssignmentInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'updateFeedAssignment');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id: feedingProgramId, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      if (!program.isEditable() && program.status !== FeedingProgramStatus.ACTIVE) {
+        throw new GraphQLError(
+          `Cannot modify feed assignments in '${program.status}' status`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      const idx = program.feedAssignments.findIndex((a) => a.feedId === feedId);
+      if (idx === -1) {
+        throw new GraphQLError(`Feed assignment with feedId '${feedId}' not found in program`, {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      const existingAssignment = program.feedAssignments[idx]!;
+      let feedCode = existingAssignment.feedCode;
+      let feedName = existingAssignment.feedName;
+      if (assignment.feedId !== feedId) {
+        try {
+          const feedRepo = this.dataSource.getRepository('Feed');
+          const feed = await feedRepo.findOne({ where: { id: assignment.feedId, tenantId }, select: ['id', 'code', 'name'] });
+          if (feed) {
+            feedCode = (feed as { code: string }).code;
+            feedName = (feed as { name: string }).name;
+          }
+        } catch { /* Feed lookup failed */ }
+      }
+
+      program.feedAssignments[idx] = {
+        feedId: assignment.feedId,
+        feedCode,
+        feedName,
+        minWeightG: assignment.minWeightG,
+        maxWeightG: assignment.maxWeightG,
+        priority: assignment.priority ?? existingAssignment.priority,
+        notes: assignment.notes,
+      };
+
+      program.lastModifiedBy = user.sub;
+      const saved = await this.feedingProgramRepository.save(program);
+
+      this.auditLog({
+        action: 'UPDATE_FEED_ASSIGNMENT',
+        resourceType: 'FeedingProgram',
+        resourceId: feedingProgramId,
+        userId: user.sub,
+        tenantId,
+        details: { feedId, newFeedId: assignment.feedId },
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('updateFeedAssignment', error);
+    }
+  }
+
+  /**
+   * Remove a feed assignment from a program
+   */
+  @Mutation(() => FeedingProgram, { description: 'Yem atamasini kaldir' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async removeFeedAssignment(
+    @Args('feedingProgramId', { type: () => ID }) feedingProgramId: string,
+    @Args('feedId', { type: () => ID }) feedId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'removeFeedAssignment');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id: feedingProgramId, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      if (!program.isEditable() && program.status !== FeedingProgramStatus.ACTIVE) {
+        throw new GraphQLError(
+          `Cannot modify feed assignments in '${program.status}' status`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      const originalLength = program.feedAssignments.length;
+      program.feedAssignments = program.feedAssignments.filter((a) => a.feedId !== feedId);
+
+      if (program.feedAssignments.length === originalLength) {
+        throw new GraphQLError(`Feed assignment with feedId '${feedId}' not found in program`, {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      if (program.feedAssignments.length === 0 && program.status === FeedingProgramStatus.ACTIVE) {
+        throw new GraphQLError('Cannot remove the last feed assignment from an active program', {
+          extensions: { code: 'BAD_REQUEST' },
+        });
+      }
+
+      program.lastModifiedBy = user.sub;
+      const saved = await this.feedingProgramRepository.save(program);
+
+      this.auditLog({
+        action: 'REMOVE_FEED_ASSIGNMENT',
+        resourceType: 'FeedingProgram',
+        resourceId: feedingProgramId,
+        userId: user.sub,
+        tenantId,
+        details: { feedId },
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('removeFeedAssignment', error);
+    }
+  }
+
+  /**
+   * Update FCR table for a program
+   */
+  @Mutation(() => FeedingProgram, { description: 'FCR tablosunu guncelle' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateFCRTable(
+    @Args('feedingProgramId', { type: () => ID }) feedingProgramId: string,
+    @Args('fcrTable') fcrTable: FCRTableInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'updateFCRTable');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id: feedingProgramId, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      if (!program.isEditable() && program.status !== FeedingProgramStatus.ACTIVE) {
+        throw new GraphQLError(
+          `Cannot modify FCR table in '${program.status}' status`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      program.fcrTable = this.mapFCRTable(fcrTable);
+
+      const validation = program.validateFCRTable();
+      if (!validation.valid) {
+        throw new GraphQLError(`Invalid FCR table: ${validation.errors.join(', ')}`, {
+          extensions: { code: 'BAD_REQUEST' },
+        });
+      }
+
+      program.lastModifiedBy = user.sub;
+      const saved = await this.feedingProgramRepository.save(program);
+
+      this.auditLog({
+        action: 'UPDATE_FCR_TABLE',
+        resourceType: 'FeedingProgram',
+        resourceId: feedingProgramId,
+        userId: user.sub,
+        tenantId,
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('updateFCRTable', error);
+    }
+  }
+
+  /**
+   * Clone a feeding program
+   */
+  @Mutation(() => FeedingProgram, { description: 'Programi kopyala' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async cloneFeedingProgram(
+    @Args('sourceId', { type: () => ID }) sourceId: string,
+    @Args('newName') newName: string,
+    @Args('newCode') newCode: string,
+    @Args('startDate') startDate: string,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'cloneFeedingProgram');
+
+    try {
+      const sourceProgram = await this.feedingProgramRepository.findOne({
+        where: { id: sourceId, tenantId },
+      });
+
+      if (!sourceProgram) {
+        throw new GraphQLError('Source feeding program not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      const existingProgram = await this.feedingProgramRepository.findOne({
+        where: { tenantId, code: newCode },
+      });
+
+      if (existingProgram) {
+        throw new GraphQLError(`Program with code '${newCode}' already exists`, {
+          extensions: { code: 'CONFLICT' },
+        });
+      }
+
+      const clonedProgram = await this.feedingProgramService.createProgram(
+        {
+          name: newName,
+          code: newCode,
+          description: sourceProgram.description
+            ? `Cloned from ${sourceProgram.code}. ${sourceProgram.description}`
+            : `Cloned from ${sourceProgram.code}`,
+          feedAssignments: [...sourceProgram.feedAssignments],
+          fcrTable: sourceProgram.fcrTable ? { ...sourceProgram.fcrTable } : undefined,
+          startDate: new Date(startDate),
+          settings: sourceProgram.settings ? { ...sourceProgram.settings } : undefined,
+        },
+        user.sub,
+        tenantId,
+      );
+
+      this.auditLog({
+        action: 'CLONE',
+        resourceType: 'FeedingProgram',
+        resourceId: clonedProgram.id,
+        userId: user.sub,
+        tenantId,
+        details: { sourceId, sourceName: sourceProgram.name },
+      });
+
+      return clonedProgram;
+    } catch (error) {
+      throw this.handleMutationError('cloneFeedingProgram', error);
+    }
+  }
+
+  /**
+   * Update program settings
+   */
+  @Mutation(() => FeedingProgram, { description: 'Program ayarlarini guncelle' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateProgramSettings(
+    @Args('feedingProgramId', { type: () => ID }) feedingProgramId: string,
+    @Args('settings') settings: ProgramSettingsInput,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
+  ): Promise<FeedingProgram> {
+    this.validateTenantAndUser(tenantId, user, 'updateProgramSettings');
+
+    try {
+      const program = await this.feedingProgramRepository.findOne({
+        where: { id: feedingProgramId, tenantId },
+      });
+
+      if (!program) {
+        throw new GraphQLError('Feeding program not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      if (!program.isEditable() && program.status !== FeedingProgramStatus.ACTIVE) {
+        throw new GraphQLError(
+          `Cannot modify settings in '${program.status}' status`,
+          { extensions: { code: 'BAD_REQUEST' } },
+        );
+      }
+
+      program.settings = {
+        ...program.settings,
+        ...(settings.autoTransition !== undefined && { autoTransition: settings.autoTransition }),
+        ...(settings.transitionBuffer !== undefined && { transitionBuffer: settings.transitionBuffer }),
+        ...(settings.notifyOnTransition !== undefined && { notifyOnTransition: settings.notifyOnTransition }),
+        ...(settings.fcrSource !== undefined && { fcrSource: settings.fcrSource }),
+        ...(settings.defaultMealsPerDay !== undefined && { defaultMealsPerDay: settings.defaultMealsPerDay }),
+        ...(settings.minFeedingRatePercent !== undefined && { minFeedingRatePercent: settings.minFeedingRatePercent }),
+        ...(settings.maxFeedingRatePercent !== undefined && { maxFeedingRatePercent: settings.maxFeedingRatePercent }),
+      };
+
+      const validation = program.validateSettings();
+      if (!validation.valid) {
+        throw new GraphQLError(`Invalid settings: ${validation.errors.join(', ')}`, {
+          extensions: { code: 'BAD_REQUEST' },
+        });
+      }
+
+      program.lastModifiedBy = user.sub;
+      const saved = await this.feedingProgramRepository.save(program);
+
+      this.auditLog({
+        action: 'UPDATE_SETTINGS',
+        resourceType: 'FeedingProgram',
+        resourceId: feedingProgramId,
+        userId: user.sub,
+        tenantId,
+        details: { settings },
+      });
+
+      return saved;
+    } catch (error) {
+      throw this.handleMutationError('updateProgramSettings', error);
     }
   }
 

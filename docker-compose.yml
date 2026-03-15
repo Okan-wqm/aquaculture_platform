@@ -125,6 +125,7 @@ services:
       BILLING_SERVICE_URL: http://billing-service:3000/graphql
       NOTIFICATION_SERVICE_URL: http://notification-service:3000/graphql
       HYDROPONICS_SERVICE_URL: http://hydroponics-service:3000/graphql
+      CONFIG_SERVICE_URL: http://config-service:3000/graphql
       # MinIO Storage Configuration
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000

@@ -346,6 +346,24 @@ export interface CompleteWorkOrderInput {
   laborRecords?: LaborRecord[];
 }
 
+export interface StartWorkOrderInput {
+  id: string;
+  startTime?: string;
+  notes?: string;
+}
+
+export interface VerifyWorkOrderInput {
+  id: string;
+  verificationNotes?: string;
+  approved: boolean;
+  rejectionReason?: string;
+}
+
+export interface ApproveWorkOrderInput {
+  id: string;
+  approvalNotes?: string;
+}
+
 export interface WorkOrderFilter {
   status?: WorkOrderStatus[];
   type?: WorkOrderType[];
@@ -727,6 +745,206 @@ export function useDeleteWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+    },
+  });
+}
+
+// ============================================================================
+// HOOKS - Work Order Lifecycle Mutations
+// ============================================================================
+
+export function useSubmitWorkOrderForApproval() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation SubmitWorkOrderForApproval($id: ID!) {
+          submitWorkOrderForApproval(id: $id) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ submitWorkOrderForApproval: WorkOrder }>(
+        mutation,
+        { id }
+      );
+
+      return result.submitWorkOrderForApproval;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+    },
+  });
+}
+
+export function useApproveWorkOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: ApproveWorkOrderInput) => {
+      const mutation = `
+        mutation ApproveWorkOrder($input: ApproveWorkOrderInput!) {
+          approveWorkOrder(input: $input) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ approveWorkOrder: WorkOrder }>(
+        mutation,
+        { input }
+      );
+
+      return result.approveWorkOrder;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+    },
+  });
+}
+
+export function useStartWorkOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: StartWorkOrderInput) => {
+      const mutation = `
+        mutation StartWorkOrder($input: StartWorkOrderInput!) {
+          startWorkOrder(input: $input) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ startWorkOrder: WorkOrder }>(
+        mutation,
+        { input }
+      );
+
+      return result.startWorkOrder;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+    },
+  });
+}
+
+export function useVerifyWorkOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: VerifyWorkOrderInput) => {
+      const mutation = `
+        mutation VerifyWorkOrder($input: VerifyWorkOrderInput!) {
+          verifyWorkOrder(input: $input) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ verifyWorkOrder: WorkOrder }>(
+        mutation,
+        { input }
+      );
+
+      return result.verifyWorkOrder;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+    },
+  });
+}
+
+export function useCancelWorkOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
+      const mutation = `
+        mutation CancelWorkOrder($id: ID!, $reason: String) {
+          cancelWorkOrder(id: $id, reason: $reason) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ cancelWorkOrder: WorkOrder }>(
+        mutation,
+        { id, reason }
+      );
+
+      return result.cancelWorkOrder;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+    },
+  });
+}
+
+export function usePutWorkOrderOnHold() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
+      const mutation = `
+        mutation PutWorkOrderOnHold($id: ID!, $reason: String) {
+          putWorkOrderOnHold(id: $id, reason: $reason) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ putWorkOrderOnHold: WorkOrder }>(
+        mutation,
+        { id, reason }
+      );
+
+      return result.putWorkOrderOnHold;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+    },
+  });
+}
+
+export function useResumeWorkOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const mutation = `
+        mutation ResumeWorkOrder($id: ID!) {
+          resumeWorkOrder(id: $id) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ resumeWorkOrder: WorkOrder }>(
+        mutation,
+        { id }
+      );
+
+      return result.resumeWorkOrder;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
+      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
       queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
     },
   });

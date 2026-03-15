@@ -13,8 +13,6 @@ import {
 // Performance Review Queries
 // =====================
 
-// NOTE: Performance module queries not yet implemented in backend (no resolver).
-// These operations are kept for future backend implementation.
 export const GET_PERFORMANCE_REVIEWS = gql`
   query GetPerformanceReviews($employeeId: ID, $status: String, $limit: Int, $offset: Int) {
     performanceReviews(employeeId: $employeeId, status: $status, limit: $limit, offset: $offset) {

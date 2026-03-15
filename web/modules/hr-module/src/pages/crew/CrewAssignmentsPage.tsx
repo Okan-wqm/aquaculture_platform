@@ -32,7 +32,7 @@ import {
 import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
 import { SeaLandSplitView } from '../../components/crew';
 import type { Column } from '../../components/common';
-import type { Employee, WorkArea, CrewAssignment, PersonnelCategory, PaginationInput } from '../../types';
+import type { Employee, WorkArea, CrewAssignment, PersonnelCategory, WorkAreaType, PaginationInput } from '../../types';
 
 // ============================================================================
 // Types
@@ -145,15 +145,15 @@ export function CrewAssignmentsPage() {
 
   // Calculate stats
   const totalEmployees = employees?.total || 0;
-  const offshoreCount = employees?.items?.filter((e) => e.personnelCategory === 'offshore').length || 0;
-  const onshoreCount = employees?.items?.filter((e) => e.personnelCategory === 'onshore').length || 0;
-  const hybridCount = employees?.items?.filter((e) => e.personnelCategory === 'hybrid').length || 0;
+  const offshoreCount = employees?.items?.filter((e) => e.personnelCategory === ('OFFSHORE' as PersonnelCategory)).length || 0;
+  const onshoreCount = employees?.items?.filter((e) => e.personnelCategory === ('ONSHORE' as PersonnelCategory)).length || 0;
+  const hybridCount = employees?.items?.filter((e) => e.personnelCategory === ('HYBRID' as PersonnelCategory)).length || 0;
   const seaWorthyCount = employees?.items?.filter((e) => e.seaWorthy).length || 0;
   const activeWorkAreas = workAreas?.filter((wa) => wa.isActive).length || 0;
 
   // Separate lists for sea/land view
-  const offshoreList = employees?.items?.filter((e) => e.personnelCategory === 'offshore') || [];
-  const onshoreList = employees?.items?.filter((e) => e.personnelCategory === 'onshore') || [];
+  const offshoreList = employees?.items?.filter((e) => e.personnelCategory === ('OFFSHORE' as PersonnelCategory)) || [];
+  const onshoreList = employees?.items?.filter((e) => e.personnelCategory === ('ONSHORE' as PersonnelCategory)) || [];
 
   // PERF-004: memoize so the column array reference is stable across renders
   const assignmentColumns: Column<CrewAssignment>[] = useMemo(() => [
@@ -163,7 +163,7 @@ export function CrewAssignmentsPage() {
       sortable: true,
       accessor: (row) => (
         <div className="flex items-center gap-3">
-          {row.workArea?.workAreaType === 'sea_cage' || row.workArea?.workAreaType === 'vessel' ? (
+          {row.workArea?.workAreaType === ('SEA_CAGE' as WorkAreaType) || row.workArea?.workAreaType === ('VESSEL' as WorkAreaType) ? (
             <Ship className="h-4 w-4 text-blue-500" />
           ) : (
             <Building2 className="h-4 w-4 text-green-500" />

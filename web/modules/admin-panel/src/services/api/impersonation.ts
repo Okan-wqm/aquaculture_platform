@@ -15,22 +15,33 @@ export const impersonationApi = {
   // Permissions
   getPermissions: (params?: { tenantId?: string; isActive?: boolean } & PaginationParams) =>
     apiFetch<PaginatedResult<ImpersonationPermission>>(`/impersonation/permissions?${buildQueryString(params || {})}`),
-  getPermission: (id: string) => apiFetch<ImpersonationPermission>(`/impersonation/permissions/${id}`),
+  // Fix: backend uses superAdminId as path param (GET /permissions/:superAdminId)
+  getPermission: (superAdminId: string) => apiFetch<ImpersonationPermission>(`/impersonation/permissions/${superAdminId}`),
   grantPermission: (data: {
-    tenantId: string;
-    grantedBy: string;
+    superAdminId: string;
+    superAdminEmail?: string;
+    allowedTenants?: string[];
+    restrictedTenants?: string[];
+    defaultPermissions?: Record<string, unknown>;
+    maxSessionDurationMinutes?: number;
+    maxConcurrentSessions?: number;
+    requireReason?: boolean;
+    requireTicketReference?: boolean;
+    notifyTenantAdmin?: boolean;
     expiresAt?: string;
-    maxSessionDuration?: number;
-    allowedActions?: string[];
-    reason?: string;
+    notes?: string;
   }) =>
     apiFetch<ImpersonationPermission>('/impersonation/permissions', { method: 'POST', body: JSON.stringify(data) }),
-  updatePermission: (id: string, data: Partial<ImpersonationPermission>) =>
-    apiFetch<ImpersonationPermission>(`/impersonation/permissions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  revokePermission: (id: string, revokedBy: string, reason?: string) =>
-    apiFetch<ImpersonationPermission>(`/impersonation/permissions/${id}/revoke`, { method: 'POST', body: JSON.stringify({ revokedBy, reason }) }),
+  // TODO: No backend PUT endpoint for updating permissions (only POST grant and POST revoke)
+  updatePermission: (_id: string, _data: Partial<ImpersonationPermission>) => {
+    throw new Error('Not implemented: no backend PUT endpoint for /impersonation/permissions/:id. Use grant/revoke instead.');
+  },
+  // Fix: backend uses POST /permissions/:superAdminId/revoke (no body needed, auth from JWT)
+  revokePermission: (superAdminId: string, _revokedBy?: string, _reason?: string) =>
+    apiFetch<void>(`/impersonation/permissions/${superAdminId}/revoke`, { method: 'POST' }),
+  // Fix: backend uses path params GET /permissions/:superAdminId/check/:tenantId (not query params)
   checkPermission: (tenantId: string, adminId: string) =>
-    apiFetch<{ hasPermission: boolean; permission?: ImpersonationPermission }>(`/impersonation/permissions/check?tenantId=${tenantId}&adminId=${adminId}`),
+    apiFetch<{ hasPermission: boolean; permission?: ImpersonationPermission }>(`/impersonation/permissions/${adminId}/check/${tenantId}`),
 
   // Sessions
   getSessions: (params?: { adminId?: string; tenantId?: string; status?: string } & PaginationParams) =>
@@ -46,9 +57,13 @@ export const impersonationApi = {
   revokeSession: (id: string, revokedBy: string, reason?: string) =>
     apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, { method: 'POST', body: JSON.stringify({ revokedBy, reason }) }),
   getActiveSessions: () => apiFetch<ImpersonationSession[]>('/impersonation/sessions/active'),
-  getSessionActions: (sessionId: string) => apiFetch<ImpersonationAction[]>(`/impersonation/sessions/${sessionId}/actions`),
+  // TODO: No backend GET endpoint for session actions
+  getSessionActions: (_sessionId: string) => {
+    throw new Error('Not implemented: no backend GET endpoint for /impersonation/sessions/:id/actions');
+  },
+  // Fix: backend uses POST /sessions/:id/log-action (not /sessions/:id/actions)
   logAction: (sessionId: string, data: Omit<ImpersonationAction, 'id' | 'sessionId' | 'timestamp'>) =>
-    apiFetch<ImpersonationAction>(`/impersonation/sessions/${sessionId}/actions`, { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Dashboard
   getImpersonationStats: () =>

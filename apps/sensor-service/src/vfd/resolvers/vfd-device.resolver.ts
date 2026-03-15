@@ -1,4 +1,4 @@
-import { UseGuards } from '@nestjs/common';
+import { UseGuards, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { Roles, Role, TenantGuard, Tenant } from '@platform/backend-common';
 
@@ -7,6 +7,11 @@ import {
   VfdPaginationDto,
   RegisterVfdDto,
   UpdateVfdDto,
+  PaginatedVfdDeviceListDto,
+  VfdRegistrationResultDto,
+  TestVfdConnectionInputDto,
+  VfdConnectionTestResultDto,
+  VfdStatsDto,
 } from '../dto';
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdReading } from '../entities/vfd-reading.entity';
@@ -20,6 +25,8 @@ import { VfdDeviceService, CreateVfdDeviceInput, UpdateVfdDeviceInput } from '..
 @Resolver(() => VfdDevice)
 @UseGuards(TenantGuard)
 export class VfdDeviceResolver {
+  private readonly logger = new Logger(VfdDeviceResolver.name);
+
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
     private readonly connectionTesterService: VfdConnectionTesterService,
@@ -38,15 +45,43 @@ export class VfdDeviceResolver {
   }
 
   /**
-   * Get all VFD devices with filtering and pagination
+   * Get all VFD devices with filtering and pagination.
+   * Returns paginated wrapper with { items, total, page, pageSize, totalPages }.
    */
-  @Query(() => [VfdDevice], { name: 'vfdDevices' })
+  @Query(() => PaginatedVfdDeviceListDto, { name: 'vfdDevices' })
   async getVfdDevices(
     @Args('filter', { type: () => VfdDeviceFilterDto, nullable: true }) filter: VfdDeviceFilterDto,
     @Args('pagination', { type: () => VfdPaginationDto, nullable: true }) pagination: VfdPaginationDto,
     @Tenant() tenantId: string
-  ) {
-    return this.vfdDeviceService.findAll(tenantId, filter, pagination);
+  ): Promise<PaginatedVfdDeviceListDto> {
+    // Convert page/pageSize from frontend to offset/limit for service
+    const page = pagination?.offset !== undefined
+      ? Math.floor(pagination.offset / (pagination?.limit ?? 20)) + 1
+      : 1;
+    const pageSize = pagination?.limit ?? 20;
+
+    const result = await this.vfdDeviceService.findAll(tenantId, filter, pagination);
+
+    const totalPages = Math.ceil(result.total / pageSize);
+
+    return {
+      items: result.items as any,
+      total: result.total,
+      page,
+      pageSize,
+      totalPages,
+    };
+  }
+
+  /**
+   * Get VFD fleet statistics.
+   * Returns { total, active, inactive, faulted, maintenance, byBrand, byProtocol, byStatus }.
+   */
+  @Query(() => VfdStatsDto, { name: 'vfdStats' })
+  async getVfdStats(
+    @Tenant() tenantId: string
+  ): Promise<VfdStatsDto> {
+    return this.vfdDeviceService.getStats(tenantId);
   }
 
   /**
@@ -83,16 +118,49 @@ export class VfdDeviceResolver {
   }
 
   /**
-   * Register a new VFD device
+   * Register a new VFD device.
+   * Returns VfdRegistrationResult with { success, vfdDevice, error, connectionTestPassed, latencyMs }.
+   * Optionally tests connection during registration.
+   *
    * SECURITY: Requires elevated permissions - creates industrial equipment entry
    */
-  @Mutation(() => VfdDevice, { name: 'registerVfdDevice' })
+  @Mutation(() => VfdRegistrationResultDto, { name: 'registerVfdDevice' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async registerVfdDevice(
     @Args('input', { type: () => RegisterVfdDto }) input: RegisterVfdDto,
     @Tenant() tenantId: string
-  ): Promise<VfdDevice> {
-    return this.vfdDeviceService.create(input as CreateVfdDeviceInput, tenantId);
+  ): Promise<VfdRegistrationResultDto> {
+    try {
+      const device = await this.vfdDeviceService.create(input as CreateVfdDeviceInput, tenantId);
+
+      let connectionTestPassed: boolean | undefined;
+      let latencyMs: number | undefined;
+
+      // If skipConnectionTest is not set, attempt connection test
+      if (!input.skipConnectionTest) {
+        try {
+          const testResult = await this.connectionTesterService.testDeviceConnection(device.id, tenantId);
+          connectionTestPassed = testResult.success;
+          latencyMs = testResult.latencyMs;
+        } catch (err) {
+          this.logger.warn(`Connection test failed during registration: ${(err as Error).message}`);
+          connectionTestPassed = false;
+        }
+      }
+
+      return {
+        success: true,
+        vfdDevice: device as any,
+        connectionTestPassed,
+        latencyMs,
+      };
+    } catch (err) {
+      this.logger.error(`VFD registration failed: ${(err as Error).message}`);
+      return {
+        success: false,
+        error: (err as Error).message,
+      };
+    }
   }
 
   /**
@@ -123,17 +191,43 @@ export class VfdDeviceResolver {
   }
 
   /**
-   * Test connection for a VFD device
+   * Test connection for a VFD device.
+   * Accepts TestVfdConnectionInput (protocol + configuration) for pre-registration testing.
+   * Returns rich VfdConnectionTestResult with diagnostics, device info, etc.
+   *
    * SECURITY: Requires elevated permissions - tests industrial equipment connectivity
    */
-  @Mutation(() => Boolean, { name: 'testVfdConnection' })
+  @Mutation(() => VfdConnectionTestResultDto, { name: 'testVfdConnection' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async testVfdConnection(
-    @Args('id', { type: () => ID }) id: string,
-    @Tenant() tenantId: string
-  ): Promise<boolean> {
-    const result = await this.connectionTesterService.testDeviceConnection(id, tenantId);
-    return result.success;
+    @Args('input', { type: () => TestVfdConnectionInputDto }) input: TestVfdConnectionInputDto,
+    @Tenant() _tenantId: string
+  ): Promise<VfdConnectionTestResultDto> {
+    try {
+      const result = await this.connectionTesterService.testConnection({
+        protocol: input.protocol,
+        configuration: input.configuration,
+        brand: input.brand,
+      });
+
+      return {
+        success: result.success,
+        latencyMs: result.latencyMs,
+        error: result.error,
+        sampleData: result.parameters || result.sampleData,
+        firmwareVersion: result.firmwareVersion,
+        deviceInfo: result.serialNumber ? {
+          serialNumber: result.serialNumber,
+        } : undefined,
+        testedAt: result.testedAt,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: (err as Error).message,
+        testedAt: new Date(),
+      };
+    }
   }
 
   /**

@@ -16,9 +16,9 @@ import {
 // BUG-HYD-018: Derive the stage filter options from the union of all SPECIES_STAGES
 // values rather than the legacy STAGE_OPTIONS (which includes 'fruiting3' that appears
 // in no per-species list, creating a dead filter option).
-const STAGE_FILTER_OPTIONS: { value: string; label: string }[] = (() => {
-  const seen = new Set<string>();
-  const options: { value: string; label: string }[] = [];
+const STAGE_FILTER_OPTIONS: { value: string | number; label: string }[] = (() => {
+  const seen = new Set<string | number>();
+  const options: { value: string | number; label: string }[] = [];
   for (const stages of Object.values(SPECIES_STAGES)) {
     for (const s of stages) {
       if (!seen.has(s.value)) {
@@ -100,8 +100,8 @@ const NutrientProfileManager: React.FC = () => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const getLabel = (options: { value: string; label: string }[], value: string) =>
-    options.find((o) => o.value === value)?.label ?? value;
+  const getLabel = (options: { value: string | number; label: string }[], value: string) =>
+    options.find((o) => String(o.value) === value)?.label ?? value;
 
   return (
     <div className="space-y-4">

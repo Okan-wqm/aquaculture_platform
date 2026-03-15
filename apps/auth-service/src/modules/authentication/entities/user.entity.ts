@@ -121,6 +121,28 @@ export class User {
   preferredLanguage?: string | null;
 
   // ============================================
+  // Notification Preferences
+  // ============================================
+
+  /**
+   * Per-user notification preferences stored as JSONB.
+   * Defaults are applied at the application layer when null.
+   */
+  @HideField()
+  @Column({ type: 'jsonb', nullable: true })
+  notificationPreferences?: {
+    emailEnabled: boolean;
+    smsEnabled: boolean;
+    pushEnabled: boolean;
+    quietHoursStart: string | null;  // HH:mm format, e.g. "22:00"
+    quietHoursEnd: string | null;    // HH:mm format, e.g. "07:00"
+    quietHoursTimezone: string;      // IANA timezone, e.g. "Europe/Istanbul"
+    alertNotifications: boolean;
+    taskNotifications: boolean;
+    systemNotifications: boolean;
+  } | null;
+
+  // ============================================
   // Login & Security Fields
   // ============================================
 

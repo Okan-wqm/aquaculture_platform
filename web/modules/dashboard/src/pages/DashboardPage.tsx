@@ -23,7 +23,7 @@ import type { AlertItem, AlertSeverity } from '../widgets/AlertSummaryWidget';
 import QuickActions from '../components/QuickActions';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { DownloadIcon, PlusIcon, FarmIcon, SensorIcon, BellIcon, TrendUpIcon } from '../components/icons';
-import { useDashboardStats, useAlertSummary } from '../hooks/useDashboardData';
+import { useDashboardStats, useAlertSummary, useAcknowledgeAlert, useResolveAlert } from '../hooks/useDashboardData';
 
 // ============================================================================
 // Alert Mapping Helper
@@ -31,7 +31,7 @@ import { useDashboardStats, useAlertSummary } from '../hooks/useDashboardData';
 
 /**
  * Map backend AlertHistoryEntry to AlertSummaryWidget's AlertItem prop type.
- * Severity mapping: backend uses UPPERCASE, widget uses lowercase.
+ * Backend AlertSeverity enum uses lowercase string values ('critical', 'high', etc.).
  */
 function mapAlertHistoryToAlertItem(entry: {
   id: string;
@@ -46,10 +46,19 @@ function mapAlertHistoryToAlertItem(entry: {
   farmId: string | null;
   sensorId: string | null;
 }): AlertItem {
+  // Backend AlertSeverity enum uses lowercase values ('critical', 'high', etc.).
+  // Map handles both lowercase (actual) and uppercase (legacy) for safety.
   const severityMap: Record<string, AlertSeverity> = {
+    critical: 'critical',
+    high: 'high',
+    medium: 'medium',
+    warning: 'warning',
+    low: 'low',
+    info: 'info',
     CRITICAL: 'critical',
     HIGH: 'high',
     MEDIUM: 'medium',
+    WARNING: 'warning',
     LOW: 'low',
     INFO: 'info',
   };
@@ -87,6 +96,10 @@ const DashboardPage: React.FC = () => {
   const statsQuery = useDashboardStats();
   const alertQuery = useAlertSummary();
 
+  // Alert mutation hooks
+  const acknowledgeMutation = useAcknowledgeAlert();
+  const resolveMutation = useResolveAlert();
+
   // Derive metric values
   const metrics = useMemo(() => {
     if (!statsQuery.data) {
@@ -101,9 +114,18 @@ const DashboardPage: React.FC = () => {
     return alertQuery.data.alerts.map(mapAlertHistoryToAlertItem);
   }, [alertQuery.data?.alerts]);
 
-  // Navigate to alerts page
+  // Alert action handlers
+  const handleAcknowledgeAlert = useCallback(async (alertId: string) => {
+    await acknowledgeMutation.mutateAsync(alertId);
+  }, [acknowledgeMutation]);
+
+  const handleResolveAlert = useCallback(async (alertId: string) => {
+    await resolveMutation.mutateAsync(alertId);
+  }, [resolveMutation]);
+
+  // Navigate to alerts page (sensor module hosts the alerts view)
   const handleViewAllAlerts = useCallback(() => {
-    navigate('/alerts');
+    navigate('/sensor/alerts');
   }, [navigate]);
 
   const isLoading = statsQuery.isLoading;
@@ -224,6 +246,8 @@ const DashboardPage: React.FC = () => {
             alerts={alertItems}
             isLoading={alertQuery.isLoading}
             error={alertQuery.isError ? (alertQuery.error?.message ?? 'Bilinmeyen hata') : null}
+            onAcknowledge={handleAcknowledgeAlert}
+            onResolve={handleResolveAlert}
             onViewAll={handleViewAllAlerts}
           />
           <QuickActions />

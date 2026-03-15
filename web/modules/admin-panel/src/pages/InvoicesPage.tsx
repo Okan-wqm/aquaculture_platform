@@ -1,6 +1,6 @@
 /**
  * Invoices Management Page
- * View and manage all invoices
+ * View and manage all invoices with mark-paid, void, and download actions
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -63,6 +63,24 @@ const InvoicesPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
+  // Toast notification
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Mark as Paid modal
+  const [showMarkPaidModal, setShowMarkPaidModal] = useState(false);
+  const [markPaidAmount, setMarkPaidAmount] = useState('');
+  const [markPaidLoading, setMarkPaidLoading] = useState(false);
+
+  // Void modal
+  const [showVoidModal, setShowVoidModal] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidLoading, setVoidLoading] = useState(false);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
   const fetchInvoices = useCallback(async () => {
     try {
       setLoading(true);
@@ -74,7 +92,6 @@ const InvoicesPage: React.FC = () => {
         limit: 100,
       });
 
-      // Map API response to local Invoice type
       const mappedInvoices: Invoice[] = (data.invoices || []).map((inv: InvoiceOverview) => ({
         ...inv,
         amount: typeof inv.amount === 'string' ? parseFloat(inv.amount) : inv.amount,
@@ -119,6 +136,82 @@ const InvoicesPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchTerm, fetchInvoices]);
 
+  // --- Action Handlers ---
+
+  const handleMarkAsPaid = async () => {
+    if (!selectedInvoice) return;
+    const amount = parseFloat(markPaidAmount);
+    if (isNaN(amount) || amount <= 0) {
+      showToast('Please enter a valid amount', 'error');
+      return;
+    }
+    if (amount > selectedInvoice.amountDue) {
+      showToast(`Amount exceeds amount due (${formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)})`, 'error');
+      return;
+    }
+
+    setMarkPaidLoading(true);
+    try {
+      await billingApi.markInvoicePaid(selectedInvoice.id, amount);
+      showToast(`Invoice ${selectedInvoice.invoiceNumber} marked as paid`, 'success');
+      setShowMarkPaidModal(false);
+      setMarkPaidAmount('');
+      setSelectedInvoice(null);
+      fetchInvoices();
+      fetchStats();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to mark invoice as paid', 'error');
+    } finally {
+      setMarkPaidLoading(false);
+    }
+  };
+
+  const handleVoidInvoice = async () => {
+    if (!selectedInvoice) return;
+    if (!voidReason.trim()) {
+      showToast('Please provide a reason for voiding', 'error');
+      return;
+    }
+
+    setVoidLoading(true);
+    try {
+      await billingApi.voidInvoice(selectedInvoice.id, voidReason.trim());
+      showToast(`Invoice ${selectedInvoice.invoiceNumber} voided`, 'success');
+      setShowVoidModal(false);
+      setVoidReason('');
+      setSelectedInvoice(null);
+      fetchInvoices();
+      fetchStats();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to void invoice', 'error');
+    } finally {
+      setVoidLoading(false);
+    }
+  };
+
+  const handleDownloadPdf = () => {
+    showToast('PDF download is not yet available', 'info');
+  };
+
+  const handleSendReminder = () => {
+    showToast('Email reminders are not yet configured', 'info');
+  };
+
+  const openMarkPaidModal = () => {
+    if (selectedInvoice) {
+      setMarkPaidAmount(String(selectedInvoice.amountDue));
+      setShowMarkPaidModal(true);
+    }
+  };
+
+  const openVoidModal = () => {
+    setVoidReason('');
+    setShowVoidModal(true);
+  };
+
+  const canMarkPaid = selectedInvoice && !['paid', 'void', 'refunded', 'draft'].includes(selectedInvoice.status);
+  const canVoid = selectedInvoice && !['paid', 'void', 'refunded'].includes(selectedInvoice.status);
+
   const statusColors: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700',
     pending: 'bg-yellow-100 text-yellow-700',
@@ -143,6 +236,17 @@ const InvoicesPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
+          toast.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
+          toast.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
+          'bg-blue-50 text-blue-800 border border-blue-200'
+        }`}>
+          {toast.message}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -322,7 +426,10 @@ const InvoicesPage: React.FC = () => {
                     >
                       View
                     </button>
-                    <button className="text-gray-600 hover:text-gray-900">
+                    <button
+                      onClick={handleDownloadPdf}
+                      className="text-gray-600 hover:text-gray-900"
+                    >
                       Download
                     </button>
                   </td>
@@ -334,7 +441,7 @@ const InvoicesPage: React.FC = () => {
       </div>
 
       {/* Invoice Detail Modal */}
-      {selectedInvoice && (
+      {selectedInvoice && !showMarkPaidModal && !showVoidModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
@@ -395,12 +502,139 @@ const InvoicesPage: React.FC = () => {
                 </div>
               </div>
             </div>
+            <div className="p-6 border-t border-gray-200 space-y-3">
+              {/* Primary Actions */}
+              <div className="flex gap-3">
+                {canMarkPaid && (
+                  <button
+                    onClick={openMarkPaidModal}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Mark as Paid
+                  </button>
+                )}
+                {canVoid && (
+                  <button
+                    onClick={openVoidModal}
+                    className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Void Invoice
+                  </button>
+                )}
+              </div>
+              {/* Secondary Actions */}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDownloadPdf}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Download PDF
+                </button>
+                <button
+                  onClick={handleSendReminder}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Send Reminder
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mark as Paid Modal */}
+      {showMarkPaidModal && selectedInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Mark Invoice as Paid</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                {selectedInvoice.invoiceNumber} - {selectedInvoice.tenantName}
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Amount Due: {formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={selectedInvoice.amountDue}
+                    value={markPaidAmount}
+                    onChange={(e) => setMarkPaidAmount(e.target.value)}
+                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Enter payment amount"
+                  />
+                </div>
+              </div>
+            </div>
             <div className="p-6 border-t border-gray-200 flex gap-3">
-              <button className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
-                Download PDF
+              <button
+                onClick={() => { setShowMarkPaidModal(false); setMarkPaidAmount(''); }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={markPaidLoading}
+              >
+                Cancel
               </button>
-              <button className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50">
-                Send Reminder
+              <button
+                onClick={handleMarkAsPaid}
+                disabled={markPaidLoading}
+                className="flex-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+              >
+                {markPaidLoading ? 'Processing...' : 'Confirm Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Void Invoice Modal */}
+      {showVoidModal && selectedInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">Void Invoice</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                {selectedInvoice.invoiceNumber} - {selectedInvoice.tenantName}
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700">
+                  This action cannot be undone. The invoice will be permanently voided.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Reason for voiding
+                </label>
+                <textarea
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                  placeholder="Enter reason for voiding this invoice..."
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => { setShowVoidModal(false); setVoidReason(''); }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={voidLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleVoidInvoice}
+                disabled={voidLoading || !voidReason.trim()}
+                className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {voidLoading ? 'Processing...' : 'Void Invoice'}
               </button>
             </div>
           </div>

@@ -3,7 +3,7 @@
  * Shared infrastructure for all domain API modules
  */
 
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
 
 // API URL - Shell nginx uzerinden /api prefix'i ile admin-api-service'e yonlendirilir
 export const ADMIN_API_URL = import.meta.env.VITE_ADMIN_API_URL || '/api';

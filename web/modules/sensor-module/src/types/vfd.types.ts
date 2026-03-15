@@ -39,9 +39,6 @@ export enum VfdParameterCategory {
   THERMAL = 'thermal',
   FAULT = 'fault',
   CONTROL = 'control',
-  REFERENCE = 'reference',
-  PID = 'pid',
-  COMMUNICATION = 'communication',
 }
 
 export enum VfdDeviceStatus {
@@ -50,9 +47,8 @@ export enum VfdDeviceStatus {
   TESTING = 'testing',
   TEST_FAILED = 'test_failed',
   ACTIVE = 'active',
-  INACTIVE = 'inactive',
-  MAINTENANCE = 'maintenance',
-  FAULT = 'fault',
+  SUSPENDED = 'suspended',
+  OFFLINE = 'offline',
 }
 
 export enum VfdCommandType {
@@ -62,11 +58,10 @@ export enum VfdCommandType {
   SET_FREQUENCY = 'set_frequency',
   SET_SPEED = 'set_speed',
   FAULT_RESET = 'fault_reset',
+  QUICK_STOP = 'quick_stop',
   EMERGENCY_STOP = 'emergency_stop',
   JOG_FORWARD = 'jog_forward',
   JOG_REVERSE = 'jog_reverse',
-  COAST_STOP = 'coast_stop',
-  QUICK_STOP = 'quick_stop',
 }
 
 export enum VfdDataType {
@@ -75,8 +70,8 @@ export enum VfdDataType {
   UINT32 = 'uint32',
   INT32 = 'int32',
   FLOAT32 = 'float32',
-  BOOLEAN = 'boolean',
-  STRING = 'string',
+  CONTROL_WORD = 'control_word',
+  STATUS_WORD = 'status_word',
 }
 
 export enum ByteOrder {
@@ -269,36 +264,45 @@ export interface VfdDevice {
   name: string;
   brand: VfdBrand;
   model?: string;
-  modelSeries?: string;
   serialNumber?: string;
-  firmwareVersion?: string;
   protocol: VfdProtocol;
   protocolConfiguration: VfdProtocolConfiguration;
-  connectionStatus: VfdConnectionStatus;
+  connectionStatus?: VfdConnectionStatus;
   status: VfdDeviceStatus;
-  installationDate?: string;
-  lastMaintenanceDate?: string;
-  notes?: string;
-  tags?: string[];
   tenantId: string;
   farmId?: string;
   tankId?: string;
-  pumpId?: string;
   location?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  customRegisterMappings?: Array<{
+    parameterName: string;
+    registerAddress: number;
+    registerCount: number;
+    functionCode: number;
+    dataType: string;
+    scalingFactor: number;
+    offset: number;
+    unit: string;
+    byteOrder: string;
+    wordOrder: string;
+  }>;
+  pollIntervalMs: number;
+  isPollingEnabled: boolean;
   createdAt: string;
   updatedAt: string;
+  createdBy?: string;
+  updatedBy?: string;
   latestReading?: VfdReading;
 }
 
 export interface VfdConnectionStatus {
   isConnected: boolean;
-  lastConnectedAt?: string;
-  lastDisconnectedAt?: string;
   lastTestedAt?: string;
+  lastSuccessAt?: string;
   lastError?: string;
   latencyMs?: number;
-  reconnectAttempts?: number;
-  connectionQuality?: 'excellent' | 'good' | 'fair' | 'poor';
+  consecutiveFailures?: number;
 }
 
 // ============ VFD READINGS ============
@@ -460,12 +464,13 @@ export interface RegisterVfdInput {
   serialNumber?: string;
   protocol: VfdProtocol;
   protocolConfiguration: VfdProtocolConfiguration;
+  location?: string;
+  description?: string;
   farmId?: string;
   tankId?: string;
   pumpId?: string;
-  location?: string;
-  notes?: string;
   tags?: string[];
+  notes?: string;
   skipConnectionTest?: boolean;
 }
 
@@ -473,13 +478,16 @@ export interface UpdateVfdInput {
   name?: string;
   model?: string;
   serialNumber?: string;
+  protocol?: VfdProtocol;
   protocolConfiguration?: VfdProtocolConfiguration;
+  location?: string;
+  description?: string;
   farmId?: string;
   tankId?: string;
-  pumpId?: string;
-  location?: string;
-  notes?: string;
   tags?: string[];
+  status?: VfdDeviceStatus;
+  pollIntervalMs?: number;
+  isPollingEnabled?: boolean;
 }
 
 export interface VfdCommandInput {
@@ -586,7 +594,7 @@ export interface VfdProtocolSchema {
   protocol: VfdProtocol;
   displayName: string;
   description: string;
-  connectionType: 'serial' | 'ethernet' | 'fieldbus';
+  connectionType: 'serial' | 'fieldbus' | 'ethernet';
   configurationSchema: VfdConfigurationSchema;
   defaultConfiguration: VfdProtocolConfiguration;
   validationRules?: VfdValidationRule[];
@@ -686,11 +694,10 @@ export const VFD_COMMAND_NAMES: Record<VfdCommandType, string> = {
   [VfdCommandType.SET_FREQUENCY]: 'Set Frequency',
   [VfdCommandType.SET_SPEED]: 'Set Speed',
   [VfdCommandType.FAULT_RESET]: 'Reset Fault',
+  [VfdCommandType.QUICK_STOP]: 'Quick Stop',
   [VfdCommandType.EMERGENCY_STOP]: 'Emergency Stop',
   [VfdCommandType.JOG_FORWARD]: 'Jog Forward',
   [VfdCommandType.JOG_REVERSE]: 'Jog Reverse',
-  [VfdCommandType.COAST_STOP]: 'Coast Stop',
-  [VfdCommandType.QUICK_STOP]: 'Quick Stop',
 };
 
 export const VFD_PARAMETER_UNITS: Record<string, string> = {

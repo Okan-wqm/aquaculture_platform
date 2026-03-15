@@ -23,6 +23,7 @@ import { SensorReadingEventHandler } from './event-handlers/sensor-reading.handl
 
 // Resolvers
 import { AlertResolver } from './resolvers/alert.resolver';
+import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver';
 
 /**
  * Alert Module
@@ -65,6 +66,7 @@ import { AlertResolver } from './resolvers/alert.resolver';
 
     // Resolvers
     AlertResolver,
+    EscalationPolicyResolver,
   ],
   exports: [AlertEvaluationService, AlertRuleService, EscalationManagerService, AcknowledgmentTrackerService, AlertAuditService],
 })

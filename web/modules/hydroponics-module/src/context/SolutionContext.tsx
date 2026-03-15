@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import {
   SolutionSettings,
   GeneralOptions,
@@ -14,6 +15,14 @@ import type {
   CurrentNsFormula,
   ReadjustmentSettings,
 } from '../types/modes.types';
+import {
+  CONFIGURATIONS_QUERY,
+  CREATE_CONFIGURATION_MUTATION,
+  UPDATE_CONFIGURATION_MUTATION,
+} from '../graphql/hydroponics.operations';
+import type { HydroponicsConfig } from '../hooks/useHydroponicsConfig';
+
+const SOLUTION_CONFIG_NAME = 'solution-settings';
 
 // ============================================================================
 // State & Actions
@@ -248,10 +257,41 @@ const SolutionContext = createContext<SolutionContextValue | null>(null);
 // ============================================================================
 
 export const SolutionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { token, tenantId, isAuthenticated } = useAuth();
   const [state, dispatch] = useReducer(solutionReducer, {
     settings: createDefaultSettings(),
     isDirty: false,
   });
+  // Track the backend config ID for updates
+  const solutionConfigIdRef = useRef<string | null>(null);
+  const solutionLoadDone = useRef(false);
+
+  // On mount, load saved solution settings from backend
+  useEffect(() => {
+    if (solutionLoadDone.current) return;
+    if (!isAuthenticated || !token || !tenantId) return;
+
+    solutionLoadDone.current = true;
+
+    graphqlClient
+      .request<{ configurations: HydroponicsConfig[] }>(CONFIGURATIONS_QUERY, {
+        type: SOLUTION_CONFIG_NAME,
+      })
+      .then((data) => {
+        const configs = data.configurations;
+        if (configs.length > 0) {
+          const remote = configs[0];
+          solutionConfigIdRef.current = remote.id;
+          const savedSettings = remote.settings as unknown;
+          if (savedSettings && typeof savedSettings === 'object' && 'generalOptions' in (savedSettings as Record<string, unknown>)) {
+            dispatch({ type: 'LOAD', payload: savedSettings as SolutionSettings });
+          }
+        }
+      })
+      .catch(() => {
+        // Backend unavailable — start with defaults
+      });
+  }, [isAuthenticated, token, tenantId]);
 
   const setGeneral = useCallback((payload: Partial<GeneralOptions>) => {
     dispatch({ type: 'SET_GENERAL', payload });
@@ -298,10 +338,34 @@ export const SolutionProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const settingsRef = useRef(state.settings);
   useEffect(() => { settingsRef.current = state.settings; }, [state.settings]);
   const save = useCallback(() => {
-    // TODO: Replace with backend API call when the persistence endpoint is available.
-    // settingsRef.current contains the current settings at the time of the call.
     dispatch({ type: 'MARK_SAVED' });
-  }, []);
+
+    // Persist to backend if authenticated
+    if (!isAuthenticated || !token || !tenantId) return;
+
+    const settings = settingsRef.current as unknown as Record<string, unknown>;
+
+    if (solutionConfigIdRef.current) {
+      graphqlClient
+        .request<{ updateConfiguration: HydroponicsConfig }>(UPDATE_CONFIGURATION_MUTATION, {
+          input: { id: solutionConfigIdRef.current, settings },
+        })
+        .catch(() => {
+          // Backend sync failed — user can retry save
+        });
+    } else {
+      graphqlClient
+        .request<{ createConfiguration: HydroponicsConfig }>(CREATE_CONFIGURATION_MUTATION, {
+          input: { configName: SOLUTION_CONFIG_NAME, settings },
+        })
+        .then((data) => {
+          solutionConfigIdRef.current = data.createConfiguration.id;
+        })
+        .catch(() => {
+          // Backend sync failed — user can retry save
+        });
+    }
+  }, [isAuthenticated, token, tenantId]);
 
   const mode = useMemo<ModeState>(() => ({
     nsType: state.settings.generalOptions.basicOptions.nsType,

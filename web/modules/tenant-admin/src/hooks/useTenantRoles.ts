@@ -247,14 +247,12 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
       const optimisticRole: TenantRole = {
         id: generateTempId(),
         name: input.name,
-        displayName: input.displayName,
         description: input.description ?? undefined,
-        color: (input as CreateTenantRoleInput & { color?: string }).color ?? '#6366F1',
-        icon: (input as CreateTenantRoleInput & { icon?: string }).icon ?? 'shield',
-        level: (input as CreateTenantRoleInput & { level?: number }).level ?? 50,
-        isSystemRole: false,
+        color: input.color ?? '#6366F1',
+        icon: input.icon ?? 'shield',
+        level: input.level ?? 50,
+        isSystem: false,
         isDefault: input.isDefault || false,
-        tenantId: '',
         userCount: 0,
         permissions: {
           id: generateTempId(),

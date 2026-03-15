@@ -1,11 +1,12 @@
-import { Resolver, Query, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { WorkArea, WorkAreaType } from './entities/work-area.entity';
 import { WorkRotation, RotationStatus } from './entities/work-rotation.entity';
+import { SafetyTrainingRecord } from './entities/safety-training-record.entity';
 import { Employee } from '../hr/entities/employee.entity';
 import {
   GetWorkAreasQuery,
@@ -14,6 +15,28 @@ import {
 } from './queries';
 import { PaginatedWorkAreas } from './query-handlers/get-work-areas.handler';
 import { PaginatedWorkRotations } from './query-handlers/get-work-rotations.handler';
+
+// DTOs
+import { CreateWorkAreaInput } from './dto/create-work-area.input';
+import { UpdateWorkAreaInput } from './dto/update-work-area.input';
+import { CreateWorkRotationInput } from './dto/create-work-rotation.input';
+import { UpdateWorkRotationInput } from './dto/update-work-rotation.input';
+import { CreateSafetyTrainingRecordInput } from './dto/create-safety-training-record.input';
+
+// Commands
+import {
+  CreateWorkAreaCommand,
+  UpdateWorkAreaCommand,
+  DeactivateWorkAreaCommand,
+  CreateWorkRotationCommand,
+  UpdateWorkRotationCommand,
+  StartRotationCommand,
+  EndRotationCommand,
+  CancelRotationCommand,
+  ApproveRotationCommand,
+  CreateSafetyTrainingRecordCommand,
+  ConfirmSafetyTrainingAttendanceCommand,
+} from './commands';
 
 @ObjectType()
 class WorkAreaConnection {
@@ -66,7 +89,10 @@ interface GraphQLContext {
 @UseGuards(GqlAuthGuard)
 @Resolver()
 export class AquacultureResolver {
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   private getTenantId(context: GraphQLContext): string {
     // SECURITY: Only trust JWT-verified tenantId, never trust headers directly
@@ -188,5 +214,176 @@ export class AquacultureResolver {
       ),
     );
     return result.items;
+  }
+
+  // =====================
+  // Work Area Mutations
+  // =====================
+
+  @Mutation(() => WorkArea)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async createWorkArea(
+    @Args('input') input: CreateWorkAreaInput,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkArea> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new CreateWorkAreaCommand(tenantId, input, userId),
+    );
+  }
+
+  @Mutation(() => WorkArea)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateWorkArea(
+    @Args('input') input: UpdateWorkAreaInput,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkArea> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new UpdateWorkAreaCommand(tenantId, input, userId),
+    );
+  }
+
+  @Mutation(() => WorkArea)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async deactivateWorkArea(
+    @Args('id', { type: () => ID }) id: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkArea> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new DeactivateWorkAreaCommand(tenantId, id, userId),
+    );
+  }
+
+  // =====================
+  // Work Rotation Mutations
+  // =====================
+
+  @Mutation(() => WorkRotation)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async createWorkRotation(
+    @Args('input') input: CreateWorkRotationInput,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new CreateWorkRotationCommand(tenantId, input, userId),
+    );
+  }
+
+  @Mutation(() => WorkRotation)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async updateWorkRotation(
+    @Args('input') input: UpdateWorkRotationInput,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new UpdateWorkRotationCommand(tenantId, input, userId),
+    );
+  }
+
+  @Mutation(() => WorkRotation)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async startRotation(
+    @Args('rotationId', { type: () => ID }) rotationId: string,
+    @Args('actualStartDate', { nullable: true }) actualStartDate: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new StartRotationCommand(tenantId, rotationId, userId, actualStartDate),
+    );
+  }
+
+  @Mutation(() => WorkRotation)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async endRotation(
+    @Args('rotationId', { type: () => ID }) rotationId: string,
+    @Args('actualEndDate', { nullable: true }) actualEndDate: string,
+    @Args('notes', { nullable: true }) notes: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new EndRotationCommand(tenantId, rotationId, userId, actualEndDate, notes),
+    );
+  }
+
+  @Mutation(() => WorkRotation)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async cancelRotation(
+    @Args('rotationId', { type: () => ID }) rotationId: string,
+    @Args('reason') reason: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new CancelRotationCommand(tenantId, rotationId, userId, reason),
+    );
+  }
+
+  @Mutation(() => WorkRotation)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async approveRotation(
+    @Args('rotationId', { type: () => ID }) rotationId: string,
+    @Args('notes', { nullable: true }) notes: string,
+    @Context() context: GraphQLContext,
+  ): Promise<WorkRotation> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new ApproveRotationCommand(tenantId, rotationId, userId, notes),
+    );
+  }
+
+  // =====================
+  // Safety Training Mutations
+  // =====================
+
+  @Mutation(() => SafetyTrainingRecord)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async createSafetyTrainingRecord(
+    @Args('input') input: CreateSafetyTrainingRecordInput,
+    @Context() context: GraphQLContext,
+  ): Promise<SafetyTrainingRecord> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new CreateSafetyTrainingRecordCommand(tenantId, input, userId),
+    );
+  }
+
+  @Mutation(() => SafetyTrainingRecord)
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async confirmSafetyTrainingAttendance(
+    @Args('recordId', { type: () => ID }) recordId: string,
+    @Context() context: GraphQLContext,
+  ): Promise<SafetyTrainingRecord> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+    return this.commandBus.execute(
+      new ConfirmSafetyTrainingAttendanceCommand(tenantId, recordId, userId),
+    );
   }
 }

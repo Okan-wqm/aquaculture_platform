@@ -12,7 +12,7 @@ import { Card, Badge, Button, formatRelativeTime } from '@aquaculture/shared-ui'
 // Type Definitions
 // ============================================================================
 
-export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type AlertSeverity = 'critical' | 'high' | 'medium' | 'warning' | 'low' | 'info';
 export type AlertStatus = 'active' | 'acknowledged' | 'resolved' | 'suppressed';
 
 export interface AlertItem {
@@ -114,6 +114,14 @@ export const severityConfig: Record<
     label: 'Orta',
     priority: 3,
   },
+  warning: {
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200',
+    iconColor: 'text-amber-600',
+    badgeVariant: 'warning',
+    label: 'Uyari',
+    priority: 3,
+  },
   low: {
     bgColor: 'bg-blue-50',
     borderColor: 'border-blue-200',
@@ -185,6 +193,7 @@ export function countBySeverity(
     critical: 0,
     high: 0,
     medium: 0,
+    warning: 0,
     low: 0,
     info: 0,
   };

@@ -286,6 +286,10 @@ export function useMandatoryTrainingStatus(employeeId: string) {
 // Certification Mutations
 // =====================
 
+/**
+ * Add an employee certification.
+ * Maps to backend individual args: addEmployeeCertification(employeeId, certificationTypeId, issueDate, ...)
+ */
 export function useAddEmployeeCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
@@ -295,7 +299,15 @@ export function useAddEmployeeCertification() {
       graphqlRequest<{ addEmployeeCertification: EmployeeCertification }, unknown>(
         client,
         ADD_EMPLOYEE_CERTIFICATION,
-        { input }
+        {
+          employeeId: input.employeeId,
+          certificationTypeId: input.certificationTypeId,
+          issueDate: input.issuedDate,
+          expiryDate: input.expiryDate,
+          issuingAuthority: input.issuedBy,
+          externalCertificationId: input.certificateNumber,
+          notes: undefined,
+        }
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
@@ -306,6 +318,10 @@ export function useAddEmployeeCertification() {
   });
 }
 
+/**
+ * Verify a certification.
+ * Maps to backend individual args: verifyCertification(id, notes?)
+ */
 export function useVerifyCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
@@ -315,7 +331,7 @@ export function useVerifyCertification() {
       graphqlRequest<{ verifyCertification: EmployeeCertification }, unknown>(
         client,
         VERIFY_CERTIFICATION,
-        { input }
+        { id: input.id, notes: input.verificationNotes }
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
@@ -325,6 +341,10 @@ export function useVerifyCertification() {
   });
 }
 
+/**
+ * Revoke a certification.
+ * Maps to backend individual args: revokeCertification(id, reason)
+ */
 export function useRevokeCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
@@ -334,7 +354,7 @@ export function useRevokeCertification() {
       graphqlRequest<{ revokeCertification: EmployeeCertification }, unknown>(
         client,
         REVOKE_CERTIFICATION,
-        { input }
+        { id: input.id, reason: input.reason }
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
@@ -379,16 +399,32 @@ export function useRenewCertification() {
 // Training Mutations
 // =====================
 
+/**
+ * Enroll an employee in training.
+ * Maps to backend individual args: enrollInTraining(employeeId, trainingCourseId, dueDate?, ...)
+ */
 export function useEnrollInTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: EnrollInTrainingInput) =>
+    mutationFn: (input: EnrollInTrainingInput & {
+      dueDate?: string;
+      sessionId?: string;
+      instructor?: string;
+      location?: string;
+    }) =>
       graphqlRequest<{ enrollInTraining: TrainingEnrollment }, unknown>(
         client,
         ENROLL_IN_TRAINING,
-        { input }
+        {
+          employeeId: input.employeeId,
+          trainingCourseId: input.courseId,
+          dueDate: input.dueDate,
+          sessionId: input.sessionId,
+          instructor: input.instructor,
+          location: input.location,
+        }
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: trainingKeys.enrollments() });
@@ -415,6 +451,10 @@ export function useStartTraining() {
   });
 }
 
+/**
+ * Complete a training enrollment.
+ * Maps to backend individual args: completeTraining(enrollmentId, score?, feedback?, feedbackRating?)
+ */
 export function useCompleteTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
@@ -424,7 +464,12 @@ export function useCompleteTraining() {
       graphqlRequest<{ completeTraining: TrainingEnrollment }, unknown>(
         client,
         COMPLETE_TRAINING,
-        { input }
+        {
+          enrollmentId: input.enrollmentId,
+          score: input.score,
+          feedback: input.feedback,
+          feedbackRating: undefined,
+        }
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: trainingKeys.enrollments() });

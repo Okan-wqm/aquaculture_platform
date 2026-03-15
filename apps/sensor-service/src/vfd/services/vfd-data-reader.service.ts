@@ -253,6 +253,90 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Get reading stats for a named period (hour, day, week, month).
+   * Converts the period to a date range and delegates to getReadingStats.
+   */
+  async getReadingStatsByPeriod(
+    deviceId: string,
+    tenantId: string,
+    period: 'hour' | 'day' | 'week' | 'month'
+  ): Promise<{
+    vfdDeviceId: string;
+    period: string;
+    avgFrequency?: number;
+    avgCurrent?: number;
+    avgPower?: number;
+    maxFrequency?: number;
+    maxCurrent?: number;
+    maxPower?: number;
+    totalEnergy?: number;
+    runningTime?: number;
+    faultCount: number;
+  }> {
+    const now = new Date();
+    const from = new Date(now);
+
+    switch (period) {
+      case 'hour':
+        from.setHours(from.getHours() - 1);
+        break;
+      case 'day':
+        from.setDate(from.getDate() - 1);
+        break;
+      case 'week':
+        from.setDate(from.getDate() - 7);
+        break;
+      case 'month':
+        from.setMonth(from.getMonth() - 1);
+        break;
+    }
+
+    const stats = await this.getReadingStats(deviceId, tenantId, { from, to: now });
+
+    return {
+      vfdDeviceId: deviceId,
+      period,
+      avgFrequency: stats.avgOutputFrequency,
+      avgCurrent: stats.avgMotorCurrent,
+      avgPower: stats.avgOutputPower,
+      maxFrequency: stats.maxOutputFrequency,
+      maxCurrent: stats.maxMotorCurrent,
+      maxPower: stats.maxOutputPower,
+      totalEnergy: undefined, // Not yet aggregated in base stats
+      runningTime: undefined, // Not yet aggregated in base stats
+      faultCount: stats.faultCount,
+    };
+  }
+
+  /**
+   * Read specific parameters from a VFD device (filtered).
+   * If parameterNames is provided, only those parameters are returned.
+   */
+  async readFilteredParameters(
+    deviceId: string,
+    tenantId: string,
+    parameterNames?: string[]
+  ): Promise<VfdReadResult> {
+    const result = await this.readParameters(deviceId, tenantId);
+
+    if (parameterNames && parameterNames.length > 0) {
+      // Filter the result parameters to only include requested ones
+      const filtered: Record<string, unknown> = {};
+      for (const name of parameterNames) {
+        if (name in result.parameters) {
+          filtered[name] = (result.parameters as Record<string, unknown>)[name];
+        }
+      }
+      return {
+        ...result,
+        parameters: filtered as typeof result.parameters,
+      };
+    }
+
+    return result;
+  }
+
+  /**
    * Delete old readings (for data retention)
    */
   async deleteOldReadings(tenantId: string, olderThan: Date): Promise<number> {

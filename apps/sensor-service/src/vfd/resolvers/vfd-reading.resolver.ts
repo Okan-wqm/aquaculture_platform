@@ -3,9 +3,50 @@ import { Resolver, Query, Mutation, Args, ID, Int } from '@nestjs/graphql';
 import { TenantGuard, Tenant } from '@platform/backend-common';
 
 import { VfdReading } from '../entities/vfd-reading.entity';
-import { VfdReadingStats } from '../dto/vfd-stats.dto';
 import { VfdReadResultDto } from '../dto/vfd-read-result.dto';
 import { VfdDataReaderService, TimeRange } from '../services/vfd-data-reader.service';
+
+/**
+ * VFD Reading Stats output matching frontend VfdReadingStats interface.
+ * Uses period-based approach instead of from/to date range.
+ */
+import { ObjectType, Field, Float } from '@nestjs/graphql';
+
+@ObjectType('VfdReadingStatsByPeriod')
+export class VfdReadingStatsByPeriodDto {
+  @Field(() => ID)
+  vfdDeviceId!: string;
+
+  @Field()
+  period!: string;
+
+  @Field(() => Float, { nullable: true })
+  avgFrequency?: number;
+
+  @Field(() => Float, { nullable: true })
+  avgCurrent?: number;
+
+  @Field(() => Float, { nullable: true })
+  avgPower?: number;
+
+  @Field(() => Float, { nullable: true })
+  maxFrequency?: number;
+
+  @Field(() => Float, { nullable: true })
+  maxCurrent?: number;
+
+  @Field(() => Float, { nullable: true })
+  maxPower?: number;
+
+  @Field(() => Float, { nullable: true })
+  totalEnergy?: number;
+
+  @Field(() => Float, { nullable: true })
+  runningTime?: number;
+
+  @Field(() => Int)
+  faultCount!: number;
+}
 
 /**
  * VFD Reading GraphQL Resolver
@@ -49,30 +90,71 @@ export class VfdReadingResolver {
   }
 
   /**
-   * Get reading statistics for a device
+   * Get reading statistics for a device.
+   * Supports both period-based (frontend) and date-range approaches.
+   * When period is provided, converts to date range automatically.
+   * When from/to are provided, uses them directly.
    */
-  @Query(() => VfdReadingStats, { name: 'vfdReadingStats', nullable: true })
+  @Query(() => VfdReadingStatsByPeriodDto, { name: 'vfdReadingStats', nullable: true })
   async getReadingStats(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('from', { type: () => Date }) from: Date,
-    @Args('to', { type: () => Date }) to: Date,
+    @Args('period', { type: () => String, nullable: true }) period: string | undefined,
+    @Args('from', { type: () => Date, nullable: true }) from: Date | undefined,
+    @Args('to', { type: () => Date, nullable: true }) to: Date | undefined,
     @Tenant() tenantId: string
-  ): Promise<VfdReadingStats | null> {
-    return this.dataReaderService.getReadingStats(
+  ): Promise<VfdReadingStatsByPeriodDto | null> {
+    // If period is provided, use period-based stats
+    if (period) {
+      const validPeriod = period as 'hour' | 'day' | 'week' | 'month';
+      return this.dataReaderService.getReadingStatsByPeriod(
+        vfdDeviceId,
+        tenantId,
+        validPeriod
+      );
+    }
+
+    // If from/to are provided, use date-range based stats
+    if (from && to) {
+      const stats = await this.dataReaderService.getReadingStats(
+        vfdDeviceId,
+        tenantId,
+        { from, to }
+      );
+
+      return {
+        vfdDeviceId,
+        period: 'custom',
+        avgFrequency: stats.avgOutputFrequency,
+        avgCurrent: stats.avgMotorCurrent,
+        avgPower: stats.avgOutputPower,
+        maxFrequency: stats.maxOutputFrequency,
+        maxCurrent: stats.maxMotorCurrent,
+        maxPower: stats.maxOutputPower,
+        faultCount: stats.faultCount,
+      };
+    }
+
+    // Default to last day
+    return this.dataReaderService.getReadingStatsByPeriod(
       vfdDeviceId,
       tenantId,
-      { from, to }
+      'day'
     );
   }
 
   /**
-   * Read current parameters from device
+   * Read current parameters from device.
+   * Accepts optional parameters filter to read only specific parameters.
    */
   @Mutation(() => VfdReadResultDto, { name: 'readVfdParameters', nullable: true })
   async readParameters(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
+    @Args('parameters', { type: () => [String], nullable: true }) parameters: string[] | undefined,
     @Tenant() tenantId: string
   ): Promise<VfdReadResultDto | null> {
+    if (parameters && parameters.length > 0) {
+      return this.dataReaderService.readFilteredParameters(vfdDeviceId, tenantId, parameters);
+    }
     return this.dataReaderService.readParameters(vfdDeviceId, tenantId);
   }
 

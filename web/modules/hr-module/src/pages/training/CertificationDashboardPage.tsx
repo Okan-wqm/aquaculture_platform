@@ -53,62 +53,52 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
   CertificationCategory,
   { label: string; color: string; icon: React.ReactNode }
 > = {
-  diving: {
+  DIVING: {
     label: 'Diving',
     color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
     icon: <Shield className="h-4 w-4" />,
   },
-  safety: {
+  SAFETY: {
     label: 'Safety',
     color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     icon: <Shield className="h-4 w-4" />,
   },
-  vessel: {
+  VESSEL: {
     label: 'Vessel',
     color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
     icon: <Award className="h-4 w-4" />,
   },
-  equipment: {
+  EQUIPMENT: {
     label: 'Equipment',
     color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     icon: <Award className="h-4 w-4" />,
   },
-  first_aid: {
+  FIRST_AID: {
     label: 'First Aid',
     color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     icon: <Shield className="h-4 w-4" />,
   },
-  fire_safety: {
-    label: 'Fire Safety',
+  FOOD_HANDLING: {
+    label: 'Food Handling',
     color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
     icon: <Shield className="h-4 w-4" />,
   },
-  chemical_handling: {
-    label: 'Chemical Handling',
+  ENVIRONMENTAL: {
+    label: 'Environmental',
     color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
     icon: <Shield className="h-4 w-4" />,
   },
-  fish_handling: {
-    label: 'Fish Handling',
-    color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
-    icon: <Award className="h-4 w-4" />,
-  },
-  water_quality: {
-    label: 'Water Quality',
-    color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
-    icon: <Shield className="h-4 w-4" />,
-  },
-  leadership: {
-    label: 'Leadership',
+  MANAGEMENT: {
+    label: 'Management',
     color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
     icon: <Award className="h-4 w-4" />,
   },
-  technical: {
+  TECHNICAL: {
     label: 'Technical',
     color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400',
     icon: <Award className="h-4 w-4" />,
   },
-  other: {
+  OTHER: {
     label: 'Other',
     color: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-400',
     icon: <FileText className="h-4 w-4" />,
@@ -116,11 +106,12 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
 };
 
 const STATUS_CONFIG: Record<CertificationStatus, { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }> = {
-  active: { label: 'Active', variant: 'success' },
-  expired: { label: 'Expired', variant: 'error' },
-  pending_renewal: { label: 'Pending Renewal', variant: 'warning' },
-  suspended: { label: 'Suspended', variant: 'warning' },
-  revoked: { label: 'Revoked', variant: 'error' },
+  ACTIVE: { label: 'Active', variant: 'success' },
+  EXPIRED: { label: 'Expired', variant: 'error' },
+  PENDING: { label: 'Pending', variant: 'warning' },
+  EXPIRING_SOON: { label: 'Expiring Soon', variant: 'warning' },
+  SUSPENDED: { label: 'Suspended', variant: 'warning' },
+  REVOKED: { label: 'Revoked', variant: 'error' },
 };
 
 // ============================================================================
@@ -177,7 +168,7 @@ const CertificationTypeCard: React.FC<{
   activeCount: number;
   expiringCount: number;
 }> = ({ type, activeCount, expiringCount }) => {
-  const categoryConfig = CERTIFICATION_CATEGORY_CONFIG[type.category] || CERTIFICATION_CATEGORY_CONFIG.other;
+  const categoryConfig = CERTIFICATION_CATEGORY_CONFIG[type.category] || CERTIFICATION_CATEGORY_CONFIG.OTHER;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
@@ -259,7 +250,7 @@ export function CertificationDashboardPage() {
   // Use an empty array for now — requires useEmployeeCertifications hook for full data.
   const allCertifications: EmployeeCertification[] = [];
 
-  const activeCertifications = allCertifications.filter((c) => c.status === 'active');
+  const activeCertifications = allCertifications.filter((c) => c.status === ('ACTIVE' as CertificationStatus));
   const totalActive = activeCertifications.length;
 
   // Calculate compliance rate
@@ -305,7 +296,7 @@ export function CertificationDashboardPage() {
         const category = row.certificationType?.category;
         const config = category
           ? CERTIFICATION_CATEGORY_CONFIG[category]
-          : CERTIFICATION_CATEGORY_CONFIG.other;
+          : CERTIFICATION_CATEGORY_CONFIG.OTHER;
         return (
           <div className="flex items-center gap-2">
             <div className={cn('rounded p-1', config.color)}>{config.icon}</div>
@@ -561,7 +552,7 @@ export function CertificationDashboardPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {certTypes?.map((type) => {
                 const activeCount = allCertifications.filter(
-                  (c) => c.certificationTypeId === type.id && c.status === 'active'
+                  (c) => c.certificationTypeId === type.id && c.status === ('ACTIVE' as CertificationStatus)
                 ).length;
                 const expiringCount =
                   expiring30?.filter((c) => c.certificationTypeId === type.id).length || 0;
@@ -680,7 +671,7 @@ export function CertificationDashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {certTypes?.map((type) => {
               const activeCount = allCertifications.filter(
-                (c) => c.certificationTypeId === type.id && c.status === 'active'
+                (c) => c.certificationTypeId === type.id && c.status === ('ACTIVE' as CertificationStatus)
               ).length;
               const expiringCount =
                 expiring30?.filter((c) => c.certificationTypeId === type.id).length || 0;
@@ -803,7 +794,7 @@ export function CertificationDashboardPage() {
                 .map((type) => {
                   const totalEmployees = employees?.total || 0;
                   const certifiedCount = allCertifications.filter(
-                    (c) => c.certificationTypeId === type.id && c.status === 'active'
+                    (c) => c.certificationTypeId === type.id && c.status === ('ACTIVE' as CertificationStatus)
                   ).length;
                   const percentage = totalEmployees
                     ? Math.round((certifiedCount / totalEmployees) * 100)

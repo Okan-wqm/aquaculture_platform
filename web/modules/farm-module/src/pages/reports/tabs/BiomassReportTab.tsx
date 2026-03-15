@@ -4,6 +4,7 @@
  * Due 7th of each month
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import { mockBiomassReports } from '../mock/biomassData';
 import {
   BiomassReport,
@@ -1434,6 +1435,9 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   const { data: tanksData } = useTanksList({ isActive: true });
   const tanks = tanksData?.items || [];
 
+  // Regulatory settings (pre-populates contact info; biomass submission API TBD)
+  const { data: regulatorySettings } = useRegulatorySettings();
+
   // Filter reports
   const reports = useMemo(() => {
     let filtered = siteId
@@ -1517,9 +1521,16 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
+    setError(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      console.log('Submitting biomass report:', formData);
+      // TODO: Replace with real biomass submission mutation when backend endpoint is available
+      // The regulatory settings are already loaded for pre-populating contact info:
+      // regulatorySettings?.organisationNumber, regulatorySettings?.defaultContactName, etc.
+      console.log('Submitting biomass report:', formData, {
+        organisationNumber: regulatorySettings?.organisationNumber,
+        siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       setIsWizardOpen(false);
       setFormData(getInitialFormData());
     } catch (err) {
@@ -1527,7 +1538,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData]);
+  }, [formData, regulatorySettings, siteId]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

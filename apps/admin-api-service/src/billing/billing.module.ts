@@ -9,9 +9,12 @@ import { DiscountCode, DiscountRedemption } from './entities/discount-code.entit
 import { ModulePricing } from './entities/module-pricing.entity';
 import { PlanDefinition } from './entities/plan-definition.entity';
 import { PlanModuleAssignment } from './entities/plan-module-assignment.entity';
+import { UsageAggregationReadOnly } from './entities/usage-aggregation-readonly.entity';
+import { TenantUsageMetricsReadOnly } from './entities/tenant-usage-metrics-readonly.entity';
 import { CustomPlanService } from './services/custom-plan.service';
 import { DiscountCodeService } from './services/discount-code.service';
 import { InvoiceManagementService } from './services/invoice-management.service';
+import { PaymentManagementService } from './services/payment-management.service';
 import { ModulePricingService } from './services/module-pricing.service';
 import { PlanDefinitionService } from './services/plan-definition.service';
 import { PricingCalculatorService } from './services/pricing-calculator.service';
@@ -20,6 +23,7 @@ import { SubscriptionCoreService } from './services/subscription-core.service';
 import { SubscriptionManagementService } from './services/subscription-management.service';
 import { SubscriptionPlanChangeService } from './services/subscription-plan-change.service';
 import { SubscriptionRenewalService } from './services/subscription-renewal.service';
+import { UsageMeteringManagementService } from './services/usage-metering-management.service';
 
 @Module({
   imports: [
@@ -31,6 +35,8 @@ import { SubscriptionRenewalService } from './services/subscription-renewal.serv
       PlanModuleAssignment,
       CustomPlan,
       InvoiceReadOnly,
+      UsageAggregationReadOnly,
+      TenantUsageMetricsReadOnly,
     ]),
   ],
   controllers: [BillingController],
@@ -48,6 +54,8 @@ import { SubscriptionRenewalService } from './services/subscription-renewal.serv
     PricingCalculatorService,
     CustomPlanService,
     InvoiceManagementService,
+    PaymentManagementService,
+    UsageMeteringManagementService,
   ],
   exports: [
     PlanDefinitionService,
@@ -62,6 +70,8 @@ import { SubscriptionRenewalService } from './services/subscription-renewal.serv
     PricingCalculatorService,
     CustomPlanService,
     InvoiceManagementService,
+    PaymentManagementService,
+    UsageMeteringManagementService,
   ],
 })
 export class BillingModule {}

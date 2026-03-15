@@ -137,7 +137,7 @@ export function LeavesPage() {
       align: 'right',
       accessor: (row) => (
         <div className="flex items-center justify-end gap-2">
-          {row.status === 'pending' && activeTab === 'pending' && (
+          {row.status === ('PENDING' as LeaveRequestStatus) && activeTab === 'pending' && (
             <>
               <button
                 onClick={(e) => {

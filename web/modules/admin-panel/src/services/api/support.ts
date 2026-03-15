@@ -35,14 +35,16 @@ export const supportApi = {
   getTicketReplies: (ticketId: string) => apiFetch<TicketReply[]>(`/support/tickets/${ticketId}/replies`),
   createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string; createdBy: string }) =>
     apiFetch<SupportTicket>('/support/tickets', { method: 'POST', body: JSON.stringify(data) }),
+  // Fix: backend uses PUT (not PATCH)
   updateTicket: (id: string, data: Partial<{ status: TicketStatus; priority: TicketPriority; assignedTo: string; tags: string[] }>) =>
-    apiFetch<SupportTicket>(`/support/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    apiFetch<SupportTicket>(`/support/tickets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   addReply: (ticketId: string, data: { content: string; isInternal?: boolean; createdBy: string }) =>
     apiFetch<TicketReply>(`/support/tickets/${ticketId}/replies`, { method: 'POST', body: JSON.stringify(data) }),
   assignTicket: (id: string, assignedTo: string, assignedToName: string) =>
     apiFetch<SupportTicket>(`/support/tickets/${id}/assign`, { method: 'POST', body: JSON.stringify({ assignedTo, assignedToName }) }),
-  closeTicket: (id: string, resolution?: string) =>
-    apiFetch<SupportTicket>(`/support/tickets/${id}/close`, { method: 'POST', body: JSON.stringify({ resolution }) }),
+  // Fix: backend uses POST /support/tickets/:id/status with { status: 'closed' } (no /close endpoint)
+  closeTicket: (id: string, _resolution?: string) =>
+    apiFetch<SupportTicket>(`/support/tickets/${id}/status`, { method: 'POST', body: JSON.stringify({ status: 'closed' }) }),
   getTicketStats: () => apiFetch<TicketStats>('/support/tickets/stats'),
   getTicketStatsByCategory: () =>
     apiFetch<Array<{ category: string; count: number; avgResolutionTime: number }>>('/support/tickets/stats/by-category'),

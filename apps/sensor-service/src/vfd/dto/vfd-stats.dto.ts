@@ -4,7 +4,7 @@ import { ObjectType, Field, Float, Int } from '@nestjs/graphql';
  * VFD Reading Statistics DTO
  * Used for aggregated statistics queries
  */
-@ObjectType()
+@ObjectType('VfdReadingAggregateStats')
 export class VfdReadingStats {
   @Field(() => Float, { nullable: true })
   avgOutputFrequency?: number;

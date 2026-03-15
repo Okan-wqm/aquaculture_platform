@@ -103,7 +103,7 @@ export {
 // ============================================================================
 
 export { AuthProvider, useAuthContext } from './contexts/AuthContext';
-export type { AuthProviderProps } from './contexts/AuthContext';
+export type { AuthProviderProps, MfaChallengeResult, LoginResult } from './contexts/AuthContext';
 
 export { TenantProvider, useTenantContext } from './contexts/TenantContext';
 export type { TenantProviderProps } from './contexts/TenantContext';

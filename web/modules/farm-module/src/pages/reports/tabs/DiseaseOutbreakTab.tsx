@@ -4,6 +4,7 @@
  * Connected to Health Events system with tank context and urgency indicators
  */
 import React, { useState, useMemo } from 'react';
+import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import { getMockReports } from '../mock/helpers';
 import { DiseaseOutbreakReport, DiseaseCategory, DiseaseStatus } from '../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../utils/thresholds';
@@ -362,6 +363,9 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'A' | 'C' | 'F'>('all');
   const [showHealthEventLink, setShowHealthEventLink] = useState(false);
 
+  // Regulatory settings (pre-populates contact info; disease submission API TBD)
+  const { data: regulatorySettings } = useRegulatorySettings();
+
   // Fetch tanks for context
   const { data: tanksData } = useTanksList({ isActive: true });
   const tanksMap = useMemo(() => {
@@ -423,7 +427,16 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   };
 
   const handleModalSubmit = async (data: Partial<DiseaseOutbreakReport>): Promise<void> => {
-    console.log('Submitting disease outbreak:', data);
+    // TODO: Replace with real disease outbreak submission mutation when backend endpoint is available
+    console.log('Submitting disease outbreak:', data, {
+      organisationNumber: regulatorySettings?.organisationNumber,
+      siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
+      contact: {
+        navn: regulatorySettings?.defaultContactName,
+        epost: regulatorySettings?.defaultContactEmail,
+        telefonnummer: regulatorySettings?.defaultContactPhone,
+      },
+    });
     setIsModalOpen(false);
     setSelectedOutbreak(null);
   };

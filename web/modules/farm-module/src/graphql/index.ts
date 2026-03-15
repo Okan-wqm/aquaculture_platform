@@ -9,3 +9,18 @@
 // Feeding Program Operations
 export * from './feedingProgram.queries';
 export * from './feedingProgram.mutations';
+
+// Growth Operations
+export * from './growth.operations';
+
+// Harvest Plan Operations
+export * from './harvestPlan.operations';
+
+// Feeding Records & Inventory Operations
+export * from './feeding.operations';
+
+// Feeding Protocol Operations
+export * from './feedingProtocol.operations';
+
+// Regulatory Report Operations
+export * from './regulatory.operations';

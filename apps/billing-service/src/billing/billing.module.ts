@@ -38,6 +38,7 @@ import { GetInvoicesHandler } from './query-handlers/get-invoices.handler';
 import { GetPaymentsHandler } from './query-handlers/get-payments.handler';
 import { GetPlansHandler } from './query-handlers/get-plans.handler';
 import { GetPlanByIdHandler } from './query-handlers/get-plan-by-id.handler';
+import { GetTenantBillingHandler } from './query-handlers/get-tenant-billing.handler';
 
 // Event Handlers
 import { TenantSubscriptionRequestedHandler } from './event-handlers/tenant-subscription-requested.handler';
@@ -65,6 +66,7 @@ const QueryHandlers = [
   GetPaymentsHandler,
   GetPlansHandler,
   GetPlanByIdHandler,
+  GetTenantBillingHandler,
 ];
 
 const EventHandlers = [

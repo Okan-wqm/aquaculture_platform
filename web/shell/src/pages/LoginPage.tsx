@@ -7,7 +7,7 @@
  * - MODULE_MANAGER/USER -> Module's defaultRoute
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Button,
@@ -20,6 +20,7 @@ import {
   validateField,
   clearTokens,
 } from '@aquaculture/shared-ui';
+import type { MfaChallengeResult } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -38,7 +39,7 @@ interface LoginPageProps {
 
 const LoginForm: React.FC = () => {
   const navigate = useNavigate();
-  const { login, error: authError, clearError } = useAuthContext();
+  const { login, verifyMfaLogin, error: authError, clearError } = useAuthContext();
 
   const [formData, setFormData] = useState({
     email: '',
@@ -46,6 +47,20 @@ const LoginForm: React.FC = () => {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // MFA challenge state
+  const [mfaChallenge, setMfaChallenge] = useState<MfaChallengeResult | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaError, setMfaError] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const mfaInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus MFA input when challenge appears
+  useEffect(() => {
+    if (mfaChallenge && mfaInputRef.current) {
+      mfaInputRef.current.focus();
+    }
+  }, [mfaChallenge, useRecoveryCode]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,13 +93,22 @@ const LoginForm: React.FC = () => {
       setIsSubmitting(true);
 
       try {
-        // Login returns redirectPath based on user role
-        const { redirectPath } = await login({
+        const result = await login({
           email: formData.email,
           password: formData.password,
         });
 
-        // Validate that redirectPath is a relative path to prevent open redirect
+        // Check if MFA is required
+        if ('mfaRequired' in result && result.mfaRequired) {
+          setMfaChallenge(result as MfaChallengeResult);
+          setMfaCode('');
+          setMfaError('');
+          setUseRecoveryCode(false);
+          return;
+        }
+
+        // Normal login — navigate to redirect path
+        const redirectPath = (result as { redirectPath: string }).redirectPath;
         const safePath =
           redirectPath.startsWith('/') && !redirectPath.startsWith('//')
             ? redirectPath
@@ -99,6 +123,159 @@ const LoginForm: React.FC = () => {
     [formData, login, navigate]
   );
 
+  const handleMfaSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+
+      if (!mfaChallenge) return;
+
+      const code = mfaCode.trim();
+      if (!code) {
+        setMfaError(useRecoveryCode ? 'Recovery code is required' : 'Verification code is required');
+        return;
+      }
+
+      // TOTP codes are exactly 6 digits; recovery codes are 6-12 chars
+      if (!useRecoveryCode && !/^\d{6}$/.test(code)) {
+        setMfaError('Enter a 6-digit code from your authenticator app');
+        return;
+      }
+
+      if (useRecoveryCode && (code.length < 6 || code.length > 12)) {
+        setMfaError('Recovery code must be between 6 and 12 characters');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setMfaError('');
+
+      try {
+        const { redirectPath } = await verifyMfaLogin({
+          mfaToken: mfaChallenge.mfaToken,
+          code,
+        });
+
+        const safePath =
+          redirectPath.startsWith('/') && !redirectPath.startsWith('//')
+            ? redirectPath
+            : '/';
+        navigate(safePath);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Verification failed';
+        setMfaError(message);
+        setMfaCode('');
+        // Clear authError so only mfaError is displayed (verifyMfaLogin dispatches AUTH_FAILURE)
+        clearError();
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [mfaChallenge, mfaCode, useRecoveryCode, verifyMfaLogin, navigate, clearError]
+  );
+
+  const handleBackToLogin = useCallback(() => {
+    setMfaChallenge(null);
+    setMfaCode('');
+    setMfaError('');
+    setUseRecoveryCode(false);
+    clearError();
+  }, [clearError]);
+
+  // ── MFA Challenge Screen ──────────────────────────────────────────────────
+  if (mfaChallenge) {
+    return (
+      <form onSubmit={handleMfaSubmit} className="space-y-5">
+        <div className="text-center mb-6">
+          <div className="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+            <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-blue-700">Two-Factor Authentication</h2>
+          <p className="mt-1 text-sm text-blue-600">
+            {useRecoveryCode
+              ? 'Enter one of your recovery codes'
+              : 'Enter the 6-digit code from your authenticator app'}
+          </p>
+        </div>
+
+        {mfaError && (
+          <Alert type="error" dismissible onDismiss={() => setMfaError('')}>
+            {mfaError}
+          </Alert>
+        )}
+
+        {authError && (
+          <Alert type="error" dismissible onDismiss={clearError}>
+            {authError}
+          </Alert>
+        )}
+
+        {useRecoveryCode ? (
+          <Input
+            ref={mfaInputRef}
+            label="Recovery Code"
+            type="text"
+            name="recoveryCode"
+            value={mfaCode}
+            onChange={(e) => {
+              setMfaCode(e.target.value);
+              setMfaError('');
+            }}
+            placeholder="Enter recovery code"
+            autoComplete="off"
+            required
+          />
+        ) : (
+          <Input
+            ref={mfaInputRef}
+            label="Verification Code"
+            type="text"
+            inputMode="numeric"
+            name="mfaCode"
+            value={mfaCode}
+            onChange={(e) => {
+              // Allow only digits, max 6 characters
+              const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+              setMfaCode(val);
+              setMfaError('');
+            }}
+            placeholder="000000"
+            maxLength={6}
+            autoComplete="one-time-code"
+            required
+          />
+        )}
+
+        <Button type="submit" fullWidth loading={isSubmitting}>
+          {useRecoveryCode ? 'Verify Recovery Code' : 'Verify Code'}
+        </Button>
+
+        <div className="flex items-center justify-between text-sm pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              setUseRecoveryCode(!useRecoveryCode);
+              setMfaCode('');
+              setMfaError('');
+            }}
+            className="text-blue-600 hover:text-blue-800 font-medium"
+          >
+            {useRecoveryCode ? 'Use authenticator app' : 'Use a recovery code'}
+          </button>
+          <button
+            type="button"
+            onClick={handleBackToLogin}
+            className="text-blue-600 hover:text-blue-800 font-medium"
+          >
+            Back to login
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  // ── Normal Login Screen ───────────────────────────────────────────────────
   return (
     <form method="post" autoComplete="off" onSubmit={handleSubmit} className="space-y-5">
       <div className="text-center mb-6">
@@ -454,23 +631,21 @@ const ForgotPasswordForm: React.FC = () => {
       setError('');
 
       try {
-        const response = await fetch('/api/auth/forgot-password', {
+        const response = await fetch('/graphql', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // SH-SEC-07: X-Requested-With marks this as an XHR/fetch call.
-            // Servers can reject requests that lack this header as a CSRF mitigation,
-            // since cross-origin forms cannot set custom headers.
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ email }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: `mutation ForgotPassword($input: ForgotPasswordInput!) {
+              forgotPassword(input: $input)
+            }`,
+            variables: { input: { email } },
+          }),
         });
 
         const data = await response.json();
 
-        if (!response.ok) {
-          throw new Error(data.message || 'Failed to send reset email');
+        if (data.errors) {
+          throw new Error(data.errors[0]?.message || 'Failed to send reset email');
         }
 
         setSuccess(true);
@@ -590,23 +765,28 @@ const ResetPasswordForm: React.FC = () => {
       setIsSubmitting(true);
 
       try {
-        const response = await fetch('/api/auth/reset-password', {
+        const response = await fetch('/graphql', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // SH-SEC-07: X-Requested-With marks this as an XHR/fetch call.
-            // Servers can reject requests that lack this header as a CSRF mitigation,
-            // since cross-origin forms cannot set custom headers.
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ token, newPassword: formData.password }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: `mutation ResetPassword($input: ResetPasswordInput!) {
+              resetPassword(input: $input) {
+                accessToken
+              }
+            }`,
+            variables: {
+              input: {
+                token,
+                newPassword: formData.password,
+              },
+            },
+          }),
         });
 
-        const data = await response.json();
+        const result = await response.json();
 
-        if (!response.ok) {
-          throw new Error(data.message || 'Failed to reset password');
+        if (result.errors) {
+          throw new Error(result.errors[0]?.message || 'Failed to reset password');
         }
 
         setSuccess(true);

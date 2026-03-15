@@ -9,6 +9,7 @@ import {
   Max,
   MaxLength,
 } from 'class-validator';
+import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
 import { PaginationInput, PaginatedResponse } from '@platform/backend-common';
@@ -283,4 +284,185 @@ export class VfdProtocolFieldDto {
 
   @Field(() => Int, { nullable: true })
   max?: number;
+}
+
+/**
+ * Paginated VFD devices response matching frontend expectations.
+ * Uses page/pageSize/totalPages pattern (not offset/limit/hasMore).
+ */
+@ObjectType('PaginatedVfdDeviceList')
+export class PaginatedVfdDeviceListDto {
+  @Field(() => [VfdDeviceDto])
+  items!: VfdDeviceDto[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  page!: number;
+
+  @Field(() => Int)
+  pageSize!: number;
+
+  @Field(() => Int)
+  totalPages!: number;
+}
+
+/**
+ * VFD Registration Result wrapping device + connection test outcome.
+ * Matches frontend VfdRegistrationResult interface.
+ */
+@ObjectType('VfdRegistrationResult')
+export class VfdRegistrationResultDto {
+  @Field()
+  success!: boolean;
+
+  @Field(() => VfdDeviceDto, { nullable: true })
+  vfdDevice?: VfdDeviceDto;
+
+  @Field({ nullable: true })
+  error?: string;
+
+  @Field({ nullable: true })
+  connectionTestPassed?: boolean;
+
+  @Field(() => Int, { nullable: true })
+  latencyMs?: number;
+}
+
+/**
+ * Input for testing VFD connection (before device is registered).
+ * Frontend sends protocol + configuration directly.
+ */
+@InputType('TestVfdConnectionInput')
+export class TestVfdConnectionInputDto {
+  @Field(() => String)
+  @IsEnum(VfdProtocol)
+  protocol!: VfdProtocol;
+
+  @Field(() => GraphQLJSON)
+  configuration!: Record<string, unknown>;
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsEnum(VfdBrand)
+  brand?: VfdBrand;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  modelSeries?: string;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(30000)
+  timeout?: number;
+}
+
+/**
+ * Device info returned in connection test result
+ */
+@ObjectType('VfdDeviceInfo')
+export class VfdDeviceInfoDto {
+  @Field({ nullable: true })
+  manufacturer?: string;
+
+  @Field({ nullable: true })
+  model?: string;
+
+  @Field({ nullable: true })
+  serialNumber?: string;
+}
+
+/**
+ * Connection diagnostics
+ */
+@ObjectType('VfdDiagnostics')
+export class VfdDiagnosticsDto {
+  @Field(() => Int)
+  communicationErrors!: number;
+
+  @Field(() => Int)
+  retries!: number;
+
+  @Field(() => Int)
+  packetsSent!: number;
+
+  @Field(() => Int)
+  packetsReceived!: number;
+
+  @Field(() => Int)
+  averageLatency!: number;
+
+  @Field(() => Int)
+  maxLatency!: number;
+}
+
+/**
+ * Extended connection test result matching frontend VfdConnectionTestResult.
+ */
+@ObjectType('VfdConnectionTestResult')
+export class VfdConnectionTestResultDto {
+  @Field()
+  success!: boolean;
+
+  @Field(() => Int, { nullable: true })
+  latencyMs?: number;
+
+  @Field({ nullable: true })
+  error?: string;
+
+  @Field({ nullable: true })
+  errorCode?: string;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  sampleData?: Record<string, unknown>;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  statusBits?: Record<string, unknown>;
+
+  @Field({ nullable: true })
+  firmwareVersion?: string;
+
+  @Field(() => VfdDeviceInfoDto, { nullable: true })
+  deviceInfo?: VfdDeviceInfoDto;
+
+  @Field()
+  testedAt!: Date;
+
+  @Field(() => VfdDiagnosticsDto, { nullable: true })
+  diagnostics?: VfdDiagnosticsDto;
+}
+
+/**
+ * VFD fleet statistics (total, active, inactive, faulted, maintenance, byBrand, byProtocol, byStatus).
+ * Matches frontend VfdStats interface.
+ */
+@ObjectType('VfdStats')
+export class VfdStatsDto {
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  active!: number;
+
+  @Field(() => Int)
+  inactive!: number;
+
+  @Field(() => Int)
+  faulted!: number;
+
+  @Field(() => Int)
+  maintenance!: number;
+
+  @Field(() => GraphQLJSON)
+  byBrand!: Record<string, number>;
+
+  @Field(() => GraphQLJSON)
+  byProtocol!: Record<string, number>;
+
+  @Field(() => GraphQLJSON)
+  byStatus!: Record<string, number>;
 }

@@ -175,7 +175,8 @@ async function fetchRetentionPolicies(): Promise<RetentionPolicy[]> {
 }
 
 async function fetchAlertRules(): Promise<AlertRule[]> {
-  return securityApi.getAlertRules();
+  const rules = await securityApi.getAlertRules();
+  return rules as unknown as AlertRule[];
 }
 
 // ============================================================================

@@ -1,5 +1,5 @@
 /**
- * Billing API (Plans, Subscriptions, Invoices, Discounts, Module Pricing, Custom Plans)
+ * Billing API (Plans, Subscriptions, Invoices, Discounts, Module Pricing, Custom Plans, Payments)
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
@@ -8,6 +8,9 @@ import type {
   PlanTier,
   DiscountCode,
   DiscountStats,
+  PaymentOverview,
+  RecordPaymentDto,
+  RefundPaymentDto,
   SubscriptionOverview,
   SubscriptionStatus,
   SubscriptionStats,
@@ -27,6 +30,12 @@ import type {
   PaginatedCustomPlans,
   CreateCustomPlanDto,
   UpdateCustomPlanDto,
+  UsageSummaryStats,
+  TenantUsageOverview,
+  UsageTrendPoint,
+  TopTenantUsage,
+  AggregationPeriod,
+  MeterType,
 } from '../types';
 
 export const billingApi = {
@@ -137,15 +146,37 @@ export const billingApi = {
     apiFetch<InvoiceStats>('/billing/invoices/stats'),
   getInvoiceById: (invoiceId: string) =>
     apiFetch<InvoiceOverview>(`/billing/invoices/${invoiceId}`),
-  markInvoicePaid: (invoiceId: string, paidAmount: number, markedBy: string) =>
+  markInvoicePaid: (invoiceId: string, amount: number) =>
     apiFetch<{ success: boolean; invoice: InvoiceOverview }>(`/billing/invoices/${invoiceId}/mark-paid`, {
       method: 'POST',
-      body: JSON.stringify({ paidAmount, markedBy }),
+      body: JSON.stringify({ amount }),
     }),
-  voidInvoice: (invoiceId: string, reason: string, voidedBy: string) =>
+  voidInvoice: (invoiceId: string, reason: string) =>
     apiFetch<{ success: boolean }>(`/billing/invoices/${invoiceId}/void`, {
       method: 'POST',
-      body: JSON.stringify({ reason, voidedBy }),
+      body: JSON.stringify({ reason }),
+    }),
+
+  // Payments
+  getPayments: (params?: { status?: string; invoiceId?: string; limit?: number; offset?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.append('status', params.status);
+    if (params?.invoiceId) searchParams.append('invoiceId', params.invoiceId);
+    if (params?.limit) searchParams.append('limit', String(params.limit));
+    if (params?.offset) searchParams.append('offset', String(params.offset));
+    return apiFetch<{ payments: PaymentOverview[]; total: number }>(
+      `/billing/payments?${searchParams.toString()}`
+    );
+  },
+  recordPayment: (data: RecordPaymentDto) =>
+    apiFetch<PaymentOverview>('/billing/payments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  refundPayment: (data: RefundPaymentDto) =>
+    apiFetch<PaymentOverview>('/billing/payments/refund', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 
   // Module Pricing
@@ -204,4 +235,16 @@ export const billingApi = {
     apiFetch<{ success: boolean }>(`/billing/custom-plans/${planId}`, { method: 'DELETE' }),
   cloneCustomPlan: (planId: string, newTenantId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/clone`, { method: 'POST', body: JSON.stringify({ newTenantId }) }),
+
+  // Usage Metering
+  getUsageSummary: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
+    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+  getAllTenantsUsage: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) =>
+    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(`/billing/usage/tenants?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+  getTenantUsageOverview: (tenantId: string, params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
+    apiFetch<TenantUsageOverview>(`/billing/usage/tenant/${tenantId}?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+  getUsageTrends: (params?: { period?: AggregationPeriod; meterType?: MeterType; tenantId?: string; numPeriods?: number }) =>
+    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+  getTopTenantsByUsage: (meterType: MeterType, params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string }) =>
+    apiFetch<TopTenantUsage[]>(`/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) } as Record<string, unknown>)}`),
 };

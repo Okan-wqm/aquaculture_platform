@@ -23,7 +23,7 @@ export enum ParameterStatus {
   ERROR = 'ERROR', // Failed to send or apply
 }
 
-registerEnumType(ParameterStatus, { name: 'ParameterStatus' });
+registerEnumType(ParameterStatus, { name: 'FeedingParameterStatus' });
 
 /**
  * Feeding schedule entry - when and how much to feed

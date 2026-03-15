@@ -169,9 +169,12 @@ const navigationItems: NavItem[] = [
       { id: 'billing-overview', label: 'Overview', path: '/admin/billing', icon: Icons.billing },
       { id: 'billing-subscriptions', label: 'Subscriptions', path: '/admin/billing/subscriptions', icon: Icons.billing },
       { id: 'billing-invoices', label: 'Invoices', path: '/admin/billing/invoices', icon: Icons.reports },
+      { id: 'billing-payments', label: 'Payments', path: '/admin/billing/payments', icon: Icons.billing, isNew: true },
+      { id: 'billing-usage', label: 'Usage Metering', path: '/admin/billing/usage', icon: Icons.analytics, isNew: true },
       { id: 'billing-plans', label: 'Plans', path: '/admin/billing/plans', icon: Icons.modules },
       { id: 'billing-discounts', label: 'Discount Codes', path: '/admin/billing/discounts', icon: Icons.billing },
       { id: 'billing-module-pricing', label: 'Module Pricing', path: '/admin/billing/module-pricing', icon: Icons.billing },
+      { id: 'billing-custom-plans', label: 'Custom Plans', path: '/admin/billing/custom-plans', icon: Icons.modules, isNew: true },
     ],
   },
   {

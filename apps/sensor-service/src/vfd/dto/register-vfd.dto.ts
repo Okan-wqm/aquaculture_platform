@@ -43,6 +43,12 @@ export class RegisterVfdDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
+  modelSeries?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   serialNumber?: string;
 
   @Field(() => String)
@@ -76,6 +82,11 @@ export class RegisterVfdDto {
   @IsOptional()
   @IsUUID()
   tankId?: string;
+
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  pumpId?: string;
 
   @Field(() => [String], { nullable: true })
   @IsOptional()

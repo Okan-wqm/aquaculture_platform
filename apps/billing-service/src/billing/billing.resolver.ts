@@ -28,6 +28,8 @@ import { GetInvoicesQuery, InvoiceFilterInput } from './queries/get-invoices.que
 import { GetPaymentsQuery, PaymentFilterInput } from './queries/get-payments.query';
 import { GetPlansQuery } from './queries/get-plans.query';
 import { GetPlanByIdQuery } from './queries/get-plan-by-id.query';
+import { GetTenantBillingQuery } from './queries/get-tenant-billing.query';
+import { TenantBillingResponse } from './dto/tenant-billing-response.dto';
 
 /**
  * SECURITY: Role-based authorization for billing operations
@@ -164,6 +166,16 @@ export class BillingResolver {
     const tenantId = extractTenantId(context);
     requireRoles(context, BILLING_READ_ROLES, 'view subscription');
     return this.queryBus.execute(new GetSubscriptionQuery(tenantId));
+  }
+
+  // Tenant Billing Aggregate Query (used by tenant-admin billing page)
+  @Query(() => TenantBillingResponse, { name: 'tenantBilling' })
+  async getTenantBilling(
+    @Context() context: GraphQLContext,
+  ): Promise<TenantBillingResponse> {
+    const tenantId = extractTenantId(context);
+    requireRoles(context, BILLING_READ_ROLES, 'view tenant billing');
+    return this.queryBus.execute(new GetTenantBillingQuery(tenantId));
   }
 
   // Subscription Mutations

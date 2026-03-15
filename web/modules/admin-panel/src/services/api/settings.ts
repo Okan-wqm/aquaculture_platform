@@ -42,15 +42,18 @@ export const settingsApi = {
   get: (key: string) => apiFetch<SystemSetting>(`/settings/key/${key}`),
   update: (key: string, value: unknown, updatedBy?: string) =>
     apiFetch<SystemSetting>(`/settings/key/${key}`, { method: 'PUT', body: JSON.stringify({ value, updatedBy }) }),
-  bulkUpdate: (settings: Array<{ key: string; value: unknown }>, updatedBy?: string) =>
-    apiFetch<SystemSetting[]>('/settings/bulk', { method: 'PUT', body: JSON.stringify({ settings, updatedBy }) }),
+  // Fix: backend expects { updates: [{ key, value }] }, updatedBy comes from JWT
+  bulkUpdate: (settings: Array<{ key: string; value: unknown }>, _updatedBy?: string) =>
+    apiFetch<SystemSetting[]>('/settings/bulk', { method: 'PUT', body: JSON.stringify({ updates: settings }) }),
 
   // Config Endpoints
   getEmailConfig: () => apiFetch<Record<string, unknown>>('/settings/config/email'),
   updateEmailConfig: (config: Record<string, unknown>) =>
     apiFetch<Record<string, unknown>>('/settings/config/email', { method: 'PUT', body: JSON.stringify(config) }),
-  testEmailConfig: (to: string) =>
-    apiFetch<{ success: boolean; message: string }>('/settings/config/email/test', { method: 'POST', body: JSON.stringify({ to }) }),
+  // TODO: No backend endpoint for /settings/config/email/test
+  testEmailConfig: (_to: string) => {
+    throw new Error('Not implemented: no backend endpoint for /settings/config/email/test');
+  },
   getSecurityConfig: () => apiFetch<Record<string, unknown>>('/settings/config/security'),
   updateSecurityConfig: (config: Record<string, unknown>) =>
     apiFetch<Record<string, unknown>>('/settings/config/security', { method: 'PUT', body: JSON.stringify(config) }),

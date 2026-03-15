@@ -11,7 +11,7 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Card, Button, Alert, Badge } from '@aquaculture/shared-ui';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -534,34 +534,6 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     return query.split('\n').length;
   }, [query]);
 
-  // Handle tab key
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Tab key - insert 2 spaces
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const target = e.target as HTMLTextAreaElement;
-        const start = target.selectionStart;
-        const end = target.selectionEnd;
-
-        const newValue = query.substring(0, start) + '  ' + query.substring(end);
-        setQuery(newValue);
-
-        // Set cursor position after the inserted spaces
-        requestAnimationFrame(() => {
-          target.selectionStart = target.selectionEnd = start + 2;
-        });
-      }
-
-      // Ctrl+Enter - execute query
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        handleExecute();
-      }
-    },
-    [query, handleExecute]
-  );
-
   // Execute query
   const handleExecute = useCallback(async () => {
     if (isExecuting) return;
@@ -610,6 +582,34 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
       setIsExecuting(false);
     }
   }, [query, selectedSchema, onQueryResult]);
+
+  // Handle tab key
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Tab key - insert 2 spaces
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const target = e.target as HTMLTextAreaElement;
+        const start = target.selectionStart;
+        const end = target.selectionEnd;
+
+        const newValue = query.substring(0, start) + '  ' + query.substring(end);
+        setQuery(newValue);
+
+        // Set cursor position after the inserted spaces
+        requestAnimationFrame(() => {
+          target.selectionStart = target.selectionEnd = start + 2;
+        });
+      }
+
+      // Ctrl+Enter - execute query
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        handleExecute();
+      }
+    },
+    [query, handleExecute]
+  );
 
   // Clear editor
   const handleClear = useCallback(() => {

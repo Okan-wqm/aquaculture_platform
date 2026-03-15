@@ -29,6 +29,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { TrainingModule } from './training/training.module';
 import { AquacultureModule } from './aquaculture/aquaculture.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
+import { PerformanceModule } from './performance/performance.module';
 
 // Explicit entity imports (required for webpack bundle - glob patterns don't work)
 // Core HR entities
@@ -58,6 +59,10 @@ import { SchedulingSettings } from './scheduling/entities/scheduling-settings.en
 import { WeeklyPlan } from './scheduling/entities/weekly-plan.entity';
 import { WeeklyPlanEntry } from './scheduling/entities/weekly-plan-entry.entity';
 import { Holiday } from './scheduling/entities/holiday.entity';
+// Performance entities
+import { PerformanceReview } from './performance/entities/performance-review.entity';
+import { Goal } from './performance/entities/goal.entity';
+import { EmployeeKPI } from './performance/entities/kpi.entity';
 
 // Nested ObjectTypes for orphanedTypes registration
 import { ContactInfo, Address, NextOfKin, EmergencyInfo } from './hr/entities/employee.entity';
@@ -65,6 +70,9 @@ import { GeoCoordinates } from './aquaculture/entities/work-area.entity';
 import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquaculture/entities/work-rotation.entity';
 import { DailyAttendanceOverview } from './attendance/query-handlers/get-daily-attendance-overview.handler';
 import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.handler';
+import { CompetencyRating } from './performance/entities/performance-review.entity';
+import { KeyResult, GoalMilestone } from './performance/entities/goal.entity';
+import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handlers/get-performance-summary.handler';
 
 @Module({
   imports: [
@@ -122,6 +130,10 @@ import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.han
           WeeklyPlan,
           WeeklyPlanEntry,
           Holiday,
+          // Performance
+          PerformanceReview,
+          Goal,
+          EmployeeKPI,
         ],
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get('NODE_ENV') === 'development',
@@ -172,6 +184,11 @@ import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.han
           CheckInHistoryEntry,
           DailyAttendanceOverview,
           HRDashboardStats,
+          CompetencyRating,
+          KeyResult,
+          GoalMilestone,
+          PerformanceSummary,
+          ReviewSummaryItem,
         ],
       },
       validationRules: [depthLimit(10)],
@@ -225,6 +242,7 @@ import { HRDashboardStats } from './hr/query-handlers/get-hr-dashboard-stats.han
     TrainingModule,
     AquacultureModule,
     SchedulingModule,
+    PerformanceModule,
     HealthModule,
   ],
   providers: [

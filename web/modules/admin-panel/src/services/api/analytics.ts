@@ -39,18 +39,24 @@ export const analyticsApi = {
   // Usage Analytics
   getUsageAnalytics: (params?: DateRangeParams) =>
     apiFetch<UsageAnalytics>(`/analytics/usage?${buildQueryString(params || {})}`),
-  getApiUsageByEndpoint: (params?: DateRangeParams & { limit?: number }) =>
-    apiFetch<Array<{ endpoint: string; method: string; count: number; avgTime: number }>>(`/analytics/usage/api?${buildQueryString(params || {})}`),
+  // TODO: No backend endpoint for /analytics/usage/api - removed
+  getApiUsageByEndpoint: (_params?: DateRangeParams & { limit?: number }) => {
+    throw new Error('Not implemented: no backend endpoint for /analytics/usage/api');
+  },
 
-  // Engagement
-  getEngagementMetrics: (params?: DateRangeParams) =>
-    apiFetch<EngagementMetrics>(`/analytics/engagement?${buildQueryString(params || {})}`),
-  getFeatureUsage: (params?: DateRangeParams) =>
-    apiFetch<Array<{ feature: string; usageCount: number; uniqueUsers: number; trend: number }>>(`/analytics/engagement/features?${buildQueryString(params || {})}`),
+  // TODO: No backend endpoint for /analytics/engagement - removed
+  getEngagementMetrics: (_params?: DateRangeParams) => {
+    throw new Error('Not implemented: no backend endpoint for /analytics/engagement');
+  },
+  // TODO: No backend endpoint for /analytics/engagement/features - removed
+  getFeatureUsage: (_params?: DateRangeParams) => {
+    throw new Error('Not implemented: no backend endpoint for /analytics/engagement/features');
+  },
 
-  // Geographic Distribution
-  getGeographicDistribution: () =>
-    apiFetch<Array<{ country: string; region: string; tenantCount: number; userCount: number }>>('/analytics/geographic'),
+  // TODO: No backend endpoint for /analytics/geographic - removed
+  getGeographicDistribution: () => {
+    throw new Error('Not implemented: no backend endpoint for /analytics/geographic');
+  },
 
   // Churn Analytics
   getTenantChurn: (period: string = '30d') =>
@@ -61,8 +67,9 @@ export const analyticsApi = {
     apiFetch<{ totalUsers: number; activeUsers: number; newUsers: number; churnedUsers: number }>(`/analytics/users?${buildQueryString(params || {})}`),
   getUserActivity: (period: string = '30d') =>
     apiFetch<Array<{ date: string; activeUsers: number; sessions: number }>>(`/analytics/users/activity?period=${period}`),
-  getUserHeatmap: (params?: DateRangeParams) =>
-    apiFetch<Array<{ hour: number; day: number; count: number }>>(`/analytics/users/heatmap?${buildQueryString(params || {})}`),
+  // Fix: backend GET /analytics/users/heatmap takes no query params
+  getUserHeatmap: (_params?: DateRangeParams) =>
+    apiFetch<Array<{ hour: number; day: number; count: number }>>('/analytics/users/heatmap'),
 
   // Module & Feature Usage
   getModuleUsageAnalytics: () =>
@@ -86,7 +93,7 @@ export const analyticsApi = {
   getSystemErrorsTrend: (period: string = '24h') =>
     apiFetch<Array<{ timestamp: string; count: number; rate: number }>>(`/analytics/system/errors?period=${period}`),
 
-  // Snapshots
-  getAnalyticsSnapshots: (params?: { startDate?: string; endDate?: string }) =>
-    apiFetch<Array<{ id: string; date: string; metrics: Record<string, number> }>>(`/analytics/snapshots?${buildQueryString(params || {})}`),
+  // Snapshots - backend requires mandatory 'category' param plus startDate/endDate
+  getAnalyticsSnapshots: (params: { category: 'tenant' | 'user' | 'financial' | 'system' | 'usage'; startDate: string; endDate: string; snapshotType?: 'daily' | 'weekly' | 'monthly' | 'yearly' }) =>
+    apiFetch<Array<{ id: string; date: string; metrics: Record<string, number> }>>(`/analytics/snapshots?${buildQueryString(params)}`),
 };

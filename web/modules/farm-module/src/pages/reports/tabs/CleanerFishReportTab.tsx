@@ -10,6 +10,11 @@
  * - Species code mapping (USB, BER, GRO, BNB)
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import {
+  useRegulatorySettings,
+  useSubmitCleanerFishReport,
+} from '../../../hooks/useRegulatory';
+import type { SubmitCleanerFishReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
 import { mockCleanerFishReports } from '../mock/cleanerFishData';
 import {
   CleanerFishReport,
@@ -1203,6 +1208,11 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
     [tanks]
   );
 
+  // Regulatory settings & submit mutation
+  const { data: regulatorySettings } = useRegulatorySettings();
+  const submitCleanerFishMutation = useSubmitCleanerFishReport();
+  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
+
   // Filter reports
   const reports = useMemo(() => {
     let filtered = siteId
@@ -1278,17 +1288,82 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
+    setError(null);
+    setSubmissionResult(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      console.log('Submitting cleaner fish report:', formData);
-      setIsWizardOpen(false);
-      setFormData(getInitialFormData());
+      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
+
+      // Map species value to Mattilsynet artskode
+      const speciesCodeMap: Record<string, string> = {
+        lumpfish: 'USB', ballan_wrasse: 'BER', corkwing_wrasse: 'GRO', goldsinny_wrasse: 'BNB',
+      };
+
+      // Group per-cage entries by tankId (each entry is one species in one cage)
+      const cageMap = new Map<string, typeof formData.perCageData>();
+      formData.perCageData.forEach(cage => {
+        const existing = cageMap.get(cage.tankId) || [];
+        existing.push(cage);
+        cageMap.set(cage.tankId, existing);
+      });
+
+      const input: SubmitCleanerFishReportInput = {
+        klientReferanse: crypto.randomUUID(),
+        organisasjonsnummer: regulatorySettings?.organisationNumber || '',
+        lokalitetsnummer: siteMapping?.lokalitetsnummer || 0,
+        kontaktperson: {
+          navn: regulatorySettings?.defaultContactName || '',
+          epost: regulatorySettings?.defaultContactEmail || '',
+          telefonnummer: regulatorySettings?.defaultContactPhone || '',
+        },
+        rapporteringsmaaned: formData.month,
+        rapporteringsaar: formData.year,
+        torrforKg: formData.feedConsumption.dryFeedKg || undefined,
+        vatforKg: formData.feedConsumption.wetFeedKg || undefined,
+        produksjonsenheter: Array.from(cageMap.entries()).map(([tankId, cageEntries]) => ({
+          merdId: cageEntries[0]?.tankName || tankId,
+          arter: cageEntries.map(cage => {
+            const artskode = speciesCodeMap[cage.species] || 'USB';
+            const mort = formData.detailedMortality[cage.species as CleanerFishSpecies] || {} as DetailedMortalityEntry;
+            return {
+              artskode,
+              opprinnelse: 'UKJENT',
+              beholdningVedForrigeMaanedsslutt: cage.openingStock,
+              utsett: {
+                antallFlyttetInn: 0,
+                antallNy: cage.added,
+              },
+              uttak: {
+                antallAvlivetSykdom: mort.disease || 0,
+                antallAvlivetSkader: mort.injuries || 0,
+                antallAvlivetAvmagret: mort.emaciation || 0,
+                antallAvlivetForestaendeHaandteringAvLaksen: mort.preHandling || 0,
+                antallAvlivetForestaendeUgunstigLevemiljo: mort.unfavorableEnvironment || 0,
+                antallAvlivetSkalIkkeBrukes: 0,
+                antallSelvdod: mort.naturalDeaths || 0,
+                antallFlyttetUt: mort.transferredOut || 0,
+                antallKanIkkeGjoresRedeFor: mort.unaccounted || 0,
+              },
+            };
+          }),
+        })),
+      };
+
+      const result = await submitCleanerFishMutation.mutateAsync(input);
+      setSubmissionResult(result);
+
+      if (result.success) {
+        setIsWizardOpen(false);
+        setFormData(getInitialFormData());
+      } else {
+        setError(result.feilmelding || 'Submission failed');
+      }
     } catch (err) {
+      console.error('Cleaner fish report submission error:', err);
       setError((err as Error).message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData]);
+  }, [formData, regulatorySettings, siteId, submitCleanerFishMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

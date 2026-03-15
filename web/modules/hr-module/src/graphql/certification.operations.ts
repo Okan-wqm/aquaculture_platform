@@ -272,26 +272,36 @@ export const UPDATE_CERTIFICATION_TYPE = gql`
 `;
 
 export const ADD_EMPLOYEE_CERTIFICATION = gql`
-  mutation AddEmployeeCertification($input: AddEmployeeCertificationInput!) {
-    addEmployeeCertification(input: $input) {
+  mutation AddEmployeeCertification(
+    $employeeId: ID!
+    $certificationTypeId: ID!
+    $issueDate: String!
+    $expiryDate: String
+    $issuingAuthority: String
+    $externalCertificationId: String
+    $notes: String
+  ) {
+    addEmployeeCertification(
+      employeeId: $employeeId
+      certificationTypeId: $certificationTypeId
+      issueDate: $issueDate
+      expiryDate: $expiryDate
+      issuingAuthority: $issuingAuthority
+      externalCertificationId: $externalCertificationId
+      notes: $notes
+    ) {
       ...EmployeeCertificationFull
     }
   }
   ${EMPLOYEE_CERTIFICATION_FRAGMENT}
 `;
 
-export const UPDATE_EMPLOYEE_CERTIFICATION = gql`
-  mutation UpdateEmployeeCertification($input: UpdateEmployeeCertificationInput!) {
-    updateEmployeeCertification(input: $input) {
-      ...EmployeeCertificationFull
-    }
-  }
-  ${EMPLOYEE_CERTIFICATION_FRAGMENT}
-`;
+// NOTE: updateEmployeeCertification does not exist in backend.
+// Use addEmployeeCertification for new certs or renewCertification for renewals.
 
 export const VERIFY_CERTIFICATION = gql`
-  mutation VerifyCertification($input: VerifyCertificationInput!) {
-    verifyCertification(input: $input) {
+  mutation VerifyCertification($id: ID!, $notes: String) {
+    verifyCertification(id: $id, notes: $notes) {
       ...EmployeeCertificationFull
     }
   }
@@ -299,8 +309,8 @@ export const VERIFY_CERTIFICATION = gql`
 `;
 
 export const REVOKE_CERTIFICATION = gql`
-  mutation RevokeCertification($input: RevokeCertificationInput!) {
-    revokeCertification(input: $input) {
+  mutation RevokeCertification($id: ID!, $reason: String!) {
+    revokeCertification(id: $id, reason: $reason) {
       ...EmployeeCertificationFull
     }
   }
@@ -349,14 +359,30 @@ export const UPDATE_TRAINING_COURSE = gql`
 `;
 
 export const ENROLL_IN_TRAINING = gql`
-  mutation EnrollInTraining($input: EnrollInTrainingInput!) {
-    enrollInTraining(input: $input) {
+  mutation EnrollInTraining(
+    $employeeId: ID!
+    $trainingCourseId: ID!
+    $dueDate: String
+    $sessionId: String
+    $instructor: String
+    $location: String
+  ) {
+    enrollInTraining(
+      employeeId: $employeeId
+      trainingCourseId: $trainingCourseId
+      dueDate: $dueDate
+      sessionId: $sessionId
+      instructor: $instructor
+      location: $location
+    ) {
       ...TrainingEnrollmentFull
     }
   }
   ${TRAINING_ENROLLMENT_FRAGMENT}
 `;
 
+// NOTE: startTraining does not exist in backend resolver yet.
+// Kept as placeholder for future implementation.
 export const START_TRAINING = gql`
   mutation StartTraining($enrollmentId: ID!) {
     startTraining(enrollmentId: $enrollmentId) {
@@ -367,14 +393,26 @@ export const START_TRAINING = gql`
 `;
 
 export const COMPLETE_TRAINING = gql`
-  mutation CompleteTraining($input: CompleteTrainingInput!) {
-    completeTraining(input: $input) {
+  mutation CompleteTraining(
+    $enrollmentId: ID!
+    $score: Float
+    $feedback: String
+    $feedbackRating: Int
+  ) {
+    completeTraining(
+      enrollmentId: $enrollmentId
+      score: $score
+      feedback: $feedback
+      feedbackRating: $feedbackRating
+    ) {
       ...TrainingEnrollmentFull
     }
   }
   ${TRAINING_ENROLLMENT_FRAGMENT}
 `;
 
+// NOTE: withdrawFromTraining does not exist in backend resolver yet.
+// Kept as placeholder for future implementation.
 export const WITHDRAW_FROM_TRAINING = gql`
   mutation WithdrawFromTraining($enrollmentId: ID!, $reason: String) {
     withdrawFromTraining(enrollmentId: $enrollmentId, reason: $reason) {
@@ -384,6 +422,8 @@ export const WITHDRAW_FROM_TRAINING = gql`
   ${TRAINING_ENROLLMENT_FRAGMENT}
 `;
 
+// NOTE: bulkEnrollInTraining does not exist in backend resolver yet.
+// Kept as placeholder for future implementation.
 export const BULK_ENROLL_IN_TRAINING = gql`
   mutation BulkEnrollInTraining($courseId: ID!, $employeeIds: [ID!]!) {
     bulkEnrollInTraining(courseId: $courseId, employeeIds: $employeeIds) {

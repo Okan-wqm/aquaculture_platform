@@ -4,6 +4,7 @@
  * Shows urgency indicator for large-scale escapes per Norwegian regulatory requirements
  */
 import React, { useState, useMemo } from 'react';
+import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import { getMockReports } from '../mock/helpers';
 import { EscapeReport, EscapeStatus, EscapeCause } from '../types/reports.types';
 import { REGULATORY_CONTACTS } from '../utils/thresholds';
@@ -404,6 +405,9 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
   const [selectedEscape, setSelectedEscape] = useState<EscapeReport | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('all');
 
+  // Regulatory settings (pre-populates contact info; escape submission API TBD)
+  const { data: regulatorySettings } = useRegulatorySettings();
+
   // Fetch tank data for stock context
   const { data: tanksData } = useTanksList({ isActive: true });
   const totalStockInTanks = useMemo(() => {
@@ -450,7 +454,16 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
   };
 
   const handleModalSubmit = async (data: Partial<EscapeReport>): Promise<void> => {
-    console.log('Submitting escape report:', data);
+    // TODO: Replace with real escape report submission mutation when backend endpoint is available
+    console.log('Submitting escape report:', data, {
+      organisationNumber: regulatorySettings?.organisationNumber,
+      siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
+      contact: {
+        navn: regulatorySettings?.defaultContactName,
+        epost: regulatorySettings?.defaultContactEmail,
+        telefonnummer: regulatorySettings?.defaultContactPhone,
+      },
+    });
     setIsModalOpen(false);
     setSelectedEscape(null);
   };

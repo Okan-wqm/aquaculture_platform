@@ -42,7 +42,10 @@ const BillingDashboardPage = lazy(() => import('./pages/BillingDashboardPage'));
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage'));
 const DatabaseExplorerPage = lazy(() => import('./pages/DatabaseExplorerPage'));
 const ModulePricingPage = lazy(() => import('./pages/ModulePricingPage'));
+const CustomPlansListPage = lazy(() => import('./pages/CustomPlansListPage'));
 const CustomPlanBuilderPage = lazy(() => import('./pages/CustomPlanBuilderPage'));
+const PaymentsPage = lazy(() => import('./pages/PaymentsPage'));
+const UsageDashboardPage = lazy(() => import('./pages/UsageDashboardPage'));
 const ProvisioningSettingsPage = lazy(() => import('./pages/ProvisioningSettingsPage'));
 
 // Security pages
@@ -113,6 +116,9 @@ const AdminPanelModule: React.FC = () => {
         <Route path="billing/plans" element={<PlanManagementPage />} />
         <Route path="billing/discounts" element={<DiscountCodePage />} />
         <Route path="billing/module-pricing" element={<ModulePricingPage />} />
+        <Route path="billing/payments" element={<PaymentsPage />} />
+        <Route path="billing/usage" element={<UsageDashboardPage />} />
+        <Route path="billing/custom-plans" element={<CustomPlansListPage />} />
         <Route path="billing/custom-plan-builder" element={<CustomPlanBuilderPage />} />
 
         {/* Support */}

@@ -431,6 +431,28 @@ export class CreatedTenantUserResult {
 }
 
 /**
+ * Update Tenant User Input
+ * Used by tenant admins to update user profile fields and/or role assignment
+ */
+@InputType()
+export class UpdateTenantUserInput {
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @Field(() => ID, { nullable: true, description: 'Tenant role ID to assign. If changed, updates the user role assignment.' })
+  @IsOptional()
+  @IsUUID()
+  roleId?: string;
+}
+
+/**
  * Revoke User Role Input
  */
 @InputType()

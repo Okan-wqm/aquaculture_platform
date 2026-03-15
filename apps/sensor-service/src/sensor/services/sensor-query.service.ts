@@ -487,22 +487,43 @@ export class SensorQueryService {
   /**
    * Get multiple sensors' latest readings efficiently
    * Useful for dashboard views
+   *
+   * Uses DISTINCT ON for a single-pass scan — no N+1 queries.
+   * Raw SQL returns snake_case columns, so we alias them to match the entity.
    */
   async getLatestReadingsForSensors(
     sensorIds: string[],
     tenantId: string,
-  ): Promise<Map<string, SensorReading>> {
+  ): Promise<SensorReading[]> {
     if (sensorIds.length === 0) {
-      return new Map();
+      return [];
     }
 
     // Validate inputs
     const validTenantId = validateTenantId(tenantId);
     const validSensorIds = sensorIds.map((id) => validateSensorId(id));
 
+    // Cap batch size to prevent excessive query cost
+    if (validSensorIds.length > 100) {
+      throw new BadRequestException(
+        'Maximum 100 sensors can be queried at once in a batch',
+      );
+    }
+
     // Use DISTINCT ON for PostgreSQL to get latest reading per sensor
+    // Alias snake_case columns to camelCase to match the SensorReading entity
     const query = `
-      SELECT DISTINCT ON (sensor_id) *
+      SELECT DISTINCT ON (sensor_id)
+        id,
+        sensor_id    AS "sensorId",
+        tenant_id    AS "tenantId",
+        timestamp,
+        readings,
+        pond_id      AS "pondId",
+        farm_id      AS "farmId",
+        quality,
+        source,
+        created_at   AS "createdAt"
       FROM sensor_readings
       WHERE sensor_id = ANY($1)
         AND tenant_id = $2
@@ -514,12 +535,7 @@ export class SensorQueryService {
       validTenantId,
     ]);
 
-    const readingsMap = new Map<string, SensorReading>();
-    for (const reading of results) {
-      readingsMap.set(reading.sensorId, reading);
-    }
-
-    return readingsMap;
+    return results;
   }
 
   /**

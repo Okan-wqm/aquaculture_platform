@@ -6,6 +6,11 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { useTanksList } from '../../../hooks/useTanks';
+import {
+  useRegulatorySettings,
+  useSubmitSeaLiceReport,
+} from '../../../hooks/useRegulatory';
+import type { SubmitSeaLiceReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
 import { mockSeaLiceReports } from '../mock/seaLiceData';
 import {
   SeaLiceReport,
@@ -1312,6 +1317,11 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
   const tanks = tanksData?.items || [];
   const tankOptions = useMemo(() => tanks.map(t => ({ id: t.id, name: t.name, code: t.code })), [tanks]);
 
+  // Regulatory settings & submit mutation
+  const { data: regulatorySettings } = useRegulatorySettings();
+  const submitSeaLiceMutation = useSubmitSeaLiceReport();
+  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
+
   // Derive site name from tanks data if available
   const derivedSiteName = useMemo(() => {
     if (selectedReport?.siteName) return selectedReport.siteName;
@@ -1398,18 +1408,104 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
+    setError(null);
+    setSubmissionResult(null);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      console.log('Submitting sea lice report:', formData);
-      setIsWizardOpen(false);
-      setFormData(getInitialFormData());
+      // Map frontend non-medicated type values to Mattilsynet enum values
+      const nonMedTypeMap: Record<string, string> = {
+        TERMISK_BEHANDLING: 'TERMISK_BEHANDLING',
+        MEKANISK_BEHANDLING: 'MEKANISK_BEHANDLING',
+        FERSKVANN: 'FERSKVANNSBEHANDLING',
+        SPYLING: 'ANNEN_BEHANDLING',
+        LASER: 'ANNEN_BEHANDLING',
+        ANNET: 'ANNEN_BEHANDLING',
+      };
+      // Map frontend active ingredient values to Mattilsynet enum values
+      const ingredientMap: Record<string, string> = {
+        AZAMETIFOS: 'AZAMETHIPHOS',
+        CYPERMETHRIN: 'CYPERMETHRIN',
+        DELTAMETHRIN: 'DELTAMETHRIN',
+        HYDROGENPEROKSID: 'HYDROGENPEROKSID',
+        EMAMEKTIN_BENZOAT: 'EMAMECTIN_BENZOAT',
+        ANNET: 'ANNET_VIRKESTOFF',
+      };
+      // Build Mattilsynet-aligned input from form data
+      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
+      const input: SubmitSeaLiceReportInput = {
+        klientReferanse: crypto.randomUUID(),
+        organisasjonsnummer: regulatorySettings?.organisationNumber || '',
+        lokalitetsnummer: siteMapping?.lokalitetsnummer || 0,
+        kontaktperson: {
+          navn: regulatorySettings?.defaultContactName || '',
+          epost: regulatorySettings?.defaultContactEmail || '',
+          telefonnummer: regulatorySettings?.defaultContactPhone || '',
+        },
+        rapporteringsaar: formData.year,
+        rapporteringsuke: formData.weekNumber,
+        sjotemperatur: formData.waterTemperature3m,
+        lusetelling: {
+          voksneHunnlus: formData.siteCounts.adultFemale,
+          bevegeligeLus: formData.siteCounts.mobile,
+          fastsittendeLus: formData.siteCounts.attached,
+        },
+        ikkeMedikamentelleBehandlinger: formData.treatmentEntries
+          .filter(t => t.category === 'non_medicated')
+          .map(t => ({
+            type: nonMedTypeMap[t.nonMedicatedType || ''] || 'ANNEN_BEHANDLING',
+            gjennomfortForTelling: t.beforeCounting,
+            heleLokaliteten: t.wholeSite,
+            antallMerder: t.cagesTreated,
+            beskrivelse: t.notes || undefined,
+          })),
+        medikamentelleBehandlinger: formData.treatmentEntries
+          .filter(t => t.category === 'medicated')
+          .map(t => ({
+            type: 'BADEBEHANDLING',
+            gjennomfortForTelling: t.beforeCounting,
+            heleLokaliteten: t.wholeSite,
+            antallMerder: t.cagesTreated,
+            virkestoff: {
+              type: ingredientMap[t.activeIngredient || ''] || 'ANNET_VIRKESTOFF',
+              mengde: t.dosage ? { verdi: t.dosage, enhet: 'GRAM' } : undefined,
+            },
+            beskrivelse: t.notes || undefined,
+          })),
+        resistensMistanker: formData.resistanceSuspicion ? [{
+          resistens: 'ANNEN_RESISTENS',
+          aarsak: 'NEDSATT_BEHANDLINGSEFFEKT',
+          annenResistens: formData.resistanceDetails || undefined,
+        }] : undefined,
+        folsomhetsundersokelser: formData.sensitivityTest.performed ? [{
+          utfortDato: formData.sensitivityTest.testDate,
+          laboratorium: formData.sensitivityTest.labName,
+          resistens: (formData.sensitivityTest.ingredientTested || 'ANNEN_RESISTENS') as string,
+          testresultat: formData.sensitivityTest.result === 'sensitive' ? 'FOLSOM'
+            : formData.sensitivityTest.result === 'reduced' ? 'NEDSATT_FOLSOMHET'
+            : formData.sensitivityTest.result === 'resistant' ? 'RESISTENS'
+            : 'FOLSOM',
+        }] : undefined,
+      };
+
+      // Remove empty arrays
+      if (input.ikkeMedikamentelleBehandlinger?.length === 0) delete input.ikkeMedikamentelleBehandlinger;
+      if (input.medikamentelleBehandlinger?.length === 0) delete input.medikamentelleBehandlinger;
+
+      const result = await submitSeaLiceMutation.mutateAsync(input);
+      setSubmissionResult(result);
+
+      if (result.success) {
+        setIsWizardOpen(false);
+        setFormData(getInitialFormData());
+      } else {
+        setError(result.feilmelding || 'Submission failed');
+      }
     } catch (err) {
+      console.error('Sea lice report submission error:', err);
       setError((err as Error).message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData]);
+  }, [formData, regulatorySettings, siteId, submitSeaLiceMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

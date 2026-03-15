@@ -13,7 +13,7 @@
  *   - criticalWaterQuality (farm-service WaterQualityResolver)
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { graphqlClient } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -98,6 +98,7 @@ export interface AlertSummaryData {
   critical: number;
   high: number;
   medium: number;
+  warning: number;
   low: number;
 }
 
@@ -145,6 +146,78 @@ export interface RecentActivity {
   severity?: 'info' | 'warning' | 'error' | 'success';
 }
 
+/** Harvest monthly statistics from farm-service */
+export interface HarvestMonthlyStats {
+  year: number;
+  month: number;
+  count: number;
+  totalBiomass: number;
+  totalRevenue: number;
+}
+
+/** Harvest summary from farm-service */
+export interface HarvestSummaryData {
+  totalHarvests: number;
+  totalQuantityHarvested: number;
+  totalBiomassKg: number;
+  totalRevenue: number;
+  averageWeight: number;
+  averagePricePerKg: number;
+}
+
+/** Harvest trends */
+export interface HarvestTrendsData {
+  avgBiomassPerHarvest: number;
+  avgQuantityPerHarvest: number;
+  harvestsPerMonth: number;
+}
+
+/** Harvest statistics response */
+export interface HarvestStatisticsData {
+  tenantId: string;
+  startDate: string;
+  endDate: string;
+  summary: HarvestSummaryData;
+  byMonth: HarvestMonthlyStats[];
+  trends: HarvestTrendsData;
+}
+
+/** Batch summary for species distribution */
+export interface BatchSummary {
+  id: string;
+  name: string;
+  speciesId: string;
+  status: string;
+  initialQuantity: number;
+  currentQuantity: number;
+  initialAvgWeightG: number;
+}
+
+/** Sensor summary */
+export interface SensorSummary {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  pondId: string | null;
+  farmId: string | null;
+}
+
+/** Sensor reading for analytics */
+export interface SensorReadingData {
+  id: string;
+  sensorId: string;
+  timestamp: string;
+  readings: {
+    temperature?: number;
+    ph?: number;
+    dissolvedOxygen?: number;
+    salinity?: number;
+    ammonia?: number;
+    nitrite?: number;
+  };
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -158,6 +231,10 @@ export const dashboardKeys = {
   storage: () => [...dashboardKeys.all, 'storage'] as const,
   waterQuality: () => [...dashboardKeys.all, 'waterQuality'] as const,
   recentActivity: () => [...dashboardKeys.all, 'recentActivity'] as const,
+  harvestStats: (range: string) => [...dashboardKeys.all, 'harvestStats', range] as const,
+  batches: () => [...dashboardKeys.all, 'batches'] as const,
+  sensors: () => [...dashboardKeys.all, 'sensors'] as const,
+  sensorReadings: (ids: string[]) => [...dashboardKeys.all, 'sensorReadings', ...ids] as const,
 };
 
 // ============================================================================
@@ -272,6 +349,84 @@ const CRITICAL_WATER_QUALITY_QUERY = `
   }
 `;
 
+const HARVEST_STATISTICS_QUERY = `
+  query HarvestStatistics($dateRange: DateRangeInput!) {
+    harvestStatistics(dateRange: $dateRange) {
+      tenantId
+      startDate
+      endDate
+      summary {
+        totalHarvests
+        totalQuantityHarvested
+        totalBiomassKg
+        totalRevenue
+        averageWeight
+        averagePricePerKg
+      }
+      byMonth {
+        year
+        month
+        count
+        totalBiomass
+        totalRevenue
+      }
+      trends {
+        avgBiomassPerHarvest
+        avgQuantityPerHarvest
+        harvestsPerMonth
+      }
+    }
+  }
+`;
+
+const BATCHES_QUERY = `
+  query BatchesList($limit: Int) {
+    batches(limit: $limit) {
+      items {
+        id
+        name
+        speciesId
+        status
+        initialQuantity
+        currentQuantity
+        initialAvgWeightG
+      }
+      total
+    }
+  }
+`;
+
+const SENSORS_LIST_QUERY = `
+  query SensorsList($limit: Int) {
+    sensors(limit: $limit) {
+      id
+      name
+      type
+      status
+      pondId
+      farmId
+    }
+  }
+`;
+
+const LATEST_READINGS_BATCH_QUERY = `
+  query LatestReadingsBatch($sensorIds: [ID!]!) {
+    latestReadingsBatch(sensorIds: $sensorIds) {
+      id
+      sensorId
+      timestamp
+      readings {
+        temperature
+        ph
+        dissolvedOxygen
+        salinity
+        ammonia
+        nitrite
+      }
+    }
+  }
+`;
+
 // ============================================================================
 // Hooks
 // ============================================================================
@@ -286,14 +441,42 @@ export function useDashboardStats() {
     queryKey: dashboardKeys.stats(),
     staleTime: 60_000,
     queryFn: async (): Promise<DashboardKPI> => {
-      // Paralel fetch -- all three queries at once
-      const [tenantResult, farmsResult, alertResult] = await Promise.all([
+      // Build date range for harvest statistics: current year
+      const now = new Date();
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+      const dateRange = {
+        startDate: yearStart.toISOString(),
+        endDate: now.toISOString(),
+      };
+
+      // Build date range for previous period (for trend calculation)
+      const prevYearStart = new Date(now.getFullYear() - 1, 0, 1);
+      const prevYearEnd = new Date(now.getFullYear() - 1, 11, 31);
+      const prevDateRange = {
+        startDate: prevYearStart.toISOString(),
+        endDate: prevYearEnd.toISOString(),
+      };
+
+      // Paralel fetch -- all queries at once
+      const [tenantResult, farmsResult, alertResult, harvestResult, prevHarvestResult, sensorsResult] = await Promise.all([
         graphqlClient.request<{ tenantStats: TenantStatsData }>(TENANT_STATS_QUERY),
         graphqlClient.request<{ farms: FarmSummary[] }>(FARMS_COUNT_QUERY),
         graphqlClient.request<{ alertHistory: AlertHistoryEntry[] }>(
           ALERT_HISTORY_QUERY,
           { limit: 100 },
         ),
+        graphqlClient.request<{ harvestStatistics: HarvestStatisticsData }>(
+          HARVEST_STATISTICS_QUERY,
+          { dateRange },
+        ).catch(() => null),
+        graphqlClient.request<{ harvestStatistics: HarvestStatisticsData }>(
+          HARVEST_STATISTICS_QUERY,
+          { dateRange: prevDateRange },
+        ).catch(() => null),
+        graphqlClient.request<{ sensors: SensorSummary[] }>(
+          SENSORS_LIST_QUERY,
+          { limit: 1000 },
+        ).catch(() => null),
       ]);
 
       const stats = tenantResult.tenantStats;
@@ -306,15 +489,49 @@ export function useDashboardStats() {
         (a) => new Date(a.triggeredAt) >= todayStart,
       ).length;
 
+      // Count yesterday's alerts for trend
+      const yesterdayStart = new Date(todayStart);
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+      const alertsYesterday = alertResult.alertHistory.filter(
+        (a) => {
+          const d = new Date(a.triggeredAt);
+          return d >= yesterdayStart && d < todayStart;
+        },
+      ).length;
+      const alertsTrend = alertsYesterday > 0
+        ? ((alertsToday - alertsYesterday) / alertsYesterday) * 100
+        : 0;
+
+      // Production tons from harvest statistics
+      const productionTons = harvestResult?.harvestStatistics?.summary?.totalBiomassKg
+        ? harvestResult.harvestStatistics.summary.totalBiomassKg / 1000
+        : 0;
+
+      // Production trend: compare current vs previous year biomass
+      const prevBiomass = prevHarvestResult?.harvestStatistics?.summary?.totalBiomassKg ?? 0;
+      const currentBiomass = harvestResult?.harvestStatistics?.summary?.totalBiomassKg ?? 0;
+      const productionTrend = prevBiomass > 0
+        ? ((currentBiomass - prevBiomass) / prevBiomass) * 100
+        : 0;
+
+      // Active sensors count and trend
+      const activeSensors = sensorsResult?.sensors
+        ? sensorsResult.sensors.filter((s) => s.status === 'ACTIVE' || s.status === 'active').length
+        : stats.activeModules;
+      const totalSensors = sensorsResult?.sensors?.length ?? 0;
+      const sensorsTrend = totalSensors > 0
+        ? (activeSensors / totalSensors) * 100 - 100
+        : 0;
+
       return {
         totalFarms: farms.length,
-        activeSensors: stats.activeModules, // Best available metric
+        activeSensors,
         alertsToday,
-        productionTons: 0, // Will be enriched when harvest data is fetched
+        productionTons: Math.round(productionTons * 10) / 10,
         farmsTrend: stats.monthlyGrowthPercent ?? 0,
-        sensorsTrend: 0,
-        alertsTrend: 0,
-        productionTrend: 0,
+        sensorsTrend: Math.round(sensorsTrend * 10) / 10,
+        alertsTrend: Math.round(alertsTrend * 10) / 10,
+        productionTrend: Math.round(productionTrend * 10) / 10,
         totalUsers: stats.totalUsers,
         activeUsers: stats.activeUsers,
       };
@@ -373,14 +590,16 @@ export function useAlertSummary() {
 
       const alerts = result.alertHistory;
 
-      // Build summary counts from unacknowledged alerts
+      // Build summary counts from unacknowledged alerts.
+      // Backend AlertSeverity enum uses lowercase values ('critical', 'high', etc.).
       const activeAlerts = alerts.filter((a) => !a.acknowledged);
       const summary: AlertSummaryData = {
         total: activeAlerts.length,
-        critical: activeAlerts.filter((a) => a.severity === 'CRITICAL').length,
-        high: activeAlerts.filter((a) => a.severity === 'HIGH').length,
-        medium: activeAlerts.filter((a) => a.severity === 'MEDIUM').length,
-        low: activeAlerts.filter((a) => a.severity === 'LOW').length,
+        critical: activeAlerts.filter((a) => a.severity === 'critical').length,
+        high: activeAlerts.filter((a) => a.severity === 'high').length,
+        medium: activeAlerts.filter((a) => a.severity === 'medium').length,
+        warning: activeAlerts.filter((a) => a.severity === 'warning').length,
+        low: activeAlerts.filter((a) => a.severity === 'low').length,
       };
 
       return { alerts, summary };
@@ -446,14 +665,16 @@ export function useRecentActivity(limit = 10) {
 
       const activities: RecentActivity[] = [];
 
-      // Map alert history to activities
+      // Map alert history to activities.
+      // Backend AlertSeverity enum uses lowercase values ('critical', 'high', etc.).
       for (const alert of alertResult.alertHistory) {
         const severityMap: Record<string, RecentActivity['severity']> = {
-          CRITICAL: 'error',
-          HIGH: 'warning',
-          MEDIUM: 'warning',
-          LOW: 'info',
-          INFO: 'info',
+          critical: 'error',
+          high: 'warning',
+          medium: 'warning',
+          warning: 'warning',
+          low: 'info',
+          info: 'info',
         };
 
         activities.push({
@@ -490,6 +711,187 @@ export function useRecentActivity(limit = 10) {
       activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
       return activities.slice(0, limit);
+    },
+  });
+}
+
+// ============================================================================
+// Analytics Hooks
+// ============================================================================
+
+/** Date range helper: returns {startDate, endDate} ISO strings based on range key */
+function getDateRangeForAnalytics(range: string): { startDate: string; endDate: string } {
+  const now = new Date();
+  const end = now.toISOString();
+  let start: Date;
+
+  switch (range) {
+    case '7days':
+      start = new Date(now);
+      start.setDate(start.getDate() - 7);
+      break;
+    case '30days':
+      start = new Date(now);
+      start.setDate(start.getDate() - 30);
+      break;
+    case '90days':
+      start = new Date(now);
+      start.setDate(start.getDate() - 90);
+      break;
+    case 'year':
+      start = new Date(now.getFullYear(), 0, 1);
+      break;
+    default:
+      start = new Date(now);
+      start.setDate(start.getDate() - 30);
+  }
+
+  return { startDate: start.toISOString(), endDate: end };
+}
+
+/**
+ * Harvest statistics for production trend chart.
+ * Returns monthly harvest data with biomass and revenue.
+ * staleTime: 120 seconds (analytics data changes infrequently)
+ */
+export function useHarvestStatistics(dateRangeKey: string) {
+  const { startDate, endDate } = getDateRangeForAnalytics(dateRangeKey);
+
+  return useQuery({
+    queryKey: dashboardKeys.harvestStats(dateRangeKey),
+    staleTime: 120_000,
+    queryFn: async (): Promise<HarvestStatisticsData> => {
+      const result = await graphqlClient.request<{
+        harvestStatistics: HarvestStatisticsData;
+      }>(HARVEST_STATISTICS_QUERY, {
+        dateRange: { startDate, endDate },
+      });
+
+      return result.harvestStatistics;
+    },
+  });
+}
+
+/**
+ * Batches for species distribution chart.
+ * Returns active batches with species grouping.
+ * staleTime: 120 seconds
+ */
+export function useBatchesSummary() {
+  return useQuery({
+    queryKey: dashboardKeys.batches(),
+    staleTime: 120_000,
+    queryFn: async (): Promise<BatchSummary[]> => {
+      const result = await graphqlClient.request<{
+        batches: { items: BatchSummary[]; total: number };
+      }>(BATCHES_QUERY, { limit: 500 });
+
+      return result.batches.items;
+    },
+  });
+}
+
+/**
+ * Sensors list for analytics.
+ * staleTime: 120 seconds
+ */
+export function useSensorsList() {
+  return useQuery({
+    queryKey: dashboardKeys.sensors(),
+    staleTime: 120_000,
+    queryFn: async (): Promise<SensorSummary[]> => {
+      const result = await graphqlClient.request<{
+        sensors: SensorSummary[];
+      }>(SENSORS_LIST_QUERY, { limit: 100 });
+
+      return result.sensors;
+    },
+  });
+}
+
+/**
+ * Latest sensor readings for multiple sensors (batch query).
+ * Used by analytics page for sensor trend chart.
+ * staleTime: 30 seconds
+ */
+export function useLatestSensorReadings(sensorIds: string[]) {
+  return useQuery({
+    queryKey: dashboardKeys.sensorReadings(sensorIds),
+    staleTime: 30_000,
+    enabled: sensorIds.length > 0,
+    queryFn: async (): Promise<SensorReadingData[]> => {
+      const result = await graphqlClient.request<{
+        latestReadingsBatch: SensorReadingData[];
+      }>(LATEST_READINGS_BATCH_QUERY, { sensorIds });
+
+      return result.latestReadingsBatch;
+    },
+  });
+}
+
+// ============================================================================
+// Alert Mutations
+// ============================================================================
+
+const ACKNOWLEDGE_ALERT_MUTATION = `
+  mutation AcknowledgeAlert($input: AcknowledgeAlertInput!) {
+    acknowledgeAlert(input: $input) {
+      id
+      acknowledged
+      acknowledgedAt
+      acknowledgedBy
+    }
+  }
+`;
+
+const RESOLVE_ALERT_MUTATION = `
+  mutation ResolveAlert($alertId: ID!) {
+    resolveAlert(alertId: $alertId) {
+      id
+      resolved
+      resolvedAt
+    }
+  }
+`;
+
+/**
+ * Acknowledge an alert -- invalidates dashboard alert queries on success.
+ */
+export function useAcknowledgeAlert() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (alertId: string) => {
+      return graphqlClient.request<{
+        acknowledgeAlert: { id: string; acknowledged: boolean };
+      }>(ACKNOWLEDGE_ALERT_MUTATION, { input: { alertId } });
+    },
+    onSuccess: () => {
+      // Invalidate alert-related queries so the widget refreshes
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts() });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats() });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity() });
+    },
+  });
+}
+
+/**
+ * Resolve an alert -- invalidates dashboard alert queries on success.
+ */
+export function useResolveAlert() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (alertId: string) => {
+      return graphqlClient.request<{
+        resolveAlert: { id: string; resolved: boolean };
+      }>(RESOLVE_ALERT_MUTATION, { alertId });
+    },
+    onSuccess: () => {
+      // Invalidate alert-related queries so the widget refreshes
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts() });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats() });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity() });
     },
   });
 }

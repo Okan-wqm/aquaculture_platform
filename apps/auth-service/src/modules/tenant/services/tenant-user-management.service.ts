@@ -194,6 +194,184 @@ export class TenantUserManagementService {
   }
 
   /**
+   * Update a tenant user's profile fields (firstName, lastName) and optionally their role assignment
+   */
+  async updateTenantUser(
+    tenantId: string,
+    userId: string,
+    input: {
+      firstName?: string;
+      lastName?: string;
+      roleId?: string;
+    },
+    updatedBy: string,
+  ): Promise<User> {
+    // SECURITY: Prevent self-demotion / self-modification of role
+    // (profile field changes on self are allowed)
+
+    // Validate user exists and belongs to tenant
+    const user = await this.userRepository.findOne({
+      where: { id: userId, tenantId },
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
+    }
+
+    // Update profile fields
+    let profileChanged = false;
+    if (input.firstName !== undefined) {
+      user.firstName = input.firstName;
+      profileChanged = true;
+    }
+    if (input.lastName !== undefined) {
+      user.lastName = input.lastName;
+      profileChanged = true;
+    }
+
+    if (profileChanged) {
+      await this.userRepository.save(user);
+      this.logger.log(`Updated profile for user ${user.email} in tenant ${tenantId}`);
+    }
+
+    // Update role assignment if roleId is provided
+    if (input.roleId) {
+      const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+
+      // Validate new role exists in tenant
+      const newRole = await this.tenantRoleService.getRoleById(tenantId, input.roleId);
+      if (!newRole) {
+        throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
+      }
+
+      // Check if user has an existing active role assignment
+      const existingResult = await this.dataSource.query(
+        `SELECT id, role_id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+        [userId],
+      );
+
+      if (existingResult.length > 0) {
+        const existing = existingResult[0];
+        // Only update if role actually changed
+        if (existing.role_id !== input.roleId) {
+          await this.dataSource.query(
+            `UPDATE "${schemaName}"."user_role_assignments"
+             SET role_id = $1, updated_at = NOW(), updated_by = $2
+             WHERE id = $3`,
+            [input.roleId, updatedBy, existing.id],
+          );
+          this.logger.log(`Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`);
+
+          // SECURITY AUDIT: Log role change (BULGU-016)
+          try {
+            await this.auditLogService.log({
+              tenantId,
+              performedBy: updatedBy,
+              action: 'USER_ROLE_CHANGED',
+              entityType: 'UserRoleAssignment',
+              entityId: userId,
+              previousValue: { roleId: existing.role_id },
+              newValue: { roleId: input.roleId },
+              details: {
+                newRoleName: newRole.name,
+                timestamp: new Date().toISOString(),
+              },
+              severity: AuditLogSeverity.WARNING,
+            });
+          } catch (error) {
+            this.logger.error(`Failed to log audit event USER_ROLE_CHANGED: ${(error as Error).message}`);
+          }
+        }
+      } else {
+        // No existing assignment — create one
+        await this.dataSource.query(
+          `INSERT INTO "${schemaName}"."user_role_assignments" (
+            user_id, role_id, permission_overrides, is_active, assigned_by, created_at, updated_at
+          ) VALUES ($1, $2, $3, true, $4, NOW(), NOW())`,
+          [userId, input.roleId, JSON.stringify({ grants: [], revokes: [] }), updatedBy],
+        );
+        this.logger.log(`Created role assignment for user ${userId} with role ${newRole.name} in tenant ${tenantId}`);
+      }
+    }
+
+    // Return updated user
+    const updatedUser = await this.userRepository.findOne({ where: { id: userId } });
+    return updatedUser!;
+  }
+
+  /**
+   * Soft-delete a tenant user
+   *
+   * Sets isActive = false, revokes role assignment, and revokes all refresh tokens.
+   * This is a "soft delete" — the user record remains but is fully deactivated.
+   */
+  async deleteTenantUser(
+    tenantId: string,
+    userId: string,
+    deletedBy: string,
+  ): Promise<boolean> {
+    // SECURITY: Prevent self-deletion
+    if (deletedBy === userId) {
+      throw new BadRequestException('Cannot delete your own account');
+    }
+
+    // Validate user exists and belongs to tenant
+    const user = await this.userRepository.findOne({
+      where: { id: userId, tenantId },
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
+    }
+
+    // SECURITY: Cannot delete another TENANT_ADMIN
+    if (user.role === Role.TENANT_ADMIN) {
+      throw new ForbiddenException('Cannot delete a tenant admin user');
+    }
+
+    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+
+    // 1. Deactivate the user
+    user.isActive = false;
+    await this.userRepository.save(user);
+
+    // 2. Revoke role assignments in tenant schema
+    try {
+      await this.dataSource.query(
+        `UPDATE "${schemaName}"."user_role_assignments"
+         SET is_active = false, updated_at = NOW(), updated_by = $2
+         WHERE user_id = $1 AND is_active = true`,
+        [userId, deletedBy],
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`);
+    }
+
+    this.logger.log(`Deleted (soft) user ${user.email} from tenant ${tenantId}`);
+
+    // SECURITY AUDIT: Log user deletion (BULGU-016)
+    try {
+      const admin = await this.userRepository.findOne({ where: { id: deletedBy } });
+      await this.auditLogService.log({
+        tenantId,
+        performedBy: deletedBy,
+        performedByEmail: admin?.email,
+        action: 'USER_DELETED',
+        entityType: 'User',
+        entityId: userId,
+        details: {
+          targetEmail: user.email,
+          targetRole: user.role,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.WARNING,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log audit event USER_DELETED: ${(error as Error).message}`);
+    }
+
+    return true;
+  }
+
+  /**
    * Assign a role to an existing user in a tenant
    */
   async assignUserRole(

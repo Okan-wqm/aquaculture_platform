@@ -254,32 +254,25 @@ export const CLOCK_OUT = gql`
   ${ATTENDANCE_RECORD_FRAGMENT}
 `;
 
-export const CREATE_ATTENDANCE_RECORD = gql`
-  mutation CreateAttendanceRecord($input: CreateAttendanceRecordInput!) {
-    createAttendanceRecord(input: $input) {
+export const CREATE_MANUAL_ATTENDANCE = gql`
+  mutation CreateManualAttendance($input: ManualAttendanceInput!) {
+    createManualAttendance(input: $input) {
       ...AttendanceRecordFull
     }
   }
   ${ATTENDANCE_RECORD_FRAGMENT}
 `;
 
-export const UPDATE_ATTENDANCE_RECORD = gql`
-  mutation UpdateAttendanceRecord($input: UpdateAttendanceRecordInput!) {
-    updateAttendanceRecord(input: $input) {
+// NOTE: updateAttendanceRecord does not exist in backend.
+// Use createManualAttendance for corrections or approveAttendance for approval.
+
+export const APPROVE_ATTENDANCE = gql`
+  mutation ApproveAttendance($id: ID!, $notes: String) {
+    approveAttendance(id: $id, notes: $notes) {
       ...AttendanceRecordFull
     }
   }
   ${ATTENDANCE_RECORD_FRAGMENT}
-`;
-
-export const APPROVE_ATTENDANCE_RECORDS = gql`
-  mutation ApproveAttendanceRecords($ids: [ID!]!) {
-    approveAttendanceRecords(ids: $ids) {
-      approved
-      failed
-      errors
-    }
-  }
 `;
 
 export const CREATE_SCHEDULE = gql`

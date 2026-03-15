@@ -1,10 +1,18 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import type { NutrientProfile } from '../types/modes.types';
+import {
+  CONFIGURATIONS_QUERY,
+  CREATE_CONFIGURATION_MUTATION,
+  UPDATE_CONFIGURATION_MUTATION,
+} from '../graphql/hydroponics.operations';
+import type { HydroponicsConfig } from './useHydroponicsConfig';
 // PERF-HYD-007: Do NOT statically import getDefaultProfilesWithIds here.
 // The dynamic import below in importDefaults() ensures the full DEFAULT_NUTRIENT_PROFILES
 // dataset is tree-shaken from the initial bundle and only loaded on demand.
 
 const STORAGE_KEY = 'nutrient_profiles';
+const CONFIG_NAME = 'nutrient-profiles';
 
 // SEC-HYD-001: Runtime schema guard — reject any profile that does not conform to
 // the expected shape with numeric fields within agronomically plausible bounds.
@@ -36,7 +44,7 @@ function isValidProfile(p: unknown): p is NutrientProfile {
   );
 }
 
-function loadProfiles(): NutrientProfile[] {
+function loadProfilesFromStorage(): NutrientProfile[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
@@ -49,16 +57,90 @@ function loadProfiles(): NutrientProfile[] {
   }
 }
 
-function persistProfiles(profiles: NutrientProfile[]): void {
+function persistProfilesToStorage(profiles: NutrientProfile[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
 }
 
-export function useNutrientProfiles() {
-  const [profiles, setProfiles] = useState<NutrientProfile[]>(loadProfiles);
+/**
+ * Extract profiles array from a backend config's JSONB settings.
+ * The config stores profiles under settings.profiles.
+ */
+function extractProfilesFromConfig(config: HydroponicsConfig): NutrientProfile[] {
+  const settings = config.settings as Record<string, unknown>;
+  const profiles = settings?.profiles;
+  if (!Array.isArray(profiles)) return [];
+  return profiles.filter(isValidProfile);
+}
 
+export function useNutrientProfiles() {
+  const [profiles, setProfiles] = useState<NutrientProfile[]>(loadProfilesFromStorage);
+  const { token, tenantId, isAuthenticated } = useAuth();
+  // Track the backend config ID so updates go to the same row
+  const configIdRef = useRef<string | null>(null);
+  const initialLoadDone = useRef(false);
+
+  // On mount, attempt to load from backend; fall back to localStorage
   useEffect(() => {
-    persistProfiles(profiles);
+    if (initialLoadDone.current) return;
+    if (!isAuthenticated || !token || !tenantId) return;
+
+    initialLoadDone.current = true;
+
+    graphqlClient
+      .request<{ configurations: HydroponicsConfig[] }>(CONFIGURATIONS_QUERY, {
+        type: CONFIG_NAME,
+      })
+      .then((data) => {
+        const configs = data.configurations;
+        if (configs.length > 0) {
+          const remote = configs[0];
+          configIdRef.current = remote.id;
+          const remoteProfiles = extractProfilesFromConfig(remote);
+          if (remoteProfiles.length > 0) {
+            setProfiles(remoteProfiles);
+            persistProfilesToStorage(remoteProfiles);
+          }
+        }
+      })
+      .catch(() => {
+        // Offline or backend unavailable — localStorage data is already loaded
+      });
+  }, [isAuthenticated, token, tenantId]);
+
+  // Keep localStorage in sync as offline fallback
+  useEffect(() => {
+    persistProfilesToStorage(profiles);
   }, [profiles]);
+
+  /**
+   * Persist the current profiles array to the backend.
+   * Creates a config row on first call, updates on subsequent calls.
+   */
+  const syncToBackend = useCallback(
+    async (nextProfiles: NutrientProfile[]) => {
+      if (!isAuthenticated || !token || !tenantId) return;
+
+      const settings = { profiles: nextProfiles };
+
+      try {
+        if (configIdRef.current) {
+          await graphqlClient.request<{ updateConfiguration: HydroponicsConfig }>(
+            UPDATE_CONFIGURATION_MUTATION,
+            { input: { id: configIdRef.current, settings } }
+          );
+        } else {
+          const data = await graphqlClient.request<{ createConfiguration: HydroponicsConfig }>(
+            CREATE_CONFIGURATION_MUTATION,
+            { input: { configName: CONFIG_NAME, settings } }
+          );
+          configIdRef.current = data.createConfiguration.id;
+        }
+      } catch {
+        // Backend sync failed — data is safe in localStorage
+      }
+    },
+    [isAuthenticated, token, tenantId]
+  );
 
   const getProfile = useCallback(
     (species: string, stage: string, season: string): NutrientProfile | null => {
@@ -71,31 +153,45 @@ export function useNutrientProfiles() {
     [profiles]
   );
 
-  const saveProfile = useCallback((profile: NutrientProfile) => {
-    setProfiles((prev) => {
-      // BUG-HYD-003: Match by id first (authoritative key), then fall back to
-      // business key for imported profiles that may not yet have an id match.
-      let idx = prev.findIndex((p) => p.id === profile.id);
-      if (idx < 0) {
-        idx = prev.findIndex(
-          (p) =>
-            p.species === profile.species &&
-            p.cultivationStage === profile.cultivationStage &&
-            p.season === profile.season
-        );
-      }
-      if (idx >= 0) {
-        const updated = [...prev];
-        updated[idx] = profile;
-        return updated;
-      }
-      return [...prev, profile];
-    });
-  }, []);
+  const saveProfile = useCallback(
+    (profile: NutrientProfile) => {
+      setProfiles((prev) => {
+        // BUG-HYD-003: Match by id first (authoritative key), then fall back to
+        // business key for imported profiles that may not yet have an id match.
+        let idx = prev.findIndex((p) => p.id === profile.id);
+        if (idx < 0) {
+          idx = prev.findIndex(
+            (p) =>
+              p.species === profile.species &&
+              p.cultivationStage === profile.cultivationStage &&
+              p.season === profile.season
+          );
+        }
+        let next: NutrientProfile[];
+        if (idx >= 0) {
+          next = [...prev];
+          next[idx] = profile;
+        } else {
+          next = [...prev, profile];
+        }
+        // Fire-and-forget backend sync
+        syncToBackend(next);
+        return next;
+      });
+    },
+    [syncToBackend]
+  );
 
-  const deleteProfile = useCallback((id: string) => {
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
-  }, []);
+  const deleteProfile = useCallback(
+    (id: string) => {
+      setProfiles((prev) => {
+        const next = prev.filter((p) => p.id !== id);
+        syncToBackend(next);
+        return next;
+      });
+    },
+    [syncToBackend]
+  );
 
   const importDefaults = useCallback(async () => {
     // PERF-HYD-007: Dynamically import the defaults dataset only when the user
@@ -122,9 +218,11 @@ export function useNutrientProfiles() {
           merged.push(d);
         }
       }
+      // Fire-and-forget backend sync
+      syncToBackend(merged);
       return merged;
     });
-  }, []);
+  }, [syncToBackend]);
 
   return { profiles, getProfile, saveProfile, deleteProfile, importDefaults };
 }

@@ -102,7 +102,7 @@ async function exportTableData(
 ): Promise<void> {
   // Export uses a download URL -- must use direct fetch for blob response
   const url = databaseApi.exportExplorerTable(schema, table, format, orderBy, orderDirection);
-  const { getAccessToken } = await import('@platform/shared-ui/utils/api-client');
+  const { getAccessToken } = await import('@aquaculture/shared-ui');
   const token = getAccessToken();
   const response = await fetch(url, {
     credentials: 'include',
@@ -696,7 +696,7 @@ const DatabaseExplorerPage: React.FC = () => {
                                 </svg>
                               )}
                               {isSensitive && (
-                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" title="Hassas veri - Maskeli">
+                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" aria-label="Hassas veri - Maskeli">
                                   <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                                 </svg>
                               )}

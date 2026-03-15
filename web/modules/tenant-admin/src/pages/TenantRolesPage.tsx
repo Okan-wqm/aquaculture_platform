@@ -209,8 +209,8 @@ const RoleModal = memo<RoleModalProps>(({
 
   // Memoize validation state
   const isSubmitDisabled = useMemo(() => {
-    return isLoading || role?.isSystemRole || !formData.name.trim();
-  }, [isLoading, role?.isSystemRole, formData.name]);
+    return isLoading || role?.isSystem || !formData.name.trim();
+  }, [isLoading, role?.isSystem, formData.name]);
 
   if (!isOpen) return null;
 
@@ -272,7 +272,7 @@ const RoleModal = memo<RoleModalProps>(({
                   onChange={handleNameChange}
                   placeholder="e.g., Supervisor, Technician"
                   required
-                  disabled={role?.isSystemRole}
+                  disabled={role?.isSystem}
                   className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
                 />
               </div>
@@ -350,8 +350,8 @@ const RoleModal = memo<RoleModalProps>(({
                   categories={categories}
                   value={formData.panelPermissions}
                   onChange={handlePermissionsChange}
-                  disabled={role?.isSystemRole}
-                  readOnly={role?.isSystemRole}
+                  disabled={role?.isSystem}
+                  readOnly={role?.isSystem}
                 />
               ) : (
                 <div className="p-8 text-center bg-gray-50 rounded-xl">
@@ -366,7 +366,7 @@ const RoleModal = memo<RoleModalProps>(({
 
           {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
-            {role?.isSystemRole && (
+            {role?.isSystem && (
               <p className="text-xs text-amber-600">
                 System roles cannot be modified
               </p>

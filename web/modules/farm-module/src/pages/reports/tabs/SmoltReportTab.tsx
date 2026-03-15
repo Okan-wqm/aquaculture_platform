@@ -5,6 +5,11 @@
  * Aligned with Norwegian Mattilsynet "settefisk" requirements
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import {
+  useRegulatorySettings,
+  useSubmitSmoltReport,
+} from '../../../hooks/useRegulatory';
+import type { SubmitSmoltReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
 import { mockSmoltReports } from '../mock/smoltData';
 import {
   SmoltReport,
@@ -952,6 +957,11 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
   const { data: tanksData } = useTanksList({ isActive: true });
   const tanks = tanksData?.items || [];
 
+  // Regulatory settings & submit mutation
+  const { data: regulatorySettings } = useRegulatorySettings();
+  const submitSmoltMutation = useSubmitSmoltReport();
+  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
+
   // Filter reports
   const reports = useMemo(() => {
     let filtered = siteId
@@ -1014,17 +1024,52 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
 
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
+    setError(null);
+    setSubmissionResult(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      console.log('Submitting smolt report:', formData);
-      setIsWizardOpen(false);
-      setFormData(getInitialFormData());
+      const siteMapping = regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId);
+
+      const input: SubmitSmoltReportInput = {
+        klientReferanse: crypto.randomUUID(),
+        organisasjonsnummer: regulatorySettings?.organisationNumber || '',
+        lokalitetsnummer: siteMapping?.lokalitetsnummer || 0,
+        kontaktperson: {
+          navn: regulatorySettings?.defaultContactName || '',
+          epost: regulatorySettings?.defaultContactEmail || '',
+          telefonnummer: regulatorySettings?.defaultContactPhone || '',
+        },
+        rapporteringsmaaned: formData.month,
+        rapporteringsaar: formData.year,
+        produksjonsenheter: formData.fishCounts.byUnit.map(unit => {
+          const mortalityUnit = formData.mortalityRates.byUnit.find(m => m.unitId === unit.unitId);
+          return {
+            karId: unit.unitName || unit.unitId,
+            artskode: (unit as SmoltUnitCountExtended).speciesCode || 'SAL',
+            snittvektGram: formData.averageWeights.overall || 0,
+            beholdningVedMaanedsslutt: unit.quantity,
+            antallAvlivet: (mortalityUnit as SmoltMortalityUnitExtended)?.euthanized || 0,
+            antallSelvdod: (mortalityUnit as SmoltMortalityUnitExtended)?.naturalDeaths || 0,
+            antallFlyttetEksternt: (mortalityUnit as SmoltMortalityUnitExtended)?.externalTransfers || 0,
+          };
+        }),
+      };
+
+      const result = await submitSmoltMutation.mutateAsync(input);
+      setSubmissionResult(result);
+
+      if (result.success) {
+        setIsWizardOpen(false);
+        setFormData(getInitialFormData());
+      } else {
+        setError(result.feilmelding || 'Submission failed');
+      }
     } catch (err) {
+      console.error('Smolt report submission error:', err);
       setError((err as Error).message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData]);
+  }, [formData, regulatorySettings, siteId, submitSmoltMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

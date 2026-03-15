@@ -107,7 +107,7 @@ export function EmployeesListPage() {
         const config = PERSONNEL_CATEGORY_CONFIG[row.personnelCategory];
         return (
           <div className="flex items-center gap-1">
-            {row.personnelCategory === 'offshore' ? (
+            {row.personnelCategory === ('OFFSHORE' as PersonnelCategory) ? (
               <Ship className="h-4 w-4 text-blue-500" />
             ) : (
               <Building2 className="h-4 w-4 text-green-500" />

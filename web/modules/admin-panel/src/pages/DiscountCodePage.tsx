@@ -57,7 +57,7 @@ const DiscountCodePage: React.FC = () => {
         }),
         billingApi.getDiscountStats(),
       ]);
-      setDiscountCodes(Array.isArray(codesResult) ? codesResult : codesResult?.data || []);
+      setDiscountCodes(Array.isArray(codesResult) ? codesResult : []);
       setStats(statsResult);
     } catch (err) {
       setError((err as Error).message);

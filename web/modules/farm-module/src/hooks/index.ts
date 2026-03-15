@@ -1,5 +1,9 @@
 /**
  * Farm Module Hooks
+ *
+ * NOTE: Some modules export identically-named symbols.  We use explicit
+ * re-exports (omitting the duplicate names) for the *later* module in each
+ * conflict pair so that the first exporter "wins".  This avoids TS2308.
  */
 export * from './useSites';
 export * from './useDepartments';
@@ -19,3 +23,140 @@ export * from './useHealthEvents';
 export * from './useTasks';
 export * from './useRecurringTemplates';
 export * from './useAutoRules';
+export * from './useGrowth';
+export * from './useHarvestPlans';
+export * from './useFeedingRecords';
+
+// useFeedingProtocols: TemperatureRange already exported by useSpecies
+export {
+  type FeedStage,
+  FEED_STAGE_OPTIONS,
+  type FeedingScheduleEntry,
+  type FeedingScheduleAdjustments,
+  type FeedingSchedule,
+  type GrowthStageProtocol,
+  type OptimalTemperature,
+  type SpecialConditions,
+  type FeedingProtocol,
+  type CreateFeedingProtocolInput,
+  type UpdateFeedingProtocolInput,
+  type FeedingProtocolFilter,
+  useFeedingProtocols,
+  useFeedingProtocol,
+  useFeedingProtocolsBySpecies,
+  useDefaultFeedingProtocol,
+  useCreateFeedingProtocol,
+  useUpdateFeedingProtocol,
+  useDeleteFeedingProtocol,
+  useSetDefaultFeedingProtocol,
+  feedStageLabels,
+  feedStageColors,
+} from './useFeedingProtocols';
+
+// useFeeding: GrowthProjection already exported by useGrowth
+export {
+  type GrowthSimulationSummary,
+  type FeedRequirement,
+  type GrowthSimulationResult,
+  type GrowthSimulationInput,
+  type ActiveTank,
+  type FeedConsumptionBatchInfo,
+  type FeedConsumptionByType,
+  type FeedForecastAlert,
+  type FeedForecastResult,
+  type FeedForecastInput,
+  useGrowthSimulation,
+  useFeedConsumptionForecast,
+  useProjectHarvestDate,
+  useEstimateSGR,
+  useActiveTanks,
+  calculateSGR,
+  projectWeight,
+  daysToTargetWeight,
+  formatDate,
+  getAlertColor,
+} from './useFeeding';
+
+export * from './useDailyFeedingExecution';
+export * from './useFeederCalibration';
+
+// useTanks: CleanerFishDetail (useCleanerFish), EquipmentType (useEquipment),
+//           PaginationInput (useFeedingRecords) already exported
+export {
+  type TankBatchMetrics,
+  type Tank,
+  type TankFilterInput,
+  useTanksList,
+  tankStatusColors,
+  tankTypeLabels,
+  tankMaterialLabels,
+  waterTypeLabels,
+} from './useTanks';
+
+export * from './useTankFeeders';
+export * from './useConsumables';
+export * from './usePurchaseOrders';
+export * from './useRegulatory';
+export * from './useSentinelTiles';
+
+// useStorageInventory: useRecordStockMovement already exported by useMaintenance
+export {
+  StorageItemType,
+  MovementType,
+  type StorageInventoryItem,
+  type ConditionWarning,
+  type StockMovement,
+  type CategoryTotal,
+  type LocationFillRate,
+  type LowStockAlert,
+  type StorageOverview,
+  type RecordStockMovementInput,
+  type TransferStockInput,
+  useStorageInventory,
+  useStorageOverview,
+  useStockMovements,
+  useTransferStock,
+} from './useStorageInventory';
+
+// useStorageLocations: StorageLocation already exported by useMaintenance
+export {
+  StorageLocationType,
+  type CreateStorageLocationInput,
+  type UpdateStorageLocationInput,
+  useStorageLocationList,
+  useStorageLocation,
+  useCreateStorageLocation,
+  useUpdateStorageLocation,
+  useDeleteStorageLocation,
+} from './useStorageLocations';
+
+export * from './useTenantUsers';
+
+// useWaterQuality: getStatusColor, getStatusLabel already exported by useDailyFeedingExecution
+export {
+  type WaterQualityStatus,
+  type MeasurementSource,
+  type WaterParameters,
+  type ParameterEvaluation,
+  type WaterQualitySummary,
+  type WaterQualityMeasurement,
+  type WaterQualityStatistics,
+  type WaterQualityFilters,
+  type CreateWaterQualityInput,
+  type UpdateWaterQualityInput,
+  useWaterQualityList,
+  useWaterQuality,
+  useLatestWaterQuality,
+  useCriticalWaterQuality,
+  useWaterQualityChart,
+  useWaterQualityStatistics,
+  useCreateWaterQuality,
+  useUpdateWaterQuality,
+  useDeleteWaterQuality,
+  getSourceLabel,
+  formatParameterValue,
+} from './useWaterQuality';
+
+export * from './useWeather';
+export * from './useWorkers';
+export * from './useAOIDrawing';

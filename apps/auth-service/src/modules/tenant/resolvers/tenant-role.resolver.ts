@@ -3,6 +3,8 @@ import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { CurrentUser, TenantAdminOrHigher, Roles, Role } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
+import { User } from '../../authentication/entities/user.entity';
+
 /**
  * UUID v4 regex for parameter validation
  * Prevents injection attacks through malformed IDs
@@ -60,6 +62,7 @@ import {
   BulkAssignResult,
   CreateTenantUserInput,
   CreatedTenantUserResult,
+  UpdateTenantUserInput,
   RevokeUserRoleInput,
 } from '../dto/tenant-role.dto';
 import { TenantRoleService, PERMISSION_CATEGORIES } from '../services/tenant-role.service';
@@ -312,6 +315,64 @@ export class TenantRoleResolver {
       invitationSent: result.invitationSent,
       createdAt: result.user.createdAt,
     };
+  }
+
+  /**
+   * Update a tenant user's profile (firstName, lastName) and/or role assignment
+   * SECURITY: Only TENANT_ADMIN can update users
+   */
+  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @Mutation(() => User)
+  async updateTenantUser(
+    @Args('userId', { type: () => ID }) targetUserId: string,
+    @Args('input') input: UpdateTenantUserInput,
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('sub') userId: string,
+  ): Promise<User> {
+    // Validate UUID formats
+    const validTenantId = validateUUID(tenantId, 'tenantId');
+    const validUserId = validateUUID(userId, 'userId');
+    const validTargetUserId = validateUUID(targetUserId, 'userId');
+    const validRoleId = input.roleId ? validateUUID(input.roleId, 'roleId') : undefined;
+
+    // Sanitize string inputs to prevent XSS
+    const sanitizedFirstName = sanitizeString(input.firstName);
+    const sanitizedLastName = sanitizeString(input.lastName);
+
+    return this.tenantUserManagementService.updateTenantUser(
+      validTenantId,
+      validTargetUserId,
+      {
+        firstName: sanitizedFirstName,
+        lastName: sanitizedLastName,
+        roleId: validRoleId,
+      },
+      validUserId,
+    );
+  }
+
+  /**
+   * Delete (soft-delete) a tenant user
+   * Deactivates the user, revokes role assignments and refresh tokens.
+   * SECURITY: Only TENANT_ADMIN can delete users
+   */
+  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
+  @Mutation(() => Boolean)
+  async deleteTenantUser(
+    @Args('userId', { type: () => ID }) targetUserId: string,
+    @CurrentUser('tenantId') tenantId: string,
+    @CurrentUser('sub') userId: string,
+  ): Promise<boolean> {
+    // Validate UUID formats
+    const validTenantId = validateUUID(tenantId, 'tenantId');
+    const validUserId = validateUUID(userId, 'userId');
+    const validTargetUserId = validateUUID(targetUserId, 'userId');
+
+    return this.tenantUserManagementService.deleteTenantUser(
+      validTenantId,
+      validTargetUserId,
+      validUserId,
+    );
   }
 
   /**

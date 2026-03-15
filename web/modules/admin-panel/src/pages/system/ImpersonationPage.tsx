@@ -253,12 +253,12 @@ export const ImpersonationPage: React.FC = () => {
   const handleGrantPermission = async () => {
     setPageError(null);
     try {
+      // Fix: backend DTO uses superAdminId (from currentAdminId) and allowedTenants
       await impersonationApi.grantPermission({
-        tenantId: permissionForm.tenantId,
-        grantedBy: currentAdminId,
-        maxSessionDuration: permissionForm.maxSessionDuration,
-        allowedActions: permissionForm.allowedActions,
-        reason: permissionForm.reason,
+        superAdminId: currentAdminId,
+        allowedTenants: [permissionForm.tenantId],
+        maxSessionDurationMinutes: permissionForm.maxSessionDuration,
+        notes: permissionForm.reason,
         expiresAt: permissionForm.expiresAt || undefined,
       });
       setShowPermissionModal(false);
@@ -368,7 +368,7 @@ export const ImpersonationPage: React.FC = () => {
 
       {/* Page-level error display */}
       {pageError && (
-        <Alert type="error" onClose={() => setPageError(null)}>
+        <Alert type="error" dismissible onDismiss={() => setPageError(null)}>
           {pageError}
         </Alert>
       )}

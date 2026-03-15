@@ -17,9 +17,8 @@ import {
   GET_SCHEDULES,
   CLOCK_IN,
   CLOCK_OUT,
-  CREATE_ATTENDANCE_RECORD,
-  UPDATE_ATTENDANCE_RECORD,
-  APPROVE_ATTENDANCE_RECORDS,
+  CREATE_MANUAL_ATTENDANCE,
+  APPROVE_ATTENDANCE,
   CREATE_SHIFT,
   UPDATE_SHIFT,
 } from '../graphql';
@@ -31,8 +30,6 @@ import type {
   AttendanceFilterInput,
   ClockInInput,
   ClockOutInput,
-  CreateAttendanceRecordInput,
-  UpdateAttendanceRecordInput,
   CreateShiftInput,
   PaginationInput,
   PaginatedResponse,
@@ -302,15 +299,26 @@ export function useClockOut() {
 // Attendance Record Mutations
 // =====================
 
-export function useCreateAttendanceRecord() {
+/**
+ * Create a manual attendance record.
+ * Maps to backend: createManualAttendance(input: ManualAttendanceInput!)
+ */
+export function useCreateManualAttendance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateAttendanceRecordInput) =>
-      graphqlRequest<{ createAttendanceRecord: AttendanceRecord }, unknown>(
+    mutationFn: (input: {
+      employeeId: string;
+      date: string;
+      clockIn?: string;
+      clockOut?: string;
+      reason: string;
+      shiftId?: string;
+    }) =>
+      graphqlRequest<{ createManualAttendance: AttendanceRecord }, unknown>(
         client,
-        CREATE_ATTENDANCE_RECORD,
+        CREATE_MANUAL_ATTENDANCE,
         { input }
       ),
     onSuccess: () => {
@@ -319,36 +327,23 @@ export function useCreateAttendanceRecord() {
   });
 }
 
-export function useUpdateAttendanceRecord() {
+// NOTE: useUpdateAttendanceRecord removed — updateAttendanceRecord does not exist in backend.
+
+/**
+ * Approve a single attendance record.
+ * Maps to backend: approveAttendance(id: ID!, notes: String)
+ */
+export function useApproveAttendance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: UpdateAttendanceRecordInput) =>
-      graphqlRequest<{ updateAttendanceRecord: AttendanceRecord }, unknown>(
+    mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
+      graphqlRequest<{ approveAttendance: AttendanceRecord }, unknown>(
         client,
-        UPDATE_ATTENDANCE_RECORD,
-        { input }
+        APPROVE_ATTENDANCE,
+        { id, notes }
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.records() });
-      queryClient.setQueryData(
-        attendanceKeys.recordDetail(data.updateAttendanceRecord.id),
-        data.updateAttendanceRecord
-      );
-    },
-  });
-}
-
-export function useApproveAttendanceRecords() {
-  const client = useGraphQLClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      graphqlRequest<{
-        approveAttendanceRecords: { approved: number; failed: number; errors: string[] };
-      }, unknown>(client, APPROVE_ATTENDANCE_RECORDS, { ids }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: attendanceKeys.records() });
     },

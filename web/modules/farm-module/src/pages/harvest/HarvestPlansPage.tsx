@@ -11,6 +11,23 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import {
+  useHarvestPlanList,
+  useHarvestPlanStats,
+  useCreateHarvestPlan,
+  useUpdateHarvestPlan,
+  useDeleteHarvestPlan,
+  useApproveHarvestPlan,
+  useScheduleHarvestPlan,
+  useStartHarvestPlan,
+  useCompleteHarvestPlan,
+  useCancelHarvestPlan,
+  usePostponeHarvestPlan,
+  type CreateHarvestPlanInput,
+  type UpdateHarvestPlanInput,
+  type HarvestPlanFilterInput,
+} from '../../hooks/useHarvestPlans';
+import { useBatchList } from '../../hooks/useBatches';
+import {
   Calendar,
   Check,
   ChevronDown,
@@ -210,16 +227,16 @@ interface FilterState {
 type ViewMode = 'table' | 'kanban' | 'cards';
 
 // ============================================================================
-// MOCK DATA
+// MOCK DATA (kept for fallback reference, no longer used by component)
 // ============================================================================
 
-const mockBatches = [
+const _mockBatches = [
   { id: 'batch-1', batchNumber: 'B-2024-001', name: 'Sea Bass Batch A' },
   { id: 'batch-2', batchNumber: 'B-2024-002', name: 'Sea Bream Batch B' },
   { id: 'batch-3', batchNumber: 'B-2024-003', name: 'Trout Batch C' },
 ];
 
-const mockHarvestPlans: HarvestPlan[] = [
+const _mockHarvestPlans: HarvestPlan[] = [
   {
     id: 'hp-1',
     tenantId: 'tenant-1',
@@ -444,7 +461,7 @@ const mockHarvestPlans: HarvestPlan[] = [
   },
 ];
 
-const mockStats: HarvestPlanStats = {
+const _mockStats: HarvestPlanStats = {
   total: 6,
   draft: 1,
   planned: 1,
@@ -961,7 +978,7 @@ const FilterPanel: React.FC<{
   filters: FilterState;
   onFilterChange: (filters: FilterState) => void;
   onReset: () => void;
-  batches: typeof mockBatches;
+  batches: { id: string; batchNumber: string; name: string }[];
 }> = ({ filters, onFilterChange, onReset, batches }) => {
   return (
     <div className="bg-white rounded-lg shadow p-4 space-y-4">
@@ -1104,7 +1121,7 @@ const HarvestPlanFormModal: React.FC<{
   onClose: () => void;
   onSave: (plan: Partial<HarvestPlan>) => void;
   plan?: HarvestPlan | null;
-  batches: typeof mockBatches;
+  batches: { id: string; batchNumber: string; name: string }[];
 }> = ({ isOpen, onClose, onSave, plan, batches }) => {
   const [formData, setFormData] = useState<Partial<HarvestPlan>>(
     plan || {
@@ -2382,45 +2399,51 @@ export const HarvestPlansPage: React.FC = () => {
   const [schedulingPlan, setSchedulingPlan] = useState<HarvestPlan | null>(null);
   const [postponingPlan, setPostponingPlan] = useState<HarvestPlan | null>(null);
 
-  // Data (mock for now - replace with API calls)
-  const plans = mockHarvestPlans;
-  const stats = mockStats;
-  const batches = mockBatches;
+  // Build API filter from local filter state
+  const apiFilter = useMemo((): HarvestPlanFilterInput => {
+    const f: HarvestPlanFilterInput = {};
+    if (filters.searchText) f.searchText = filters.searchText;
+    if (filters.status) f.status = filters.status as any;
+    if (filters.harvestType) f.harvestType = filters.harvestType as any;
+    if (filters.batchId) f.batchId = filters.batchId;
+    if (filters.plannedDateFrom) f.plannedDateFrom = filters.plannedDateFrom;
+    if (filters.plannedDateTo) f.plannedDateTo = filters.plannedDateTo;
+    if (filters.activeOnly) f.activeOnly = true;
+    if (filters.overdueOnly) f.overdueOnly = true;
+    return f;
+  }, [filters]);
 
-  // Filter plans
-  const filteredPlans = useMemo(() => {
-    return plans.filter((plan) => {
-      if (filters.searchText) {
-        const search = filters.searchText.toLowerCase();
-        if (
-          !plan.planCode.toLowerCase().includes(search) &&
-          !plan.name.toLowerCase().includes(search) &&
-          !(plan.notes?.toLowerCase().includes(search))
-        ) {
-          return false;
-        }
-      }
+  // Data from API
+  const { data: plansData, isLoading: plansLoading } = useHarvestPlanList(apiFilter);
+  const { data: statsData } = useHarvestPlanStats();
+  const { data: batchesData } = useBatchList(undefined, { limit: 100 });
 
-      if (filters.status && plan.status !== filters.status) return false;
-      if (filters.harvestType && plan.harvestType !== filters.harvestType) return false;
-      if (filters.batchId && plan.batchId !== filters.batchId) return false;
+  const plans = plansData?.items ?? [];
+  const stats: HarvestPlanStats = statsData ?? {
+    total: 0, draft: 0, planned: 0, approved: 0, scheduled: 0,
+    inProgress: 0, completed: 0, cancelled: 0, postponed: 0,
+    totalEstimatedBiomass: 0, totalActualBiomass: 0,
+    upcomingCount: 0, overdueCount: 0,
+  };
+  const batches = (batchesData?.items ?? []).map((b) => ({
+    id: b.id,
+    batchNumber: b.batchNumber,
+    name: b.name || b.batchNumber,
+  }));
 
-      if (filters.plannedDateFrom) {
-        if (new Date(plan.plannedDate) < new Date(filters.plannedDateFrom)) return false;
-      }
-      if (filters.plannedDateTo) {
-        if (new Date(plan.plannedDate) > new Date(filters.plannedDateTo)) return false;
-      }
+  // Mutations
+  const createMutation = useCreateHarvestPlan();
+  const updateMutation = useUpdateHarvestPlan();
+  const deleteMutation = useDeleteHarvestPlan();
+  const approveMutation = useApproveHarvestPlan();
+  const scheduleMutation = useScheduleHarvestPlan();
+  const startMutation = useStartHarvestPlan();
+  const completeMutation = useCompleteHarvestPlan();
+  const cancelMutation = useCancelHarvestPlan();
+  const postponeMutation = usePostponeHarvestPlan();
 
-      if (filters.activeOnly) {
-        if (['completed', 'cancelled'].includes(plan.status)) return false;
-      }
-
-      if (filters.overdueOnly && !plan.isOverdue) return false;
-
-      return true;
-    });
-  }, [plans, filters]);
+  // Plans are already filtered server-side via apiFilter
+  const filteredPlans = plans;
 
   // Reset filters
   const resetFilters = useCallback(() => {
@@ -2436,49 +2459,108 @@ export const HarvestPlansPage: React.FC = () => {
     });
   }, []);
 
+  // Helper: convert form data to CreateHarvestPlanInput
+  const toCreateInput = (planData: Partial<HarvestPlan>): CreateHarvestPlanInput => ({
+    name: planData.name || '',
+    description: planData.description,
+    batchId: planData.batchId || '',
+    harvestType: planData.harvestType as any,
+    plannedDate: planData.plannedDate || '',
+    windowStartDate: planData.windowStartDate || undefined,
+    windowEndDate: planData.windowEndDate || undefined,
+    criteria: {
+      targetWeightMin: planData.criteria?.targetWeight?.min ?? 0,
+      targetWeightMax: planData.criteria?.targetWeight?.max ?? 0,
+      targetWeightTarget: planData.criteria?.targetWeight?.target ?? 0,
+      targetQuantityValue: planData.criteria?.targetQuantity?.value,
+      targetQuantityUnit: planData.criteria?.targetQuantity?.unit,
+      qualityGrade: planData.criteria?.qualityGrade,
+      minimumConditionFactor: planData.criteria?.minimumConditionFactor,
+    },
+    harvestMethod: planData.harvestMethod as any,
+    productForm: planData.productForm as any,
+    estimates: {
+      estimatedQuantity: planData.estimates?.estimatedQuantity ?? 0,
+      estimatedBiomass: planData.estimates?.estimatedBiomass ?? 0,
+      estimatedAvgWeight: planData.estimates?.estimatedAvgWeight ?? 0,
+      estimatedYield: planData.estimates?.estimatedYield ?? 85,
+      confidenceLevel: planData.estimates?.confidenceLevel ?? 'medium',
+    },
+    financialProjection: planData.financialProjection ? {
+      estimatedRevenue: planData.financialProjection.estimatedRevenue,
+      estimatedPrice: planData.financialProjection.estimatedPrice,
+      priceUnit: planData.financialProjection.priceUnit,
+      estimatedCost: planData.financialProjection.estimatedCost,
+      estimatedProfit: planData.financialProjection.estimatedProfit,
+      margin: planData.financialProjection.margin,
+      currency: planData.financialProjection.currency,
+    } : undefined,
+    logistics: planData.logistics ? { ...planData.logistics } : undefined,
+    customerOrder: planData.customerOrder ? { ...planData.customerOrder } : undefined,
+    qualityRequirements: planData.qualityRequirements ? { ...planData.qualityRequirements } : undefined,
+    notes: planData.notes,
+    attachments: planData.attachments,
+  });
+
   // Handlers
   const handleCreatePlan = (planData: Partial<HarvestPlan>) => {
-    console.log('Creating plan:', planData);
-    // TODO: Call GraphQL mutation createHarvestPlan
-    setShowCreateModal(false);
+    const input = toCreateInput(planData);
+    createMutation.mutate(input, {
+      onSuccess: () => setShowCreateModal(false),
+      onError: (err) => console.error('Failed to create harvest plan:', err),
+    });
   };
 
   const handleUpdatePlan = (planData: Partial<HarvestPlan>) => {
-    console.log('Updating plan:', planData);
-    // TODO: Call GraphQL mutation updateHarvestPlan
-    setEditingPlan(null);
+    if (!editingPlan) return;
+    const createInput = toCreateInput(planData);
+    const input: UpdateHarvestPlanInput = {
+      id: editingPlan.id,
+      ...createInput,
+    };
+    updateMutation.mutate(input, {
+      onSuccess: () => setEditingPlan(null),
+      onError: (err) => console.error('Failed to update harvest plan:', err),
+    });
   };
 
   const handleDeletePlan = () => {
     if (!deletingPlan) return;
-    console.log('Deleting plan:', deletingPlan.id);
-    // TODO: Call GraphQL mutation deleteHarvestPlan
-    setDeletingPlan(null);
+    deleteMutation.mutate(deletingPlan.id, {
+      onSuccess: () => setDeletingPlan(null),
+      onError: (err) => console.error('Failed to delete harvest plan:', err),
+    });
   };
 
   const handleWorkflowAction = (plan: HarvestPlan, action: string) => {
     switch (action) {
       case 'submit':
-        console.log('Submitting plan for approval:', plan.id);
-        // TODO: Call GraphQL mutation to update status to 'planned'
+        // Submit for approval = update status to 'planned'
+        updateMutation.mutate(
+          { id: plan.id, status: 'planned' as any },
+          { onError: (err) => console.error('Failed to submit plan:', err) }
+        );
         break;
       case 'approve':
-        console.log('Approving plan:', plan.id);
-        // TODO: Call GraphQL mutation approveHarvestPlan
+        approveMutation.mutate(plan.id, {
+          onError: (err) => console.error('Failed to approve plan:', err),
+        });
         break;
       case 'schedule':
         setSchedulingPlan(plan);
         break;
       case 'start':
-        console.log('Starting harvest:', plan.id);
-        // TODO: Call GraphQL mutation startHarvestPlan
+        startMutation.mutate(plan.id, {
+          onError: (err) => console.error('Failed to start harvest:', err),
+        });
         break;
       case 'complete':
         setCompletingPlan(plan);
         break;
       case 'cancel':
-        console.log('Cancelling plan:', plan.id);
-        // TODO: Call GraphQL mutation cancelHarvestPlan
+        cancelMutation.mutate(plan.id, {
+          onError: (err) => console.error('Failed to cancel plan:', err),
+        });
         break;
       case 'postpone':
         setPostponingPlan(plan);
@@ -2488,9 +2570,13 @@ export const HarvestPlansPage: React.FC = () => {
 
   const handleSchedule = (confirmedDate: string) => {
     if (!schedulingPlan) return;
-    console.log('Scheduling plan:', schedulingPlan.id, 'for', confirmedDate);
-    // TODO: Call GraphQL mutation scheduleHarvestPlan
-    setSchedulingPlan(null);
+    scheduleMutation.mutate(
+      { id: schedulingPlan.id, confirmedDate },
+      {
+        onSuccess: () => setSchedulingPlan(null),
+        onError: (err) => console.error('Failed to schedule plan:', err),
+      }
+    );
   };
 
   const handleComplete = (data: {
@@ -2499,16 +2585,29 @@ export const HarvestPlansPage: React.FC = () => {
     actualAvgWeight: number;
   }) => {
     if (!completingPlan) return;
-    console.log('Completing harvest:', completingPlan.id, data);
-    // TODO: Call GraphQL mutation completeHarvestPlan
-    setCompletingPlan(null);
+    completeMutation.mutate(
+      {
+        id: completingPlan.id,
+        actualQuantity: data.actualQuantity,
+        actualBiomass: data.actualBiomass,
+        actualAvgWeight: data.actualAvgWeight,
+      },
+      {
+        onSuccess: () => setCompletingPlan(null),
+        onError: (err) => console.error('Failed to complete harvest:', err),
+      }
+    );
   };
 
   const handlePostpone = (newDate: string) => {
     if (!postponingPlan) return;
-    console.log('Postponing plan:', postponingPlan.id, 'to', newDate);
-    // TODO: Call GraphQL mutation postponeHarvestPlan
-    setPostponingPlan(null);
+    postponeMutation.mutate(
+      { id: postponingPlan.id, newDate },
+      {
+        onSuccess: () => setPostponingPlan(null),
+        onError: (err) => console.error('Failed to postpone plan:', err),
+      }
+    );
   };
 
   // Group plans by status for Kanban view
@@ -2665,7 +2764,7 @@ export const HarvestPlansPage: React.FC = () => {
         {/* View Mode Toggle */}
         <div className="flex items-center justify-between">
           <p className="text-sm text-gray-500">
-            Showing {filteredPlans.length} of {plans.length} plans
+            {plansLoading ? 'Loading...' : `Showing ${filteredPlans.length} of ${plansData?.total ?? 0} plans`}
           </p>
           <div className="flex items-center gap-2">
             <button

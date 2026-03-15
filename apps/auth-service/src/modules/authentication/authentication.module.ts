@@ -12,6 +12,7 @@ import { WebAuthnCredential } from './entities/webauthn-credential.entity';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthResolver } from './resolvers/auth.resolver';
 import { MfaResolver } from './resolvers/mfa.resolver';
+import { NotificationPreferencesResolver } from './resolvers/notification-preferences.resolver';
 import { WebAuthnResolver } from './resolvers/webauthn.resolver';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
@@ -37,6 +38,7 @@ import { WebAuthnService } from './services/webauthn.service';
     AuthenticationService,
     AuthResolver,
     MfaResolver,
+    NotificationPreferencesResolver,
     WebAuthnResolver,
     JwtAuthGuard,
   ],

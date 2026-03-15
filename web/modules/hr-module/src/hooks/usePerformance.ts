@@ -90,9 +90,6 @@ export const kpiKeys = {
 // Performance Review Queries
 // =====================
 
-// NOTE: All performance queries are disabled — backend resolvers not yet implemented.
-// Re-enable when performance module is added to hr-service.
-
 export function usePerformanceReviews(
   filter?: PerformanceReviewFilterInput
 ) {
@@ -110,7 +107,6 @@ export function usePerformanceReviews(
         offset: 0,
       }),
     select: (data) => data.performanceReviews,
-    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -142,7 +138,6 @@ export function useMyPerformanceReviews(filter?: PerformanceReviewFilterInput) {
         { status: filter?.status }
       ),
     select: (data) => data.myPerformanceReviews,
-    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -158,7 +153,7 @@ export function usePendingReviews(reviewerId: string) {
         { reviewerId }
       ),
     select: (data) => data.pendingReviews,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: !!reviewerId,
   });
 }
 
@@ -174,7 +169,7 @@ export function useTeamPerformanceOverview(departmentId: string) {
         departmentId,
       }),
     select: (data) => data.teamPerformanceOverview,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: !!departmentId,
   });
 }
 
@@ -190,7 +185,7 @@ export function usePerformanceSummary(employeeId: string) {
         { employeeId }
       ),
     select: (data) => data.performanceSummary,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: !!employeeId,
   });
 }
 
@@ -215,7 +210,6 @@ export function useGoals(filter?: GoalFilterInput) {
         }
       ),
     select: (data) => data.goals,
-    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -232,7 +226,7 @@ export function useGoal(id: string) {
         };
       }, unknown>(client, GET_GOAL, { id }),
     select: (data) => data.goal,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: !!id,
   });
 }
 
@@ -248,7 +242,6 @@ export function useMyGoals(filter?: GoalFilterInput) {
         { status: filter?.status }
       ),
     select: (data) => data.myGoals,
-    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -264,7 +257,7 @@ export function useTeamGoals(managerId: string, filter?: GoalFilterInput) {
         { managerId, status: filter?.status }
       ),
     select: (data) => data.teamGoals,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: !!managerId,
   });
 }
 
@@ -278,7 +271,6 @@ export function useOverdueGoals(departmentId?: string) {
         overdueGoals: (Goal & { daysOverdue: number })[];
       }, unknown>(client, GET_OVERDUE_GOALS, { departmentId }),
     select: (data) => data.overdueGoals,
-    enabled: false, // Backend resolver not yet implemented
   });
 }
 
@@ -302,7 +294,7 @@ export function useEmployeeKPIs(
         { employeeId, periodStart, periodEnd }
       ),
     select: (data) => data.employeeKPIs,
-    enabled: false, // Backend resolver not yet implemented
+    enabled: !!employeeId,
   });
 }
 
@@ -322,7 +314,7 @@ export function useCreatePerformanceReview() {
         { input }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: reviewKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: reviewKeys.all });
     },
   });
 }
@@ -338,13 +330,8 @@ export function useSubmitSelfAssessment() {
         SUBMIT_SELF_ASSESSMENT,
         { input }
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: reviewKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: reviewKeys.my() });
-      queryClient.setQueryData(
-        reviewKeys.detail(data.submitSelfAssessment.id),
-        data.submitSelfAssessment
-      );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: reviewKeys.all });
     },
   });
 }
@@ -360,13 +347,8 @@ export function useSubmitManagerAssessment() {
         SUBMIT_MANAGER_ASSESSMENT,
         { input }
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: reviewKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: [...reviewKeys.all, 'pending'] });
-      queryClient.setQueryData(
-        reviewKeys.detail(data.submitManagerAssessment.id),
-        data.submitManagerAssessment
-      );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: reviewKeys.all });
     },
   });
 }
@@ -382,12 +364,8 @@ export function useFinalizeReview() {
         FINALIZE_REVIEW,
         { input }
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: reviewKeys.lists() });
-      queryClient.setQueryData(
-        reviewKeys.detail(data.finalizeReview.id),
-        data.finalizeReview
-      );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: reviewKeys.all });
     },
   });
 }
@@ -397,19 +375,14 @@ export function useAcknowledgeReview() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ reviewId, comments }: { reviewId: string; comments?: string }) =>
+    mutationFn: (input: { reviewId: string; comments?: string }) =>
       graphqlRequest<{ acknowledgeReview: PerformanceReview }, unknown>(
         client,
         ACKNOWLEDGE_REVIEW,
-        { reviewId, comments }
+        input
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: reviewKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: reviewKeys.my() });
-      queryClient.setQueryData(
-        reviewKeys.detail(data.acknowledgeReview.id),
-        data.acknowledgeReview
-      );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: reviewKeys.all });
     },
   });
 }
@@ -430,8 +403,7 @@ export function useCreateGoal() {
         { input }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: goalKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: goalKeys.my() });
+      queryClient.invalidateQueries({ queryKey: goalKeys.all });
     },
   });
 }
@@ -447,9 +419,8 @@ export function useUpdateGoal() {
         UPDATE_GOAL,
         { input }
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: goalKeys.lists() });
-      queryClient.setQueryData(goalKeys.detail(data.updateGoal.id), data.updateGoal);
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: goalKeys.all });
     },
   });
 }
@@ -465,13 +436,8 @@ export function useUpdateGoalProgress() {
         UPDATE_GOAL_PROGRESS,
         { input }
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: goalKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: goalKeys.my() });
-      queryClient.setQueryData(
-        goalKeys.detail(data.updateGoalProgress.id),
-        data.updateGoalProgress
-      );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: goalKeys.all });
     },
   });
 }
@@ -481,16 +447,14 @@ export function useCompleteGoal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ goalId, completionNotes }: { goalId: string; completionNotes?: string }) =>
+    mutationFn: (input: { goalId: string; completionNotes?: string }) =>
       graphqlRequest<{ completeGoal: Goal }, unknown>(
         client,
         COMPLETE_GOAL,
-        { goalId, completionNotes }
+        input
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: goalKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: goalKeys.my() });
-      queryClient.setQueryData(goalKeys.detail(data.completeGoal.id), data.completeGoal);
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: goalKeys.all });
     },
   });
 }
@@ -500,16 +464,14 @@ export function useCancelGoal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ goalId, reason }: { goalId: string; reason: string }) =>
+    mutationFn: (input: { goalId: string; reason: string }) =>
       graphqlRequest<{ cancelGoal: Goal }, unknown>(
         client,
         CANCEL_GOAL,
-        { goalId, reason }
+        input
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: goalKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: goalKeys.my() });
-      queryClient.setQueryData(goalKeys.detail(data.cancelGoal.id), data.cancelGoal);
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: goalKeys.all });
     },
   });
 }
@@ -519,24 +481,14 @@ export function useDeferGoal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      goalId,
-      newTargetDate,
-      reason,
-    }: {
-      goalId: string;
-      newTargetDate: string;
-      reason?: string;
-    }) =>
+    mutationFn: (input: { goalId: string; newTargetDate: string; reason?: string }) =>
       graphqlRequest<{ deferGoal: Goal }, unknown>(
         client,
         DEFER_GOAL,
-        { goalId, newTargetDate, reason }
+        input
       ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: goalKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: goalKeys.overdue() });
-      queryClient.setQueryData(goalKeys.detail(data.deferGoal.id), data.deferGoal);
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: goalKeys.all });
     },
   });
 }

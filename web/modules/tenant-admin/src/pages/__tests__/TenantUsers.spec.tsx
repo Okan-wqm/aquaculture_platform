@@ -61,8 +61,8 @@ vi.mock('../../utils/error-handling', () => ({
 vi.mock('../../hooks/useTenantRoles', () => ({
   useTenantRoles: () => ({
     data: [
-      { id: 'r1', name: 'admin', displayName: 'Admin' },
-      { id: 'r2', name: 'user', displayName: 'User' },
+      { id: 'r1', name: 'Admin', color: '#6366F1', icon: 'shield', level: 90, isSystem: true, isDefault: false, userCount: 1 },
+      { id: 'r2', name: 'User', color: '#10B981', icon: 'user', level: 10, isSystem: false, isDefault: true, userCount: 2 },
     ],
     isLoading: false,
   }),

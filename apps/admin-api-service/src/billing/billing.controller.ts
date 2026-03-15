@@ -39,9 +39,25 @@ import {
   InvoiceFilters,
 } from './services/invoice-management.service';
 import {
+  PaymentManagementService,
+  PaymentFilters,
+  RecordPaymentDto,
+  RefundPaymentDto,
+} from './services/payment-management.service';
+import {
   ModulePricingService,
   SetModulePricingDto,
 } from './services/module-pricing.service';
+import {
+  UsageMeteringManagementService,
+} from './services/usage-metering-management.service';
+import {
+  AggregationPeriod,
+  MeterType,
+} from './entities/usage-aggregation-readonly.entity';
+import {
+  UsagePeriodType,
+} from './entities/tenant-usage-metrics-readonly.entity';
 import {
   PlanDefinitionService,
   CreatePlanDto,
@@ -76,6 +92,8 @@ export class BillingController {
     private readonly pricingCalculator: PricingCalculatorService,
     private readonly customPlanService: CustomPlanService,
     private readonly invoiceService: InvoiceManagementService,
+    private readonly paymentService: PaymentManagementService,
+    private readonly usageMeteringService: UsageMeteringManagementService,
   ) {}
 
   // ============================================================================
@@ -691,5 +709,145 @@ export class BillingController {
   @HttpCode(HttpStatus.OK)
   async updateOverdueStatus() {
     return this.invoiceService.updateOverdueStatus();
+  }
+
+  // ============================================================================
+  // Payments
+  // ============================================================================
+
+  @Get('payments')
+  async getPayments(
+    @Query('status') status?: string,
+    @Query('invoiceId') invoiceId?: string,
+    @Query('tenantId') tenantId?: string,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    const filters: PaymentFilters = {
+      invoiceId,
+      tenantId,
+      search,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined,
+      dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+      dateTo: dateTo ? new Date(dateTo) : undefined,
+    };
+
+    if (status) {
+      filters.status = status.split(',');
+    }
+
+    return this.paymentService.getPayments(filters);
+  }
+
+  @ThrottleSensitive()
+  @Post('payments')
+  async recordPayment(@Body() dto: RecordPaymentDto, @Req() req: Request) {
+    const userId = (req as any).user?.id;
+    return this.paymentService.recordPayment(dto, userId);
+  }
+
+  @ThrottleSensitive()
+  @Post('payments/refund')
+  async refundPayment(@Body() dto: RefundPaymentDto, @Req() req: Request) {
+    const userId = (req as any).user?.id;
+    return this.paymentService.refundPayment(dto, userId);
+  }
+
+  // ============================================================================
+  // Usage Metering
+  // ============================================================================
+
+  @Get('usage/summary')
+  async getUsageSummary(
+    @Query('period') period?: AggregationPeriod,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.usageMeteringService.getUsageSummary(
+      period || AggregationPeriod.MONTHLY,
+      dateFrom ? new Date(dateFrom) : undefined,
+      dateTo ? new Date(dateTo) : undefined,
+    );
+  }
+
+  @Get('usage/tenants')
+  async getAllTenantsUsage(
+    @Query('period') period?: AggregationPeriod,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.usageMeteringService.getAllTenantsUsage(
+      period || AggregationPeriod.MONTHLY,
+      dateFrom ? new Date(dateFrom) : undefined,
+      dateTo ? new Date(dateTo) : undefined,
+      limit ? parseInt(limit, 10) : undefined,
+      offset ? parseInt(offset, 10) : undefined,
+    );
+  }
+
+  @Get('usage/tenant/:tenantId')
+  async getTenantUsageOverview(
+    @Param('tenantId') tenantId: string,
+    @Query('period') period?: AggregationPeriod,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.usageMeteringService.getTenantUsageOverview(
+      tenantId,
+      period || AggregationPeriod.MONTHLY,
+      dateFrom ? new Date(dateFrom) : undefined,
+      dateTo ? new Date(dateTo) : undefined,
+    );
+  }
+
+  @Get('usage/trends')
+  async getUsageTrends(
+    @Query('period') period?: AggregationPeriod,
+    @Query('meterType') meterType?: MeterType,
+    @Query('tenantId') tenantId?: string,
+    @Query('numPeriods') numPeriods?: string,
+  ) {
+    return this.usageMeteringService.getUsageTrends(
+      period || AggregationPeriod.DAILY,
+      meterType || undefined,
+      tenantId || undefined,
+      numPeriods ? parseInt(numPeriods, 10) : 30,
+    );
+  }
+
+  @Get('usage/top-tenants')
+  async getTopTenantsByUsage(
+    @Query('meterType') meterType: MeterType,
+    @Query('period') period?: AggregationPeriod,
+    @Query('limit') limit?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.usageMeteringService.getTopTenantsByUsage(
+      meterType || MeterType.API_CALLS,
+      period || AggregationPeriod.MONTHLY,
+      limit ? parseInt(limit, 10) : 10,
+      dateFrom ? new Date(dateFrom) : undefined,
+      dateTo ? new Date(dateTo) : undefined,
+    );
+  }
+
+  @Get('usage/tenant/:tenantId/metrics')
+  async getTenantUsageMetrics(
+    @Param('tenantId') tenantId: string,
+    @Query('periodType') periodType?: UsagePeriodType,
+    @Query('limit') limit?: string,
+  ) {
+    return this.usageMeteringService.getTenantUsageMetrics(
+      tenantId,
+      periodType || UsagePeriodType.MONTHLY,
+      limit ? parseInt(limit, 10) : 12,
+    );
   }
 }

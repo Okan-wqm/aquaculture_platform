@@ -1,0 +1,562 @@
+/**
+ * Feeding Records & Inventory hooks for farm-module
+ *
+ * Handles CRUD operations for feeding records and feed inventory
+ * management via GraphQL API.
+ */
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import {
+  FEEDING_RECORD_QUERY,
+  FEEDING_RECORDS_QUERY,
+  DAILY_FEEDING_PLAN_QUERY,
+  FEEDING_SUMMARY_QUERY,
+  FEED_INVENTORY_QUERY,
+  CREATE_FEEDING_RECORD_MUTATION,
+  UPDATE_FEEDING_RECORD_MUTATION,
+  ADD_FEED_INVENTORY_MUTATION,
+  CONSUME_FEED_INVENTORY_MUTATION,
+  ADJUST_FEED_INVENTORY_MUTATION,
+} from '../graphql/feeding.operations';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export type FeedingMethod = 'manual' | 'automatic' | 'demand' | 'broadcast' | 'spot';
+
+export type FishAppetite = 'excellent' | 'good' | 'moderate' | 'poor' | 'none';
+
+export type InventoryStatus = 'available' | 'low_stock' | 'out_of_stock' | 'expired' | 'quarantine';
+
+export type ConsumptionReason = 'feeding' | 'waste' | 'adjustment' | 'expired' | 'transfer';
+
+export type AdjustmentType = 'increase' | 'decrease' | 'set_quantity';
+
+export interface FeedingEnvironment {
+  waterTemp?: number;
+  dissolvedOxygen?: number;
+  weather?: string;
+  windLevel?: string;
+  visibility?: string;
+}
+
+export interface FishBehavior {
+  appetite: FishAppetite;
+  feedingIntensity: number;
+  surfaceActivity?: string;
+  schoolingBehavior?: string;
+  abnormalBehavior?: string;
+}
+
+export interface FeedingRecord {
+  id: string;
+  tenantId: string;
+  batchId: string;
+  tankId?: string;
+  feedingDate: string;
+  feedingTime: string;
+  feedingSequence: number;
+  totalMealsToday: number;
+  feedId: string;
+  feedBatchNumber?: string;
+  plannedAmount: number;
+  actualAmount: number;
+  variance: number;
+  variancePercent: number;
+  wasteAmount?: number;
+  environment?: FeedingEnvironment;
+  fishBehavior?: FishBehavior;
+  feedingMethod: FeedingMethod;
+  equipmentId?: string;
+  feedingDurationMinutes?: number;
+  feedCost?: number;
+  currency?: string;
+  fedBy: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  notes?: string;
+  skipReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  isBelowPlan: boolean;
+  isVarianceAcceptable: boolean;
+}
+
+export interface FeedInventory {
+  id: string;
+  tenantId: string;
+  feedId: string;
+  siteId: string;
+  departmentId?: string;
+  quantityKg: number;
+  minStockKg: number;
+  status: InventoryStatus;
+  lotNumber?: string;
+  manufacturingDate?: string;
+  expiryDate?: string;
+  receivedDate?: string;
+  unitPricePerKg?: number;
+  totalValue?: number;
+  currency?: string;
+  storageLocation?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  isLowStock: boolean;
+  isExpired: boolean;
+  daysUntilExpiry?: number;
+}
+
+export interface PlannedFeeding {
+  batchId: string;
+  batchCode: string;
+  tankId?: string;
+  tankCode?: string;
+  feedId: string;
+  feedName: string;
+  plannedAmountKg: number;
+  actualAmountKg: number;
+  mealsPlanned: number;
+  mealsCompleted: number;
+  isComplete: boolean;
+}
+
+export interface DailyFeedingPlanResponse {
+  date: string;
+  siteId: string;
+  plannedFeedings: PlannedFeeding[];
+  totalPlannedKg: number;
+  totalActualKg: number;
+  completionPercent: number;
+}
+
+export interface FeedTypeSummary {
+  feedId: string;
+  feedName: string;
+  totalKg: number;
+  percentage: number;
+  cost: number;
+}
+
+export interface FeedingSummaryResponse {
+  batchId?: string;
+  siteId?: string;
+  startDate: string;
+  endDate: string;
+  totalFeedGivenKg: number;
+  totalPlannedKg: number;
+  varianceKg: number;
+  variancePercent: number;
+  totalFeedings: number;
+  avgFeedingKg: number;
+  totalCost: number;
+  currency?: string;
+  byFeedType: FeedTypeSummary[];
+}
+
+export interface FeedingRecordConnection {
+  items: FeedingRecord[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface FeedInventoryConnection {
+  items: FeedInventory[];
+  total: number;
+  hasMore: boolean;
+}
+
+// Input types
+export interface FeedingRecordFilterInput {
+  batchId?: string;
+  tankId?: string;
+  feedId?: string;
+  startDate?: string;
+  endDate?: string;
+  feedingMethod?: FeedingMethod;
+}
+
+export interface FeedInventoryFilterInput {
+  siteId?: string;
+  feedId?: string;
+  status?: InventoryStatus;
+  includeLowStock?: boolean;
+  includeExpiringSoon?: boolean;
+}
+
+export interface PaginationInput {
+  page?: number;
+  limit?: number;
+}
+
+export interface CreateFeedingRecordInput {
+  batchId: string;
+  tankId?: string;
+  feedingDate: string;
+  feedingTime: string;
+  feedingSequence?: number;
+  totalMealsToday?: number;
+  feedId: string;
+  feedBatchNumber?: string;
+  plannedAmount: number;
+  actualAmount: number;
+  wasteAmount?: number;
+  environment?: FeedingEnvironment;
+  fishBehavior?: FishBehavior;
+  feedingMethod?: FeedingMethod;
+  equipmentId?: string;
+  feedingDurationMinutes?: number;
+  feedCost?: number;
+  currency?: string;
+  fedBy: string;
+  notes?: string;
+  skipReason?: string;
+}
+
+export interface UpdateFeedingRecordInput {
+  actualAmount?: number;
+  wasteAmount?: number;
+  environment?: FeedingEnvironment;
+  fishBehavior?: FishBehavior;
+  notes?: string;
+  verifiedBy?: string;
+}
+
+export interface AddFeedInventoryInput {
+  feedId: string;
+  siteId: string;
+  departmentId?: string;
+  quantityKg: number;
+  lotNumber?: string;
+  manufacturingDate?: string;
+  expiryDate?: string;
+  receivedDate?: string;
+  unitPricePerKg?: number;
+  currency?: string;
+  storageLocation?: string;
+  notes?: string;
+  createdBy: string;
+}
+
+export interface ConsumeFeedInventoryInput {
+  inventoryId: string;
+  quantityKg: number;
+  reason?: ConsumptionReason;
+  feedingRecordId?: string;
+  notes?: string;
+}
+
+export interface AdjustFeedInventoryInput {
+  inventoryId: string;
+  adjustmentType: AdjustmentType;
+  quantity: number;
+  reason: string;
+  notes?: string;
+}
+
+// ============================================================================
+// FEEDING RECORD HOOKS
+// ============================================================================
+
+/**
+ * Hook to fetch a single feeding record by ID
+ */
+export function useFeedingRecord(id: string) {
+  const { token, tenantId } = useAuth();
+
+  return useQuery({
+    queryKey: ['feedingRecords', 'detail', id],
+    queryFn: async () => {
+      const data = await graphqlClient.request<{ feedingRecord: FeedingRecord }>(
+        FEEDING_RECORD_QUERY,
+        { id, tenantId }
+      );
+      return data.feedingRecord;
+    },
+    staleTime: 30000,
+    enabled: !!token && !!tenantId && !!id,
+  });
+}
+
+/**
+ * Hook to fetch feeding records list with filters
+ */
+export function useFeedingRecordsList(
+  filter?: FeedingRecordFilterInput,
+  pagination?: PaginationInput,
+) {
+  const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: ['feedingRecords', 'list', tenantId, filter, pagination],
+    queryFn: async () => {
+      if (!tenantId) {
+        throw new Error('Tenant context required');
+      }
+      const data = await graphqlClient.request<{ feedingRecords: FeedingRecordConnection }>(
+        FEEDING_RECORDS_QUERY,
+        {
+          tenantId,
+          filter,
+          pagination: {
+            page: pagination?.page ?? 1,
+            limit: pagination?.limit ?? 20,
+          },
+        }
+      );
+      return data.feedingRecords;
+    },
+    staleTime: 30000,
+    enabled: !authLoading && isAuthenticated && !!token && !!tenantId,
+    retry: (failureCount, error) => {
+      if (error instanceof Error) {
+        const message = error.message.toLowerCase();
+        if (message.includes('unauthenticated') || message.includes('unauthorized') || message.includes('tenant')) {
+          return false;
+        }
+      }
+      return failureCount < 2;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+  });
+}
+
+/**
+ * Hook to fetch daily feeding plan for a site
+ */
+export function useDailyFeedingPlan(
+  siteId: string,
+  date?: string,
+  options?: { enabled?: boolean },
+) {
+  const { token, tenantId } = useAuth();
+
+  return useQuery({
+    queryKey: ['feedingRecords', 'dailyPlan', tenantId, siteId, date],
+    queryFn: async () => {
+      const data = await graphqlClient.request<{ dailyFeedingPlan: DailyFeedingPlanResponse }>(
+        DAILY_FEEDING_PLAN_QUERY,
+        { tenantId, siteId, date }
+      );
+      return data.dailyFeedingPlan;
+    },
+    staleTime: 30000,
+    enabled: !!token && !!tenantId && !!siteId && (options?.enabled !== false),
+  });
+}
+
+/**
+ * Hook to fetch feeding summary/statistics
+ */
+export function useFeedingSummary(
+  entityType: 'batch' | 'tank',
+  entityId: string,
+  startDate?: string,
+  endDate?: string,
+  options?: { enabled?: boolean },
+) {
+  const { token, tenantId } = useAuth();
+
+  return useQuery({
+    queryKey: ['feedingRecords', 'summary', tenantId, entityType, entityId, startDate, endDate],
+    queryFn: async () => {
+      const data = await graphqlClient.request<{ feedingSummary: FeedingSummaryResponse }>(
+        FEEDING_SUMMARY_QUERY,
+        { tenantId, entityType, entityId, startDate, endDate }
+      );
+      return data.feedingSummary;
+    },
+    staleTime: 60000,
+    enabled: !!token && !!tenantId && !!entityId && (options?.enabled !== false),
+  });
+}
+
+/**
+ * Hook to create a new feeding record
+ */
+export function useCreateFeedingRecord() {
+  const { token, tenantId, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: CreateFeedingRecordInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ createFeedingRecord: FeedingRecord }>(
+        CREATE_FEEDING_RECORD_MUTATION,
+        { tenantId, userId: user?.id, input }
+      );
+      return data.createFeedingRecord;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedingRecords'] });
+      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
+    },
+  });
+}
+
+/**
+ * Hook to update a feeding record
+ */
+export function useUpdateFeedingRecord() {
+  const { token, tenantId, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: UpdateFeedingRecordInput }) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ updateFeedingRecord: FeedingRecord }>(
+        UPDATE_FEEDING_RECORD_MUTATION,
+        { tenantId, id, userId: user?.id, input }
+      );
+      return data.updateFeedingRecord;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedingRecords'] });
+      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+    },
+  });
+}
+
+// ============================================================================
+// FEED INVENTORY HOOKS
+// ============================================================================
+
+/**
+ * Hook to fetch feed inventory list with filters
+ */
+export function useFeedInventoryList(
+  filter?: FeedInventoryFilterInput,
+  pagination?: PaginationInput,
+) {
+  const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: ['feedInventory', 'list', tenantId, filter, pagination],
+    queryFn: async () => {
+      if (!tenantId) {
+        throw new Error('Tenant context required');
+      }
+      const data = await graphqlClient.request<{ feedInventory: FeedInventoryConnection }>(
+        FEED_INVENTORY_QUERY,
+        {
+          tenantId,
+          filter,
+          pagination: {
+            page: pagination?.page ?? 1,
+            limit: pagination?.limit ?? 20,
+          },
+        }
+      );
+      return data.feedInventory;
+    },
+    staleTime: 30000,
+    enabled: !authLoading && isAuthenticated && !!token && !!tenantId,
+    retry: (failureCount, error) => {
+      if (error instanceof Error) {
+        const message = error.message.toLowerCase();
+        if (message.includes('unauthenticated') || message.includes('unauthorized') || message.includes('tenant')) {
+          return false;
+        }
+      }
+      return failureCount < 2;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+  });
+}
+
+/**
+ * Hook to add feed inventory (purchase)
+ */
+export function useAddFeedInventory() {
+  const { token, tenantId, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: AddFeedInventoryInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ addFeedInventory: FeedInventory }>(
+        ADD_FEED_INVENTORY_MUTATION,
+        { tenantId, userId: user?.id, input }
+      );
+      return data.addFeedInventory;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
+      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+    },
+  });
+}
+
+/**
+ * Hook to consume feed from inventory
+ */
+export function useConsumeFeedInventory() {
+  const { token, tenantId, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: ConsumeFeedInventoryInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ consumeFeedInventory: FeedInventory }>(
+        CONSUME_FEED_INVENTORY_MUTATION,
+        { tenantId, userId: user?.id, input }
+      );
+      return data.consumeFeedInventory;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
+      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+    },
+  });
+}
+
+/**
+ * Hook to adjust feed inventory (correction)
+ */
+export function useAdjustFeedInventory() {
+  const { token, tenantId, user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: AdjustFeedInventoryInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ adjustFeedInventory: FeedInventory }>(
+        ADJUST_FEED_INVENTORY_MUTATION,
+        { tenantId, userId: user?.id, input }
+      );
+      return data.adjustFeedInventory;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
+      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+    },
+  });
+}

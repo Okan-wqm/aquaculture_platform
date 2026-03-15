@@ -328,7 +328,7 @@ describe('AlertIcon', () => {
   });
 
   it('should render icon for all severity levels', () => {
-    const severities: AlertSeverity[] = ['critical', 'high', 'medium', 'low', 'info'];
+    const severities: AlertSeverity[] = ['critical', 'high', 'medium', 'warning', 'low', 'info'];
 
     severities.forEach(severity => {
       const { unmount } = render(<AlertIcon severity={severity} />);
@@ -477,6 +477,7 @@ describe('SeverityFilter', () => {
     critical: 2,
     high: 3,
     medium: 5,
+    warning: 0,
     low: 1,
     info: 0,
   };
@@ -970,7 +971,7 @@ describe('AlertSummaryWidget', () => {
 
 describe('severityConfig', () => {
   it('should have configuration for all severity levels', () => {
-    const severities: AlertSeverity[] = ['critical', 'high', 'medium', 'low', 'info'];
+    const severities: AlertSeverity[] = ['critical', 'high', 'medium', 'warning', 'low', 'info'];
 
     severities.forEach(severity => {
       expect(severityConfig[severity]).toBeDefined();

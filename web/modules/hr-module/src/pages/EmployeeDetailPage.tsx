@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { useEmployee } from '../hooks';
+import { EmployeeStatus } from '../types/employee.types';
 
 // ============================================================================
 // Employee Detail Page
@@ -99,7 +100,7 @@ const EmployeeDetailPage: React.FC = () => {
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{fullName}</h2>
             <p className="text-gray-500 dark:text-gray-400">{employee.position}</p>
             <span className={`mt-2 px-3 py-1 rounded-full text-sm font-medium ${
-              employee.status === 'active'
+              employee.status === EmployeeStatus.ACTIVE
                 ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                 : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
             }`}>

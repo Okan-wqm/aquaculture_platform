@@ -438,7 +438,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           ? responseData
           : (responseData as { data?: unknown[] }).data;
         if (Array.isArray(items)) {
-          const trendData = items.map((item: Record<string, unknown>) => ({
+          const trendData = (items as Record<string, unknown>[]).map((item) => ({
             date: (item.period || item.date || '') as string,
             value: (item.tenants ?? item.value ?? 0) as number,
           }));
@@ -464,7 +464,7 @@ const AnalyticsDashboardPage: React.FC = () => {
           ? responseData
           : (responseData as { data?: unknown[] }).data;
         if (Array.isArray(items)) {
-          const revenueData = items.map((item: Record<string, unknown>) => ({
+          const revenueData = (items as Record<string, unknown>[]).map((item) => ({
             date: (item.period || item.date || '') as string,
             value: (item.revenue ?? item.value ?? 0) as number,
           }));

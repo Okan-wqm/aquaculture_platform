@@ -57,6 +57,7 @@ export enum VfdCommandType {
   EMERGENCY_STOP = 'emergency_stop',
   JOG_FORWARD = 'jog_forward',
   JOG_REVERSE = 'jog_reverse',
+  COAST_STOP = 'coast_stop',
 }
 
 export enum VfdDataType {

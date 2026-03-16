@@ -234,7 +234,7 @@ export function useSiteList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['sites', 'list', filter],
+    queryKey: ['sites', 'list', tenantId, filter],
     queryFn: async () => {
       const data = await graphqlClient.request<{ sites: PaginatedResponse }>(
         SITES_LIST_QUERY,
@@ -254,7 +254,7 @@ export function useSite(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['sites', 'detail', id],
+    queryKey: ['sites', 'detail', tenantId, id],
     queryFn: async () => {
       const data = await graphqlClient.request<{ site: Site }>(
         SITE_QUERY,
@@ -343,7 +343,7 @@ export function useSiteDeletePreview(id: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['sites', 'deletePreview', id],
+    queryKey: ['sites', 'deletePreview', tenantId, id],
     queryFn: async () => {
       const data = await graphqlClient.request<{ siteDeletePreview: SiteDeletePreviewResult }>(
         SITE_DELETE_PREVIEW_QUERY,

@@ -2,6 +2,7 @@
  * Receive Delivery Modal - Mark PO items as received
  */
 import React, { useState } from 'react';
+import { useToast } from '@aquaculture/shared-ui';
 import { useReceiveDelivery, PurchaseOrder, ReceiveDeliveryInput } from '../../../hooks/usePurchaseOrders';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 
@@ -16,6 +17,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
   const [receivedItems, setReceivedItems] = useState<Record<string, { qty: number; lotNumber: string; expiryDate: string }>>({});
 
   const receiveDelivery = useReceiveDelivery();
+  const { toast } = useToast();
   const { data: locations } = useStorageLocationList();
 
   if (!isOpen || !purchaseOrder) return null;
@@ -52,9 +54,11 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
 
     try {
       await receiveDelivery.mutateAsync(input);
+      toast({ title: 'Success', description: 'Delivery received successfully.', variant: 'success' });
       onClose();
     } catch (err) {
-      console.error('Failed to receive delivery:', err);
+      if (import.meta.env.DEV) console.error('Failed to receive delivery:', err);
+      toast({ title: 'Error', description: 'Failed to receive delivery. Please try again.', variant: 'error' });
     }
   };
 

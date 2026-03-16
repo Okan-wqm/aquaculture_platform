@@ -52,6 +52,8 @@ export type MortalityReason =
   | 'handling'
   | 'temperature'
   | 'oxygen'
+  | 'predation'
+  | 'cannibalism'
   | 'unknown'
   | 'other';
 
@@ -61,6 +63,7 @@ export type CullReason =
   | 'sick'
   | 'poor_growth'
   | 'grading'
+  | 'quality'
   | 'other';
 
 export type QualityGrade =

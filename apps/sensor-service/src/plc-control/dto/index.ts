@@ -41,6 +41,7 @@ export {
   PlcAlarmFilterDto,
   AcknowledgeAlarmDto,
   BulkAcknowledgeAlarmsDto,
+  ApproveAlarmDto,
   PaginatedPlcAlarmsDto,
   PlcAlarmStatsDto,
   AlarmCountBySeverityDto,

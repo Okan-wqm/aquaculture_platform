@@ -24,8 +24,14 @@ import {
   AlertCircle,
   Loader2,
   Layers,
+  Zap,
+  Play,
+  Square,
+  AlertOctagon,
 } from 'lucide-react';
 import { ChannelManagerPanel } from '../components/channels/ChannelManagerPanel';
+import { useVfdRealtimeReadings, getVfdStatus } from '../hooks/useVfdReadings';
+import { useVfdCommands } from '../hooks/useVfdCommands';
 
 // ============================================================================
 // Types (C3: added missing fields)
@@ -173,6 +179,161 @@ function getUnitForType(type: string): string {
     default: return '';
   }
 }
+
+// ============================================================================
+// VFD Panel Component
+// ============================================================================
+
+const VfdPanel: React.FC<{ deviceId: string }> = ({ deviceId }) => {
+  const { reading, isPolling, error: readingError } = useVfdRealtimeReadings(deviceId, {
+    enabled: true,
+    pollInterval: 3000,
+  });
+  const { loading: cmdLoading, lastResult, start, stop, emergencyStop, resetFault } = useVfdCommands(deviceId);
+
+  const vfdStatus = getVfdStatus(reading?.statusBits);
+  const params = reading?.parameters;
+
+  const STATUS_COLORS = {
+    running: 'bg-green-100 text-green-800 border-green-200',
+    ready: 'bg-blue-100 text-blue-800 border-blue-200',
+    fault: 'bg-red-100 text-red-800 border-red-200',
+    warning: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    stopped: 'bg-gray-100 text-gray-700 border-gray-200',
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <Zap className="w-5 h-5 text-indigo-500" />
+          VFD Durumu
+        </h3>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[vfdStatus.status]}`}>
+            {vfdStatus.label}
+          </span>
+          {isPolling && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" title="Canlı veri" />}
+        </div>
+      </div>
+
+      {readingError && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {readingError.message}
+        </div>
+      )}
+
+      {/* Readings Grid */}
+      {params && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          {params.outputFrequency != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Frekans</p>
+              <p className="font-semibold text-gray-900">{params.outputFrequency.toFixed(1)} Hz</p>
+            </div>
+          )}
+          {params.motorSpeed != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Motor Hizi</p>
+              <p className="font-semibold text-gray-900">{Math.round(params.motorSpeed)} RPM</p>
+            </div>
+          )}
+          {params.motorCurrent != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Akim</p>
+              <p className="font-semibold text-gray-900">{params.motorCurrent.toFixed(2)} A</p>
+            </div>
+          )}
+          {params.outputPower != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Guc</p>
+              <p className="font-semibold text-gray-900">{params.outputPower.toFixed(2)} kW</p>
+            </div>
+          )}
+          {params.driveTemperature != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Surucü Sicakligi</p>
+              <p className="font-semibold text-gray-900">{params.driveTemperature.toFixed(1)} °C</p>
+            </div>
+          )}
+          {params.motorVoltage != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Gerilim</p>
+              <p className="font-semibold text-gray-900">{params.motorVoltage.toFixed(1)} V</p>
+            </div>
+          )}
+          {params.energyConsumption != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Enerji</p>
+              <p className="font-semibold text-gray-900">{params.energyConsumption.toFixed(2)} kWh</p>
+            </div>
+          )}
+          {params.runningHours != null && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">Calisma Saati</p>
+              <p className="font-semibold text-gray-900">{Math.round(params.runningHours)} h</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!reading && !readingError && (
+        <p className="text-sm text-gray-400 mb-4">VFD okuma verisi bekleniyor...</p>
+      )}
+
+      {/* Command Buttons */}
+      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100">
+        <button
+          onClick={start}
+          disabled={cmdLoading || vfdStatus.status === 'running'}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+        >
+          {cmdLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+          Baslat
+        </button>
+        <button
+          onClick={stop}
+          disabled={cmdLoading || vfdStatus.status === 'stopped'}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-50"
+        >
+          {cmdLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+          Durdur
+        </button>
+        {vfdStatus.status === 'fault' && (
+          <button
+            onClick={resetFault}
+            disabled={cmdLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
+          >
+            {cmdLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Arizayi Sifirla
+          </button>
+        )}
+        <button
+          onClick={emergencyStop}
+          disabled={cmdLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 ml-auto"
+        >
+          {cmdLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertOctagon className="w-3.5 h-3.5" />}
+          Acil Dur
+        </button>
+      </div>
+
+      {/* Last Command Result */}
+      {lastResult && !lastResult.success && (
+        <div className="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
+          Komut hatasi: {lastResult.error}
+        </div>
+      )}
+      {lastResult?.success && (
+        <div className="mt-3 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-700">
+          Komut basariyla gonderildi
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ============================================================================
 // Device Detail Page
@@ -533,6 +694,11 @@ const DeviceDetailPage: React.FC = () => {
               <span className="text-sm font-medium text-gray-900">Kaldir</span>
             </button>
           </div>
+
+          {/* VFD Panel — shown when device type is VFD */}
+          {deviceId && device.type?.toLowerCase().includes('vfd') && (
+            <VfdPanel deviceId={deviceId} />
+          )}
         </div>
       </div>
       )}

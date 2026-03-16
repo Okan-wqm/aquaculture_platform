@@ -7,6 +7,8 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { EncryptedColumnTransformer } from '../../infrastructure/vault/credential.transformer';
+import { Auditable } from '../../infrastructure/audit';
 
 export enum PlcConnectionStatus {
   ONLINE = 'ONLINE',
@@ -31,6 +33,7 @@ registerEnumType(PlcConnectionStatus, { name: 'PlcConnectionStatus' });
 registerEnumType(PlcSecurityMode, { name: 'PlcSecurityMode' });
 registerEnumType(PlcAuthMode, { name: 'PlcAuthMode' });
 
+@Auditable()
 @ObjectType()
 @Entity('plc_connections')
 @Index(['tenantId', 'siteId'])
@@ -80,14 +83,14 @@ export class PlcConnection {
   @Column({ nullable: true })
   username?: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'text', transformer: EncryptedColumnTransformer })
   password?: string; // Not exposed in GraphQL
 
   // Certificate authentication
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: EncryptedColumnTransformer })
   clientCertificate?: string; // PEM format client certificate
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: EncryptedColumnTransformer })
   clientPrivateKey?: string; // PEM format private key (encrypted at rest)
 
   @Column({ type: 'text', nullable: true })

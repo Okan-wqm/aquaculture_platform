@@ -15,6 +15,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { Auditable } from '../../infrastructure/audit';
 
 /**
  * Device lifecycle state enum (IEC 62443 compliant)
@@ -89,6 +90,7 @@ export interface DeviceHealthMetrics {
  * EdgeDevice entity - represents an industrial edge controller
  * (Revolution Pi, Raspberry Pi, Industrial PC)
  */
+@Auditable()
 @ObjectType()
 @Entity('edge_devices')
 @Index(['tenantId', 'lifecycleState'])

@@ -64,6 +64,9 @@ import { VfdDevice } from './vfd/entities/vfd-device.entity';
 import { VfdReading } from './vfd/entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './vfd/entities/vfd-register-mapping.entity';
 import { VfdModule } from './vfd/vfd.module';
+import { DeviceGroupModule } from './device-group/device-group.module';
+import { DeviceGroup } from './device-group/entities/device-group.entity';
+import { DeviceGroupMember } from './device-group/entities/device-group-member.entity';
 import { PlcControlModule } from './plc-control/plc-control.module';
 import { PlcConnection } from './plc-control/entities/plc-connection.entity';
 import { FeedingParameter } from './plc-control/entities/feeding-parameter.entity';
@@ -73,6 +76,12 @@ import { CreateDynamicSensorTypes1740200000000 } from './database/migrations/174
 import { CreateProcessesTable1740300000000 } from './database/migrations/1740300000000-CreateProcessesTable';
 import { CreateAutomationTables1740300001000 } from './database/migrations/1740300001000-CreateAutomationTables';
 import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrations/1741100000000-AddEnterprisePlcConnectionFields';
+import { EnterprisePerformanceOptimizations1741200000000 } from './database/migrations/1741200000000-EnterprisePerformanceOptimizations';
+import { CredentialVaultModule } from './infrastructure/vault/credential-vault.module';
+import { AuditModule } from './infrastructure/audit/audit.module';
+import { AuditLog } from './infrastructure/audit/audit-log.entity';
+import { AuditSubscriber } from './infrastructure/audit/audit.subscriber';
+import { LoRaDevice } from './edge-device/entities/lora-device.entity';
 
 @Module({
   imports: [
@@ -117,6 +126,7 @@ import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrat
           DashboardLayout,
           EdgeDevice,
           DeviceIoConfig,
+          LoRaDevice,
           // Automation entities (IEC 61131-3)
           AutomationProgram,
           ProgramStep,
@@ -136,18 +146,25 @@ import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrat
           // Unified SCADA entities
           UnifiedTag,
           ScadaDeployLog,
+          // Device group entities
+          DeviceGroup,
+          DeviceGroupMember,
+          // Audit trail
+          AuditLog,
         ],
         migrations: [
           CreateDynamicSensorTypes1740200000000,
           CreateProcessesTable1740300000000,
           CreateAutomationTables1740300001000,
           AddEnterprisePlcConnectionFields1741100000000,
+          EnterprisePerformanceOptimizations1741200000000,
         ],
         // When sync is on (initial deploy), skip migrations to avoid index conflicts.
         // When sync is off (production), run migrations for structural changes.
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         migrationsRun: configService.get('DATABASE_SYNC', 'false') !== 'true',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
+        subscribers: [AuditSubscriber],
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
           const sslEnabled = configService.get('DATABASE_SSL') === 'true';
@@ -274,6 +291,10 @@ import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrat
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),
 
+    // Enterprise infrastructure (@Global modules - must be before feature modules)
+    CredentialVaultModule,
+    AuditModule,
+
     // Shared MQTT module (@Global - provides MqttClientService everywhere)
     SharedMqttModule,
 
@@ -311,6 +332,9 @@ import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrat
 
     // Sensor type definitions and industry templates
     SensorTypeModule,
+
+    // Device group management and batch operations
+    DeviceGroupModule,
   ],
   providers: [
     // Global exception filter

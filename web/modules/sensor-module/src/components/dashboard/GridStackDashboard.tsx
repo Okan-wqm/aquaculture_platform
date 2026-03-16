@@ -37,6 +37,8 @@ import { StatCardWidgetContent } from './widgets/StatCardWidgetContent';
 import { TableWidgetContent } from './widgets/TableWidgetContent';
 import { ProcessViewWidgetContent } from './widgets/ProcessViewWidgetContent';
 import { ProcessBackgroundLayer } from './widgets/ProcessBackgroundLayer';
+import { AlertWidgetContent } from './widgets/AlertWidgetContent';
+import { HeatmapWidgetContent } from './widgets/HeatmapWidgetContent';
 import { useDashboardLayout, DashboardLayout, SaveLayoutInput, ProcessBackground } from '../../hooks/useDashboardLayout';
 export type { DashboardLayout } from '../../hooks/useDashboardLayout';
 import { useActiveProcesses } from '../../hooks/useProcess';
@@ -79,12 +81,9 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
     case 'table':
       return <TableWidgetContent config={config} />;
     case 'heatmap':
-      // Heatmap placeholder - to be implemented
-      return (
-        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-          Heatmap coming soon
-        </div>
-      );
+      return <HeatmapWidgetContent config={config} />;
+    case 'alert':
+      return <AlertWidgetContent config={config} />;
     case 'process-view':
       return <ProcessViewWidgetContent config={config} />;
     default:

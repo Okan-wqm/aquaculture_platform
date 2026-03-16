@@ -67,7 +67,7 @@ const mockChartData = [
 // ============================================================================
 
 const FarmDetailPage: React.FC = () => {
-  const { farmId } = useParams<{ farmId: string }>();
+  const { siteId } = useParams<{ siteId: string }>();
   const [activeTab, setActiveTab] = useState<'overview' | 'sensors' | 'history'>('overview');
 
   // Gerçek uygulamada API'den veri çekilir
@@ -110,7 +110,7 @@ const FarmDetailPage: React.FC = () => {
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex items-center space-x-3">
-          <Link to={`/sites/${farmId}/sensors`}>
+          <Link to={`/sites/${siteId}/sensors`}>
             <Button variant="outline" size="sm">
               <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -118,7 +118,7 @@ const FarmDetailPage: React.FC = () => {
               Sensör Dashboard
             </Button>
           </Link>
-          <Link to={`/sites/${farmId}/edit`}>
+          <Link to={`/sites/${siteId}/edit`}>
             <Button size="sm">
               <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />

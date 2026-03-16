@@ -3,7 +3,7 @@
  * Handles CRUD operations for health events, treatment, and quarantine management via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES - Health Events
@@ -403,8 +403,10 @@ const HEALTH_EVENT_FIELDS = `
 // ============================================================================
 
 export function useHealthEvents(filter?: HealthEventFilter) {
+  const { token, tenantId } = useAuth();
+
   return useQuery({
-    queryKey: ['healthEvents', filter],
+    queryKey: ['healthEvents', tenantId, filter],
     queryFn: async () => {
       const query = `
         query HealthEvents($filter: HealthEventFilterInput) {
@@ -428,12 +430,15 @@ export function useHealthEvents(filter?: HealthEventFilter) {
 
       return result.healthEvents;
     },
+    enabled: !!token && !!tenantId,
   });
 }
 
 export function useHealthEvent(id: string) {
+  const { token, tenantId } = useAuth();
+
   return useQuery({
-    queryKey: ['healthEvent', id],
+    queryKey: ['healthEvent', tenantId, id],
     queryFn: async () => {
       const query = `
         query HealthEvent($id: ID!) {
@@ -450,13 +455,15 @@ export function useHealthEvent(id: string) {
 
       return result.healthEvent;
     },
-    enabled: !!id,
+    enabled: !!token && !!tenantId && !!id,
   });
 }
 
 export function useHealthEventsByBatch(batchId: string, activeOnly = false) {
+  const { token, tenantId } = useAuth();
+
   return useQuery({
-    queryKey: ['healthEventsByBatch', batchId, activeOnly],
+    queryKey: ['healthEventsByBatch', tenantId, batchId, activeOnly],
     queryFn: async () => {
       const query = `
         query HealthEventsByBatch($batchId: ID!, $activeOnly: Boolean) {
@@ -472,13 +479,15 @@ export function useHealthEventsByBatch(batchId: string, activeOnly = false) {
 
       return result.healthEventsByBatch;
     },
-    enabled: !!batchId,
+    enabled: !!token && !!tenantId && !!batchId,
   });
 }
 
 export function useCriticalHealthEvents() {
+  const { token, tenantId } = useAuth();
+
   return useQuery({
-    queryKey: ['criticalHealthEvents'],
+    queryKey: ['criticalHealthEvents', tenantId],
     queryFn: async () => {
       const query = `
         query CriticalHealthEvents {
@@ -494,12 +503,15 @@ export function useCriticalHealthEvents() {
 
       return result.criticalHealthEvents;
     },
+    enabled: !!token && !!tenantId,
   });
 }
 
 export function useOverdueHealthFollowUps() {
+  const { token, tenantId } = useAuth();
+
   return useQuery({
-    queryKey: ['overdueHealthFollowUps'],
+    queryKey: ['overdueHealthFollowUps', tenantId],
     queryFn: async () => {
       const query = `
         query OverdueHealthFollowUps {
@@ -515,12 +527,15 @@ export function useOverdueHealthFollowUps() {
 
       return result.overdueHealthFollowUps;
     },
+    enabled: !!token && !!tenantId,
   });
 }
 
 export function useHealthEventStats() {
+  const { token, tenantId } = useAuth();
+
   return useQuery({
-    queryKey: ['healthEventStats'],
+    queryKey: ['healthEventStats', tenantId],
     queryFn: async () => {
       const query = `
         query HealthEventStats {
@@ -543,6 +558,7 @@ export function useHealthEventStats() {
 
       return result.healthEventStats;
     },
+    enabled: !!token && !!tenantId,
   });
 }
 
@@ -551,10 +567,17 @@ export function useHealthEventStats() {
 // ============================================================================
 
 export function useCreateHealthEvent() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (input: CreateHealthEventInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
       const mutation = `
         mutation CreateHealthEvent($input: CreateHealthEventInput!) {
           createHealthEvent(input: $input) {
@@ -579,10 +602,17 @@ export function useCreateHealthEvent() {
 }
 
 export function useUpdateHealthEvent() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (input: UpdateHealthEventInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
       const mutation = `
         mutation UpdateHealthEvent($id: ID!, $input: UpdateHealthEventInput!) {
           updateHealthEvent(id: $id, input: $input) {
@@ -608,10 +638,17 @@ export function useUpdateHealthEvent() {
 }
 
 export function useDeleteHealthEvent() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (id: string) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
       const mutation = `
         mutation DeleteHealthEvent($id: ID!) {
           deleteHealthEvent(id: $id)
@@ -638,6 +675,7 @@ export function useDeleteHealthEvent() {
 // ============================================================================
 
 export function useStartHealthEventTreatment() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -666,6 +704,7 @@ export function useStartHealthEventTreatment() {
 }
 
 export function useEndHealthEventTreatment() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -698,6 +737,7 @@ export function useEndHealthEventTreatment() {
 // ============================================================================
 
 export function useStartHealthEventQuarantine() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -726,6 +766,7 @@ export function useStartHealthEventQuarantine() {
 }
 
 export function useEndHealthEventQuarantine() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -758,6 +799,7 @@ export function useEndHealthEventQuarantine() {
 // ============================================================================
 
 export function useResolveHealthEvent() {
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({

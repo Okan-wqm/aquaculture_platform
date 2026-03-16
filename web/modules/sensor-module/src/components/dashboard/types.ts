@@ -245,6 +245,14 @@ export const WIDGET_TYPES: {
     icon: 'table',
     category: 'data',
   },
+  {
+    type: 'alert',
+    label: 'Active Alerts',
+    description: 'Real-time alert feed with severity indicators',
+    defaultSize: { w: 4, h: 3 },
+    icon: 'bell',
+    category: 'data',
+  },
   // Process widget
   {
     type: 'process-view',

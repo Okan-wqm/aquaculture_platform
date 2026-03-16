@@ -305,7 +305,7 @@ export function useSpeciesList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['species', 'list', filter],
+    queryKey: ['species', 'list', tenantId, filter],
     queryFn: async () => {
       const data = await graphqlClient.request<{ speciesList: PaginatedResponse }>(
         SPECIES_LIST_QUERY,
@@ -325,7 +325,7 @@ export function useSpecies(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['species', 'detail', id],
+    queryKey: ['species', 'detail', tenantId, id],
     queryFn: async () => {
       const data = await graphqlClient.request<{ species: Species }>(
         SPECIES_QUERY,
@@ -345,7 +345,7 @@ export function useActiveSpecies() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['species', 'active'],
+    queryKey: ['species', 'active', tenantId],
     queryFn: async () => {
       const data = await graphqlClient.request<{ activeSpecies: Species[] }>(
         ACTIVE_SPECIES_QUERY,

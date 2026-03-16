@@ -19,6 +19,7 @@ import {
 
 import { SensorProtocol } from './sensor-protocol.entity';
 import { SensorTypeDefinition } from './sensor-type-definition.entity';
+import { Auditable } from '../../infrastructure/audit';
 
 /**
  * Sensor type enum
@@ -111,6 +112,7 @@ export interface SensorConnectionStatus {
 /**
  * Sensor entity - represents an IoT sensor device
  */
+@Auditable()
 @ObjectType()
 @Entity('sensors')
 @Index(['tenantId', 'status'])

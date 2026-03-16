@@ -2,6 +2,7 @@
  * Create Purchase Order Modal
  */
 import React, { useState } from 'react';
+import { useToast } from '@aquaculture/shared-ui';
 import { useCreatePurchaseOrder, PurchaseOrderCategory, CreatePurchaseOrderInput } from '../../../hooks/usePurchaseOrders';
 import { useFeedList } from '../../../hooks/useFeeds';
 import { useChemicalList } from '../../../hooks/useChemicals';
@@ -38,6 +39,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
   const [selectedItemId, setSelectedItemId] = useState('');
 
   const createPO = useCreatePurchaseOrder();
+  const { toast } = useToast();
   const { data: feedsData } = useFeedList();
   const { data: chemicalsData } = useChemicalList();
   const { data: consumablesData } = useConsumableList();
@@ -96,10 +98,12 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
 
     try {
       await createPO.mutateAsync(input);
+      toast({ title: 'Success', description: 'Purchase order created successfully.', variant: 'success' });
       onClose();
       resetForm();
     } catch (err) {
-      console.error('Failed to create PO:', err);
+      if (import.meta.env.DEV) console.error('Failed to create PO:', err);
+      toast({ title: 'Error', description: 'Failed to create purchase order. Please try again.', variant: 'error' });
     }
   };
 

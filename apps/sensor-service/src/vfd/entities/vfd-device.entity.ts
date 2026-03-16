@@ -10,6 +10,7 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from './vfd.enums';
+import { Auditable } from '../../infrastructure/audit';
 
 /**
  * VFD connection status stored as JSONB
@@ -97,6 +98,7 @@ export type VfdProtocolConfiguration =
  * VFD Device Entity
  * Stores VFD device configuration and status
  */
+@Auditable()
 @ObjectType({ description: 'VFD (Variable Frequency Drive) device' })
 @Entity('vfd_devices')
 @Index(['tenantId', 'status'])

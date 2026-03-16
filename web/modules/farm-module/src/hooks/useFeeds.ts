@@ -476,7 +476,7 @@ export function useFeedList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'list', filter],
+    queryKey: ['feeds', 'list', tenantId, filter],
     queryFn: async () => {
       const data = await graphqlClient.request<{ feeds: PaginatedResponse }>(
         FEEDS_LIST_QUERY,
@@ -496,7 +496,7 @@ export function useFeed(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'detail', id],
+    queryKey: ['feeds', 'detail', tenantId, id],
     queryFn: async () => {
       const data = await graphqlClient.request<{ feed: Feed }>(
         FEED_QUERY,
@@ -595,10 +595,10 @@ export function useDeleteFeed() {
  * Hook to fetch feed types (global, not tenant-specific)
  */
 export function useFeedTypes() {
-  const { token } = useAuth();
+  const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'types'],
+    queryKey: ['feeds', 'types', tenantId],
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedTypes: FeedTypeResponse[] }>(
         FEED_TYPES_QUERY,
@@ -607,7 +607,7 @@ export function useFeedTypes() {
       return data.feedTypes;
     },
     staleTime: 60000, // Types don't change often
-    enabled: !!token,
+    enabled: !!token && !!tenantId,
   });
 }
 
@@ -618,7 +618,7 @@ export function useFeedSuppliers() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'suppliers'],
+    queryKey: ['feeds', 'suppliers', tenantId],
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedSuppliers: FeedSupplierBasic[] }>(
         FEED_SUPPLIERS_QUERY,

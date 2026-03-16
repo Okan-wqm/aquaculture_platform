@@ -42,6 +42,7 @@ import { isCanvasMessage } from '../../types/canvas-messages';
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import { useProcess } from '../../hooks/useProcess';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
+import { useUnifiedTags } from '../../hooks/useUnifiedTags';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { NodeTemplate } from '../../components/process-editor/panels/EquipmentPanel';
 import ModeTabBar from '../../components/unified-editor/ModeTabBar';
@@ -68,6 +69,86 @@ interface CanvasEdge {
   type?: string;
   data?: Record<string, unknown>;
 }
+
+// ============================================================================
+// Live Tags Panel (used in runtime mode left sidebar)
+// ============================================================================
+
+const LiveTagsPanel: React.FC = () => {
+  const [search, setSearch] = React.useState('');
+  const { tags, loading, error, refetch } = useUnifiedTags(
+    search ? { searchTerm: search } : undefined,
+    { limit: 100 },
+  );
+
+  const IO_TYPE_COLOR: Record<string, string> = {
+    AI: 'bg-blue-100 text-blue-700',
+    AO: 'bg-orange-100 text-orange-700',
+    DI: 'bg-green-100 text-green-700',
+    DO: 'bg-red-100 text-red-700',
+    CALC: 'bg-purple-100 text-purple-700',
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-3 border-b border-gray-200">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Live Tags</h3>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Tag ara..."
+          className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500"
+        />
+      </div>
+
+      {loading && (
+        <div className="flex items-center justify-center p-4">
+          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 text-xs text-red-600 bg-red-50 border-b border-red-100">
+          <span className="block mb-1">{error}</span>
+          <button onClick={refetch} className="text-red-700 underline">Tekrar Dene</button>
+        </div>
+      )}
+
+      {!loading && !error && tags.length === 0 && (
+        <div className="p-3 text-xs text-gray-400 text-center">
+          {search ? 'Eslesen tag bulunamadi' : 'Tag bulunamadi'}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto">
+        {tags.map((tag) => (
+          <div
+            key={tag.id}
+            className="px-3 py-2 border-b border-gray-100 hover:bg-gray-50 cursor-default"
+          >
+            <div className="flex items-center justify-between gap-1 mb-0.5">
+              <span className="text-xs font-medium text-gray-900 truncate flex-1">{tag.displayName || tag.localName}</span>
+              {tag.ioType && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${IO_TYPE_COLOR[tag.ioType] || 'bg-gray-100 text-gray-600'}`}>
+                  {tag.ioType}
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] text-gray-400 font-mono truncate">{tag.fqn}</p>
+            {tag.engUnit && (
+              <p className="text-[10px] text-gray-500">{tag.engUnit}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// Unified Editor Page
+// ============================================================================
 
 const UnifiedEditorPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -639,10 +720,7 @@ const UnifiedEditorPage: React.FC = () => {
               </div>
             )}
             {mode === 'runtime' && (
-              <div className="p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Live Tags</h3>
-                <p className="text-xs text-gray-500">Runtime tag browser - coming soon</p>
-              </div>
+              <LiveTagsPanel />
             )}
             {mode === 'debug' && (
               <div className="p-4">

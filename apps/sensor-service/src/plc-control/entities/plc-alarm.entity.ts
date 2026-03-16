@@ -1,4 +1,5 @@
-import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -28,6 +29,21 @@ export enum AlarmSource {
 
 registerEnumType(AlarmSeverity, { name: 'AlarmSeverity' });
 registerEnumType(AlarmSource, { name: 'AlarmSource' });
+
+@ObjectType('ApprovalChainEntry')
+export class ApprovalChainEntry {
+  @Field()
+  userId!: string;
+
+  @Field(() => Int)
+  level!: number;
+
+  @Field()
+  approvedAt!: Date;
+
+  @Field({ nullable: true })
+  notes?: string;
+}
 
 @ObjectType()
 @Entity('plc_alarms')
@@ -103,6 +119,43 @@ export class PlcAlarm {
   @Field({ nullable: true })
   @Column({ nullable: true })
   notes?: string; // Operator notes
+
+  // === Enterprise Approval Workflow ===
+
+  /** Current approval level (0=pending, 1=operator, 2=supervisor, 3=manager) */
+  @Field(() => Int)
+  @Column({ name: 'approval_level', type: 'int', default: 0 })
+  approvalLevel!: number;
+
+  /** Minimum required approval level based on severity */
+  @Field(() => Int)
+  @Column({ name: 'required_approval_level', type: 'int', default: 1 })
+  requiredApprovalLevel!: number;
+
+  /** Approval chain history: [{userId, level, approvedAt, notes}] */
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ name: 'approval_chain', type: 'jsonb', default: '[]' })
+  approvalChain!: ApprovalChainEntry[];
+
+  /** When alarm was escalated to higher level */
+  @Field({ nullable: true })
+  @Column({ name: 'escalated_at', type: 'timestamptz', nullable: true })
+  escalatedAt?: Date;
+
+  /** Auto-escalation timeout in milliseconds */
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'auto_escalate_after_ms', type: 'int', nullable: true })
+  autoEscalateAfterMs?: number;
+
+  /** SLA deadline for acknowledgement */
+  @Field({ nullable: true })
+  @Column({ name: 'sla_deadline', type: 'timestamptz', nullable: true })
+  slaDeadline?: Date;
+
+  /** Whether SLA has been breached */
+  @Field()
+  @Column({ name: 'sla_breached', default: false })
+  slaBreached!: boolean;
 
   @Field()
   @CreateDateColumn()

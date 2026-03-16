@@ -164,3 +164,18 @@ export class AlarmCountBySourceDto {
   @Field(() => Int)
   count!: number;
 }
+
+/**
+ * Input for approving an alarm at a specific level
+ */
+@InputType('ApproveAlarmInput')
+export class ApproveAlarmDto {
+  @Field(() => Int)
+  level!: number;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}

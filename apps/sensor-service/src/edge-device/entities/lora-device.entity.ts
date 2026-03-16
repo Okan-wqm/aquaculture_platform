@@ -18,6 +18,7 @@ import {
 } from 'typeorm';
 
 import { EdgeDevice } from './edge-device.entity';
+import { EncryptedColumnTransformer } from '../../infrastructure/vault/credential.transformer';
 
 /**
  * LoRaWAN Activation Mode
@@ -112,12 +113,10 @@ export class LoRaDevice {
 
   /**
    * AppKey: 128-bit root key. OTAA join prosedüründe session key türetimi için kullanılır.
-   * TODO: Sprint 2 - AppKey column-level encryption (pgcrypto veya application-level AES-256-GCM)
-   * Şu anda plain text olarak saklanıyor. Üretim ortamında disk-level encryption (LUKS)
-   * ve DB-level TDE ile korunmalıdır. Uygulama seviyesinde şifreleme öncelikli olarak
-   * bu alan için implemente edilecektir.
+   * AES-256-GCM ile uygulama katmanında şifrelenerek saklanır (EncryptedColumnTransformer).
+   * Format: enc:<iv_hex>:<authTag_hex>:<ciphertext_hex>
    */
-  @Column({ name: 'app_key', type: 'varchar', length: 32 })
+  @Column({ name: 'app_key', type: 'varchar', length: 255, transformer: EncryptedColumnTransformer })
   appKey!: string;
 
   /** Maskelenmiş AppKey — GraphQL'den güvenli erişim için ilk 4 ve son 4 karakter gösterilir */

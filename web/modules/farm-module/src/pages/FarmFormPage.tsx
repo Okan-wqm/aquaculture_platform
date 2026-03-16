@@ -38,9 +38,9 @@ interface FarmFormData {
 // ============================================================================
 
 const FarmFormPage: React.FC = () => {
-  const { farmId } = useParams<{ farmId: string }>();
+  const { siteId } = useParams<{ siteId: string }>();
   const navigate = useNavigate();
-  const isEdit = Boolean(farmId);
+  const isEdit = Boolean(siteId);
 
   const [formData, setFormData] = useState<FarmFormData>({
     name: '',

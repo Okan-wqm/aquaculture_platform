@@ -668,6 +668,48 @@ export class PlcControlResolver {
   }
 
   /**
+   * Approve an alarm at a specific approval level
+   * SECURITY: Requires TENANT_ADMIN, MODULE_MANAGER, or MODULE_USER role
+   */
+  @Mutation(() => PlcAlarm, { name: 'approvePlcAlarm' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  async approvePlcAlarm(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('level', { type: () => Int }) level: number,
+    @Args('notes', { type: () => String, nullable: true }) notes: string | undefined,
+    @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<PlcAlarm> {
+    const userId = user.sub;
+
+    // Map platform role to maximum allowed approval level
+    const userRoles = user.roles || [];
+    let maxAllowedLevel = 1; // MODULE_USER = operator level
+    if (userRoles.includes(Role.MODULE_MANAGER)) maxAllowedLevel = 2;
+    if (userRoles.includes(Role.TENANT_ADMIN) || userRoles.includes(Role.SUPER_ADMIN)) maxAllowedLevel = 3;
+    if (level > maxAllowedLevel) {
+      throw new Error(`Your role allows approval up to level ${maxAllowedLevel}`);
+    }
+
+    this.logger.log(`Approving alarm ${id} at level ${level} by user ${userId}`);
+    return this.plcAlarmService.approveAlarm(tenantId, id, userId, level, notes);
+  }
+
+  /**
+   * Escalate an alarm to the next required approval level
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER role
+   */
+  @Mutation(() => PlcAlarm, { name: 'escalatePlcAlarm' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async escalatePlcAlarm(
+    @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
+  ): Promise<PlcAlarm> {
+    this.logger.log(`Escalating alarm ${id}`);
+    return this.plcAlarmService.escalateAlarm(tenantId, id);
+  }
+
+  /**
    * Delete old alarms (data retention)
    * SECURITY: Requires TENANT_ADMIN role
    */

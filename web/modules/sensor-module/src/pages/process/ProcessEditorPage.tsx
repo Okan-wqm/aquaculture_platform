@@ -855,10 +855,15 @@ const ProcessEditorPage: React.FC = () => {
 
   // Initialize store based on route
   useEffect(() => {
+    // BUG-004: AbortController so async API call is cancelled on unmount / dep change
+    const controller = new AbortController();
+
     const loadProcess = async () => {
       if (processId && processId !== 'new') {
         // Load existing process from API
         const existingProcess = await getProcess(processId);
+        // Guard: if the effect was cleaned up while the fetch was in-flight, do nothing
+        if (controller.signal.aborted) return;
         if (existingProcess) {
           setProcessId(existingProcess.id);
           setProcessName(existingProcess.name);
@@ -880,6 +885,8 @@ const ProcessEditorPage: React.FC = () => {
       }
     };
     loadProcess();
+
+    return () => controller.abort();
   }, [processId, setProcessId, setProcessName, resetStore, getProcess, isCanvasReady, sendToCanvas]);
 
   // Handle node template drag start from panel

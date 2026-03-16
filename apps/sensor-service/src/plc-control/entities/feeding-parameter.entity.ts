@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 
 import { PlcConnection } from './plc-connection.entity';
+import { Auditable } from '../../infrastructure/audit';
 
 export enum ParameterStatus {
   DRAFT = 'DRAFT',
@@ -91,6 +92,7 @@ export class VfdSettings {
   doserMaxSpeed!: number;
 }
 
+@Auditable()
 @ObjectType()
 @Entity('feeding_parameters')
 @Index(['tenantId', 'plcConnectionId'])

@@ -10,6 +10,7 @@ import {
   PlcAlarm,
   AlarmSeverity,
   AlarmSource,
+  ApprovalChainEntry,
 } from '../entities/plc-alarm.entity';
 import {
   PlcAlarmFilterDto,
@@ -190,6 +191,12 @@ export class PlcAlarmService {
 
     if (alarm.acknowledged) {
       return alarm;
+    }
+
+    // Enterprise approval check: if alarm has requiredApprovalLevel > 0,
+    // require approval workflow instead of direct acknowledge
+    if (alarm.requiredApprovalLevel > 1 && alarm.approvalLevel < alarm.requiredApprovalLevel) {
+      throw new Error(`Alarm requires level ${alarm.requiredApprovalLevel} approval before acknowledgement`);
     }
 
     alarm.acknowledged = true;
@@ -503,5 +510,100 @@ export class PlcAlarmService {
     );
 
     return result.affected || 0;
+  }
+
+  /**
+   * Approve alarm at a specific level
+   */
+  async approveAlarm(
+    tenantId: string,
+    alarmId: string,
+    userId: string,
+    level: number,
+    notes?: string,
+  ): Promise<PlcAlarm> {
+    if (level < 1 || level > 3) {
+      throw new Error('Approval level must be between 1 and 3');
+    }
+
+    const alarm = await this.findById(alarmId, tenantId);
+
+    if (alarm.approvalChain?.some(e => e.userId === userId)) {
+      throw new Error('Same user cannot approve at multiple levels');
+    }
+
+    if (alarm.approvalLevel >= level) {
+      throw new Error(`Alarm already approved at level ${alarm.approvalLevel}`);
+    }
+
+    const entry: ApprovalChainEntry = {
+      userId,
+      level,
+      approvedAt: new Date(),
+      notes,
+    };
+
+    alarm.approvalChain = [...(alarm.approvalChain || []), entry];
+    alarm.approvalLevel = level;
+
+    // If approval level meets required level, mark as acknowledged
+    if (level >= alarm.requiredApprovalLevel) {
+      alarm.acknowledged = true;
+      alarm.acknowledgedAt = new Date();
+      alarm.acknowledgedBy = userId;
+    }
+
+    this.logger.log(`Alarm ${alarmId} approved at level ${level} by ${userId}`);
+    return this.plcAlarmRepository.save(alarm);
+  }
+
+  /**
+   * Escalate alarm to next approval level
+   */
+  async escalateAlarm(tenantId: string, alarmId: string): Promise<PlcAlarm> {
+    const alarm = await this.findById(alarmId, tenantId);
+
+    if (alarm.acknowledged) {
+      throw new Error('Cannot escalate an already acknowledged alarm');
+    }
+
+    alarm.escalatedAt = new Date();
+    // Required level increases, pushing it to a higher authority
+    if (alarm.requiredApprovalLevel < 3) {
+      alarm.requiredApprovalLevel += 1;
+    }
+
+    this.logger.log(`Alarm ${alarmId} escalated to level ${alarm.requiredApprovalLevel}`);
+    return this.plcAlarmRepository.save(alarm);
+  }
+
+  /**
+   * Compute SLA parameters based on alarm severity
+   */
+  private computeAlarmSla(severity: AlarmSeverity): {
+    requiredLevel: number;
+    slaMs: number;
+    autoEscalateMs: number;
+  } {
+    switch (severity) {
+      case AlarmSeverity.EMERGENCY:
+        return { requiredLevel: 3, slaMs: 5 * 60 * 1000, autoEscalateMs: 2 * 60 * 1000 };
+      case AlarmSeverity.CRITICAL:
+        return { requiredLevel: 2, slaMs: 15 * 60 * 1000, autoEscalateMs: 5 * 60 * 1000 };
+      case AlarmSeverity.WARNING:
+        return { requiredLevel: 1, slaMs: 60 * 60 * 1000, autoEscalateMs: 30 * 60 * 1000 };
+      default:
+        return { requiredLevel: 1, slaMs: 4 * 60 * 60 * 1000, autoEscalateMs: 2 * 60 * 60 * 1000 };
+    }
+  }
+
+  /**
+   * Apply SLA parameters to a newly created alarm
+   */
+  applySlaToAlarm(alarm: PlcAlarm): void {
+    const sla = this.computeAlarmSla(alarm.severity);
+    alarm.requiredApprovalLevel = sla.requiredLevel;
+    alarm.slaDeadline = new Date(Date.now() + sla.slaMs);
+    alarm.autoEscalateAfterMs = sla.autoEscalateMs;
   }
 }

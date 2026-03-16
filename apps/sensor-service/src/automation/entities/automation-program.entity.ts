@@ -14,6 +14,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { Auditable } from '../../infrastructure/audit';
 
 /**
  * Program execution mode
@@ -121,6 +122,7 @@ export interface TriggerConfig {
 /**
  * AutomationProgram entity - IEC 61131-3 compliant automation program
  */
+@Auditable()
 @ObjectType()
 @Entity('automation_programs')
 @Index(['tenantId', 'deviceId'])

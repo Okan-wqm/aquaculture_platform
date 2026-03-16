@@ -121,7 +121,11 @@ export class ListBatchesHandler implements IQueryHandler<ListBatchesQuery, Pagin
     // Sorting
     const validSortFields = ['stockedAt', 'batchNumber', 'currentQuantity', 'status', 'createdAt'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'stockedAt';
-    queryBuilder.orderBy(`batch.${sortField}`, sortOrder);
+    const validSortOrders = ['ASC', 'DESC'] as const;
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+      ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
+      : 'DESC';
+    queryBuilder.orderBy(`batch.${sortField}`, safeSortOrder);
 
     // Count total
     const total = await queryBuilder.getCount();

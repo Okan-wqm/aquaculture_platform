@@ -116,10 +116,15 @@ export class ListTanksHandler
       'updatedAt',
     ];
 
+    const validSortOrders = ['ASC', 'DESC'] as const;
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+      ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
+      : 'ASC';
+
     if (validSortFields.includes(sortBy)) {
       queryBuilder.orderBy(
         `tank.${sortBy}`,
-        sortOrder as 'ASC' | 'DESC',
+        safeSortOrder,
       );
     } else {
       queryBuilder.orderBy('tank.name', 'ASC');

@@ -83,7 +83,11 @@ export class GetFeedingRecordsHandler implements IQueryHandler<GetFeedingRecords
     // Sıralama
     const validSortFields = ['feedingDate', 'feedingTime', 'actualAmount', 'variance', 'createdAt'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'feedingDate';
-    queryBuilder.orderBy(`fr.${sortField}`, sortOrder);
+    const validSortOrders = ['ASC', 'DESC'] as const;
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+      ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
+      : 'DESC';
+    queryBuilder.orderBy(`fr.${sortField}`, safeSortOrder);
 
     // Sayım
     const total = await queryBuilder.getCount();

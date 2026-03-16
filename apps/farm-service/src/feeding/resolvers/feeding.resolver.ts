@@ -24,8 +24,11 @@ import {
 import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
-import { Roles, Role } from '@platform/backend-common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Roles, Role, CurrentTenant, CurrentUser } from '@platform/backend-common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
+import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -775,6 +778,8 @@ export class FeedingResolver {
     private readonly queryBus: QueryBus,
     private readonly growthSimulator: GrowthSimulatorService,
     private readonly feedForecastService: FeedConsumptionForecastService,
+    @InjectRepository(FeedingRecord)
+    private readonly feedingRecordRepository: Repository<FeedingRecord>,
   ) {}
 
   // ==========================================================================
@@ -787,15 +792,12 @@ export class FeedingResolver {
   @Query(() => FeedingRecord, { nullable: true })
   async feedingRecord(
     @Args('id', { type: () => ID }) id: string,
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
   ): Promise<FeedingRecord | null> {
-    // GetFeedingRecordsQuery'de id filtreleme için batchId kullanabiliriz
-    // veya doğrudan repository'den çekebiliriz - şimdilik boş filter ile tüm kayıtları alıp filtreleme yapıyoruz
-    const result = await this.queryBus.execute(
-      new GetFeedingRecordsQuery(tenantId, undefined, 1, 1000),
-    );
-    const typedResult = result as { items: FeedingRecord[] };
-    return typedResult.items.find(item => item.id === id) || null;
+    return this.feedingRecordRepository.findOne({
+      where: { id, tenantId },
+      relations: ['batch', 'feed', 'tank'],
+    });
   }
 
   /**
@@ -803,7 +805,7 @@ export class FeedingResolver {
    */
   @Query(() => FeedingRecordConnection)
   async feedingRecords(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: FeedingRecordFilterInput,
     @Args('pagination', { nullable: true }) pagination?: FeedingPaginationInput,
   ): Promise<FeedingRecordConnection> {
@@ -829,7 +831,7 @@ export class FeedingResolver {
    */
   @Query(() => DailyFeedingPlanResponse)
   async dailyFeedingPlan(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('siteId', { type: () => ID }) siteId: string,
     @Args('date', { nullable: true }) date?: Date,
   ): Promise<DailyFeedingPlanResponse> {
@@ -843,7 +845,7 @@ export class FeedingResolver {
    */
   @Query(() => FeedingSummaryResponse)
   async feedingSummary(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('entityType') entityType: 'batch' | 'tank',
     @Args('entityId', { type: () => ID }) entityId: string,
     @Args('startDate', { nullable: true }) startDate?: Date,
@@ -859,7 +861,7 @@ export class FeedingResolver {
    */
   @Query(() => FeedInventoryConnection)
   async feedInventory(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: FeedInventoryFilterInput,
     @Args('pagination', { nullable: true }) pagination?: FeedingPaginationInput,
   ): Promise<FeedInventoryConnection> {
@@ -886,10 +888,10 @@ export class FeedingResolver {
    */
   @Query(() => GrowthSimulationResponse, { description: 'Simulate fish growth and feed requirements' })
   async growthSimulation(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('schemaName') schemaName: string,
+    @CurrentTenant() tenantId: string,
     @Args('input') input: GrowthSimulationInput,
   ): Promise<GrowthSimulationResponse> {
+    const schemaName = getTenantSchemaName(tenantId);
     const result = await this.growthSimulator.simulateGrowth({
       tenantId,
       schemaName,
@@ -917,10 +919,10 @@ export class FeedingResolver {
    */
   @Query(() => FeedForecastResponse, { description: 'Forecast feed consumption and stockout dates' })
   async feedConsumptionForecast(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('schemaName') schemaName: string,
+    @CurrentTenant() tenantId: string,
     @Args('input', { nullable: true }) input?: FeedForecastInput,
   ): Promise<FeedForecastResponse> {
+    const schemaName = getTenantSchemaName(tenantId);
     const result = await this.feedForecastService.forecastConsumption({
       tenantId,
       schemaName,
@@ -995,8 +997,7 @@ export class FeedingResolver {
    */
   @Query(() => [ActiveTankResponse], { description: 'Get all active tanks with fish for simulation' })
   async activeTanks(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('schemaName') schemaName: string,
+    @CurrentTenant() tenantId: string,
   ): Promise<ActiveTankResponse[]> {
     const tanks = await this.growthSimulator.getActiveTanks(tenantId);
     return tanks.map(t => ({
@@ -1021,8 +1022,8 @@ export class FeedingResolver {
   @Mutation(() => FeedingRecord)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createFeedingRecord(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
     @Args('input') input: CreateFeedingRecordInput,
   ): Promise<FeedingRecord> {
     return this.commandBus.execute(
@@ -1062,9 +1063,9 @@ export class FeedingResolver {
   @Mutation(() => FeedingRecord)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateFeedingRecord(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('id', { type: () => ID }) id: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentUser('sub') userId: string,
     @Args('input') input: UpdateFeedingRecordInput,
   ): Promise<FeedingRecord> {
     return this.commandBus.execute(
@@ -1089,8 +1090,8 @@ export class FeedingResolver {
   @Mutation(() => FeedInventory)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async addFeedInventory(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
     @Args('input') input: AddFeedInventoryInput,
   ): Promise<FeedInventory> {
     return this.commandBus.execute(
@@ -1121,8 +1122,8 @@ export class FeedingResolver {
   @Mutation(() => FeedInventory)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async consumeFeedInventory(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
     @Args('input') input: ConsumeFeedInventoryInput,
   ): Promise<FeedInventory> {
     return this.commandBus.execute(
@@ -1146,8 +1147,8 @@ export class FeedingResolver {
   @Mutation(() => FeedInventory)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async adjustFeedInventory(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
     @Args('input') input: AdjustFeedInventoryInput,
   ): Promise<FeedInventory> {
     return this.commandBus.execute(

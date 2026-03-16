@@ -22,8 +22,9 @@ import {
 } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
-import { Roles, Role } from '@platform/backend-common';
-import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -394,12 +395,14 @@ export class GrowthAnalysisResponse {
 // RESOLVER
 // ============================================================================
 
-@UseGuards(GqlAuthGuard)
+@UseGuards(TenantGuard)
 @Resolver(() => GrowthMeasurement)
 export class GrowthResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(GrowthMeasurement)
+    private readonly measurementRepository: Repository<GrowthMeasurement>,
   ) {}
 
   // ==========================================================================
@@ -412,13 +415,12 @@ export class GrowthResolver {
   @Query(() => GrowthMeasurement, { nullable: true })
   async growthMeasurement(
     @Args('id', { type: () => ID }) id: string,
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
   ): Promise<GrowthMeasurement | null> {
-    const result = await this.queryBus.execute(
-      new GetGrowthMeasurementsQuery(tenantId, {}),
-    ) as PaginatedQueryResult<GrowthMeasurement>;
-    // Filter by ID client-side since filter doesn't support ids
-    return result.data.find((item: GrowthMeasurement) => item.id === id) || null;
+    return this.measurementRepository.findOne({
+      where: { id, tenantId },
+      relations: ['batch'],
+    });
   }
 
   /**
@@ -426,7 +428,7 @@ export class GrowthResolver {
    */
   @Query(() => GrowthMeasurementConnection)
   async growthMeasurements(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: GrowthMeasurementFilterInput,
     @Args('pagination', { nullable: true }) pagination?: GrowthPaginationInput,
   ): Promise<GrowthMeasurementConnection> {
@@ -452,7 +454,7 @@ export class GrowthResolver {
    */
   @Query(() => GrowthAnalysisResponse)
   async growthAnalysis(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
   ): Promise<GrowthAnalysisResponse> {
     return this.queryBus.execute(
@@ -465,7 +467,7 @@ export class GrowthResolver {
    */
   @Query(() => GrowthMeasurement, { nullable: true })
   async latestGrowthMeasurement(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
   ): Promise<GrowthMeasurement | null> {
     return this.queryBus.execute(
@@ -478,7 +480,7 @@ export class GrowthResolver {
    */
   @Query(() => [GrowthMeasurement])
   async batchGrowthHistory(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('limit', { type: () => Int, nullable: true }) limit?: number,
   ): Promise<GrowthMeasurement[]> {
@@ -505,8 +507,8 @@ export class GrowthResolver {
   @Mutation(() => GrowthMeasurement)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recordGrowthSample(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
     @Args('input') input: RecordGrowthSampleInput,
   ): Promise<GrowthMeasurement> {
     return this.commandBus.execute(
@@ -536,8 +538,8 @@ export class GrowthResolver {
   @Mutation(() => GrowthMeasurement)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateBatchWeightFromSample(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser('sub') userId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('measurementId', { type: () => ID }) measurementId: string,
   ): Promise<GrowthMeasurement> {
@@ -552,9 +554,9 @@ export class GrowthResolver {
   @Mutation(() => GrowthMeasurement)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async verifyMeasurement(
-    @Args('tenantId', { type: () => ID }) tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Args('measurementId', { type: () => ID }) measurementId: string,
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentUser('sub') userId: string,
     @Args('notes', { nullable: true }) notes?: string,
   ): Promise<GrowthMeasurement> {
     return this.commandBus.execute(

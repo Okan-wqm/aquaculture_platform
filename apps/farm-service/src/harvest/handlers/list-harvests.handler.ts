@@ -106,8 +106,12 @@ export class ListHarvestsHandler implements IQueryHandler<ListHarvestsQuery, Pag
     // Apply pagination and sorting
     const validSortFields = ['harvestDate', 'createdAt', 'recordCode', 'lotNumber', 'totalBiomass', 'quantityHarvested', 'averageWeight', 'status'];
     const safeSortBy = validSortFields.includes(sortBy) ? sortBy : 'harvestDate';
+    const validSortOrders = ['ASC', 'DESC'] as const;
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+      ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
+      : 'DESC';
 
-    qb.orderBy(`harvest.${safeSortBy}`, sortOrder)
+    qb.orderBy(`harvest.${safeSortBy}`, safeSortOrder)
       .skip(offset)
       .take(limit);
 

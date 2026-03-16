@@ -95,10 +95,15 @@ export class ListSpeciesHandler
       'updatedAt',
     ];
 
+    const validSortOrders = ['ASC', 'DESC'] as const;
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+      ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
+      : 'ASC';
+
     if (validSortFields.includes(sortBy)) {
       queryBuilder.orderBy(
         `species.${sortBy}`,
-        sortOrder as 'ASC' | 'DESC',
+        safeSortOrder,
       );
     } else {
       queryBuilder.orderBy('species.commonName', 'ASC');

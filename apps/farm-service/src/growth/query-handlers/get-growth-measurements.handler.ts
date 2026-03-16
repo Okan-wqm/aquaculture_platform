@@ -73,7 +73,11 @@ export class GetGrowthMeasurementsHandler implements IQueryHandler<GetGrowthMeas
     // Sıralama
     const validSortFields = ['measurementDate', 'averageWeight', 'weightCV', 'performance', 'createdAt'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'measurementDate';
-    queryBuilder.orderBy(`gm.${sortField}`, sortOrder);
+    const validSortOrders = ['ASC', 'DESC'] as const;
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+      ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
+      : 'DESC';
+    queryBuilder.orderBy(`gm.${sortField}`, safeSortOrder);
 
     // Sayım
     const total = await queryBuilder.getCount();

@@ -167,6 +167,12 @@ export async function silentRefresh(): Promise<boolean> {
 
     accessToken = result.data.refreshToken.accessToken;
 
+    // Restore tenant ID from refresh response (critical for X-Tenant-Id header)
+    const refreshedTenantId = result.data.refreshToken.user?.tenantId;
+    if (refreshedTenantId) {
+      setTenantId(refreshedTenantId);
+    }
+
     // Re-install auth global in case it wasn't set yet
     installAuthGlobal();
 
@@ -404,6 +410,8 @@ class GraphQLClient {
   /**
    * Refresh access token via httpOnly cookie.
    * The refresh token cookie is sent automatically by the browser.
+   * ARCH-AUTH-001: Also restores tenantId from refresh response to prevent
+   * "Tenant ID is required" errors after 401 retry.
    */
   private async refreshAccessToken(): Promise<void> {
     try {
@@ -412,7 +420,7 @@ class GraphQLClient {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken } }`,
+          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id tenantId } } }`,
         }),
       });
 
@@ -428,6 +436,12 @@ class GraphQLClient {
       }
 
       setTokens(result.data.refreshToken.accessToken);
+
+      // Restore tenant ID from refresh response
+      const refreshedTenantId = result.data.refreshToken.user?.tenantId;
+      if (refreshedTenantId) {
+        setTenantId(refreshedTenantId);
+      }
     } catch (error) {
       clearTokens();
       throw error;
@@ -596,6 +610,8 @@ class RestClient {
   /**
    * Refresh access token via httpOnly cookie.
    * The refresh token cookie is sent automatically by the browser.
+   * ARCH-AUTH-001: Also restores tenantId from refresh response to prevent
+   * "Tenant ID is required" errors after 401 retry.
    */
   private async refreshAccessToken(): Promise<void> {
     try {
@@ -605,7 +621,7 @@ class RestClient {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken } }`,
+          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id tenantId } } }`,
         }),
       });
 
@@ -621,6 +637,12 @@ class RestClient {
       }
 
       setTokens(result.data.refreshToken.accessToken);
+
+      // Restore tenant ID from refresh response
+      const refreshedTenantId = result.data.refreshToken.user?.tenantId;
+      if (refreshedTenantId) {
+        setTenantId(refreshedTenantId);
+      }
     } catch (error) {
       clearTokens();
       throw error;

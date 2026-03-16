@@ -771,6 +771,12 @@ jobs:
               echo "=== Waiting 90s for services to bootstrap ==="
               sleep 90
 
+              # ARCH-NM-DNS: Graceful nginx reload after full deploy to ensure
+              # all upstream hostnames are resolved to current container IPs.
+              echo "=== Reloading nginx to pick up new container IPs ==="
+              docker exec aqua-nginx nginx -s reload 2>&1 || true
+              sleep 2
+
             else
               # ── Selective deploy mode (only affected services) ──
               echo "=== SELECTIVE DEPLOY: ${DEPLOY_SERVICES} ==="
@@ -788,6 +794,14 @@ jobs:
 
               echo "=== Waiting 30s for services to bootstrap ==="
               sleep 30
+
+              # ARCH-NM-DNS: Graceful nginx reload after container recreation.
+              # Belt-and-suspenders: the nginx config uses resolver + variable proxy_pass
+              # for dynamic DNS, but a reload ensures immediate resolution of new IPs
+              # without waiting for the resolver TTL to expire.
+              echo "=== Reloading nginx to pick up new container IPs ==="
+              docker exec aqua-nginx nginx -s reload 2>&1 || docker compose -f docker-compose.droplet.yml restart nginx 2>&1 || true
+              sleep 2
             fi
 
             echo "=== Container health status ==="

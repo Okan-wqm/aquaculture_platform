@@ -420,7 +420,7 @@ class GraphQLClient {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id tenantId } } }`,
+          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id email role tenantId } } }`,
         }),
       });
 
@@ -621,7 +621,7 @@ class RestClient {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id tenantId } } }`,
+          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id email role tenantId } } }`,
         }),
       });
 

@@ -53,13 +53,13 @@ const ConsentBanner: React.FC = () => {
 
   const handleAcceptAll = useCallback(async () => {
     const allConsentTypes: ConsentType[] = [
-      'essential',
-      'data_processing',
-      'analytics',
-      'marketing',
-      'third_party',
-      'data_sharing',
-      'profiling',
+      'ESSENTIAL',
+      'DATA_PROCESSING',
+      'ANALYTICS',
+      'MARKETING',
+      'THIRD_PARTY',
+      'DATA_SHARING',
+      'PROFILING',
     ];
 
     try {
@@ -79,9 +79,9 @@ const ConsentBanner: React.FC = () => {
     }));
 
     // Always grant essential
-    const hasEssential = consents.find((c) => c.consentType === 'essential');
+    const hasEssential = consents.find((c) => c.consentType === 'ESSENTIAL');
     if (!hasEssential) {
-      consents.push({ consentType: 'essential', granted: true });
+      consents.push({ consentType: 'ESSENTIAL', granted: true });
     } else {
       hasEssential.granted = true;
     }
@@ -96,20 +96,20 @@ const ConsentBanner: React.FC = () => {
 
   const handleEssentialOnly = useCallback(async () => {
     const allConsentTypes: ConsentType[] = [
-      'essential',
-      'data_processing',
-      'analytics',
-      'marketing',
-      'third_party',
-      'data_sharing',
-      'profiling',
+      'ESSENTIAL',
+      'DATA_PROCESSING',
+      'ANALYTICS',
+      'MARKETING',
+      'THIRD_PARTY',
+      'DATA_SHARING',
+      'PROFILING',
     ];
 
     try {
       await recordBulkConsent(
         allConsentTypes.map((ct) => ({
           consentType: ct,
-          granted: ct === 'essential',
+          granted: ct === 'ESSENTIAL',
         })),
       );
     } catch {
@@ -119,7 +119,7 @@ const ConsentBanner: React.FC = () => {
   }, [recordBulkConsent]);
 
   const handleToggleConsent = useCallback((consentType: ConsentType) => {
-    if (consentType === 'essential') return; // Essential cannot be toggled
+    if (consentType === 'ESSENTIAL') return; // Essential cannot be toggled
     setLocalConsents((prev) => ({
       ...prev,
       [consentType]: !prev[consentType],
@@ -131,13 +131,13 @@ const ConsentBanner: React.FC = () => {
   }
 
   const consentTypes: ConsentType[] = [
-    'essential',
-    'data_processing',
-    'analytics',
-    'marketing',
-    'third_party',
-    'data_sharing',
-    'profiling',
+    'ESSENTIAL',
+    'DATA_PROCESSING',
+    'ANALYTICS',
+    'MARKETING',
+    'THIRD_PARTY',
+    'DATA_SHARING',
+    'PROFILING',
   ];
 
   return (
@@ -196,7 +196,7 @@ const ConsentBanner: React.FC = () => {
                 <div className="mt-4 space-y-3 max-h-64 overflow-y-auto pr-2">
                   {consentTypes.map((ct) => {
                     const info = CONSENT_TYPE_LABELS[ct];
-                    const isEssential = ct === 'essential';
+                    const isEssential = ct === 'ESSENTIAL';
                     const isGranted = localConsents[ct] ?? false;
 
                     return (

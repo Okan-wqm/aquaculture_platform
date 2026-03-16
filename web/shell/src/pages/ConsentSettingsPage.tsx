@@ -36,7 +36,7 @@ const ConsentCard: React.FC<{
   onToggle: (consentType: ConsentType, granted: boolean) => void;
 }> = ({ consentType, granted, isLoading, onToggle }) => {
   const info = CONSENT_TYPE_LABELS[consentType];
-  const isEssential = consentType === 'essential';
+  const isEssential = consentType === 'ESSENTIAL';
 
   return (
     <div className="flex items-start gap-4 p-4 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
@@ -179,13 +179,13 @@ const ConsentSettingsPage: React.FC = () => {
   }
 
   const consentTypes: ConsentType[] = [
-    'essential',
-    'data_processing',
-    'analytics',
-    'marketing',
-    'third_party',
-    'data_sharing',
-    'profiling',
+    'ESSENTIAL',
+    'DATA_PROCESSING',
+    'ANALYTICS',
+    'MARKETING',
+    'THIRD_PARTY',
+    'DATA_SHARING',
+    'PROFILING',
   ];
 
   return (

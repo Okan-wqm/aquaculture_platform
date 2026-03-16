@@ -23,13 +23,13 @@ import {
 // ============================================================================
 
 export type ConsentType =
-  | 'essential'
-  | 'analytics'
-  | 'marketing'
-  | 'third_party'
-  | 'data_processing'
-  | 'data_sharing'
-  | 'profiling';
+  | 'ESSENTIAL'
+  | 'ANALYTICS'
+  | 'MARKETING'
+  | 'THIRD_PARTY'
+  | 'DATA_PROCESSING'
+  | 'DATA_SHARING'
+  | 'PROFILING';
 
 export interface ConsentStatusItem {
   consentType: ConsentType;
@@ -103,31 +103,31 @@ export const consentKeys = {
 // ============================================================================
 
 export const CONSENT_TYPE_LABELS: Record<ConsentType, { label: string; description: string }> = {
-  essential: {
+  ESSENTIAL: {
     label: 'Essential Services',
     description: 'Required for the platform to function properly. Cannot be disabled.',
   },
-  data_processing: {
+  DATA_PROCESSING: {
     label: 'Data Processing',
     description: 'Allow processing of your aquaculture and operational data for service delivery.',
   },
-  analytics: {
+  ANALYTICS: {
     label: 'Analytics',
     description: 'Allow collection of usage data to improve the platform experience.',
   },
-  marketing: {
+  MARKETING: {
     label: 'Marketing Communications',
     description: 'Receive product updates, newsletters, and promotional content.',
   },
-  third_party: {
+  THIRD_PARTY: {
     label: 'Third-Party Integrations',
     description: 'Allow sharing data with approved third-party service providers.',
   },
-  data_sharing: {
+  DATA_SHARING: {
     label: 'Data Sharing',
     description: 'Allow sharing aggregated or anonymized data for research and benchmarking.',
   },
-  profiling: {
+  PROFILING: {
     label: 'Profiling',
     description: 'Allow creation of usage profiles for personalized recommendations.',
   },

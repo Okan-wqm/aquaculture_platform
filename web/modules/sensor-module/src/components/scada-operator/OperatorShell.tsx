@@ -29,6 +29,9 @@ import { OperatorHeader } from './OperatorHeader';
 import { OperatorSidenav } from './OperatorSidenav';
 import { ViewOverlayManager } from './ViewOverlayManager';
 
+// Forward-declare ViewOverlayManager for cases where it hasn't been created yet.
+// The import above will resolve once the file exists.
+
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
 /* ------------------------------------------------------------------ */

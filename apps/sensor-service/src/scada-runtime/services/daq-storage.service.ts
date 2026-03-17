@@ -1,0 +1,479 @@
+/**
+ * DaqStorageService — Persistent historical data storage for SCADA tags.
+ *
+ * Responsibilities:
+ *   - Write tag value samples for all DAQ-enabled tags.
+ *   - Query raw or aggregated historical data for one or more tags.
+ *   - Chunked queries that split large time ranges into 6-hour windows
+ *     to avoid memory pressure and allow streaming to clients.
+ *   - Periodic cleanup of data beyond the configured retention window.
+ *
+ * Storage model (TimescaleDB / PostgreSQL):
+ *   Table: scada_tag_history
+ *     tag_id        TEXT        NOT NULL
+ *     timestamp     TIMESTAMPTZ NOT NULL
+ *     value         DOUBLE PRECISION
+ *     quality       TEXT        (good | bad | uncertain)
+ *
+ *   The table is expected to be a TimescaleDB hypertable partitioned on
+ *   `timestamp`.  A standard PostgreSQL table also works — remove the
+ *   time_bucket() calls and replace with date_trunc().
+ *
+ * Aggregation mapping:
+ *   DaqAggregation.function: min | max | avg | sum
+ *   DaqAggregation.interval: 1min | 5min | 10min | 30min | 1h | 1d
+ */
+
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+
+import type {
+  TagValueChange,
+  HistoricalDataPoint,
+  DaqAggregation,
+  DaqResultPayload,
+} from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+
+/* ------------------------------------------------------------------ */
+/*  Constants                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Width of each chunk for queryChunked (ms). */
+const CHUNK_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+/** SQL table name — change to match your migration. */
+const TABLE_NAME = 'scada_tag_history';
+
+/** Mapping from DaqAggregation.interval to a SQL interval literal. */
+const INTERVAL_SQL: Record<DaqAggregation['interval'], string> = {
+  '1min':  '1 minute',
+  '5min':  '5 minutes',
+  '10min': '10 minutes',
+  '30min': '30 minutes',
+  '1h':    '1 hour',
+  '1d':    '1 day',
+};
+
+/** Mapping from DaqAggregation.function to a SQL aggregate function. */
+const AGG_FN_SQL: Record<DaqAggregation['function'], string> = {
+  min: 'MIN',
+  max: 'MAX',
+  avg: 'AVG',
+  sum: 'SUM',
+};
+
+/* ------------------------------------------------------------------ */
+/*  Internal helpers                                                    */
+/* ------------------------------------------------------------------ */
+
+interface RawHistoryRow {
+  tag_id: string;
+  ts: Date;
+  value: number | null;
+  quality: string;
+}
+
+interface AggregatedRow {
+  tag_id: string;
+  bucket: Date;
+  agg_value: number | null;
+}
+
+/** Convert query rows into the HistoricalDataPoint format keyed by tagId. */
+function rowsToDataMap(
+  tagIds: string[],
+  rows: RawHistoryRow[],
+): Record<string, HistoricalDataPoint[]> {
+  const result: Record<string, HistoricalDataPoint[]> = {};
+  for (const id of tagIds) result[id] = [];
+
+  for (const row of rows) {
+    if (!result[row.tag_id]) result[row.tag_id] = [];
+    result[row.tag_id].push({
+      timestamp: row.ts instanceof Date ? row.ts.getTime() : Number(row.ts),
+      value: row.value ?? 0,
+    });
+  }
+
+  return result;
+}
+
+function aggRowsToDataMap(
+  tagIds: string[],
+  rows: AggregatedRow[],
+): Record<string, HistoricalDataPoint[]> {
+  const result: Record<string, HistoricalDataPoint[]> = {};
+  for (const id of tagIds) result[id] = [];
+
+  for (const row of rows) {
+    if (!result[row.tag_id]) result[row.tag_id] = [];
+    result[row.tag_id].push({
+      timestamp: row.bucket instanceof Date ? row.bucket.getTime() : Number(row.bucket),
+      value: row.agg_value ?? 0,
+    });
+  }
+
+  return result;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Service                                                             */
+/* ------------------------------------------------------------------ */
+
+@Injectable()
+export class DaqStorageService {
+  private readonly logger = new Logger(DaqStorageService.name);
+
+  constructor(
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+  ) {}
+
+  /* ---------------------------------------------------------------- */
+  /*  Write                                                            */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Persist a batch of tag value changes.
+   *
+   * Uses a single parameterised INSERT with multiple value rows for
+   * efficiency.  On conflict (same tag_id + timestamp) the row is
+   * updated so re-ingestion is idempotent.
+   */
+  async addValues(deviceId: string, values: TagValueChange[]): Promise<void> {
+    if (values.length === 0) return;
+
+    // Build a multi-row VALUES clause.
+    // Each row: (tag_id, timestamp, value, quality)
+    const rows: string[] = [];
+    const params: unknown[] = [];
+    let pi = 1;
+
+    for (const change of values) {
+      const numVal =
+        typeof change.value === 'number'
+          ? change.value
+          : typeof change.value === 'boolean'
+          ? (change.value ? 1 : 0)
+          : parseFloat(String(change.value));
+
+      rows.push(`($${pi}, $${pi + 1}, $${pi + 2}, $${pi + 3})`);
+      params.push(
+        change.tagId,
+        new Date(change.timestamp),
+        isNaN(numVal) ? null : numVal,
+        change.quality ?? 'good',
+      );
+      pi += 4;
+    }
+
+    const sql = `
+      INSERT INTO ${TABLE_NAME} (tag_id, timestamp, value, quality)
+      VALUES ${rows.join(', ')}
+      ON CONFLICT (tag_id, timestamp)
+      DO UPDATE SET
+        value   = EXCLUDED.value,
+        quality = EXCLUDED.quality
+    `;
+
+    try {
+      await this.dataSource.query(sql, params);
+      this.logger.debug(
+        `DaqStorage: wrote ${values.length} values for device ${deviceId}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `DaqStorage: failed to write values for device ${deviceId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw err;
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Raw query                                                        */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Query raw (unaggregated) historical data for one or more tags
+   * within the given time range.
+   *
+   * Results are ordered ascending by timestamp per tag.
+   * Maximum 50 000 rows per tag to prevent runaway queries.
+   */
+  async queryValues(
+    tagIds: string[],
+    from: Date,
+    to: Date,
+  ): Promise<Record<string, HistoricalDataPoint[]>> {
+    if (tagIds.length === 0) return {};
+
+    // Build a parameterised ANY($n) for the tagIds list.
+    const sql = `
+      SELECT
+        tag_id,
+        timestamp AS ts,
+        value,
+        quality
+      FROM ${TABLE_NAME}
+      WHERE tag_id = ANY($1)
+        AND timestamp >= $2
+        AND timestamp <  $3
+      ORDER BY tag_id, timestamp ASC
+      LIMIT 50000
+    `;
+
+    try {
+      const rows: RawHistoryRow[] = await this.dataSource.query(sql, [
+        tagIds,
+        from,
+        to,
+      ]);
+      return rowsToDataMap(tagIds, rows);
+    } catch (err) {
+      this.logger.error('DaqStorage: queryValues failed', err instanceof Error ? err.stack : String(err));
+      throw err;
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Aggregated query                                                 */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Query aggregated historical data.
+   *
+   * Uses TimescaleDB time_bucket() when available; falls back to
+   * date_trunc() for standard PostgreSQL.  The implementation tries
+   * time_bucket() first (it's a superset) — the caller should ensure
+   * the TimescaleDB extension is loaded if using it.
+   *
+   * Results are ordered ascending by bucket per tag.
+   */
+  async queryAggregated(
+    tagIds: string[],
+    from: Date,
+    to: Date,
+    aggregation: DaqAggregation,
+  ): Promise<Record<string, HistoricalDataPoint[]>> {
+    if (tagIds.length === 0) return {};
+
+    const intervalSql = INTERVAL_SQL[aggregation.interval];
+    const aggFnSql = AGG_FN_SQL[aggregation.function];
+
+    if (!intervalSql || !aggFnSql) {
+      throw new Error(
+        `DaqStorage: unsupported aggregation — fn=${aggregation.function} interval=${aggregation.interval}`,
+      );
+    }
+
+    // Use time_bucket (TimescaleDB). Wrap in try/catch and fall back to
+    // date_trunc if the function is not available.
+    const sql = `
+      SELECT
+        tag_id,
+        time_bucket($1::INTERVAL, timestamp) AS bucket,
+        ${aggFnSql}(value)                   AS agg_value
+      FROM ${TABLE_NAME}
+      WHERE tag_id = ANY($2)
+        AND timestamp >= $3
+        AND timestamp <  $4
+        AND quality = 'good'
+      GROUP BY tag_id, bucket
+      ORDER BY tag_id, bucket ASC
+    `;
+
+    const fallbackSql = `
+      SELECT
+        tag_id,
+        date_trunc($1, timestamp) AS bucket,
+        ${aggFnSql}(value)        AS agg_value
+      FROM ${TABLE_NAME}
+      WHERE tag_id = ANY($2)
+        AND timestamp >= $3
+        AND timestamp <  $4
+        AND quality = 'good'
+      GROUP BY tag_id, bucket
+      ORDER BY tag_id, bucket ASC
+    `;
+
+    // date_trunc only accepts specific unit strings, not intervals — map
+    const dateTruncUnit = this.intervalToDateTruncUnit(aggregation.interval);
+
+    let rows: AggregatedRow[];
+    try {
+      rows = await this.dataSource.query(sql, [intervalSql, tagIds, from, to]);
+    } catch {
+      // time_bucket not available — use date_trunc fallback
+      this.logger.warn(
+        'DaqStorage: time_bucket unavailable, falling back to date_trunc',
+      );
+      rows = await this.dataSource.query(fallbackSql, [dateTruncUnit, tagIds, from, to]);
+    }
+
+    return aggRowsToDataMap(tagIds, rows);
+  }
+
+  private intervalToDateTruncUnit(interval: DaqAggregation['interval']): string {
+    switch (interval) {
+      case '1min':
+      case '5min':
+      case '10min':
+      case '30min':
+        return 'minute';
+      case '1h':
+        return 'hour';
+      case '1d':
+        return 'day';
+      default:
+        return 'hour';
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Chunked query                                                    */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Split a potentially large time range into 6-hour chunks and invoke
+   * the callback for each chunk as it resolves.
+   *
+   * This lets the calling gateway stream partial results to the client
+   * without holding a large result set in memory.
+   *
+   * The callback receives a DaqResultPayload with:
+   *   - queryId:    echoed from the caller
+   *   - data:       partial data for this chunk
+   *   - hasMore:    true if more chunks will follow
+   *   - chunkIndex: 0-based index of this chunk
+   */
+  async queryChunked(
+    tagIds: string[],
+    from: Date,
+    to: Date,
+    chunkCallback: (chunk: DaqResultPayload) => void,
+    queryId = crypto.randomUUID(),
+    aggregation?: DaqAggregation,
+  ): Promise<void> {
+    if (tagIds.length === 0) {
+      chunkCallback({ queryId, data: {}, hasMore: false, chunkIndex: 0 });
+      return;
+    }
+
+    // Build chunk boundaries
+    const chunks: Array<{ from: Date; to: Date }> = [];
+    let cursor = from.getTime();
+    const end = to.getTime();
+
+    while (cursor < end) {
+      const chunkEnd = Math.min(cursor + CHUNK_WINDOW_MS, end);
+      chunks.push({ from: new Date(cursor), to: new Date(chunkEnd) });
+      cursor = chunkEnd;
+    }
+
+    if (chunks.length === 0) {
+      chunkCallback({ queryId, data: {}, hasMore: false, chunkIndex: 0 });
+      return;
+    }
+
+    this.logger.debug(
+      `DaqStorage: chunked query ${queryId} — ${chunks.length} chunk(s) ` +
+        `from ${from.toISOString()} to ${to.toISOString()}`,
+    );
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const hasMore = i < chunks.length - 1;
+
+      let data: Record<string, HistoricalDataPoint[]>;
+      if (aggregation) {
+        data = await this.queryAggregated(tagIds, chunk.from, chunk.to, aggregation);
+      } else {
+        data = await this.queryValues(tagIds, chunk.from, chunk.to);
+      }
+
+      chunkCallback({
+        queryId,
+        data,
+        hasMore,
+        chunkIndex: i,
+      });
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Cleanup                                                          */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Delete all records older than `retentionDays` days.
+   *
+   * Returns the number of deleted rows.  Safe to run on a schedule
+   * (e.g. daily via NestJS @Cron).
+   */
+  async cleanupOldData(retentionDays: number): Promise<number> {
+    if (retentionDays <= 0) {
+      throw new RangeError('retentionDays must be a positive integer');
+    }
+
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    const sql = `
+      DELETE FROM ${TABLE_NAME}
+      WHERE timestamp < $1
+    `;
+
+    try {
+      const result: { rowCount: number } = await this.dataSource.query(sql, [cutoff]);
+      const deleted = result.rowCount ?? 0;
+      this.logger.log(
+        `DaqStorage: cleanup removed ${deleted} row(s) older than ${cutoff.toISOString()} ` +
+          `(retentionDays=${retentionDays})`,
+      );
+      return deleted;
+    } catch (err) {
+      this.logger.error('DaqStorage: cleanupOldData failed', err instanceof Error ? err.stack : String(err));
+      throw err;
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Diagnostics                                                      */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Returns the approximate row count in the history table.
+   * Uses reltuples for speed (acceptable for monitoring dashboards).
+   */
+  async getApproxRowCount(): Promise<number> {
+    const sql = `
+      SELECT reltuples::BIGINT AS count
+      FROM pg_class
+      WHERE relname = $1
+    `;
+    try {
+      const rows: Array<{ count: string }> = await this.dataSource.query(sql, [TABLE_NAME]);
+      return parseInt(rows[0]?.count ?? '0', 10);
+    } catch {
+      return -1;
+    }
+  }
+
+  /**
+   * Returns the oldest and newest timestamps in the history table.
+   */
+  async getDataBounds(): Promise<{ oldest: Date | null; newest: Date | null }> {
+    const sql = `
+      SELECT MIN(timestamp) AS oldest, MAX(timestamp) AS newest
+      FROM ${TABLE_NAME}
+    `;
+    try {
+      const rows: Array<{ oldest: Date | null; newest: Date | null }> =
+        await this.dataSource.query(sql);
+      return rows[0] ?? { oldest: null, newest: null };
+    } catch {
+      return { oldest: null, newest: null };
+    }
+  }
+}

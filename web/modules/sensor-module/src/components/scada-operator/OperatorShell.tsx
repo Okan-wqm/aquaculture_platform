@@ -29,9 +29,6 @@ import { OperatorHeader } from './OperatorHeader';
 import { OperatorSidenav } from './OperatorSidenav';
 import { ViewOverlayManager } from './ViewOverlayManager';
 
-// Forward-declare ViewOverlayManager for cases where it hasn't been created yet.
-// The import above will resolve once the file exists.
-
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
 /* ------------------------------------------------------------------ */
@@ -54,6 +51,8 @@ export interface OperatorShellProps {
   onNavigate?: (screenId: string) => void;
   /** Currently active screen id (controlled externally). */
   activeScreenId?: string;
+  /** Optional project/application name shown in the header logo area. */
+  projectName?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -92,55 +91,50 @@ const AlarmPanel = React.memo(() => {
     })),
   );
 
-  // Lazily import the store slice that holds runtime alarms to avoid
-  // a circular dep at module-load time.
-  const activeAlarms = useOperatorStore((s) =>
-    // alarmRuntimeSlice is merged into the same store in production builds;
-    // we access it through the raw store state safely.
-    (s as unknown as { activeAlarms: unknown[] }).activeAlarms ?? [],
+  // Access runtime alarms from the operator store. The alarmRuntimeSlice
+  // is merged into the same store at runtime via createScadaStore / operatorStore.
+  const activeAlarms = useOperatorStore(
+    (s) =>
+      (s as unknown as { activeAlarms: Array<{ id: string; severity: string; message: string; ruleName: string; onTime: number }> })
+        .activeAlarms ?? [],
   );
 
-  const criticalCount = activeAlarms.filter(
-    (a: unknown) => (a as { severity: string }).severity === 'critical',
-  ).length;
-  const highCount = activeAlarms.filter(
-    (a: unknown) => (a as { severity: string }).severity === 'high',
-  ).length;
-  const warningCount = activeAlarms.filter(
-    (a: unknown) => (a as { severity: string }).severity === 'warning',
-  ).length;
+  const criticalCount = activeAlarms.filter((a) => a.severity === 'critical').length;
+  const highCount     = activeAlarms.filter((a) => a.severity === 'high').length;
+  const warningCount  = activeAlarms.filter((a) => a.severity === 'warning').length;
 
   if (!alarmPanelOpen) return null;
 
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 transition-transform duration-300"
+      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col"
       style={{ maxHeight: '40vh' }}
       role="region"
       aria-label="Alarm panel"
     >
-      {/* Panel header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
+      {/* Panel header row */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 shrink-0">
         <div className="flex items-center gap-3">
           <Bell size={16} className="text-yellow-400" aria-hidden="true" />
           <span className="text-sm font-semibold text-gray-100">Active Alarms</span>
           <div className="flex items-center gap-1">
             <AlarmBadgeCount count={criticalCount} severity="critical" />
-            <AlarmBadgeCount count={highCount} severity="high" />
-            <AlarmBadgeCount count={warningCount} severity="warning" />
+            <AlarmBadgeCount count={highCount}     severity="high" />
+            <AlarmBadgeCount count={warningCount}  severity="warning" />
           </div>
         </div>
         <button
+          type="button"
           onClick={toggleAlarmPanel}
-          className="text-gray-400 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+          className="text-gray-400 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           aria-label="Close alarm panel"
         >
           Close
         </button>
       </div>
 
-      {/* Alarm list */}
-      <div className="overflow-y-auto" style={{ maxHeight: 'calc(40vh - 40px)' }}>
+      {/* Scrollable alarm list */}
+      <div className="flex-1 overflow-y-auto">
         {activeAlarms.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
             <CheckCircle2 size={20} aria-hidden="true" />
@@ -148,14 +142,7 @@ const AlarmPanel = React.memo(() => {
           </div>
         ) : (
           <ul className="divide-y divide-gray-800" role="list">
-            {(activeAlarms as Array<{
-              id: string;
-              severity: string;
-              message: string;
-              ruleName: string;
-              onTime: number;
-              status: string;
-            }>).map((alarm) => (
+            {activeAlarms.map((alarm) => (
               <li
                 key={alarm.id}
                 className="flex items-center gap-3 px-4 py-2 hover:bg-gray-800 transition-colors"
@@ -185,7 +172,9 @@ const AlarmPanel = React.memo(() => {
                   {new Date(alarm.onTime).toLocaleTimeString()}
                 </span>
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold ${SEVERITY_COLORS[alarm.severity] ?? 'bg-gray-600 text-white'}`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
+                    SEVERITY_COLORS[alarm.severity] ?? 'bg-gray-600 text-white'
+                  }`}
                 >
                   {alarm.severity}
                 </span>
@@ -208,10 +197,8 @@ function useCustomCss(css: string | undefined) {
 
   useEffect(() => {
     if (!css) {
-      if (styleRef.current) {
-        styleRef.current.remove();
-        styleRef.current = null;
-      }
+      styleRef.current?.remove();
+      styleRef.current = null;
       return;
     }
 
@@ -223,10 +210,8 @@ function useCustomCss(css: string | undefined) {
     styleRef.current.textContent = css;
 
     return () => {
-      if (styleRef.current) {
-        styleRef.current.remove();
-        styleRef.current = null;
-      }
+      styleRef.current?.remove();
+      styleRef.current = null;
     };
   }, [css]);
 }
@@ -236,7 +221,7 @@ function useCustomCss(css: string | undefined) {
 /* ------------------------------------------------------------------ */
 
 export const OperatorShell = React.memo<OperatorShellProps>(
-  ({ children, dataProviderType = 'live', onNavigate, activeScreenId }) => {
+  ({ children, dataProviderType = 'live', onNavigate, activeScreenId, projectName }) => {
     const {
       operatorLayout,
       sidenavOpen,
@@ -246,20 +231,16 @@ export const OperatorShell = React.memo<OperatorShellProps>(
     } = useOperatorStore(
       useShallow((s) => ({
         operatorLayout: s.operatorLayout,
-        sidenavOpen: s.sidenavOpen,
-        kioskMode: s.kioskMode,
-        setKioskMode: s.setKioskMode,
-        toggleSidenav: s.toggleSidenav,
+        sidenavOpen:    s.sidenavOpen,
+        kioskMode:      s.kioskMode,
+        setKioskMode:   s.setKioskMode,
+        toggleSidenav:  s.toggleSidenav,
       })),
     );
 
-    const {
-      hideNavigation,
-      sidenavMode,
-      customCss,
-    } = operatorLayout;
+    const { hideNavigation, sidenavMode, customCss, navItems } = operatorLayout;
 
-    // Inject custom CSS
+    // Inject optional custom CSS
     useCustomCss(customCss);
 
     // F11 → toggle kiosk mode
@@ -279,15 +260,19 @@ export const OperatorShell = React.memo<OperatorShellProps>(
     }, [handleKeyDown]);
 
     // Computed visibility flags
-    const isKiosk = kioskMode || hideNavigation;
+    const isKiosk    = kioskMode || hideNavigation;
     const showHeader = !isKiosk;
     const showSidenav = !isKiosk && sidenavMode !== 'void';
 
-    // For 'push' mode, we shift content area; for 'overlay' and 'fixed' we
-    // handle it via absolute positioning or fixed width.
-    const sidenavIsPush = sidenavMode === 'push' && sidenavOpen;
-    const sidenavIsFixed = sidenavMode === 'fixed';
-    const sidenavVisible = showSidenav && (sidenavIsFixed || sidenavOpen);
+    const sidenavIsFixed   = sidenavMode === 'fixed';
+    const sidenavIsOverlay = sidenavMode === 'overlay';
+    const sidenavIsPush    = sidenavMode === 'push';
+
+    // Safe navigate callback — guard against undefined
+    const handleNavigate = useCallback(
+      (screenId: string) => onNavigate?.(screenId),
+      [onNavigate],
+    );
 
     return (
       <DataProviderRoot type={dataProviderType}>
@@ -297,73 +282,67 @@ export const OperatorShell = React.memo<OperatorShellProps>(
           role="application"
           aria-label="SCADA operator interface"
         >
-          {/* Top header bar */}
+          {/* ── Top header ── */}
           {showHeader && (
             <OperatorHeader
-              onMenuClick={toggleSidenav}
-              onNavigate={onNavigate}
-              showMenuButton={sidenavMode !== 'fixed' && sidenavMode !== 'void'}
+              config={operatorLayout}
+              projectName={projectName}
             />
           )}
 
-          {/* Middle row: sidenav + content */}
-          <div className="relative flex flex-1 overflow-hidden">
-            {/* Sidenav — fixed always visible */}
+          {/* ── Middle row: sidenav + content area ── */}
+          <div className="relative flex flex-1 min-h-0 overflow-hidden">
+
+            {/* Fixed sidenav — always visible, takes its own column */}
             {showSidenav && sidenavIsFixed && (
               <OperatorSidenav
-                activeScreenId={activeScreenId}
-                onNavigate={onNavigate}
+                navItems={navItems}
+                activeScreenId={activeScreenId ?? ''}
                 mode="fixed"
-                open
+                onNavigate={handleNavigate}
               />
             )}
 
-            {/* Sidenav — push mode (shifts content) */}
-            {showSidenav && sidenavMode === 'push' && (
+            {/* Push sidenav — shifts content right when open */}
+            {showSidenav && sidenavIsPush && (
               <OperatorSidenav
-                activeScreenId={activeScreenId}
-                onNavigate={onNavigate}
+                navItems={navItems}
+                activeScreenId={activeScreenId ?? ''}
                 mode="push"
-                open={sidenavOpen}
+                onNavigate={handleNavigate}
               />
             )}
 
-            {/* Sidenav — overlay mode (floats above content) */}
-            {showSidenav && sidenavMode === 'overlay' && sidenavOpen && (
+            {/* Overlay sidenav — floats above content, with backdrop */}
+            {showSidenav && sidenavIsOverlay && sidenavOpen && (
               <>
-                {/* Backdrop */}
                 <div
-                  className="absolute inset-0 bg-black/40 z-30"
+                  className="absolute inset-0 bg-black/50 z-20"
                   onClick={toggleSidenav}
                   aria-hidden="true"
                 />
                 <OperatorSidenav
-                  activeScreenId={activeScreenId}
-                  onNavigate={onNavigate}
+                  navItems={navItems}
+                  activeScreenId={activeScreenId ?? ''}
                   mode="overlay"
-                  open={sidenavOpen}
+                  onNavigate={handleNavigate}
                 />
               </>
             )}
 
-            {/* Content area */}
+            {/* Main content area */}
             <main
-              className={[
-                'flex-1 relative overflow-hidden transition-all duration-200',
-                sidenavIsPush ? 'ml-0' : '',
-              ]
-                .join(' ')
-                .trim()}
+              className="flex-1 relative min-w-0 overflow-hidden"
               aria-label="Screen content"
             >
               {children}
             </main>
           </div>
 
-          {/* Alarm panel — bottom slide-up */}
+          {/* ── Alarm panel (bottom slide-up) ── */}
           <AlarmPanel />
 
-          {/* Overlay manager — dialogs, cards, iframes */}
+          {/* ── View overlay manager (dialogs, cards, iframes) ── */}
           <ViewOverlayManager />
         </div>
       </DataProviderRoot>

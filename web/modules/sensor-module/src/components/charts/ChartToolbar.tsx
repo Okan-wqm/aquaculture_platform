@@ -1,18 +1,27 @@
 /**
- * ChartToolbar — Time range selector and controls for history-mode charts.
+ * ChartToolbar -- Time range selector, aggregation selector, and controls
+ * for history-mode charts.
  *
  * Layout:
- *   [◄ Back] [Preset ▼] [Forward ►]  [Custom from/to]  [↻ Auto-refresh ▼]  [Export ▼]
+ *   [< Back] [Preset v] [Forward >]  [Custom from/to]  [Aggregation v]
+ *   [Refresh] [Auto-refresh v]  [Export v]
  *
  * Preset ranges: 1h, 8h, 1d, 3d, 1w, 1m
+ * Aggregation: raw, 5min, 10min, 30min, 1h, 1d
  * Navigation: back / forward by the current range width
  * Auto-refresh: off | 30s | 1min | 5min | 10min | 30min
- * Export: delegates to ChartExport
+ * Export: delegates to ChartExport (CSV + PNG)
  */
 
 import React, { useState, useCallback, useRef } from 'react';
 import { ChartExport } from './ChartExport';
-import type { ChartLine, ChartTimeRange, HistoricalDataPoint } from '../../types/scada-runtime.types';
+import type {
+  ChartLine,
+  ChartTimeRange,
+  DaqAggregation,
+  DaqAggregationInterval,
+  HistoricalDataPoint,
+} from '../../types/scada-runtime.types';
 import type { TrendTimeRange } from '../../hooks/useTrendData';
 
 /* ------------------------------------------------------------------ */
@@ -32,6 +41,20 @@ const PRESETS: PresetOption[] = [
   { label: 'Last 3d',  value: 'last3d',  ms: 3 * 24 * 60 * 60 * 1000 },
   { label: 'Last 1w',  value: 'last1w',  ms: 7 * 24 * 60 * 60 * 1000 },
   { label: 'Last 1m',  value: 'last1m',  ms: 30 * 24 * 60 * 60 * 1000 },
+];
+
+interface AggregationOption {
+  label: string;
+  value: DaqAggregationInterval | 'raw';
+}
+
+const AGGREGATION_OPTIONS: AggregationOption[] = [
+  { label: 'Raw',    value: 'raw' },
+  { label: '5 min',  value: '5min' },
+  { label: '10 min', value: '10min' },
+  { label: '30 min', value: '30min' },
+  { label: '1 hour', value: '1h' },
+  { label: '1 day',  value: '1d' },
 ];
 
 interface AutoRefreshOption {
@@ -83,9 +106,15 @@ export interface ChartToolbarProps {
   /** Current chart data (for export). */
   data: Record<string, HistoricalDataPoint[]>;
   chartTitle?: string;
+  /** Current aggregation interval. */
+  aggregationInterval?: DaqAggregationInterval | 'raw';
+  /** Ref to a chart canvas / container element for PNG export. */
+  chartRef?: React.RefObject<HTMLElement | null>;
   onRangeChange: (range: TrendTimeRange) => void;
   onAutoRefreshChange: (ms: number | undefined) => void;
   onRefresh: () => void;
+  /** Called when aggregation interval changes. */
+  onAggregationChange?: (interval: DaqAggregationInterval | 'raw') => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -99,13 +128,17 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
   lines,
   data,
   chartTitle,
+  aggregationInterval = 'raw',
+  chartRef,
   onRangeChange,
   onAutoRefreshChange,
   onRefresh,
+  onAggregationChange,
 }) => {
   const [showCustom, setShowCustom] = useState(false);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [showRefreshMenu, setShowRefreshMenu] = useState(false);
+  const [showAggMenu, setShowAggMenu] = useState(false);
   const [showExport, setShowExport] = useState(false);
 
   // Custom range input state
@@ -116,9 +149,6 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
   const [customTo, setCustomTo] = useState<string>(() => {
     return toLocalDatetimeInput(new Date());
   });
-
-  const presetMenuRef = useRef<HTMLDivElement>(null);
-  const refreshMenuRef = useRef<HTMLDivElement>(null);
 
   /* ---- Resolved values ---- */
 
@@ -131,6 +161,9 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
 
   const currentRefreshLabel =
     AUTO_REFRESH_OPTIONS.find((o) => o.ms === autoRefreshMs)?.label ?? 'Off';
+
+  const currentAggLabel =
+    AGGREGATION_OPTIONS.find((o) => o.value === aggregationInterval)?.label ?? 'Raw';
 
   /* ---- Navigation ---- */
 
@@ -158,11 +191,12 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
     setShowCustom(false);
   }, [customFrom, customTo, onRangeChange]);
 
-  /* ---- Close menus on outside click (simple impl) ---- */
+  /* ---- Close menus on outside click ---- */
 
   const closeMenus = useCallback(() => {
     setShowPresetMenu(false);
     setShowRefreshMenu(false);
+    setShowAggMenu(false);
   }, []);
 
   /* ---- Render ---- */
@@ -183,25 +217,22 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         className="inline-flex items-center px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors"
         disabled={isLoading}
       >
-        ◄
+        &#9664;
       </button>
 
       {/* Preset dropdown */}
       <div className="relative" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
-          onClick={() => { setShowPresetMenu((v) => !v); setShowRefreshMenu(false); }}
+          onClick={() => { setShowPresetMenu((v) => !v); setShowRefreshMenu(false); setShowAggMenu(false); }}
           className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors min-w-[80px]"
           disabled={isLoading}
         >
           {currentPresetLabel}
-          <span className="ml-auto text-gray-400">▾</span>
+          <span className="ml-auto text-gray-400">&#9662;</span>
         </button>
         {showPresetMenu && (
-          <div
-            ref={presetMenuRef}
-            className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[110px]"
-          >
+          <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[110px]">
             {PRESETS.map((preset) => (
               <button
                 key={preset.value}
@@ -224,7 +255,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
               onClick={() => { setShowCustom((v) => !v); setShowPresetMenu(false); }}
               className="block w-full text-left px-3 py-1.5 hover:bg-blue-50 text-gray-700 transition-colors"
             >
-              Custom range…
+              Custom range...
             </button>
           </div>
         )}
@@ -238,7 +269,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         className="inline-flex items-center px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors"
         disabled={isLoading}
       >
-        ►
+        &#9654;
       </button>
 
       {/* Custom date range inputs */}
@@ -278,6 +309,40 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         </div>
       )}
 
+      {/* Aggregation selector */}
+      {onAggregationChange && (
+        <div className="relative" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => { setShowAggMenu((v) => !v); setShowPresetMenu(false); setShowRefreshMenu(false); }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors"
+          >
+            <span className="text-gray-500">Agg:</span>
+            {currentAggLabel}
+            <span className="ml-1 text-gray-400">&#9662;</span>
+          </button>
+          {showAggMenu && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[100px]">
+              {AGGREGATION_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onAggregationChange(opt.value);
+                    setShowAggMenu(false);
+                  }}
+                  className={`block w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors ${
+                    opt.value === aggregationInterval ? 'font-semibold text-blue-600' : 'text-gray-700'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex-1" />
 
       {/* Manual refresh */}
@@ -290,25 +355,22 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           isLoading ? 'animate-spin' : ''
         }`}
       >
-        ↻
+        &#8635;
       </button>
 
       {/* Auto-refresh dropdown */}
       <div className="relative" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
-          onClick={() => { setShowRefreshMenu((v) => !v); setShowPresetMenu(false); }}
+          onClick={() => { setShowRefreshMenu((v) => !v); setShowPresetMenu(false); setShowAggMenu(false); }}
           className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors"
         >
           <span className="text-gray-500">Auto:</span>
           {currentRefreshLabel}
-          <span className="ml-1 text-gray-400">▾</span>
+          <span className="ml-1 text-gray-400">&#9662;</span>
         </button>
         {showRefreshMenu && (
-          <div
-            ref={refreshMenuRef}
-            className="absolute top-full right-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[90px]"
-          >
+          <div className="absolute top-full right-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[90px]">
             {AUTO_REFRESH_OPTIONS.map((opt) => (
               <button
                 key={opt.label}
@@ -336,7 +398,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           onClick={() => setShowExport((v) => !v)}
           className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors"
         >
-          Export ▾
+          Export &#9662;
         </button>
         {showExport && (
           <div className="absolute top-full right-0 mt-1 z-50">
@@ -345,6 +407,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
               data={data}
               chartTitle={chartTitle}
               currentRange={currentRange}
+              chartRef={chartRef}
               onClose={() => setShowExport(false)}
             />
           </div>

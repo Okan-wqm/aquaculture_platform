@@ -1,23 +1,24 @@
 /**
- * BarChart — Chart.js-based bar chart for aggregated SCADA tag data.
+ * BarChart -- Recharts-based bar chart for aggregated SCADA tag data.
  *
  * Queries historical data via useTrendData, applies DaqAggregation,
- * and renders as vertical or horizontal bars.  The chart is responsive
- * via the Chart.js built-in ResizeObserver integration.
+ * and renders as vertical or horizontal bars with optional stacking.
+ * Responsive via Recharts ResponsiveContainer.
+ *
+ * Theme-aware: adapts grid/axis colours based on a `theme` prop.
  */
 
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
-  Chart,
-  BarController,
-  BarElement,
-  CategoryScale,
-  LinearScale,
+  BarChart as RechartsBarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
   Tooltip,
   Legend,
-  type ChartConfiguration,
-  type ChartDataset,
-} from 'chart.js';
+  ResponsiveContainer,
+} from 'recharts';
 import { useTrendData, type TrendTimeRange } from '../../hooks/useTrendData';
 import type {
   ChartTimeRange,
@@ -25,8 +26,20 @@ import type {
   HistoricalDataPoint,
 } from '../../types/scada-runtime.types';
 
-/* ---- Register Chart.js tree-shaken modules ---- */
-Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
+/* ------------------------------------------------------------------ */
+/*  Constants                                                           */
+/* ------------------------------------------------------------------ */
+
+const DEFAULT_COLORS = [
+  '#3b82f6',
+  '#10b981',
+  '#f59e0b',
+  '#ef4444',
+  '#8b5cf6',
+  '#06b6d4',
+  '#f97316',
+  '#84cc16',
+];
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
@@ -34,8 +47,6 @@ Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, L
 
 /**
  * Compute a single aggregate value from a series of data points.
- * When a DaqAggregation is provided the points are pre-aggregated by
- * the backend; we reduce to a scalar for each bar.
  */
 function aggregatePoints(
   points: HistoricalDataPoint[],
@@ -60,31 +71,65 @@ function aggregatePoints(
   }
 }
 
-const DEFAULT_COLORS = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#06b6d4',
-  '#f97316',
-  '#84cc16',
-];
+/* ------------------------------------------------------------------ */
+/*  Theme helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+interface ThemeColors {
+  gridColor: string;
+  axisColor: string;
+  tooltipBg: string;
+  tooltipBorder: string;
+  tooltipText: string;
+}
+
+function getThemeColors(theme: 'light' | 'dark'): ThemeColors {
+  if (theme === 'dark') {
+    return {
+      gridColor: 'rgba(255,255,255,0.1)',
+      axisColor: '#9ca3af',
+      tooltipBg: '#1f2937',
+      tooltipBorder: '#374151',
+      tooltipText: '#f3f4f6',
+    };
+  }
+  return {
+    gridColor: 'rgba(0,0,0,0.06)',
+    axisColor: '#6b7280',
+    tooltipBg: '#ffffff',
+    tooltipBorder: '#e5e7eb',
+    tooltipText: '#374151',
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
 /* ------------------------------------------------------------------ */
 
+export interface BarChartSeries {
+  tagId: string;
+  label: string;
+  color?: string;
+}
+
 export interface BarChartProps {
-  /** Tag IDs whose values are fetched and rendered as bars. */
-  tagIds: string[];
-  /** Human-readable label for each bar (must align with tagIds). */
-  labels: string[];
+  /** Data series definitions. Each series becomes a bar group. */
+  series: BarChartSeries[];
+  /** Bar orientation. Default: 'vertical'. */
   orientation?: 'vertical' | 'horizontal';
+  /** Stack bars on top of each other. Default: false. */
+  stacked?: boolean;
+  /** Time range for data query. Default: 'last1h'. */
   timeRange?: ChartTimeRange | { from: Date; to: Date };
+  /** Aggregation applied to historical data. */
   aggregation?: DaqAggregation;
-  /** Bar fill colors. Cycles through defaults when not provided. */
-  colors?: string[];
+  /** Color theme. Default: 'light'. */
+  theme?: 'light' | 'dark';
+  /** Show legend. Default: true. */
+  showLegend?: boolean;
+  /** Show grid lines. Default: true. */
+  showGrid?: boolean;
+  /** Additional CSS class. */
   className?: string;
 }
 
@@ -93,18 +138,18 @@ export interface BarChartProps {
 /* ------------------------------------------------------------------ */
 
 export const BarChart: React.FC<BarChartProps> = ({
-  tagIds,
-  labels,
+  series,
   orientation = 'vertical',
+  stacked = false,
   timeRange = 'last1h',
   aggregation = { function: 'avg', interval: '1h' },
-  colors,
+  theme = 'light',
+  showLegend = true,
+  showGrid = true,
   className,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const chartRef = useRef<Chart | null>(null);
+  const tagIds = useMemo(() => series.map((s) => s.tagId), [series]);
 
-  // Resolve timeRange to TrendTimeRange
   const trendRange = useMemo<TrendTimeRange>(() => {
     if (typeof timeRange === 'object' && 'from' in timeRange) {
       return timeRange as { from: Date; to: Date };
@@ -116,101 +161,36 @@ export const BarChart: React.FC<BarChartProps> = ({
     aggregation,
   });
 
-  // Compute bar values whenever data changes
-  const barValues = useMemo<number[]>(() => {
-    return tagIds.map((id) => {
-      const pts = data[id] ?? [];
-      return aggregatePoints(pts, aggregation.function);
+  const colors = getThemeColors(theme);
+
+  /** Resolve bar colors, falling back to defaults. */
+  const resolvedColors = useMemo<string[]>(
+    () =>
+      series.map(
+        (s, i) => s.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+      ),
+    [series],
+  );
+
+  /** Build the flat recharts data array. */
+  const chartData = useMemo(() => {
+    // Single-row summary: each series aggregated to one value
+    const row: Record<string, string | number> = { name: 'Value' };
+    series.forEach((s) => {
+      const pts = data[s.tagId] ?? [];
+      row[s.label] = aggregatePoints(pts, aggregation.function);
     });
-  }, [data, tagIds, aggregation.function]);
+    return [row];
+  }, [data, series, aggregation.function]);
 
-  // Resolve colors
-  const resolvedColors = useMemo<string[]>(() => {
-    return tagIds.map((_, i) =>
-      colors?.[i] ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length],
-    );
-  }, [tagIds, colors]);
-
-  /* ---- Create Chart.js instance ---- */
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const isHorizontal = orientation === 'horizontal';
-    const indexAxis: 'x' | 'y' = isHorizontal ? 'y' : 'x';
-
-    const dataset: ChartDataset<'bar'> = {
-      label: 'Value',
-      data: barValues,
-      backgroundColor: resolvedColors,
-      borderColor: resolvedColors.map((c) => c + 'cc'),
-      borderWidth: 1,
-      borderRadius: 4,
-    };
-
-    const config: ChartConfiguration<'bar'> = {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [dataset],
-      },
-      options: {
-        indexAxis,
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => ` ${ctx.formattedValue}`,
-            },
-          },
-        },
-        scales: {
-          x: {
-            grid: { color: 'rgba(0,0,0,0.06)' },
-            ticks: { color: '#666' },
-          },
-          y: {
-            grid: { color: 'rgba(0,0,0,0.06)' },
-            ticks: { color: '#666' },
-            beginAtZero: true,
-          },
-        },
-        animation: { duration: 300 },
-      },
-    };
-
-    chartRef.current = new Chart(canvas, config);
-
-    return () => {
-      chartRef.current?.destroy();
-      chartRef.current = null;
-    };
-    // Recreate when orientation changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orientation, labels, resolvedColors]);
-
-  /* ---- Update data without recreating ---- */
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    chart.data.datasets[0].data = barValues;
-    chart.data.datasets[0].backgroundColor = resolvedColors;
-    chart.data.datasets[0].borderColor = resolvedColors.map((c) => c + 'cc') as string[];
-    chart.update('active');
-  }, [barValues, resolvedColors]);
-
-  /* ---- Render ---- */
+  const isHorizontal = orientation === 'horizontal';
+  const stackId = stacked ? 'stack' : undefined;
 
   return (
     <div className={`relative flex flex-col w-full h-full ${className ?? ''}`}>
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white/60 z-10">
-          <span className="text-xs text-gray-500 animate-pulse">Loading…</span>
+        <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-gray-900/60 z-10">
+          <span className="text-xs text-gray-500 animate-pulse">Loading...</span>
         </div>
       )}
       {error && (
@@ -218,8 +198,83 @@ export const BarChart: React.FC<BarChartProps> = ({
           {error}
         </div>
       )}
-      <div className="flex-1 min-h-0 relative">
-        <canvas ref={canvasRef} className="w-full h-full" />
+      <div className="flex-1 min-h-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsBarChart
+            data={chartData}
+            layout={isHorizontal ? 'vertical' : 'horizontal'}
+            margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+          >
+            {showGrid && (
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke={colors.gridColor}
+                vertical={!isHorizontal}
+                horizontal={isHorizontal || true}
+              />
+            )}
+            {isHorizontal ? (
+              <>
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 11, fill: colors.axisColor }}
+                  axisLine={{ stroke: colors.gridColor }}
+                  tickLine={{ stroke: colors.gridColor }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: colors.axisColor }}
+                  axisLine={{ stroke: colors.gridColor }}
+                  tickLine={{ stroke: colors.gridColor }}
+                  width={60}
+                />
+              </>
+            ) : (
+              <>
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: colors.axisColor }}
+                  axisLine={{ stroke: colors.gridColor }}
+                  tickLine={{ stroke: colors.gridColor }}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: colors.axisColor }}
+                  axisLine={{ stroke: colors.gridColor }}
+                  tickLine={{ stroke: colors.gridColor }}
+                  width={50}
+                />
+              </>
+            )}
+            <Tooltip
+              contentStyle={{
+                backgroundColor: colors.tooltipBg,
+                border: `1px solid ${colors.tooltipBorder}`,
+                borderRadius: '6px',
+                fontSize: '12px',
+                color: colors.tooltipText,
+              }}
+              cursor={{ fill: 'rgba(14, 165, 233, 0.08)' }}
+            />
+            {showLegend && series.length > 1 && (
+              <Legend
+                wrapperStyle={{ fontSize: '11px' }}
+                iconType="rect"
+                iconSize={10}
+              />
+            )}
+            {series.map((s, i) => (
+              <Bar
+                key={s.tagId}
+                dataKey={s.label}
+                fill={resolvedColors[i]}
+                stackId={stackId}
+                radius={stacked ? 0 : [4, 4, 0, 0]}
+                maxBarSize={40}
+              />
+            ))}
+          </RechartsBarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );

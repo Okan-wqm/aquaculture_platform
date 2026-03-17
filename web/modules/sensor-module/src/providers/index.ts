@@ -63,6 +63,19 @@ export {
   createTagSubscriptionManager,
 } from '../services/TagSubscriptionManager';
 
+// ── Script engine ────────────────────────────────────────────────────────────
+
+export {
+  ScriptEngine,
+  createScriptEngine,
+} from '../services/ScriptEngine';
+
+export type {
+  ScriptConsoleEntry,
+  ScriptBridge,
+  ScriptBridgeResolver,
+} from '../services/ScriptEngine';
+
 // ── Shared runtime types (re-exported for consumers) ─────────────────────────
 
 export type {

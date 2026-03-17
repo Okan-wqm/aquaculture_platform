@@ -1,27 +1,24 @@
 /**
- * PieChart — Chart.js-based pie chart showing live tag values.
+ * PieChart -- Recharts-based pie / doughnut chart showing live tag values.
  *
  * Each segment corresponds to one tag's current value from the
- * realtime data provider.  The chart updates automatically as
+ * realtime data provider. The chart updates automatically as
  * new values arrive (via useRealtimeData).
  *
- * Data labels use Chart.js plugin 'chartjs-plugin-datalabels' if
- * available, falling back to the built-in tooltip.
+ * Supports a `doughnut` mode toggle that renders as a ring chart.
+ * Theme-aware (dark/light).
  */
 
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import {
-  Chart,
-  PieController,
-  ArcElement,
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
   Tooltip,
   Legend,
-  type ChartConfiguration,
-} from 'chart.js';
+  ResponsiveContainer,
+} from 'recharts';
 import { useRealtimeData } from '../../hooks/useRealtimeData';
-
-/* ---- Register Chart.js tree-shaken modules ---- */
-Chart.register(PieController, ArcElement, Tooltip, Legend);
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -37,113 +34,135 @@ export interface PieSegmentConfig {
 }
 
 export interface PieChartProps {
+  /** Segment definitions. Each segment maps to a tag value. */
   segments: PieSegmentConfig[];
+  /** Render as a doughnut (ring) chart. Default: false. */
+  doughnut?: boolean;
+  /** Show legend below the chart. Default: true. */
+  showLegend?: boolean;
+  /** Show inline value labels. Default: true. */
+  showLabels?: boolean;
+  /** Color theme. Default: 'light'. */
+  theme?: 'light' | 'dark';
+  /** Additional CSS class. */
   className?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Theme helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+function getThemeColors(theme: 'light' | 'dark') {
+  if (theme === 'dark') {
+    return {
+      tooltipBg: '#1f2937',
+      tooltipBorder: '#374151',
+      tooltipText: '#f3f4f6',
+      labelColor: '#d1d5db',
+      noDataColor: '#6b7280',
+    };
+  }
+  return {
+    tooltipBg: '#ffffff',
+    tooltipBorder: '#e5e7eb',
+    tooltipText: '#374151',
+    labelColor: '#374151',
+    noDataColor: '#9ca3af',
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Custom label renderer                                               */
+/* ------------------------------------------------------------------ */
+
+interface LabelProps {
+  cx: number;
+  cy: number;
+  midAngle: number;
+  innerRadius: number;
+  outerRadius: number;
+  percent: number;
+  name: string;
+}
+
+function renderCustomLabel({
+  cx,
+  cy,
+  midAngle,
+  innerRadius,
+  outerRadius,
+  percent,
+}: LabelProps): React.ReactElement | null {
+  if (percent < 0.05) return null; // skip tiny slices
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="#ffffff"
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontSize={11}
+      fontWeight={600}
+    >
+      {(percent * 100).toFixed(0)}%
+    </text>
+  );
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export const PieChart: React.FC<PieChartProps> = ({ segments, className }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const chartRef = useRef<Chart<'pie'> | null>(null);
-
+export const PieChart: React.FC<PieChartProps> = ({
+  segments,
+  doughnut = false,
+  showLegend = true,
+  showLabels = true,
+  theme = 'light',
+  className,
+}) => {
   const tagIds = useMemo(() => segments.map((s) => s.tagId), [segments]);
   const { values, isConnected } = useRealtimeData(tagIds);
+  const colors = getThemeColors(theme);
 
-  /* ---- Derive numeric segment values ---- */
-
-  const segmentValues = useMemo<number[]>(() => {
+  /** Derive numeric segment values from realtime data. */
+  const chartData = useMemo(() => {
     return segments.map((seg) => {
       const change = values[seg.tagId];
-      if (!change) return 0;
-      const v =
-        typeof change.value === 'number'
-          ? change.value
-          : parseFloat(String(change.value));
-      return isNaN(v) || v < 0 ? 0 : v;
+      let v = 0;
+      if (change) {
+        const raw =
+          typeof change.value === 'number'
+            ? change.value
+            : parseFloat(String(change.value));
+        v = isNaN(raw) || raw < 0 ? 0 : raw;
+      }
+      return {
+        name: seg.label,
+        value: v,
+        color: seg.color,
+        tagId: seg.tagId,
+      };
     });
   }, [values, segments]);
 
   const totalValue = useMemo(
-    () => segmentValues.reduce((a, b) => a + b, 0),
-    [segmentValues],
+    () => chartData.reduce((sum, d) => sum + d.value, 0),
+    [chartData],
   );
 
-  /* ---- Create Chart.js instance ---- */
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const colors = segments.map((s) => s.color);
-    const labels = segments.map((s) => s.label);
-
-    const config: ChartConfiguration<'pie'> = {
-      type: 'pie',
-      data: {
-        labels,
-        datasets: [
-          {
-            data: segmentValues,
-            backgroundColor: colors,
-            borderColor: '#fff',
-            borderWidth: 2,
-            hoverOffset: 6,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'bottom',
-            labels: {
-              padding: 12,
-              usePointStyle: true,
-              pointStyleWidth: 10,
-              font: { size: 12 },
-            },
-          },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const val = ctx.parsed;
-                const pct = totalValue > 0
-                  ? ((val / totalValue) * 100).toFixed(1)
-                  : '0.0';
-                return ` ${ctx.label}: ${val.toFixed(2)} (${pct}%)`;
-              },
-            },
-          },
-        },
-        animation: { duration: 200 },
-      },
-    };
-
-    chartRef.current = new Chart(canvas, config);
-
-    return () => {
-      chartRef.current?.destroy();
-      chartRef.current = null;
-    };
-    // Recreate only when segment config (labels / colors) changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments]);
-
-  /* ---- Update data live ---- */
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    chart.data.datasets[0].data = segmentValues;
-    chart.update('active');
-  }, [segmentValues]);
-
-  /* ---- Render ---- */
+  const tooltipFormatter = useCallback(
+    (value: number, name: string) => {
+      const pct = totalValue > 0 ? ((value / totalValue) * 100).toFixed(1) : '0.0';
+      return [`${value.toFixed(2)} (${pct}%)`, name];
+    },
+    [totalValue],
+  );
 
   const allZero = totalValue === 0;
 
@@ -151,32 +170,78 @@ export const PieChart: React.FC<PieChartProps> = ({ segments, className }) => {
     <div className={`relative flex flex-col w-full h-full ${className ?? ''}`}>
       {!isConnected && (
         <div className="px-2 py-0.5 text-xs text-amber-600 bg-amber-50 border-b border-amber-200">
-          Disconnected — showing last known values
+          Disconnected -- showing last known values
         </div>
       )}
 
       {allZero && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <span className="text-xs text-gray-400">No data</span>
+          <span className="text-xs" style={{ color: colors.noDataColor }}>
+            No data
+          </span>
         </div>
       )}
 
-      <div className="flex-1 min-h-0 relative">
-        <canvas ref={canvasRef} className="w-full h-full" />
+      <div className="flex-1 min-h-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsPieChart>
+            <Pie
+              data={chartData}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={doughnut ? '55%' : 0}
+              outerRadius="80%"
+              paddingAngle={segments.length > 1 ? 2 : 0}
+              label={showLabels ? renderCustomLabel : false}
+              labelLine={false}
+              animationDuration={300}
+              stroke={theme === 'dark' ? '#1f2937' : '#ffffff'}
+              strokeWidth={2}
+            >
+              {chartData.map((entry) => (
+                <Cell key={entry.tagId} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={tooltipFormatter}
+              contentStyle={{
+                backgroundColor: colors.tooltipBg,
+                border: `1px solid ${colors.tooltipBorder}`,
+                borderRadius: '6px',
+                fontSize: '12px',
+                color: colors.tooltipText,
+              }}
+            />
+            {showLegend && (
+              <Legend
+                layout="horizontal"
+                verticalAlign="bottom"
+                align="center"
+                wrapperStyle={{ fontSize: '11px', paddingTop: 8 }}
+                iconType="circle"
+                iconSize={8}
+              />
+            )}
+          </RechartsPieChart>
+        </ResponsiveContainer>
       </div>
 
       {/* Inline value labels below chart */}
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1 mt-1">
-        {segments.map((seg, i) => (
-          <span key={seg.tagId} className="flex items-center gap-1 text-xs text-gray-700">
+        {chartData.map((entry) => (
+          <span
+            key={entry.tagId}
+            className="flex items-center gap-1 text-xs"
+            style={{ color: colors.labelColor }}
+          >
             <span
-              className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ background: seg.color }}
+              className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
+              style={{ background: entry.color }}
             />
-            <span className="font-medium">{seg.label}:</span>
-            <span className="font-mono">
-              {segmentValues[i] != null ? segmentValues[i].toFixed(2) : '—'}
-            </span>
+            <span className="font-medium">{entry.name}:</span>
+            <span className="font-mono">{entry.value.toFixed(2)}</span>
           </span>
         ))}
       </div>

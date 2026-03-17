@@ -43,3 +43,13 @@ export type { KioskModeProps } from './KioskMode';
 // ── Overlay manager ──────────────────────────────────────────────────────────
 
 export { ViewOverlayManager } from './ViewOverlayManager';
+
+// ── Cards dashboard ─────────────────────────────────────────────────────────
+
+export { CardsDashboard } from './CardsDashboard';
+export type { CardsDashboardProps, DashboardCardConfig } from './CardsDashboard';
+
+// ── Touch keyboard ──────────────────────────────────────────────────────────
+
+export { TouchKeyboard } from './TouchKeyboard';
+export type { TouchKeyboardProps, KeyboardMode } from './TouchKeyboard';

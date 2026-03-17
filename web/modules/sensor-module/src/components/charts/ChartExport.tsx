@@ -1,15 +1,21 @@
 /**
- * ChartExport — Exports chart data as CSV.
+ * ChartExport -- CSV and PNG export for chart data.
  *
- * Renders a small dropdown panel with an export button.
- * On click, builds a CSV file in-memory and triggers a browser download
- * via Blob + URL.createObjectURL.
+ * CSV export:
+ *   Builds a CSV file in-memory from series data and triggers a browser
+ *   download via Blob + URL.createObjectURL.
+ *
+ * PNG export:
+ *   Takes a ref to the chart container element, uses html2canvas-style
+ *   approach via the Canvas API to capture the chart as a PNG image.
+ *   For uPlot charts, grabs the internal canvas directly.
+ *
+ * Also exports standalone utility functions (exportCsv, exportPng)
+ * for programmatic use outside the component.
  *
  * CSV format:
  *   Timestamp,<series1 label>,<series2 label>,...
  *   2024-01-15T12:00:00.000Z,23.4,6.8,...
- *
- * File name: <chartTitle>_<from>_<to>.csv  (sanitised)
  */
 
 import React, { useCallback } from 'react';
@@ -25,6 +31,8 @@ export interface ChartExportProps {
   data: Record<string, HistoricalDataPoint[]>;
   chartTitle?: string;
   currentRange: TrendTimeRange;
+  /** Ref to the chart container for PNG export. */
+  chartRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
 }
 
@@ -66,6 +74,21 @@ function resolveRangeDates(range: TrendTimeRange): { from: Date; to: Date } {
   return { from: new Date(to.getTime() - fromMs), to };
 }
 
+/** Trigger a browser download for a Blob. */
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    document.body.removeChild(anchor);
+  }, 100);
+}
+
 /* ------------------------------------------------------------------ */
 /*  CSV builder                                                         */
 /* ------------------------------------------------------------------ */
@@ -83,7 +106,7 @@ function buildCsv(lines: ChartLine[], data: Record<string, HistoricalDataPoint[]
   const timestamps = [...tsSet].sort((a, b) => a - b);
   if (timestamps.length === 0) return 'Timestamp\n';
 
-  // Index points per tagId → map<timestamp → value>
+  // Index points per tagId -> map<timestamp, value>
   const seriesMaps: Map<number, number | string>[] = lines.map((line) => {
     const m = new Map<number, number | string>();
     const pts = data[line.tagId] ?? [];
@@ -108,6 +131,114 @@ function buildCsv(lines: ChartLine[], data: Record<string, HistoricalDataPoint[]
 }
 
 /* ------------------------------------------------------------------ */
+/*  Standalone export utilities                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Export chart data as CSV. Triggers a browser download.
+ */
+export function exportCsv(
+  lines: ChartLine[],
+  data: Record<string, HistoricalDataPoint[]>,
+  filename?: string,
+): void {
+  const csv = buildCsv(lines, data);
+  if (!csv) return;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, filename ?? 'chart_export.csv');
+}
+
+/**
+ * Export a chart element as PNG. Takes a ref to either:
+ *   - An HTMLCanvasElement (direct canvas export)
+ *   - An HTMLElement containing a <canvas> child (e.g. uPlot container)
+ *
+ * Triggers a browser download.
+ */
+export async function exportPng(
+  element: HTMLElement | HTMLCanvasElement | null,
+  filename?: string,
+): Promise<void> {
+  if (!element) return;
+
+  let canvas: HTMLCanvasElement | null = null;
+
+  if (element instanceof HTMLCanvasElement) {
+    canvas = element;
+  } else {
+    // Look for a canvas child (uPlot renders into a canvas inside the container)
+    canvas = element.querySelector('canvas');
+  }
+
+  if (!canvas) {
+    // Fallback: try to render the element to a canvas using DOM measurement
+    // This is a simplified approach that works for SVG-based charts (recharts)
+    const svgElement = element.querySelector('svg');
+    if (svgElement) {
+      canvas = await svgToCanvas(svgElement as SVGSVGElement, element);
+    }
+  }
+
+  if (!canvas) return;
+
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    downloadBlob(blob, filename ?? 'chart_export.png');
+  }, 'image/png');
+}
+
+/**
+ * Convert an SVG element to a canvas for PNG export.
+ * Used for recharts-based charts that render as SVG.
+ */
+async function svgToCanvas(
+  svgElement: SVGSVGElement,
+  container: HTMLElement,
+): Promise<HTMLCanvasElement | null> {
+  const rect = container.getBoundingClientRect();
+  const width = rect.width || 800;
+  const height = rect.height || 400;
+
+  // Serialize the SVG
+  const serializer = new XMLSerializer();
+  const svgString = serializer.serializeToString(svgElement);
+  const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+  const svgUrl = URL.createObjectURL(svgBlob);
+
+  return new Promise<HTMLCanvasElement | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width * 2; // 2x for retina
+      canvas.height = height * 2;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(svgUrl);
+        resolve(null);
+        return;
+      }
+
+      // White background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.scale(2, 2);
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(svgUrl);
+      resolve(canvas);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(svgUrl);
+      resolve(null);
+    };
+    img.src = svgUrl;
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -116,38 +247,37 @@ export const ChartExport: React.FC<ChartExportProps> = ({
   data,
   chartTitle,
   currentRange,
+  chartRef,
   onClose,
 }) => {
+  const buildFilename = useCallback(
+    (ext: string) => {
+      const { from, to } = resolveRangeDates(currentRange);
+      const titlePart = sanitiseFilename(chartTitle ?? 'chart');
+      const fromPart = toFilenameDate(from);
+      const toPart = toFilenameDate(to);
+      return `${titlePart}_${fromPart}_${toPart}.${ext}`;
+    },
+    [chartTitle, currentRange],
+  );
+
   const handleExportCsv = useCallback(() => {
     const csv = buildCsv(lines, data);
     if (!csv) return;
-
-    const { from, to } = resolveRangeDates(currentRange);
-    const titlePart = sanitiseFilename(chartTitle ?? 'chart');
-    const fromPart = toFilenameDate(from);
-    const toPart = toFilenameDate(to);
-    const filename = `${titlePart}_${fromPart}_${toPart}.csv`;
-
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-
-    // Cleanup: revoke after the browser has had time to initiate the download
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-      document.body.removeChild(anchor);
-    }, 100);
-
+    downloadBlob(blob, buildFilename('csv'));
     onClose();
-  }, [lines, data, chartTitle, currentRange, onClose]);
+  }, [lines, data, buildFilename, onClose]);
+
+  const handleExportPng = useCallback(async () => {
+    const element = chartRef?.current;
+    if (!element) return;
+    await exportPng(element, buildFilename('png'));
+    onClose();
+  }, [chartRef, buildFilename, onClose]);
 
   const hasData = lines.some((l) => (data[l.tagId]?.length ?? 0) > 0);
+  const hasPngTarget = !!chartRef?.current;
 
   return (
     <div
@@ -162,11 +292,22 @@ export const ChartExport: React.FC<ChartExportProps> = ({
         disabled={!hasData}
         className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        <span className="text-base leading-none">⬇</span>
+        <span className="text-base leading-none">&#11015;</span>
         Export as CSV
       </button>
 
-      {!hasData && (
+      <button
+        type="button"
+        role="menuitem"
+        onClick={handleExportPng}
+        disabled={!hasPngTarget}
+        className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        <span className="text-base leading-none">&#128247;</span>
+        Export as PNG
+      </button>
+
+      {!hasData && !hasPngTarget && (
         <p className="px-3 py-1 text-xs text-gray-400 italic">No data to export</p>
       )}
 

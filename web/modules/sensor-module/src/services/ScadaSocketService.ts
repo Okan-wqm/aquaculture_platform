@@ -192,6 +192,57 @@ export class ScadaSocketService {
     delete this.listeners[event];
   }
 
+  /**
+   * Register a one-time callback that is automatically removed after the first invocation.
+   */
+  once<E extends keyof ScadaEventPayloadMap>(
+    event: E,
+    callback: ScadaEventCallback<E>,
+  ): void {
+    const wrapper: ScadaEventCallback<E> = (payload) => {
+      this.off(event, wrapper);
+      callback(payload);
+    };
+    this.on(event, wrapper);
+  }
+
+  // ── Tag-level convenience methods ──────────────────────────────────────────
+
+  /**
+   * Subscribe to tag value updates.
+   * Emits TAG_SUBSCRIBE with the provided tag IDs.
+   */
+  subscribeTags(tagIds: string[]): void {
+    if (tagIds.length === 0) return;
+    this.emit(ScadaSocketEvent.TAG_SUBSCRIBE, { tagIds });
+  }
+
+  /**
+   * Unsubscribe from tag value updates.
+   * Emits TAG_UNSUBSCRIBE with the provided tag IDs.
+   */
+  unsubscribeTags(tagIds: string[]): void {
+    if (tagIds.length === 0) return;
+    this.emit(ScadaSocketEvent.TAG_UNSUBSCRIBE, { tagIds });
+  }
+
+  /**
+   * Write a value to a tag.  Emits TAG_WRITE and returns immediately.
+   * For ack-based writes use the LiveDeviceDataProvider's writeTagValue instead.
+   */
+  writeTag(tagId: string, value: unknown): void {
+    const payload: TagWritePayload = { tagId, value, function: 'set' };
+    this.emit(ScadaSocketEvent.TAG_WRITE, payload);
+  }
+
+  /**
+   * Exposes the underlying Socket.IO socket for low-level access (e.g. for
+   * connection-state listeners in providers).  Returns null if not yet created.
+   */
+  get rawSocket(): Socket | null {
+    return this.socket;
+  }
+
   // ── Private helpers ───────────────────────────────────────────────────────
 
   private _attachSocketListeners(): void {

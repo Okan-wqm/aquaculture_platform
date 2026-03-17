@@ -128,6 +128,34 @@ export class TagSubscriptionManager {
     }
   }
 
+  // ── View-oriented convenience API ──────────────────────────────────────────
+  // These are thin aliases over subscribe/unsubscribe using a viewId as the
+  // componentId, providing a more domain-specific name for SCADA views.
+
+  /**
+   * Register a view and subscribe to the tags used by its widgets.
+   * If the view was previously registered the tag list is replaced (diff is
+   * computed automatically by the underlying subscribe logic).
+   */
+  registerView(viewId: string, tagIds: string[]): void {
+    this.subscribe(viewId, tagIds);
+  }
+
+  /**
+   * Unregister a view and release all its tag subscriptions.
+   */
+  unregisterView(viewId: string): void {
+    this.unsubscribe(viewId);
+  }
+
+  /**
+   * Returns the tag IDs currently registered for a specific view.
+   */
+  getViewSubscriptions(viewId: string): string[] {
+    const tags = this.componentTags.get(viewId);
+    return tags ? Array.from(tags) : [];
+  }
+
   /**
    * Reset all state (e.g. on provider teardown).
    */

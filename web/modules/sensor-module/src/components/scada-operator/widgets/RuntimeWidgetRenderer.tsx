@@ -61,6 +61,7 @@ const RuntimePipe      = React.lazy(() => import('./RuntimePipe'));
 const RuntimeTable     = React.lazy(() => import('./RuntimeTable'));
 const RuntimeVideo     = React.lazy(() => import('./RuntimeVideo'));
 const RuntimeScheduler = React.lazy(() => import('./RuntimeScheduler'));
+const RuntimeChart     = React.lazy(() => import('./RuntimeChart'));
 
 /* ------------------------------------------------------------------ */
 /*  CSS injection (blink keyframes — once per document)                */
@@ -91,7 +92,8 @@ type RuntimeOnlyWidgetType =
   | 'runtimePipe'
   | 'runtimeTable'
   | 'runtimeVideo'
-  | 'runtimeScheduler';
+  | 'runtimeScheduler'
+  | 'runtimeChart';
 
 type AnyWidgetType = ScadaWidgetType | RuntimeOnlyWidgetType;
 
@@ -178,7 +180,8 @@ function isRuntimeOnlyType(t: AnyWidgetType): t is RuntimeOnlyWidgetType {
     t === 'runtimePipe'      ||
     t === 'runtimeTable'     ||
     t === 'runtimeVideo'     ||
-    t === 'runtimeScheduler'
+    t === 'runtimeScheduler' ||
+    t === 'runtimeChart'
   );
 }
 
@@ -266,6 +269,8 @@ const RuntimeOnlyRenderer = memo<{
       return <RuntimeVideo {...sharedProps} />;
     case 'runtimeScheduler':
       return <RuntimeScheduler {...sharedProps} />;
+    case 'runtimeChart':
+      return <RuntimeChart {...sharedProps} />;
     default:
       return (
         <div className="flex items-center justify-center text-xs text-gray-400" style={{ width: w, height: h }}>

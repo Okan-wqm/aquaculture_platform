@@ -197,6 +197,33 @@ export class NotificationService {
   /*  Email                                                             */
   /* ---------------------------------------------------------------- */
 
+  /**
+   * Send a free-form email directly.
+   *
+   * Used by the ScriptEngineService to deliver messages from server-side
+   * scripts via the $sendMessage() sandbox function.
+   */
+  async sendDirectEmail(to: string, subject: string, body: string): Promise<void> {
+    const transporter = this.getTransporter();
+    if (!transporter) {
+      this.logger.warn('sendDirectEmail: SMTP not configured — skipping');
+      return;
+    }
+
+    const from =
+      this.configService.get<string>('SMTP_FROM') ?? 'SCADA Alarms <noreply@scada.local>';
+
+    try {
+      await transporter.sendMail({ from, to, subject, html: body });
+      this.logger.log(`sendDirectEmail: delivered to=${to} subject="${subject}"`);
+    } catch (error) {
+      this.logger.error(
+        `sendDirectEmail: delivery failed to=${to} — ${(error as Error).message}`,
+      );
+      throw error;
+    }
+  }
+
   private async sendEmail(alarm: AlarmInstance, recipient: string): Promise<void> {
     const transporter = this.getTransporter();
     if (!transporter) {

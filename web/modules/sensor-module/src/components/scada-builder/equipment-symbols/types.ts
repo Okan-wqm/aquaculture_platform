@@ -9,6 +9,12 @@ export const EQUIPMENT_VIEWBOX: Record<string, { width: number; height: number }
   pistonPump:       { width: 100, height: 100 },
   submersiblePump:  { width: 100, height: 100 },
   vacuumPump:       { width: 100, height: 100 },
+  turbinePump:      { width: 100, height: 100 },
+  screwPump:        { width: 100, height: 100 },
+  peristalticPump:  { width: 100, height: 100 },
+  blowerPump:       { width: 100, height: 100 },
+  jetPump:          { width: 100, height: 100 },
+  vanePump:         { width: 100, height: 100 },
   // Valves — 100×80
   gateValve:        { width: 100, height: 80 },
   ballValve:        { width: 100, height: 80 },
@@ -19,6 +25,10 @@ export const EQUIPMENT_VIEWBOX: Record<string, { width: number; height: number }
   controlValve:     { width: 100, height: 80 },
   needleValve:      { width: 100, height: 80 },
   solenoidValve:    { width: 100, height: 80 },
+  threeWayValve:    { width: 100, height: 100 },
+  pinchValve:       { width: 100, height: 80 },
+  diaphragmValve:   { width: 100, height: 80 },
+  plugValve:        { width: 100, height: 80 },
   // Tanks — various
   verticalTank:     { width: 100, height: 140 },
   horizontalTank:   { width: 140, height: 100 },
@@ -32,6 +42,27 @@ export const EQUIPMENT_VIEWBOX: Record<string, { width: number; height: number }
   airCooler:        { width: 140, height: 100 },
   condenser:        { width: 100, height: 120 },
   evaporator:       { width: 100, height: 120 },
+  // Compressors
+  pistonCompressor:       { width: 120, height: 100 },
+  screwCompressor:        { width: 120, height: 100 },
+  centrifugalCompressor:  { width: 100, height: 100 },
+  diaphragmCompressor:    { width: 100, height: 100 },
+  // Motors
+  acMotor:    { width: 100, height: 100 },
+  vfdMotor:   { width: 120, height: 100 },
+  servoMotor: { width: 120, height: 100 },
+  // Filters
+  bagFilter:      { width: 100, height: 140 },
+  drumFilter:     { width: 120, height: 100 },
+  membraneFilter: { width: 120, height: 100 },
+  // Instruments
+  pressureTransmitter:    { width: 80, height: 100 },
+  flowTransmitter:        { width: 80, height: 100 },
+  levelTransmitter:       { width: 80, height: 100 },
+  temperatureTransmitter: { width: 80, height: 100 },
+  // Animated
+  animatedGear:     { width: 100, height: 100 },
+  animatedConveyor: { width: 140, height: 80 },
 };
 
 export interface EquipmentSymbolProps {
@@ -87,6 +118,31 @@ export const CONNECTION_POINTS: Record<string, EquipmentConnectionPoint[]> = {
     { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
     { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
   ],
+  turbinePump: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'top', offset: 0.5, direction: 'out' },
+  ],
+  screwPump: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  peristalticPump: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  blowerPump: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.35, direction: 'out' },
+  ],
+  jetPump: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'motive', label: 'Motive', side: 'top', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  vanePump: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
   // Valves - left(inlet), right(outlet) mostly
   gateValve: [
     { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
@@ -121,6 +177,23 @@ export const CONNECTION_POINTS: Record<string, EquipmentConnectionPoint[]> = {
     { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
   ],
   solenoidValve: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  threeWayValve: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet-1', label: 'Çıkış 1', side: 'right', offset: 0.5, direction: 'out' },
+    { id: 'outlet-2', label: 'Çıkış 2', side: 'bottom', offset: 0.5, direction: 'out' },
+  ],
+  pinchValve: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  diaphragmValve: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  plugValve: [
     { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
     { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
   ],
@@ -186,6 +259,76 @@ export const CONNECTION_POINTS: Record<string, EquipmentConnectionPoint[]> = {
     { id: 'vapor-out', label: 'Buhar Çıkış', side: 'top', offset: 0.5, direction: 'out' },
     { id: 'heat-in', label: 'Isı Giriş', side: 'left', offset: 0.5, direction: 'in' },
     { id: 'heat-out', label: 'Isı Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  // Compressors
+  pistonCompressor: [
+    { id: 'inlet', label: 'Giriş', side: 'top', offset: 0.25, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'top', offset: 0.46, direction: 'out' },
+  ],
+  screwCompressor: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  centrifugalCompressor: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.52, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.3, direction: 'out' },
+  ],
+  diaphragmCompressor: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.3, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.3, direction: 'out' },
+  ],
+  // Motors
+  acMotor: [
+    { id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  vfdMotor: [
+    { id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  servoMotor: [
+    { id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' },
+    { id: 'feedback', label: 'Feedback', side: 'top', offset: 0.5, direction: 'out' },
+  ],
+  // Filters
+  bagFilter: [
+    { id: 'inlet', label: 'Giriş', side: 'top', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'bottom', offset: 0.5, direction: 'out' },
+  ],
+  drumFilter: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.7, direction: 'in' },
+    { id: 'filtrate', label: 'Filtrat', side: 'bottom', offset: 0.5, direction: 'out' },
+  ],
+  membraneFilter: [
+    { id: 'feed', label: 'Besleme', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'retentate', label: 'Retantat', side: 'right', offset: 0.5, direction: 'out' },
+    { id: 'permeate', label: 'Permeat', side: 'bottom', offset: 0.5, direction: 'out' },
+  ],
+  // Instruments
+  pressureTransmitter: [
+    { id: 'process', label: 'Proses', side: 'bottom', offset: 0.5, direction: 'in' },
+    { id: 'signal', label: 'Sinyal', side: 'top', offset: 0.5, direction: 'out' },
+  ],
+  flowTransmitter: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.78, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.78, direction: 'out' },
+    { id: 'signal', label: 'Sinyal', side: 'top', offset: 0.5, direction: 'out' },
+  ],
+  levelTransmitter: [
+    { id: 'hi', label: 'Üst', side: 'left', offset: 0.8, direction: 'in' },
+    { id: 'lo', label: 'Alt', side: 'right', offset: 0.8, direction: 'in' },
+    { id: 'signal', label: 'Sinyal', side: 'top', offset: 0.5, direction: 'out' },
+  ],
+  temperatureTransmitter: [
+    { id: 'process', label: 'Proses', side: 'left', offset: 0.8, direction: 'in' },
+    { id: 'signal', label: 'Sinyal', side: 'top', offset: 0.5, direction: 'out' },
+  ],
+  // Animated
+  animatedGear: [
+    { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
+    { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.5, direction: 'out' },
+  ],
+  animatedConveyor: [
+    { id: 'feed', label: 'Besleme', side: 'left', offset: 0.3, direction: 'in' },
+    { id: 'discharge', label: 'Deşarj', side: 'right', offset: 0.3, direction: 'out' },
   ],
   // ── Process Equipment Widgets ──
   feeder: [

@@ -1,0 +1,293 @@
+/**
+ * ScadaSocketService — Singleton Socket.IO client for the /scada namespace.
+ *
+ * Responsibilities:
+ *  - Single shared connection per application lifetime (lazy singleton)
+ *  - JWT auth injected on connect and refreshed on every reconnect attempt
+ *  - Exponential backoff reconnection: 1s → 2s → 4s → 8s → max 30s
+ *  - Typed event emitter facade over the raw socket
+ *  - Connection state tracking (connected / connecting / disconnected / error)
+ *  - Heartbeat monitoring: marks state 'error' if heartbeat lapses
+ */
+
+import { io, type Socket } from 'socket.io-client';
+import { getAccessToken } from '@aquaculture/shared-ui';
+import {
+  ScadaSocketEvent,
+  type TagValuesPayload,
+  type TagWritePayload,
+  type DaqQueryPayload,
+  type DaqResultPayload,
+  type DeviceStatusChange,
+  type DataProviderConnectionState,
+} from '../types/scada-runtime.types';
+
+// ── URL resolution (mirrors existing hooks pattern) ──────────────────────────
+
+const SCADA_WS_NAMESPACE: string =
+  (() => {
+    const base =
+      (typeof import.meta !== 'undefined' && (import.meta as Record<string, unknown>).env != null
+        ? (import.meta as { env: Record<string, string> }).env.VITE_WS_URL
+        : undefined) ??
+      (typeof window !== 'undefined'
+        ? (window as Window & { __RUNTIME_CONFIG__?: { WS_URL?: string } }).__RUNTIME_CONFIG__?.WS_URL
+        : undefined) ??
+      '';
+    return base ? `${base}/scada` : '/scada';
+  })();
+
+// ── Backoff config ────────────────────────────────────────────────────────────
+
+const BACKOFF_BASE_MS = 1_000;
+const BACKOFF_MAX_MS = 30_000;
+
+// ── Event payload map (client-visible events) ─────────────────────────────────
+
+/**
+ * Maps each ScadaSocketEvent to its payload type for type-safe callbacks.
+ * Only the events that flow server→client (or are bidirectional) are included.
+ */
+export interface ScadaEventPayloadMap {
+  [ScadaSocketEvent.TAG_VALUES]: TagValuesPayload;
+  [ScadaSocketEvent.TAG_WRITE_ACK]: { tagId: string; success: boolean; error?: string };
+  [ScadaSocketEvent.DEVICE_STATUS]: DeviceStatusChange;
+  [ScadaSocketEvent.DAQ_RESULT]: DaqResultPayload;
+  [ScadaSocketEvent.HEARTBEAT]: { timestamp: number };
+  [ScadaSocketEvent.COMMAND_SET_VIEW]: { screenId: string };
+  [ScadaSocketEvent.COMMAND_OPEN_CARD]: { screenId: string; x?: number; y?: number };
+  [ScadaSocketEvent.COMMAND_TOAST]: { message: string; type?: string };
+}
+
+export type ScadaEventCallback<E extends keyof ScadaEventPayloadMap> = (
+  payload: ScadaEventPayloadMap[E],
+) => void;
+
+// Internal listener store keyed on event name.
+type ListenerMap = {
+  [E in keyof ScadaEventPayloadMap]?: Set<ScadaEventCallback<E>>;
+};
+
+// ── Singleton class ───────────────────────────────────────────────────────────
+
+export class ScadaSocketService {
+  private static instance: ScadaSocketService | null = null;
+
+  private socket: Socket | null = null;
+  private _connectionState: DataProviderConnectionState = 'disconnected';
+  private listeners: ListenerMap = {};
+  private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Heartbeat timeout: if no heartbeat arrives within this window → 'error'. */
+  private readonly HEARTBEAT_TIMEOUT_MS = 35_000;
+
+  private constructor() {}
+
+  // ── Singleton accessor ────────────────────────────────────────────────────
+
+  static getInstance(): ScadaSocketService {
+    if (!ScadaSocketService.instance) {
+      ScadaSocketService.instance = new ScadaSocketService();
+    }
+    return ScadaSocketService.instance;
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+
+  get connectionState(): DataProviderConnectionState {
+    return this._connectionState;
+  }
+
+  get isConnected(): boolean {
+    return this._connectionState === 'connected';
+  }
+
+  /**
+   * Connect (or reconnect) to the /scada namespace.
+   * Safe to call multiple times — no-op when already connected.
+   */
+  connect(): void {
+    if (this.socket?.connected) return;
+
+    const token = getAccessToken();
+    if (!token) {
+      console.warn('[ScadaSocketService] No auth token — deferring connection');
+      return;
+    }
+
+    this._setConnectionState('connecting');
+
+    if (this.socket) {
+      // Reuse existing socket instance; just update auth and reconnect.
+      (this.socket as Socket & { auth: Record<string, unknown> }).auth = { token };
+      this.socket.connect();
+      return;
+    }
+
+    this.socket = io(SCADA_WS_NAMESPACE, {
+      transports: ['websocket', 'polling'],
+      auth: { token },
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: BACKOFF_BASE_MS,
+      reconnectionDelayMax: BACKOFF_MAX_MS,
+      randomizationFactor: 0.3,
+    });
+
+    this._attachSocketListeners();
+  }
+
+  /**
+   * Disconnect the socket and reset state.
+   * Existing application-level listeners are preserved.
+   */
+  disconnect(): void {
+    this._clearHeartbeatTimer();
+    if (this.socket) {
+      this.socket.disconnect();
+    }
+    this._setConnectionState('disconnected');
+  }
+
+  /**
+   * Emit an event to the server.
+   * Automatically connects first if not connected.
+   */
+  emit(event: ScadaSocketEvent, payload?: unknown): void {
+    if (!this.socket?.connected) {
+      console.warn(`[ScadaSocketService] emit(${event}) — not connected, dropping`);
+      return;
+    }
+    this.socket.emit(event, payload);
+  }
+
+  /**
+   * Register a typed callback for a server-pushed event.
+   * Multiple callbacks per event are supported.
+   */
+  on<E extends keyof ScadaEventPayloadMap>(
+    event: E,
+    callback: ScadaEventCallback<E>,
+  ): void {
+    if (!this.listeners[event]) {
+      (this.listeners as Record<string, Set<ScadaEventCallback<E>>>)[event] = new Set();
+    }
+    (this.listeners[event] as Set<ScadaEventCallback<E>>).add(callback);
+  }
+
+  /**
+   * Remove a previously registered callback.
+   */
+  off<E extends keyof ScadaEventPayloadMap>(
+    event: E,
+    callback: ScadaEventCallback<E>,
+  ): void {
+    (this.listeners[event] as Set<ScadaEventCallback<E>> | undefined)?.delete(callback);
+  }
+
+  /**
+   * Remove all application-level listeners for a specific event.
+   */
+  offAll(event: keyof ScadaEventPayloadMap): void {
+    delete this.listeners[event];
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+
+  private _attachSocketListeners(): void {
+    const s = this.socket!;
+
+    s.on('connect', () => {
+      this._setConnectionState('connected');
+      this._resetHeartbeatTimer();
+    });
+
+    s.on('disconnect', (_reason: string) => {
+      this._clearHeartbeatTimer();
+      this._setConnectionState('disconnected');
+    });
+
+    s.on('connect_error', (err: Error) => {
+      console.warn('[ScadaSocketService] connect_error:', err.message);
+      this._setConnectionState('error');
+    });
+
+    // Refresh token on every reconnect attempt (mirrors socketFactory pattern)
+    s.on('reconnect_attempt', () => {
+      const freshToken = getAccessToken();
+      if (freshToken) {
+        (s as Socket & { auth: Record<string, unknown> }).auth = { token: freshToken };
+      }
+      this._setConnectionState('connecting');
+    });
+
+    s.on('reconnect', () => {
+      this._setConnectionState('connected');
+      this._resetHeartbeatTimer();
+    });
+
+    s.on('reconnect_failed', () => {
+      this._setConnectionState('error');
+    });
+
+    // Forward all typed server-push events to application listeners.
+    const serverPushEvents = Object.values(ScadaSocketEvent) as ScadaSocketEvent[];
+    serverPushEvents.forEach((event) => {
+      s.on(event, (payload: unknown) => {
+        if (event === ScadaSocketEvent.HEARTBEAT) {
+          this._resetHeartbeatTimer();
+        }
+        this._dispatch(event as keyof ScadaEventPayloadMap, payload);
+      });
+    });
+  }
+
+  private _dispatch<E extends keyof ScadaEventPayloadMap>(
+    event: E,
+    payload: unknown,
+  ): void {
+    const callbacks = this.listeners[event] as Set<ScadaEventCallback<E>> | undefined;
+    if (!callbacks || callbacks.size === 0) return;
+    callbacks.forEach((cb) => {
+      try {
+        cb(payload as ScadaEventPayloadMap[E]);
+      } catch (err) {
+        console.error(`[ScadaSocketService] Error in listener for ${String(event)}:`, err);
+      }
+    });
+  }
+
+  private _setConnectionState(state: DataProviderConnectionState): void {
+    if (this._connectionState === state) return;
+    this._connectionState = state;
+  }
+
+  private _resetHeartbeatTimer(): void {
+    this._clearHeartbeatTimer();
+    this.heartbeatTimer = setTimeout(() => {
+      console.warn('[ScadaSocketService] Heartbeat lapsed — marking state as error');
+      this._setConnectionState('error');
+    }, this.HEARTBEAT_TIMEOUT_MS);
+  }
+
+  private _clearHeartbeatTimer(): void {
+    if (this.heartbeatTimer !== null) {
+      clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+}
+
+// ── Convenience export ────────────────────────────────────────────────────────
+
+/** Pre-bound singleton getter for use in providers/hooks. */
+export const getScadaSocketService = (): ScadaSocketService =>
+  ScadaSocketService.getInstance();
+
+// Re-export payload types so consumers do not have to import from the types file.
+export type {
+  TagValuesPayload,
+  TagWritePayload,
+  DaqQueryPayload,
+  DaqResultPayload,
+};

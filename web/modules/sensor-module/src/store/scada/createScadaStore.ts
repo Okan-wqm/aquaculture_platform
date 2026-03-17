@@ -13,6 +13,10 @@ import { createGroupSlice } from './groupSlice';
 import { createTemplateSlice } from './templateSlice';
 import { createProjectSlice } from './projectSlice';
 import { createSimulationSlice } from './simulationSlice';
+import { createOperatorSlice } from './operatorSlice';
+import { createAlarmRuntimeSlice } from './alarmRuntimeSlice';
+import { createNotificationSlice } from './notificationSlice';
+import { createScriptSlice } from './scriptSlice';
 
 export function createScadaStore() {
   return create<ScadaStore>()(
@@ -29,6 +33,11 @@ export function createScadaStore() {
           ...createTemplateSlice(...args),
           ...createProjectSlice(...args),
           ...createSimulationSlice(...args),
+          // Runtime slices (operator mode)
+          ...createOperatorSlice(...args),
+          ...createAlarmRuntimeSlice(...args),
+          ...createNotificationSlice(...args),
+          ...createScriptSlice(...args),
         }))
       ),
       { name: 'ScadaStore', enabled: process.env.NODE_ENV === 'development' }

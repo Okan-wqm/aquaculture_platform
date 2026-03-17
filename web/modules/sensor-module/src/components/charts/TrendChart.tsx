@@ -107,10 +107,12 @@ function buildPathBuilder(interpolation: LineInterpolation): uPlot.Series['paths
 /**
  * Scatter path renderer: draws nothing (points are drawn by uPlot's
  * per-series points config). Returning null opts out of line drawing.
+ *
+ * Signature matches uPlot.Series.PathBuilder for type safety.
  */
-function drawScatterPaths(): null {
-  return null;
-}
+const drawScatterPaths: uPlot.Series.PathBuilder = (u, seriesIdx, idx0, idx1) => {
+  return null; // suppress line drawing, only draw points
+};
 
 /**
  * Build a zone-based fill function using a canvas linear gradient.
@@ -118,8 +120,8 @@ function drawScatterPaths(): null {
  */
 function buildZoneFill(
   zones: ChartLineZone[],
-): (self: uPlot.uPlot, seriesIdx: number) => CanvasGradient | null {
-  return (self: uPlot.uPlot, seriesIdx: number): CanvasGradient | null => {
+): (self: uPlot, seriesIdx: number) => CanvasGradient | null {
+  return (self: uPlot, seriesIdx: number): CanvasGradient | null => {
     const ctx = self.ctx;
     const plotTop = self.bbox.top;
     const plotHeight = self.bbox.height;
@@ -268,7 +270,7 @@ function buildTooltipPlugin(
 ): uPlot.Plugin {
   return {
     hooks: {
-      setCursor: (u: uPlot.uPlot) => {
+      setCursor: (u: uPlot) => {
         const { left, top, idx } = u.cursor;
         if (idx == null || left == null || top == null || left < 0) {
           setTooltip((prev) => ({ ...prev, visible: false }));
@@ -298,7 +300,7 @@ function buildWheelPlugin(
 ): uPlot.Plugin {
   return {
     hooks: {
-      ready: (u: uPlot.uPlot) => {
+      ready: (u: uPlot) => {
         const el = u.over;
         if (!el) return;
 
@@ -334,7 +336,7 @@ function buildWheelPlugin(
 function buildTouchPlugin(): uPlot.Plugin {
   return {
     hooks: {
-      ready: (u: uPlot.uPlot) => {
+      ready: (u: uPlot) => {
         const el = u.over;
         if (!el) return;
 

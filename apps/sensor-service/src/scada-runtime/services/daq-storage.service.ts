@@ -28,12 +28,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+// TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type {
   TagValueChange,
   HistoricalDataPoint,
   DaqAggregation,
   DaqResultPayload,
-} from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+} from '../scada-types';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -284,22 +285,24 @@ export class DaqStorageService {
       ORDER BY tag_id, bucket ASC
     `;
 
+    // Plain PostgreSQL fallback: use buildAggregationBucket() which handles
+    // sub-hour intervals (5min, 10min, 30min) with floor-to-interval arithmetic
+    // instead of date_trunc (which would collapse them all to 1-minute buckets).
+    const bucketExpr = this.buildAggregationBucket(aggregation.interval);
+
     const fallbackSql = `
       SELECT
         tag_id,
-        date_trunc($1, timestamp) AS bucket,
+        ${bucketExpr} AS bucket,
         ${aggFnSql}(value)        AS agg_value
       FROM ${TABLE_NAME}
-      WHERE tag_id = ANY($2)
-        AND timestamp >= $3
-        AND timestamp <  $4
+      WHERE tag_id = ANY($1)
+        AND timestamp >= $2
+        AND timestamp <  $3
         AND quality = 'good'
       GROUP BY tag_id, bucket
       ORDER BY tag_id, bucket ASC
     `;
-
-    // date_trunc only accepts specific unit strings, not intervals — map
-    const dateTruncUnit = this.intervalToDateTruncUnit(aggregation.interval);
 
     let rows: AggregatedRow[];
     try {
@@ -309,25 +312,41 @@ export class DaqStorageService {
       this.logger.warn(
         'DaqStorage: time_bucket unavailable, falling back to date_trunc',
       );
-      rows = await this.dataSource.query(fallbackSql, [dateTruncUnit, tagIds, from, to]);
+      rows = await this.dataSource.query(fallbackSql, [tagIds, from, to]);
     }
 
     return aggRowsToDataMap(tagIds, rows);
   }
 
-  private intervalToDateTruncUnit(interval: DaqAggregation['interval']): string {
+  /**
+   * Build a SQL expression that floors a timestamp to the requested bucket
+   * interval using only standard PostgreSQL functions (no TimescaleDB).
+   *
+   * For 1-minute, 1-hour, and 1-day intervals date_trunc() is exact.
+   * For sub-hour multi-minute intervals (5min, 10min, 30min) we use
+   * floor-to-interval arithmetic:
+   *   date_trunc('hour', timestamp)
+   *     + INTERVAL '1 minute' * (EXTRACT(MINUTE FROM timestamp)::int / N * N)
+   *
+   * This avoids the old bug where all sub-hour intervals collapsed to 1-minute
+   * buckets when using date_trunc('minute', ...).
+   */
+  private buildAggregationBucket(interval: DaqAggregation['interval']): string {
     switch (interval) {
       case '1min':
+        return `date_trunc('minute', timestamp)`;
       case '5min':
+        return `date_trunc('hour', timestamp) + INTERVAL '1 minute' * (EXTRACT(MINUTE FROM timestamp)::int / 5 * 5)`;
       case '10min':
+        return `date_trunc('hour', timestamp) + INTERVAL '1 minute' * (EXTRACT(MINUTE FROM timestamp)::int / 10 * 10)`;
       case '30min':
-        return 'minute';
+        return `date_trunc('hour', timestamp) + INTERVAL '1 minute' * (EXTRACT(MINUTE FROM timestamp)::int / 30 * 30)`;
       case '1h':
-        return 'hour';
+        return `date_trunc('hour', timestamp)`;
       case '1d':
-        return 'day';
+        return `date_trunc('day', timestamp)`;
       default:
-        return 'hour';
+        return `date_trunc('hour', timestamp)`;
     }
   }
 
@@ -425,8 +444,13 @@ export class DaqStorageService {
     `;
 
     try {
-      const result: { rowCount: number } = await this.dataSource.query(sql, [cutoff]);
-      const deleted = result.rowCount ?? 0;
+      // PostgreSQL pg driver returns [rows, affectedCount] for DML statements.
+      // dataSource.query() passes this through as-is, so we must extract the
+      // affected count from the array rather than looking for a .rowCount property.
+      const result = await this.dataSource.query(sql, [cutoff]);
+      const deleted = Array.isArray(result) && result.length > 1
+        ? Number(result[1]) || 0
+        : 0;
       this.logger.log(
         `DaqStorage: cleanup removed ${deleted} row(s) older than ${cutoff.toISOString()} ` +
           `(retentionDays=${retentionDays})`,

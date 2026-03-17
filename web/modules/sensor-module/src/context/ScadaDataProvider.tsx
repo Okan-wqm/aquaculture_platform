@@ -37,11 +37,11 @@ export type { IDataProvider };
 /* ================================================================== */
 
 export interface ScadaDataContextValue {
-  values: Record<string, Record<string, any>>;
+  values: Record<string, Record<string, unknown>>;
   alarms: Record<string, IoAlarmEvent[]>;
   isConnected: boolean;
   connectionStatus: ConnectionStatus;
-  getTagValue: (deviceCode: string, tagName: string) => any;
+  getTagValue: (deviceCode: string, tagName: string) => unknown;
   subscribeTag: (deviceCode: string, tagName: string) => void;
   unsubscribeTag: (deviceCode: string, tagName: string) => void;
 }

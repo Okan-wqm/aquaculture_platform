@@ -44,6 +44,81 @@ import type { ViewOverlay } from '../../types/scada-runtime.types';
 const OVERLAY_Z_BASE = 40;
 
 /* ------------------------------------------------------------------ */
+/*  Focus trap hook                                                     */
+/* ------------------------------------------------------------------ */
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Traps keyboard focus within a container element while active.
+ * On mount, saves the previously focused element and focuses the first
+ * focusable child. On unmount (or when active becomes false), restores
+ * focus to the previously focused element.
+ */
+function useFocusTrap(
+  containerRef: React.RefObject<HTMLElement | null>,
+  active: boolean,
+): void {
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+
+    // Save the element that was focused before the trap activated
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Focus the first focusable element inside the container
+    const focusableElements = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus();
+    } else {
+      // If no focusable children, make the container itself focusable
+      container.setAttribute('tabindex', '-1');
+      container.focus();
+    }
+
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return;
+
+      const focusable = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      if (focusable.length === 0) return;
+
+      const firstElement = focusable[0];
+      const lastElement = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        // Shift+Tab: if focus is on the first element, wrap to last
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement.focus();
+        }
+      } else {
+        // Tab: if focus is on the last element, wrap to first
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement.focus();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true);
+
+      // Restore focus to the previously focused element
+      if (previouslyFocusedRef.current && typeof previouslyFocusedRef.current.focus === 'function') {
+        previouslyFocusedRef.current.focus();
+      }
+    };
+  }, [active, containerRef]);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Draggable title-bar hook                                           */
 /* ------------------------------------------------------------------ */
 
@@ -174,6 +249,7 @@ interface OverlayItemProps {
 const DialogOverlay = memo<OverlayItemProps>(
   ({ overlay, onClose, onBringToFront }) => {
     const { dragRef, translateX, translateY } = useDraggable(0, 0);
+    const dialogContainerRef = useRef<HTMLDivElement>(null);
 
     const defaultWidth  = overlay.size?.width  ?? 640;
     const defaultHeight = overlay.size?.height ?? 480;
@@ -188,9 +264,13 @@ const DialogOverlay = memo<OverlayItemProps>(
       [handleClose],
     );
 
+    // Focus trap: keeps Tab cycling within the dialog, restores focus on close
+    useFocusTrap(dialogContainerRef, true);
+
     return (
       /* Backdrop */
       <div
+        ref={dialogContainerRef}
         className="fixed inset-0 flex items-center justify-center"
         style={{ zIndex: OVERLAY_Z_BASE + overlay.zIndex }}
         aria-modal="true"

@@ -367,11 +367,13 @@ export class AlarmStorageService implements OnModuleInit {
   async cleanupHistory(retentionDays: number): Promise<number> {
     try {
       const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
-      const result = await this.dataSource.query(
+      // pg-driver convention: DataSource.query() returns [rows, rowCount]
+      // where rowCount is the number of affected rows for DML statements.
+      const [, affectedRows] = await this.dataSource.query(
         `DELETE FROM scada_alarm_chronicle WHERE on_time < $1`,
         [cutoffMs],
       );
-      const deleted: number = result[1] ?? 0;
+      const deleted: number = typeof affectedRows === 'number' ? affectedRows : 0;
       if (deleted > 0) {
         this.logger.log(
           `cleanupHistory: deleted ${deleted} record(s) older than ${retentionDays} days`,

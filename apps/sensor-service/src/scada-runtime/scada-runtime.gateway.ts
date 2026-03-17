@@ -20,7 +20,7 @@
  *  - All handlers wrapped in try/catch; errors emitted back to originating socket
  */
 
-import { Logger } from '@nestjs/common';
+import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -35,12 +35,9 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
-import type {
-  AlarmStatusSummary,
-  HmiRole,
-  TagValueChange,
-} from '../../../../web/modules/sensor-module/src/types/scada-runtime.types';
-import { ScadaSocketEvent } from '../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+// TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
+import type { AlarmStatusSummary, HmiRole, TagValueChange } from './scada-types';
+import { ScadaSocketEvent } from './scada-types';
 
 import {
   AlarmAckAllDto,
@@ -129,6 +126,7 @@ export type ScadaCommandPayload =
   namespace: '/scada',
   transports: ['websocket', 'polling'],
 })
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class ScadaRuntimeGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
@@ -658,8 +656,11 @@ export class ScadaRuntimeGateway
    */
   private validateToken(token: string): TokenPayload | null {
     try {
+      // Algorithm is configurable via JWT_ALGORITHM env var to support
+      // future migration from HS256 to RS256 without code changes.
+      const jwtAlgorithm = this.configService.get<string>('JWT_ALGORITHM', 'HS256');
       const result: unknown = this.jwtService.verify(token, {
-        algorithms: ['HS256'],
+        algorithms: [jwtAlgorithm],
       });
       return result as TokenPayload;
     } catch (error) {

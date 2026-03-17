@@ -25,11 +25,12 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+// TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type {
   TagWritePayload,
   DaqQueryPayload,
   DaqAggregation,
-} from '../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
+} from '../scada-types';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */

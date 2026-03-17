@@ -23,6 +23,7 @@
     "react-router-dom": "^6.21.0",
     "reactflow": "^11.10.0",
     "recharts": "^2.10.0",
+    "uplot": "^1.6.31",
     "socket.io-client": "^4.7.0",
     "zustand": "^4.4.0"
   },

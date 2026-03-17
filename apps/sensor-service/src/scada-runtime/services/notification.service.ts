@@ -2,7 +2,7 @@
  * NotificationService
  *
  * Delivers alarm notifications over Email (SMTP via nodemailer) and
- * Webhook (HTTP POST via axios).
+ * Webhook (HTTP POST via Node.js http/https modules).
  *
  * Features:
  *   - Per-config severity filter (only notify on matching severities)
@@ -19,7 +19,7 @@
  * objects and NotificationConfig arrays; it does not import the engine.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type {
@@ -29,7 +29,7 @@ import type {
 } from '../../../../../../web/modules/sensor-module/src/types/scada-runtime.types';
 
 /* ------------------------------------------------------------------ */
-/*  Nodemailer / axios — loaded lazily to keep startup fast             */
+/*  Nodemailer / http — loaded lazily to keep startup fast              */
 /* ------------------------------------------------------------------ */
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -56,7 +56,7 @@ interface NotificationRecord {
 /* ------------------------------------------------------------------ */
 
 @Injectable()
-export class NotificationService {
+export class NotificationService implements OnModuleDestroy {
   private readonly logger = new Logger(NotificationService.name);
 
   /**
@@ -65,10 +65,28 @@ export class NotificationService {
    */
   private readonly sentLog = new Map<string, NotificationRecord>();
 
+  /**
+   * Tracks all pending setTimeout handles so they can be cancelled
+   * during module teardown, preventing fire-after-destroy bugs.
+   */
+  private readonly pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+
   /** Nodemailer transporter (lazy-initialised). */
   private transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
 
   constructor(private readonly configService: ConfigService) {}
+
+  /* ---------------------------------------------------------------- */
+  /*  Lifecycle                                                         */
+  /* ---------------------------------------------------------------- */
+
+  onModuleDestroy(): void {
+    for (const timer of this.pendingTimers) {
+      clearTimeout(timer);
+    }
+    this.pendingTimers.clear();
+    this.logger.log('NotificationService stopped — cleared all pending timers');
+  }
 
   /* ---------------------------------------------------------------- */
   /*  Public API                                                        */
@@ -138,8 +156,9 @@ export class NotificationService {
         // Store a "pending" record at the time the alarm first triggered
         this.sentLog.set(key, { firstSentAt: 0, lastSentAt: now, count: 0 });
 
-        // Schedule the delayed send
-        setTimeout(async () => {
+        // Schedule the delayed send and track the timer handle
+        const timer = setTimeout(async () => {
+          this.pendingTimers.delete(timer);
           const current = this.sentLog.get(key);
           if (!current) return; // alarm resolved before delay elapsed
           await this.deliver(alarm, config);
@@ -147,6 +166,7 @@ export class NotificationService {
           current.lastSentAt = Date.now();
           current.count = 1;
         }, delayMs);
+        this.pendingTimers.add(timer);
 
         return;
       }

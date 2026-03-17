@@ -130,7 +130,12 @@ export const PieChart: React.FC<PieChartProps> = ({
   const { values, isConnected } = useRealtimeData(tagIds);
   const colors = getThemeColors(theme);
 
-  /** Derive numeric segment values from realtime data. */
+  /**
+   * Derive numeric segment values from realtime data.
+   *
+   * Negative values are clamped to 0 because pie/doughnut slices represent
+   * proportional areas and negative arc lengths are mathematically undefined.
+   */
   const chartData = useMemo(() => {
     return segments.map((seg) => {
       const change = values[seg.tagId];

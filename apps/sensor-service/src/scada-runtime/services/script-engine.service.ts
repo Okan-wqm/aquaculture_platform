@@ -74,6 +74,109 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const BROADCAST_TENANT_ID = 'default';
 
 /* ------------------------------------------------------------------ */
+/*  Timer lifecycle tracker                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tracks all timers (setTimeout / setInterval) created by sandboxed scripts.
+ *
+ * Scripts are given wrapped timer functions that register every handle.
+ * After execution completes — whether normally or via timeout — `clearAll()`
+ * is called to deterministically cancel every outstanding timer so that no
+ * script-created callbacks can fire on the host after the sandbox is torn down.
+ */
+class TimerTracker {
+  private readonly timeouts = new Set<ReturnType<typeof setTimeout>>();
+  private readonly intervals = new Set<ReturnType<typeof setInterval>>();
+
+  /** Drop-in replacement for `setTimeout` that tracks the handle. */
+  readonly trackedSetTimeout = (
+    callback: (...args: unknown[]) => void,
+    ms?: number,
+    ...rest: unknown[]
+  ): ReturnType<typeof setTimeout> => {
+    const handle = setTimeout((...args: unknown[]) => {
+      this.timeouts.delete(handle);
+      callback(...args);
+    }, ms, ...rest);
+    this.timeouts.add(handle);
+    return handle;
+  };
+
+  /** Drop-in replacement for `setInterval` that tracks the handle. */
+  readonly trackedSetInterval = (
+    callback: (...args: unknown[]) => void,
+    ms?: number,
+    ...rest: unknown[]
+  ): ReturnType<typeof setInterval> => {
+    const handle = setInterval(callback, ms, ...rest);
+    this.intervals.add(handle);
+    return handle;
+  };
+
+  /** Drop-in replacement for `clearTimeout` that untracks the handle. */
+  readonly trackedClearTimeout = (handle: ReturnType<typeof setTimeout>): void => {
+    this.timeouts.delete(handle);
+    clearTimeout(handle);
+  };
+
+  /** Drop-in replacement for `clearInterval` that untracks the handle. */
+  readonly trackedClearInterval = (handle: ReturnType<typeof setInterval>): void => {
+    this.intervals.delete(handle);
+    clearInterval(handle);
+  };
+
+  /** Cancel every outstanding timer created through the tracked wrappers. */
+  clearAll(): void {
+    for (const h of this.timeouts) {
+      clearTimeout(h);
+    }
+    this.timeouts.clear();
+
+    for (const h of this.intervals) {
+      clearInterval(h);
+    }
+    this.intervals.clear();
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Safe constructor proxies (defense-in-depth)                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Instead of injecting raw host constructors (Object, Array, etc.) into the
+ * sandbox — which would let a crafty script traverse prototype chains back
+ * to the host — we expose frozen proxy objects that contain only the static
+ * utility methods scripts legitimately need.
+ *
+ * `Date` is the sole exception: it must remain constructable so that
+ * `new Date()` works inside scripts.
+ */
+const SAFE_CONSTRUCTORS = Object.freeze({
+  Object: Object.freeze(
+    Object.create(Object.prototype, {
+      keys:    { value: Object.keys,    writable: false, configurable: false, enumerable: true },
+      values:  { value: Object.values,  writable: false, configurable: false, enumerable: true },
+      entries: { value: Object.entries, writable: false, configurable: false, enumerable: true },
+      assign:  { value: Object.assign,  writable: false, configurable: false, enumerable: true },
+      freeze:  { value: Object.freeze,  writable: false, configurable: false, enumerable: true },
+    }),
+  ),
+  Array: Object.freeze({
+    isArray: Array.isArray,
+    from: Array.from,
+    of: Array.of,
+  }),
+  JSON: Object.freeze({
+    parse: JSON.parse,
+    stringify: JSON.stringify,
+  }),
+  Math: Object.freeze({ ...Math }),
+  Date, // Must remain constructable for `new Date()`
+});
+
+/* ------------------------------------------------------------------ */
 /*  Internal console capture                                            */
 /* ------------------------------------------------------------------ */
 
@@ -114,10 +217,10 @@ interface SandboxContext {
   };
   // Script parameters (injected as named variables)
   params: Record<string, unknown>;
-  // Safe math / timing globals
-  Math: typeof Math;
+  // Safe ECMAScript built-ins (frozen proxies — see SAFE_CONSTRUCTORS)
+  Math: typeof SAFE_CONSTRUCTORS.Math;
   Date: typeof Date;
-  JSON: typeof JSON;
+  JSON: typeof SAFE_CONSTRUCTORS.JSON;
   parseInt: typeof parseInt;
   parseFloat: typeof parseFloat;
   isNaN: typeof isNaN;
@@ -125,13 +228,14 @@ interface SandboxContext {
   Number: typeof Number;
   String: typeof String;
   Boolean: typeof Boolean;
-  Array: typeof Array;
-  Object: typeof Object;
+  Array: typeof SAFE_CONSTRUCTORS.Array;
+  Object: typeof SAFE_CONSTRUCTORS.Object;
   Promise: typeof Promise;
-  setTimeout: typeof setTimeout;
-  clearTimeout: typeof clearTimeout;
-  setInterval: typeof setInterval;
-  clearInterval: typeof clearInterval;
+  // Tracked timer functions (see TimerTracker)
+  setTimeout: TimerTracker['trackedSetTimeout'];
+  clearTimeout: TimerTracker['trackedClearTimeout'];
+  setInterval: TimerTracker['trackedSetInterval'];
+  clearInterval: TimerTracker['trackedClearInterval'];
 }
 
 /* ------------------------------------------------------------------ */
@@ -176,9 +280,10 @@ export class ScriptEngineService {
     this.logger.log(`[script] Running script id=${script.id} name="${script.name}"`);
 
     try {
+      const timerTracker = new TimerTracker();
       const resolvedParams = this.resolveParams(script.params ?? [], params);
-      const sandbox = this.buildSandbox(script, resolvedParams, capturedLogs);
-      const result = await this.executeInSandbox(script.code, sandbox, DEFAULT_TIMEOUT_MS);
+      const sandbox = this.buildSandbox(script, resolvedParams, capturedLogs, timerTracker);
+      const result = await this.executeInSandbox(script.code, sandbox, DEFAULT_TIMEOUT_MS, timerTracker);
 
       const durationMs = Date.now() - startMs;
       this.logger.log(
@@ -224,9 +329,10 @@ export class ScriptEngineService {
     this.logger.log(`[script] Testing script id=${script.id} name="${script.name}"`);
 
     try {
+      const timerTracker = new TimerTracker();
       const resolvedParams = this.resolveParams(script.params ?? [], undefined);
-      const sandbox = this.buildSandbox(script, resolvedParams, capturedLogs);
-      const result = await this.executeInSandbox(script.code, sandbox, DEFAULT_TIMEOUT_MS);
+      const sandbox = this.buildSandbox(script, resolvedParams, capturedLogs, timerTracker);
+      const result = await this.executeInSandbox(script.code, sandbox, DEFAULT_TIMEOUT_MS, timerTracker);
 
       const durationMs = Date.now() - startMs;
       this.logger.log(
@@ -314,6 +420,7 @@ export class ScriptEngineService {
     script: ScadaScript,
     params: Record<string, unknown>,
     capturedLogs: ConsoleEntry[],
+    timerTracker: TimerTracker,
   ): SandboxContext {
     const self = this;
     const scriptId = script.id;
@@ -467,10 +574,10 @@ export class ScriptEngineService {
       // Script parameters
       params,
 
-      // Safe ECMAScript built-ins
-      Math,
-      Date,
-      JSON,
+      // Safe ECMAScript built-ins (frozen proxies — defense-in-depth)
+      Math: SAFE_CONSTRUCTORS.Math,
+      Date: SAFE_CONSTRUCTORS.Date,
+      JSON: SAFE_CONSTRUCTORS.JSON,
       parseInt,
       parseFloat,
       isNaN,
@@ -478,13 +585,14 @@ export class ScriptEngineService {
       Number,
       String,
       Boolean,
-      Array,
-      Object,
+      Array: SAFE_CONSTRUCTORS.Array,
+      Object: SAFE_CONSTRUCTORS.Object,
       Promise,
-      setTimeout,
-      clearTimeout,
-      setInterval,
-      clearInterval,
+      // Tracked timers — all handles are cleared after execution
+      setTimeout: timerTracker.trackedSetTimeout,
+      clearTimeout: timerTracker.trackedClearTimeout,
+      setInterval: timerTracker.trackedSetInterval,
+      clearInterval: timerTracker.trackedClearInterval,
     };
 
     return sandbox;
@@ -507,6 +615,7 @@ export class ScriptEngineService {
     code: string,
     sandbox: SandboxContext,
     timeoutMs: number,
+    timerTracker: TimerTracker,
   ): Promise<unknown> {
     const context = vm.createContext(sandbox, {
       name: 'ScadaScriptSandbox',
@@ -536,13 +645,24 @@ export class ScriptEngineService {
       breakOnSigint: true,
     }) as Promise<unknown>;
 
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(
+    // Use a tracked timeout handle so it is deterministically cleared
+    // whether the script succeeds, fails, or times out.
+    let timeoutHandle: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
         () => reject(new Error(`Script execution timed out after ${timeoutMs}ms`)),
         timeoutMs,
-      ),
-    );
+      );
+    });
 
-    return Promise.race([vmPromise, timeoutPromise]);
+    try {
+      const result = await Promise.race([vmPromise, timeoutPromise]);
+      return result;
+    } finally {
+      // Clear the race-timeout timer (prevents handle leak on success)
+      clearTimeout(timeoutHandle!);
+      // Cancel every timer the script created inside the sandbox
+      timerTracker.clearAll();
+    }
   }
 }

@@ -58,9 +58,7 @@ function timeoutPromise(ms: number): Promise<never> {
 
 export function useClientScript(): ClientScriptResult {
   const provider = useDataProvider();
-  const setView   = useOperatorStore((s) => s.setOperatorMode); // placeholder — real navigation via layout
-
-  // We need setView to navigate to a screen: the operator store does not
+  // We need $setView to navigate to a screen: the operator store does not
   // expose a "navigate to screen" directly, so we pull the overlay opener
   // which can open a dialog-type overlay for a given screenId.
   const openOverlay = useOperatorStore((s) => s.openOverlay);
@@ -211,9 +209,6 @@ ${script.code}
     },
     [appendLine, buildSysFunctions],
   );
-
-  // setView is captured only to satisfy exhaustive-deps; unused directly.
-  void setView;
 
   return { runScript, isRunning, consoleOutput };
 }

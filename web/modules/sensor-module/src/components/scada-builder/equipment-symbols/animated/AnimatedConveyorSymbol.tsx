@@ -1,6 +1,6 @@
 import React from 'react';
 import type { EquipmentSymbolProps } from '../types';
-import { EQUIPMENT_STATE_COLORS } from '../types';
+import { EQUIPMENT_STATE_COLORS, FaultOverlay, MaintenanceOverlay } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
 
@@ -188,6 +188,9 @@ const AnimatedConveyorSymbol: React.FC<EquipmentSymbolProps> = ({
           </text>
         )}
       </g>
+
+      <FaultOverlay state={state} viewBoxWidth={140} viewBoxHeight={80} />
+      <MaintenanceOverlay state={state} viewBoxWidth={140} viewBoxHeight={80} />
 
       <ConnectionPoints
         points={CONNECTION_POINTS['animatedConveyor']}

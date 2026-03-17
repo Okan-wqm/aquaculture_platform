@@ -210,7 +210,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                 strokeDasharray="3 3"
                 stroke={colors.gridColor}
                 vertical={!isHorizontal}
-                horizontal={isHorizontal || true}
+                horizontal={orientation === 'vertical'}
               />
             )}
             {isHorizontal ? (

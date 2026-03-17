@@ -182,7 +182,7 @@ interface KeyButtonProps {
 
 const KeyButton = memo<KeyButtonProps>(({ keyDef, shifted, onPress }) => {
   const handleClick = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
+    (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       onPress(keyDef);
@@ -199,7 +199,6 @@ const KeyButton = memo<KeyButtonProps>(({ keyDef, shifted, onPress }) => {
     <button
       type="button"
       onClick={handleClick}
-      onTouchEnd={handleClick}
       className={`
         flex items-center justify-center rounded border text-sm font-medium
         transition-colors select-none

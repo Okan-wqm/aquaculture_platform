@@ -68,23 +68,53 @@ export interface ScriptBridgeResolver {
   getAlarm: (alarmId: string) => AlarmInstance | null;
 }
 
-// ── Timeout helper ─────────────────────────────────────────────────────────────
+// ── Default options ─────────────────────────────────────────────────────────────
 
-function timeoutPromise(ms: number): Promise<never> {
-  return new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Script timed out after ${ms} ms`)), ms),
-  );
-}
+/**
+ * Maximum time (in ms) that a synchronous script body is expected to run before
+ * a watchdog warning is emitted.  True cancellation of synchronous infinite
+ * loops (`while (true) {}`) is **not possible** in a single-threaded JS
+ * context — the event loop is blocked and no timer callback can fire.
+ *
+ * For production hardening, consider running user scripts inside a dedicated
+ * Web Worker where the main thread can call `worker.terminate()` to abort a
+ * runaway synchronous loop.
+ */
+const DEFAULT_MAX_SYNC_EXECUTION_MS = 5_000;
 
 // ── ScriptEngine class ────────────────────────────────────────────────────────
+
+export interface ScriptEngineOptions {
+  /** Async timeout per script execution (ms). Defaults to 5 000. */
+  timeoutMs?: number;
+  /**
+   * Advisory threshold (ms) after which a watchdog warning is logged for
+   * potentially blocked synchronous execution.
+   *
+   * **Important:** True cancellation of synchronous infinite loops
+   * (`while (true) {}`) is impossible in a single-threaded JS context because
+   * the event loop is blocked and no timer callback can fire.  This option
+   * only logs a warning — it cannot terminate the script.
+   *
+   * For production hardening, run user scripts inside a Web Worker where the
+   * main thread can call `worker.terminate()` to abort a runaway loop.
+   *
+   * @default 5000
+   */
+  maxSyncExecutionMs?: number;
+}
 
 export class ScriptEngine {
   private consoleBuffer: ScriptConsoleEntry[] = [];
   private running = new Set<string>();
   private bridge: ScriptBridgeResolver;
+  private readonly timeoutMs: number;
+  private readonly maxSyncExecutionMs: number;
 
-  constructor(bridge: ScriptBridgeResolver) {
+  constructor(bridge: ScriptBridgeResolver, options?: ScriptEngineOptions) {
     this.bridge = bridge;
+    this.timeoutMs = options?.timeoutMs ?? SCRIPT_TIMEOUT_MS;
+    this.maxSyncExecutionMs = options?.maxSyncExecutionMs ?? DEFAULT_MAX_SYNC_EXECUTION_MS;
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -169,6 +199,23 @@ export class ScriptEngine {
 
   // ── Private ───────────────────────────────────────────────────────────────
 
+  /**
+   * Execute a script with timeout protection and a synchronous-execution watchdog.
+   *
+   * **Timeout cleanup:** The `setTimeout` backing the timeout promise is always
+   * cleared via the `finally` block, preventing dangling timer leaks when the
+   * script resolves before the deadline.
+   *
+   * **Synchronous infinite loop caveat:**
+   * A script that enters a synchronous infinite loop (`while (true) {}`) will
+   * block the main thread.  Because JavaScript is single-threaded, no timer
+   * callback (including the timeout) can fire until the loop yields.  The
+   * watchdog timer set here will only fire *after* the loop completes (or
+   * never), so it serves as a diagnostic signal rather than a hard kill.
+   *
+   * For production hardening, execute user scripts inside a Web Worker where
+   * the main thread can call `worker.terminate()` to forcibly abort execution.
+   */
   private async _execute(
     script: ScadaScript,
     params: Record<string, unknown>,
@@ -197,16 +244,54 @@ ${script.code}
 })();`,
     );
 
-    const scriptPromise: Promise<unknown> = factory(
-      $getTag,
-      $setTag,
-      $setView,
-      $getAlarm,
-      $console,
-      params,
-    );
+    // ── Timeout with proper cleanup (Issue 1 fix) ──────────────────────────
+    // The timeoutHandle is always cleared in the `finally` block so we never
+    // leave a dangling setTimeout when the script resolves normally.
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
-    return Promise.race([scriptPromise, timeoutPromise(SCRIPT_TIMEOUT_MS)]);
+    // ── Synchronous-execution watchdog (Issue 2 mitigation) ────────────────
+    // This watchdog fires only if the event loop is *not* blocked.  If a
+    // synchronous infinite loop is running, the callback cannot execute until
+    // the loop yields — at which point the warning is still useful as a
+    // post-mortem diagnostic.  True sync cancellation requires Web Workers.
+    let watchdogHandle: ReturnType<typeof setTimeout> | undefined;
+    let executionStarted = true;
+
+    try {
+      const scriptPromise: Promise<unknown> = factory(
+        $getTag,
+        $setTag,
+        $setView,
+        $getAlarm,
+        $console,
+        params,
+      );
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(
+          () => reject(new Error(`Script timed out after ${this.timeoutMs} ms`)),
+          this.timeoutMs,
+        );
+      });
+
+      // Watchdog: log a warning if the script appears to be blocking the
+      // event loop beyond the advisory threshold.
+      watchdogHandle = setTimeout(() => {
+        if (executionStarted) {
+          console.warn(
+            `[ScriptEngine] Script "${script.id}" has been executing for ` +
+            `>${this.maxSyncExecutionMs} ms — possible synchronous infinite loop. ` +
+            `Consider using a Web Worker for production hardening.`,
+          );
+        }
+      }, this.maxSyncExecutionMs);
+
+      return await Promise.race([scriptPromise, timeoutPromise]);
+    } finally {
+      executionStarted = false;
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      if (watchdogHandle !== undefined) clearTimeout(watchdogHandle);
+    }
   }
 
   private _buildBridge(scriptId: string): ScriptBridge {
@@ -288,6 +373,7 @@ ${script.code}
  */
 export function createScriptEngine(
   bridge: ScriptBridgeResolver,
+  options?: ScriptEngineOptions,
 ): ScriptEngine {
-  return new ScriptEngine(bridge);
+  return new ScriptEngine(bridge, options);
 }

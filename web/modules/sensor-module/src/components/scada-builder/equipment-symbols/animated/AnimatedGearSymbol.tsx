@@ -1,6 +1,6 @@
 import React from 'react';
 import type { EquipmentSymbolProps } from '../types';
-import { EQUIPMENT_STATE_COLORS } from '../types';
+import { EQUIPMENT_STATE_COLORS, FaultOverlay, MaintenanceOverlay } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
 
@@ -55,16 +55,8 @@ const AnimatedGearSymbol: React.FC<EquipmentSymbolProps> = ({
             from { transform: rotate(0deg); transform-origin: 50px 50px; }
             to   { transform: rotate(360deg); transform-origin: 50px 50px; }
           }
-          @keyframes gear-spin-reverse {
-            from { transform: rotate(0deg); transform-origin: 50px 50px; }
-            to   { transform: rotate(-360deg); transform-origin: 50px 50px; }
-          }
           .gear-rotate {
             animation: gear-spin 3s linear infinite;
-            transform-origin: 50px 50px;
-          }
-          .gear-rotate-slow {
-            animation: gear-spin-reverse 5s linear infinite;
             transform-origin: 50px 50px;
           }
         `}</style>
@@ -131,6 +123,9 @@ const AnimatedGearSymbol: React.FC<EquipmentSymbolProps> = ({
           </text>
         )}
       </g>
+
+      <FaultOverlay state={state} viewBoxWidth={100} viewBoxHeight={100} />
+      <MaintenanceOverlay state={state} viewBoxWidth={100} viewBoxHeight={100} />
 
       <ConnectionPoints
         points={CONNECTION_POINTS['animatedGear']}

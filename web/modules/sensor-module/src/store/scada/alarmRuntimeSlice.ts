@@ -17,6 +17,12 @@ import type {
 } from '../../types/scada-runtime.types';
 
 /* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
+const MAX_ALARM_HISTORY = 1000;
+
+/* ------------------------------------------------------------------ */
 /*  Slice Interface                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -37,13 +43,15 @@ export interface AlarmRuntimeSlice {
   setAlarmHistoryFilter: (filter: Partial<AlarmHistoryFilter>) => void;
   clearPendingActions: () => void;
   consumePendingAction: (index: number) => void;
+  /** Atomically returns and clears all pending actions in a single mutation. */
+  consumeAllPendingActions: () => AlarmActionCommand[];
 }
 
 /* ------------------------------------------------------------------ */
 /*  Slice Creator                                                       */
 /* ------------------------------------------------------------------ */
 
-export const createAlarmRuntimeSlice: ScadaSliceCreator<AlarmRuntimeSlice> = (set) => ({
+export const createAlarmRuntimeSlice: ScadaSliceCreator<AlarmRuntimeSlice> = (set, get) => ({
   // Initial state
   activeAlarms: [],
   alarmHistory: [],
@@ -89,6 +97,9 @@ export const createAlarmRuntimeSlice: ScadaSliceCreator<AlarmRuntimeSlice> = (se
   addToHistory: (alarm) =>
     set((state) => {
       state.alarmHistory.push(alarm);
+      if (state.alarmHistory.length > MAX_ALARM_HISTORY) {
+        state.alarmHistory = state.alarmHistory.slice(-MAX_ALARM_HISTORY);
+      }
     }),
 
   setAlarmHistoryFilter: (filter) =>
@@ -106,4 +117,15 @@ export const createAlarmRuntimeSlice: ScadaSliceCreator<AlarmRuntimeSlice> = (se
       if (index < 0 || index >= state.pendingActions.length) return;
       state.pendingActions.splice(index, 1);
     }),
+
+  consumeAllPendingActions: () => {
+    const current = get().pendingActions;
+    if (current.length === 0) return [];
+    // Take a shallow copy before clearing so callers can iterate safely.
+    const actions = [...current];
+    set((state) => {
+      state.pendingActions = [];
+    });
+    return actions;
+  },
 });

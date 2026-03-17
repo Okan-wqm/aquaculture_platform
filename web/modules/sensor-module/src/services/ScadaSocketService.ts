@@ -151,7 +151,8 @@ export class ScadaSocketService {
 
   /**
    * Emit an event to the server.
-   * Automatically connects first if not connected.
+   * Messages are silently dropped if the socket is not connected.
+   * Callers should check `connectionState` before emitting critical messages.
    */
   emit(event: ScadaSocketEvent, payload?: unknown): void {
     if (!this.socket?.connected) {

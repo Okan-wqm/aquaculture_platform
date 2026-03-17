@@ -1,4 +1,5 @@
-import type { EquipmentState, EquipmentConnectionPoint } from '../../../types/scada-widget.types';
+import React from 'react';
+import type { EquipmentState, EquipmentConnectionPoint, ConnectionPointKey } from '../../../types/scada-widget.types';
 
 // ViewBox dimensions for each equipment subtype (used for handle alignment)
 export const EQUIPMENT_VIEWBOX: Record<string, { width: number; height: number }> = {
@@ -80,7 +81,8 @@ export const EQUIPMENT_STATE_COLORS: Record<EquipmentState, { fill: string; stro
   open:    { fill: '#dcfce7', stroke: '#22c55e' },
   stopped: { fill: '#f3f4f6', stroke: '#9ca3af' },
   closed:  { fill: '#f3f4f6', stroke: '#9ca3af' },
-  fault:   { fill: '#fef2f2', stroke: '#ef4444' },
+  fault:       { fill: '#fef2f2', stroke: '#ef4444' },
+  maintenance: { fill: '#fefce8', stroke: '#d97706' },
 };
 
 // Connection point colors
@@ -91,8 +93,8 @@ export const CONNECTION_POINT_COLORS = {
 } as const;
 
 // CONNECTION_POINTS registry - maps each subtype to its connection points
-// Use exact EquipmentSubType keys
-export const CONNECTION_POINTS: Record<string, EquipmentConnectionPoint[]> = {
+// Typed with ConnectionPointKey to prevent orphan/typo keys at compile time
+export const CONNECTION_POINTS: Record<ConnectionPointKey, EquipmentConnectionPoint[]> = {
   // Pumps - left(inlet), right(outlet)
   centrifugalPump: [
     { id: 'inlet', label: 'Giriş', side: 'left', offset: 0.5, direction: 'in' },
@@ -367,4 +369,84 @@ export const CONNECTION_POINTS: Record<string, EquipmentConnectionPoint[]> = {
     { id: 'center-drain', label: 'Center Drain', side: 'bottom', offset: 0.45, direction: 'out' },
     { id: 'side-drain', label: 'Side Drain', side: 'right', offset: 0.6, direction: 'out' },
   ],
+};
+
+/* ------------------------------------------------------------------ */
+/*  Shared state overlay components                                    */
+/* ------------------------------------------------------------------ */
+
+interface StateOverlayProps {
+  state: EquipmentState;
+  viewBoxWidth: number;
+  viewBoxHeight: number;
+}
+
+/**
+ * Renders a red circle with "!" in the top-right corner of an SVG symbol
+ * when the equipment state is `fault`. Renders nothing otherwise.
+ *
+ * Usage: place `<FaultOverlay state={state} viewBoxWidth={w} viewBoxHeight={h} />`
+ * inside the symbol's <svg> element, after the main drawing group.
+ */
+export const FaultOverlay: React.FC<StateOverlayProps> = ({ state, viewBoxWidth, viewBoxHeight }) => {
+  if (state !== 'fault') return null;
+
+  const cx = viewBoxWidth - 10;
+  const cy = 10;
+  const r = 8;
+
+  return React.createElement('g', { className: 'fault-overlay' },
+    React.createElement('circle', {
+      cx, cy, r,
+      fill: '#ef4444',
+      stroke: '#ffffff',
+      strokeWidth: 1.5,
+      opacity: 0.95,
+    }),
+    React.createElement('text', {
+      x: cx,
+      y: cy + 4,
+      textAnchor: 'middle',
+      fontSize: 12,
+      fontWeight: 'bold',
+      fill: '#ffffff',
+      fontFamily: 'sans-serif',
+    }, '!'),
+  );
+};
+
+/**
+ * Renders an amber circle with a wrench icon in the top-right corner of an
+ * SVG symbol when the equipment state is `maintenance`. Renders nothing otherwise.
+ *
+ * Usage: place `<MaintenanceOverlay state={state} viewBoxWidth={w} viewBoxHeight={h} />`
+ * inside the symbol's <svg> element, after the main drawing group.
+ */
+export const MaintenanceOverlay: React.FC<StateOverlayProps> = ({ state, viewBoxWidth, viewBoxHeight }) => {
+  if (state !== 'maintenance') return null;
+
+  const cx = viewBoxWidth - 10;
+  const cy = 10;
+  const r = 8;
+
+  // Simplified wrench path centered at (cx, cy), scaled to fit inside the circle
+  return React.createElement('g', { className: 'maintenance-overlay' },
+    React.createElement('circle', {
+      cx, cy, r,
+      fill: '#f59e0b',
+      stroke: '#ffffff',
+      strokeWidth: 1.5,
+      opacity: 0.95,
+    }),
+    // Wrench icon — a small SVG path rendered at the badge center
+    React.createElement('text', {
+      x: cx,
+      y: cy + 4,
+      textAnchor: 'middle',
+      fontSize: 11,
+      fontWeight: 'bold',
+      fill: '#ffffff',
+      fontFamily: 'sans-serif',
+    }, '\u2692'), // ⚒ (hammer-and-pick / wrench Unicode symbol)
+  );
 };

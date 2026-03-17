@@ -21,6 +21,7 @@
 import { useCallback } from 'react';
 import { useOperatorStore } from '../store/scada/operatorStore';
 import { useTagWrite } from './useTagWrite';
+import { useDataProvider } from '../providers';
 import { useClientScript } from './useClientScript';
 import type {
   WidgetEventBinding,
@@ -47,6 +48,7 @@ export function useWidgetEvents(
   const openOverlay    = useOperatorStore((s) => s.openOverlay);
   const closeAllOverlays = useOperatorStore((s) => s.closeAllOverlays);
   const { writeTag, toggleTag } = useTagWrite();
+  const provider                = useDataProvider();
   const { runScript }           = useClientScript();
 
   // -----------------------------------------------------------------------
@@ -95,24 +97,17 @@ export function useWidgetEvents(
         }
 
         case 'toggleValue': {
-          if (params.bitmask !== undefined && params.bitmask !== 0) {
-            // XOR-toggle: read current, XOR with bitmask, write back.
-            // We can't read through useTagWrite, so we delegate to writeTag
-            // with a special bitmask-aware toggle by hand.
-            // NOTE: the DataProvider getTagValue is accessible via useTagWrite
-            // internally; but since the hook doesn't expose it we re-use
-            // the simpler toggleTag for the common case and fall back.
-            try {
+          try {
+            if (params.bitmask !== undefined && params.bitmask !== 0) {
+              // XOR-toggle: read current value, XOR with bitmask, write back.
+              const currentVal = Number(provider.getTagValue(params.tagId)?.value ?? 0);
+              const toggled = currentVal ^ params.bitmask;
+              await writeTag(params.tagId, toggled);
+            } else {
               await toggleTag(params.tagId);
-            } catch {
-              // Swallow — surfaced in useTagWrite.lastError.
             }
-          } else {
-            try {
-              await toggleTag(params.tagId);
-            } catch {
-              // Swallow.
-            }
+          } catch {
+            // Errors are surfaced via useTagWrite.lastError; swallow here.
           }
           break;
         }
@@ -149,7 +144,7 @@ export function useWidgetEvents(
           break;
       }
     },
-    [onNavigate, openOverlay, closeAllOverlays, writeTag, toggleTag, runScript],
+    [onNavigate, openOverlay, closeAllOverlays, writeTag, toggleTag, provider, runScript],
   );
 
   // -----------------------------------------------------------------------

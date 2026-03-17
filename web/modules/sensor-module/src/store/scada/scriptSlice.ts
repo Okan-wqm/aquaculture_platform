@@ -26,7 +26,7 @@ export interface ScriptSlice {
   // State
   scripts: ScadaScript[];
   scriptConsoleOutput: ScriptConsoleEntry[];
-  runningScripts: Set<string>;
+  runningScripts: Record<string, true>;
 
   // Actions
   addScript: (script: Omit<ScadaScript, 'id'>) => string;
@@ -45,7 +45,7 @@ export const createScriptSlice: ScadaSliceCreator<ScriptSlice> = (set) => ({
   // Initial state
   scripts: [],
   scriptConsoleOutput: [],
-  runningScripts: new Set<string>(),
+  runningScripts: {} as Record<string, true>,
 
   // Actions
   addScript: (script) => {
@@ -66,7 +66,7 @@ export const createScriptSlice: ScadaSliceCreator<ScriptSlice> = (set) => ({
   removeScript: (id) =>
     set((state) => {
       state.scripts = state.scripts.filter((s) => s.id !== id);
-      state.runningScripts.delete(id);
+      delete state.runningScripts[id];
       state.scriptConsoleOutput = state.scriptConsoleOutput.filter(
         (entry) => entry.scriptId !== id,
       );
@@ -75,9 +75,9 @@ export const createScriptSlice: ScadaSliceCreator<ScriptSlice> = (set) => ({
   setScriptRunning: (id, running) =>
     set((state) => {
       if (running) {
-        state.runningScripts.add(id);
+        state.runningScripts[id] = true;
       } else {
-        state.runningScripts.delete(id);
+        delete state.runningScripts[id];
       }
     }),
 

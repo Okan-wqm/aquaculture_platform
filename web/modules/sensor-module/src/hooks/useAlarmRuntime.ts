@@ -99,7 +99,7 @@ export function useAlarmRuntime(
   const pendingActions = useAlarmRuntimeStore((s) => s.pendingActions);
 
   const updateAlarmStatus = useAlarmRuntimeStore((s) => s.updateAlarmStatus);
-  const consumePendingAction = useAlarmRuntimeStore((s) => s.consumePendingAction);
+  const consumeAllPendingActions = useAlarmRuntimeStore((s) => s.consumeAllPendingActions);
 
   // Keep callbacks in a ref so event handlers always have the latest version
   const callbacksRef = useRef<AlarmRuntimeCallbacks | undefined>(callbacks);
@@ -126,11 +126,12 @@ export function useAlarmRuntime(
   useEffect(() => {
     if (pendingActions.length === 0) return;
 
-    // Process from end to avoid index shift issues
-    for (let i = pendingActions.length - 1; i >= 0; i--) {
-      const action = pendingActions[i];
-      if (!action) continue;
+    // Atomically consume all pending actions in a single store mutation,
+    // then process the returned snapshot. This avoids O(n) individual
+    // store updates that each trigger a re-render.
+    const actions = consumeAllPendingActions();
 
+    for (const action of actions) {
       try {
         switch (action.type) {
           case 'toastMessage': {
@@ -155,10 +156,8 @@ export function useAlarmRuntime(
       } catch (err) {
         console.error('[useAlarmRuntime] action handler error:', err);
       }
-
-      consumePendingAction(i);
     }
-  }, [pendingActions, consumePendingAction]);
+  }, [pendingActions, consumeAllPendingActions]);
 
   // ── ACK single alarm ─────────────────────────────────────────────────────
   const acknowledgeAlarm = useCallback((alarmId: string) => {
@@ -185,13 +184,14 @@ export function useAlarmRuntime(
   // ── History query ────────────────────────────────────────────────────────
   const queryHistory = useCallback(async (filter: AlarmHistoryFilter): Promise<void> => {
     setIsLoading(true);
-    try {
-      const socket = getSocket(SCADA_WS_URL);
-      if (!socket) {
-        console.warn('[useAlarmRuntime] queryHistory: no socket available');
-        return;
-      }
+    const socket = getSocket(SCADA_WS_URL);
+    if (!socket) {
+      console.warn('[useAlarmRuntime] queryHistory: no socket available');
+      setIsLoading(false);
+      return;
+    }
 
+    try {
       await new Promise<void>((resolve, reject) => {
         const TIMEOUT_MS = 15_000;
         const timer = setTimeout(() => {
@@ -214,11 +214,10 @@ export function useAlarmRuntime(
         socket.on(ScadaSocketEvent.ALARM_HISTORY_RESULT, handler);
         socket.emit(ScadaSocketEvent.ALARM_HISTORY_QUERY, filter);
       });
-
-      releaseSocket(SCADA_WS_URL);
     } catch (err) {
       console.error('[useAlarmRuntime] queryHistory error:', err);
     } finally {
+      releaseSocket(SCADA_WS_URL);
       setIsLoading(false);
     }
   }, []);

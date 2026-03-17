@@ -58,6 +58,186 @@ import { ScriptEngineService } from './script-engine.service';
 /*  matching minute (not per tick within that minute).                  */
 /* ================================================================== */
 
+/* ================================================================== */
+/*  Cron expression normalisation & validation                         */
+/* ================================================================== */
+
+/** Well-known cron aliases mapped to their 5-field equivalents. */
+const CRON_ALIASES: Record<string, string> = {
+  '@yearly':   '0 0 1 1 *',
+  '@annually': '0 0 1 1 *',
+  '@monthly':  '0 0 1 * *',
+  '@weekly':   '0 0 * * 0',
+  '@daily':    '0 0 * * *',
+  '@midnight': '0 0 * * *',
+  '@hourly':   '0 * * * *',
+};
+
+/** Month name → number mapping. */
+const MONTH_NAMES: Record<string, string> = {
+  JAN: '1',  FEB: '2',  MAR: '3',  APR: '4',
+  MAY: '5',  JUN: '6',  JUL: '7',  AUG: '8',
+  SEP: '9',  OCT: '10', NOV: '11', DEC: '12',
+};
+
+/** Day-of-week name → number mapping. */
+const DOW_NAMES: Record<string, string> = {
+  SUN: '0', MON: '1', TUE: '2', WED: '3',
+  THU: '4', FRI: '5', SAT: '6',
+};
+
+/**
+ * Normalises a cron expression by expanding aliases (`@daily`, etc.)
+ * and replacing month/day-of-week names with their numeric equivalents.
+ */
+function normalizeCronExpression(expr: string): string {
+  const trimmed = expr.trim();
+
+  // Handle predefined aliases
+  const alias = CRON_ALIASES[trimmed.toLowerCase()];
+  if (alias) return alias;
+
+  // Replace month names (case-insensitive)
+  let normalised = trimmed.replace(
+    /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/gi,
+    (match) => MONTH_NAMES[match.toUpperCase()] ?? match,
+  );
+
+  // Replace day-of-week names (case-insensitive)
+  normalised = normalised.replace(
+    /\b(SUN|MON|TUE|WED|THU|FRI|SAT)\b/gi,
+    (match) => DOW_NAMES[match.toUpperCase()] ?? match,
+  );
+
+  return normalised;
+}
+
+/** Field definitions for validation: [name, min, max]. */
+const CRON_FIELD_DEFS: [string, number, number][] = [
+  ['minute',       0, 59],
+  ['hour',         0, 23],
+  ['day-of-month', 1, 31],
+  ['month',        1, 12],
+  ['day-of-week',  0, 6],
+];
+
+/**
+ * Validates a (already-normalised) 5-field cron expression.
+ *
+ * Returns `{ valid: true }` on success, or `{ valid: false, error: '...' }`
+ * with a descriptive message on failure.
+ */
+function validateCronExpression(expr: string): { valid: boolean; error?: string } {
+  const fields = expr.trim().split(/\s+/);
+
+  if (fields.length !== 5) {
+    return {
+      valid: false,
+      error: `Expected 5 cron fields (minute hour dom month dow), got ${fields.length}: "${expr}"`,
+    };
+  }
+
+  for (let i = 0; i < fields.length; i++) {
+    const [fieldName, min, max] = CRON_FIELD_DEFS[i];
+    const field = fields[i];
+    const err = validateCronField(field, fieldName, min, max);
+    if (err) return { valid: false, error: err };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validates a single cron field value. Returns an error string or `null` if valid.
+ */
+function validateCronField(
+  field: string,
+  fieldName: string,
+  min: number,
+  max: number,
+): string | null {
+  for (const part of field.split(',')) {
+    const trimmed = part.trim();
+    if (trimmed === '') {
+      return `${fieldName}: empty value in list`;
+    }
+
+    const err = validateCronPart(trimmed, fieldName, min, max);
+    if (err) return err;
+  }
+  return null;
+}
+
+function validateCronPart(
+  part: string,
+  fieldName: string,
+  min: number,
+  max: number,
+): string | null {
+  // Handle step: base/step
+  const slashIdx = part.indexOf('/');
+  if (slashIdx !== -1) {
+    const rangePart = part.substring(0, slashIdx);
+    const stepStr = part.substring(slashIdx + 1);
+    const step = parseInt(stepStr, 10);
+
+    if (isNaN(step) || step <= 0) {
+      return `${fieldName}: invalid step value "${stepStr}" in "${part}"`;
+    }
+
+    if (rangePart !== '*') {
+      return validateCronRangeOrValue(rangePart, fieldName, min, max);
+    }
+    return null;
+  }
+
+  // Handle range: lo-hi
+  const dashIdx = part.indexOf('-');
+  if (dashIdx !== -1) {
+    return validateCronRangeOrValue(part, fieldName, min, max);
+  }
+
+  // Wildcard
+  if (part === '*') return null;
+
+  // Exact value
+  const val = parseInt(part, 10);
+  if (isNaN(val)) {
+    return `${fieldName}: invalid value "${part}" (expected integer or *)`;
+  }
+  if (val < min || val > max) {
+    return `${fieldName}: value ${val} out of range ${min}-${max}`;
+  }
+  return null;
+}
+
+function validateCronRangeOrValue(
+  part: string,
+  fieldName: string,
+  min: number,
+  max: number,
+): string | null {
+  const dashIdx = part.indexOf('-');
+  if (dashIdx !== -1) {
+    const loStr = part.substring(0, dashIdx);
+    const hiStr = part.substring(dashIdx + 1);
+    const lo = parseInt(loStr, 10);
+    const hi = parseInt(hiStr, 10);
+
+    if (isNaN(lo)) return `${fieldName}: invalid range start "${loStr}" in "${part}"`;
+    if (isNaN(hi)) return `${fieldName}: invalid range end "${hiStr}" in "${part}"`;
+    if (lo < min || lo > max) return `${fieldName}: range start ${lo} out of range ${min}-${max}`;
+    if (hi < min || hi > max) return `${fieldName}: range end ${hi} out of range ${min}-${max}`;
+    if (lo > hi) return `${fieldName}: range start ${lo} > end ${hi} in "${part}"`;
+    return null;
+  }
+
+  const val = parseInt(part, 10);
+  if (isNaN(val)) return `${fieldName}: invalid value "${part}"`;
+  if (val < min || val > max) return `${fieldName}: value ${val} out of range ${min}-${max}`;
+  return null;
+}
+
 /**
  * Parses and evaluates a single cron field.
  *
@@ -154,7 +334,7 @@ function matchesCronExpression(expression: string, now: Date): boolean {
  */
 class CronTimer {
   private interval: ReturnType<typeof setInterval> | null = null;
-  private lastFiredMinute: number = -1;
+  private lastFiredKey: string = '';
 
   constructor(
     private readonly expression: string,
@@ -165,17 +345,17 @@ class CronTimer {
     if (this.interval) return;
     this.interval = setInterval(() => {
       const now = new Date();
-      const minuteKey =
-        now.getFullYear() * 525_960 + // unique per year+minute
-        (now.getMonth() + 1) * 43_830 +
-        now.getDate() * 1_440 +
-        now.getHours() * 60 +
-        now.getMinutes();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const day = now.getDate();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      const minuteKey = `${year}-${month}-${day}-${hour}-${minute}`;
 
-      if (minuteKey === this.lastFiredMinute) return; // already fired this minute
+      if (minuteKey === this.lastFiredKey) return; // already fired this minute
 
       if (matchesCronExpression(this.expression, now)) {
-        this.lastFiredMinute = minuteKey;
+        this.lastFiredKey = minuteKey;
         try {
           this.callback();
         } catch {
@@ -278,19 +458,19 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
    * No-ops if the script already has a registered job (use `updateScript`
    * to replace an existing registration).
    */
-  addScript(script: ScadaScript): void {
+  addScript(script: ScadaScript): boolean {
     if (this.jobs.has(script.id)) {
       this.logger.warn(
         `addScript: script id=${script.id} already registered — use updateScript`,
       );
-      return;
+      return false;
     }
 
     if (!script.enabled || script.mode !== 'server' || !script.scheduling) {
       this.logger.debug(
         `addScript: script id=${script.id} skipped (disabled, non-server, or no scheduling)`,
       );
-      return;
+      return false;
     }
 
     try {
@@ -299,10 +479,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         `addScript: registered script id=${script.id} name="${script.name}" ` +
           `mode=${script.scheduling?.mode ?? 'unknown'}`,
       );
+      return true;
     } catch (err) {
       this.logger.error(
         `addScript: failed id=${script.id} — ${(err as Error).message}`,
       );
+      return false;
     }
   }
 
@@ -329,8 +511,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   updateScript(script: ScadaScript): void {
     this.removeScript(script.id);
-    this.addScript(script);
-    this.logger.log(`updateScript: refreshed script id=${script.id} name="${script.name}"`);
+    const registered = this.addScript(script);
+    this.logger.log(
+      registered
+        ? `Refreshed script job: ${script.name}`
+        : `Removed script job (now inactive): ${script.name}`,
+    );
   }
 
   /* ---------------------------------------------------------------- */
@@ -391,10 +577,19 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       }
 
       case 'cron': {
-        const expr = scheduling.cronExpression;
-        if (!expr || expr.trim() === '') {
+        const rawExpr = scheduling.cronExpression;
+        if (!rawExpr || rawExpr.trim() === '') {
           throw new Error(
             `Script id=${script.id}: cronExpression is required for cron mode`,
+          );
+        }
+
+        // Normalise aliases and named tokens, then validate
+        const expr = normalizeCronExpression(rawExpr);
+        const validation = validateCronExpression(expr);
+        if (!validation.valid) {
+          throw new Error(
+            `Script id=${script.id}: invalid cron expression "${rawExpr}" — ${validation.error}`,
           );
         }
 
@@ -407,7 +602,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.log(
           `[scheduler] cron job registered: id=${script.id} ` +
-            `name="${script.name}" expr="${expr}"`,
+            `name="${script.name}" expr="${expr}"` +
+            (expr !== rawExpr ? ` (normalised from "${rawExpr}")` : ''),
         );
         break;
       }

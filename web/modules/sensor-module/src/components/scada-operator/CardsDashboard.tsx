@@ -188,12 +188,24 @@ DashboardCard.displayName = 'DashboardCard';
 /*  Drop indicator                                                      */
 /* ------------------------------------------------------------------ */
 
-const DropIndicator = memo<{ visible: boolean }>(({ visible }) => {
+interface DropIndicatorProps {
+  visible: boolean;
+  /** Column span to match the card being dragged over. */
+  colSpan?: number;
+  /** Row span to match the card being dragged over. */
+  rowSpan?: number;
+}
+
+const DropIndicator = memo<DropIndicatorProps>(({ visible, colSpan = 1, rowSpan = 1 }) => {
   if (!visible) return null;
   return (
     <div
-      className="border-2 border-dashed border-blue-500/50 rounded-md bg-blue-500/10"
-      style={{ gridColumn: 'span 1', gridRow: 'span 1', minHeight: 60 }}
+      className="border-2 border-dashed border-blue-500/50 rounded-md bg-blue-500/10 pointer-events-none"
+      style={{
+        gridColumn: `span ${colSpan}`,
+        gridRow: `span ${rowSpan}`,
+        minHeight: 60,
+      }}
       aria-hidden="true"
     />
   );
@@ -334,26 +346,58 @@ export const CardsDashboard = memo<CardsDashboardProps>(
         role="region"
         aria-label="Cards dashboard"
       >
-        {cards.map((card) => (
-          <DashboardCard
-            key={card.id}
-            card={card}
-            isMaximized={maximizedCardId === card.id}
-            onClose={() => handleClose(card.id)}
-            onToggleMaximize={() => handleToggleMaximize(card.id)}
-            onDragStart={handleDragStart}
-            columns={columns}
-            rowHeight={rowHeight}
-          >
-            {renderCardContent ? (
-              renderCardContent(card.viewId, card.id)
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500 text-xs">
-                View: {card.viewId}
-              </div>
-            )}
-          </DashboardCard>
-        ))}
+        {cards.map((card, index) => {
+          const isDragging = dragCardId !== null;
+          const isDraggedCard = dragCardId === card.id;
+          const showIndicatorBefore =
+            isDragging && dropTargetIndex === index && !isDraggedCard;
+
+          return (
+            <React.Fragment key={card.id}>
+              {showIndicatorBefore && (
+                <DropIndicator
+                  visible
+                  colSpan={Math.min(
+                    cards.find((c) => c.id === dragCardId)?.width ?? 1,
+                    columns,
+                  )}
+                  rowSpan={cards.find((c) => c.id === dragCardId)?.height ?? 1}
+                />
+              )}
+              <DashboardCard
+                card={card}
+                isMaximized={maximizedCardId === card.id}
+                onClose={() => handleClose(card.id)}
+                onToggleMaximize={() => handleToggleMaximize(card.id)}
+                onDragStart={handleDragStart}
+                columns={columns}
+                rowHeight={rowHeight}
+              >
+                {renderCardContent ? (
+                  renderCardContent(card.viewId, card.id)
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500 text-xs">
+                    View: {card.viewId}
+                  </div>
+                )}
+              </DashboardCard>
+            </React.Fragment>
+          );
+        })}
+
+        {/* Drop indicator at the end of the list */}
+        {dragCardId !== null &&
+          dropTargetIndex !== null &&
+          dropTargetIndex >= cards.length && (
+            <DropIndicator
+              visible
+              colSpan={Math.min(
+                cards.find((c) => c.id === dragCardId)?.width ?? 1,
+                columns,
+              )}
+              rowSpan={cards.find((c) => c.id === dragCardId)?.height ?? 1}
+            />
+          )}
 
         {/* Empty state */}
         {cards.length === 0 && (

@@ -5,7 +5,7 @@
  *  - ScadaAlarm:          Active (live) alarm instances.
  *  - ScadaAlarmChronicle: Historical alarm records (append-only chronicle).
  *
- * These are used by AlarmStorageService for Prisma raw-SQL or ORM upserts.
+ * These are used by AlarmStorageService for TypeORM DataSource raw SQL upserts.
  * The class shape mirrors the AlarmInstance interface from scada-runtime.types.ts
  * while adding persistence-specific fields (id as UUID string, DB timestamps).
  */

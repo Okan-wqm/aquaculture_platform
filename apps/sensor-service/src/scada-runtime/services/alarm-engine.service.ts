@@ -630,7 +630,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       ackTime: alarm.ackTime,
       ackUserId: alarm.ackUserId,
       colors: alarm.colors,
-    } as ScadaAlarm;
+    };
   }
 
   private instanceToChronicle(alarm: AlarmInstance): ScadaAlarmChronicle {
@@ -648,7 +648,7 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
       offTime: alarm.offTime,
       ackTime: alarm.ackTime,
       ackUserId: alarm.ackUserId,
-    } as ScadaAlarmChronicle;
+    };
   }
 
   /* ---------------------------------------------------------------- */

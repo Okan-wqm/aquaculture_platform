@@ -34,6 +34,39 @@ import type { RuntimeWidgetProps, TagValueChange } from '../../../types/scada-ru
 const MAX_BUFFER_POINTS = 10_000;
 const DEFAULT_WINDOW_MINUTES = 10;
 
+/* ------------------------------------------------------------------ */
+/*  RingBuffer — O(1) push with automatic eviction                     */
+/* ------------------------------------------------------------------ */
+
+class RingBuffer<T> {
+  private buffer: (T | undefined)[];
+  private head = 0;
+  private tail = 0;
+  private _size = 0;
+
+  constructor(private capacity: number) {
+    this.buffer = new Array(capacity);
+  }
+
+  push(item: T): void {
+    this.buffer[this.tail] = item;
+    this.tail = (this.tail + 1) % this.capacity;
+    if (this._size < this.capacity) this._size++;
+    else this.head = (this.head + 1) % this.capacity;
+  }
+
+  toArray(): T[] {
+    const result: T[] = [];
+    for (let i = 0; i < this._size; i++) {
+      result.push(this.buffer[(this.head + i) % this.capacity]!);
+    }
+    return result;
+  }
+
+  get size(): number { return this._size; }
+  clear(): void { this.head = 0; this.tail = 0; this._size = 0; }
+}
+
 const DEFAULT_COLORS = [
   '#3b82f6',
   '#10b981',
@@ -81,6 +114,15 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
   const title = (config.title ?? '') as string;
   const showToolbar = (config.showToolbar ?? true) as boolean;
 
+  /**
+   * Stabilized tag-ID key: only changes when the SET of tag IDs changes,
+   * not when their values update. Prevents unnecessary uPlot recreation.
+   */
+  const tagIdKey = useMemo(
+    () => (tagValues ? Object.keys(tagValues).sort().join(',') : ''),
+    [tagValues],
+  );
+
   /** Parse series definitions from config. */
   const seriesList = useMemo<SeriesConfig[]>(() => {
     const raw = config.series as SeriesConfig[] | undefined;
@@ -93,9 +135,9 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
       }));
     }
 
-    // Fallback: derive from tagValues keys
-    if (tagValues) {
-      return Object.keys(tagValues).map((tagId, i) => ({
+    // Fallback: derive from tagValues keys (stabilized via tagIdKey)
+    if (tagIdKey) {
+      return tagIdKey.split(',').map((tagId, i) => ({
         tagId,
         label: tagId,
         color: DEFAULT_COLORS[i % DEFAULT_COLORS.length],
@@ -103,12 +145,12 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     }
 
     return [];
-  }, [config.series, tagValues]);
+  }, [config.series, tagIdKey]);
 
   /* ---- State ---- */
   const containerRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
-  const bufferRef = useRef<Map<string, Array<[number, number]>>>(new Map());
+  const bufferRef = useRef<Map<string, RingBuffer<[number, number]>>>(new Map());
   const rafRef = useRef<number | null>(null);
   const pendingRef = useRef(false);
   const [rangeMinutes, setRangeMinutes] = useState(windowMinutes);
@@ -224,8 +266,8 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
 
     // Collect timestamps
     const tsSet = new Set<number>();
-    for (const pts of buf.values()) {
-      for (const [ts] of pts) tsSet.add(ts);
+    for (const ring of buf.values()) {
+      for (const [ts] of ring.toArray()) tsSet.add(ts);
     }
 
     const timestamps = [...tsSet].filter((t) => t >= cutoff).sort((a, b) => a - b);
@@ -235,7 +277,8 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     timestamps.forEach((t, i) => tsIdx.set(t, i));
 
     const seriesData: (number | null)[][] = seriesList.map((s) => {
-      const pts = buf.get(s.tagId) ?? [];
+      const ring = buf.get(s.tagId);
+      const pts = ring ? ring.toArray() : [];
       const row: (number | null)[] = new Array(timestamps.length).fill(null);
       for (const [ts, val] of pts) {
         if (ts < cutoff) continue;
@@ -254,8 +297,6 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     if (!tagValues || seriesList.length === 0) return;
 
     let changed = false;
-    const windowSec = rangeMinutes * 60;
-    const cutoff = Date.now() / 1000 - windowSec;
 
     for (const series of seriesList) {
       const change: TagValueChange | undefined = tagValues[series.tagId];
@@ -269,29 +310,22 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
       if (isNaN(numVal)) continue;
 
       if (!bufferRef.current.has(series.tagId)) {
-        bufferRef.current.set(series.tagId, []);
+        bufferRef.current.set(series.tagId, new RingBuffer<[number, number]>(MAX_BUFFER_POINTS));
       }
 
-      const buf = bufferRef.current.get(series.tagId)!;
-      // Append only if newer
-      if (buf.length === 0 || buf[buf.length - 1][0] < tsSec) {
-        buf.push([tsSec, numVal]);
+      const ring = bufferRef.current.get(series.tagId)!;
+      // Append only if newer (check last element via toArray peek)
+      const arr = ring.toArray();
+      if (arr.length === 0 || arr[arr.length - 1][0] < tsSec) {
+        ring.push([tsSec, numVal]);
         changed = true;
-      }
-
-      // Evict old data
-      while (buf.length > 0 && buf[0][0] < cutoff) {
-        buf.shift();
-      }
-      while (buf.length > MAX_BUFFER_POINTS) {
-        buf.shift();
       }
     }
 
     if (!changed || pendingRef.current) return;
     pendingRef.current = true;
     rafRef.current = requestAnimationFrame(flushBuffer);
-  }, [tagValues, seriesList, rangeMinutes, flushBuffer]);
+  }, [tagValues, seriesList, flushBuffer]);
 
   /* ---- Cleanup RAF on unmount ---- */
 

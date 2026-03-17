@@ -21,7 +21,7 @@
  *   - React.memo prevents re-renders from unrelated parent updates
  */
 
-import React, { memo, useEffect, useRef, useMemo } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import type { RuntimeWidgetProps, PipeConfig, PipeFlowDirection } from '../../../types/scada-runtime.types';
 
 /* ------------------------------------------------------------------ */
@@ -212,8 +212,9 @@ const RuntimePipe: React.FC<RuntimeWidgetProps> = ({
 
   const direction: PipeFlowDirection = actionDirection ?? configDirection;
 
-  /* ---- SVG path ref (for image animator) ---- */
-  const pathRef = useRef<SVGPathElement | null>(null);
+  /* ---- SVG path ref (callback ref to trigger re-render on mount) ---- */
+  const [pathEl, setPathEl] = useState<SVGPathElement | null>(null);
+  const pathRefCallback = useCallback((el: SVGPathElement | null) => { setPathEl(el); }, []);
 
   /* ---- dash pattern ---- */
   // dash = contentWidth, gap = contentSpace
@@ -261,7 +262,7 @@ const RuntimePipe: React.FC<RuntimeWidgetProps> = ({
 
         {/* Animated flow content dashes */}
         <path
-          ref={pathRef}
+          ref={pathRefCallback}
           d={pathData}
           fill="none"
           stroke={direction === 'stop' ? 'transparent' : contentColor}
@@ -275,7 +276,7 @@ const RuntimePipe: React.FC<RuntimeWidgetProps> = ({
         {/* Image animation along pipe (optional) */}
         {imgAnim && imgAnim.imageUrl && imgAnim.count > 0 && (
           <ImageAnimator
-            pathEl={pathRef.current}
+            pathEl={pathEl}
             imageUrl={imgAnim.imageUrl}
             count={imgAnim.count}
             delayMs={imgAnim.delayMs ?? 200}

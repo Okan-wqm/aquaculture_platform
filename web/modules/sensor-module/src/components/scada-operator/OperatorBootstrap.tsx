@@ -25,6 +25,7 @@ import React, {
   useEffect,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
   Component,
   type ErrorInfo,
@@ -305,6 +306,13 @@ export const OperatorBootstrap: React.FC<OperatorBootstrapProps> = ({
   const setOperatorLayout = useScadaStore((s) => s.setOperatorLayout);
   const operatorLayout    = useScadaStore((s) => s.operatorLayout);
 
+  // Use a ref to capture the layout at the time of initialization,
+  // preventing the re-render loop caused by operatorLayout being both
+  // read and written in the same effect's dependency array.
+  const layoutSnapshotRef = useRef(operatorLayout);
+  layoutSnapshotRef.current = operatorLayout;
+  const hasInitializedRef = useRef(false);
+
   useEffect(() => {
     if (!packageId) return;
 
@@ -314,19 +322,24 @@ export const OperatorBootstrap: React.FC<OperatorBootstrapProps> = ({
       return;
     }
 
+    // Guard against re-initialization across renders
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
     // Set the package ID in the store, then mark ready.
     // Real apps would fetch package JSON from an API and call loadFromJSON;
     // the bootstrap only wires the ID here — the caller may pre-load the
     // package JSON before rendering OperatorBootstrap.
     setStorePackageId(packageId);
 
-    // Activate operator mode layout defaults
+    // Activate operator mode layout defaults using the ref snapshot
+    // to avoid including operatorLayout in the dependency array.
     setOperatorLayout({
-      ...operatorLayout,
+      ...layoutSnapshotRef.current,
     });
 
     setReady(true);
-  }, [packageId, storePackageId, setStorePackageId, setOperatorLayout, operatorLayout]);
+  }, [packageId, storePackageId, setStorePackageId, setOperatorLayout]);
 
   if (!ready) {
     return <BootstrapLoader />;

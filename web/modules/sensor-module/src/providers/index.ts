@@ -1,136 +1,76 @@
 /**
- * providers/index.ts
+ * providers/index.ts — Barrel export for the DataProvider system.
  *
- * Bridges the SCADA runtime IDataProvider contract with the existing
- * ScadaDataContext / socket layer.  Hooks in this module import from here
- * so the data source is swappable (live, simulation, hybrid) without
- * changing any consumer code.
+ * Public API surface:
+ *   - DataProviderContext, useDataProvider, DataProviderRoot  (context + root)
+ *   - SimulationDataProviderInner                             (sim impl)
+ *   - LiveDeviceDataProviderInner                             (live impl)
+ *   - HybridDataProviderInner, HybridDataProviderContext,
+ *     useHybridDataProvider                                   (hybrid impl)
+ *
+ * Internal service layer (also re-exported for direct use where needed):
+ *   - ScadaSocketService, getScadaSocketService
+ *   - TagSubscriptionManager, createTagSubscriptionManager
  */
 
-import { useContext, useCallback } from 'react';
-import { ScadaDataContext } from '../context/ScadaDataProvider';
-import type { IDataProvider, TagValueChange, HistoricalDataResult } from '../types/scada-runtime.types';
+// ── Context & root ────────────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// Internal: adapt ScadaDataContext to the IDataProvider shape
-// ---------------------------------------------------------------------------
+export {
+  DataProviderContext,
+  useDataProvider,
+  DataProviderRoot,
+} from './DataProviderContext';
 
-/**
- * useDataProvider
- *
- * Returns an IDataProvider-shaped object backed by the nearest
- * ScadaDataContext.  Throws if used outside a provider tree.
- *
- * The returned object is stable across renders — all methods are wrapped
- * in useCallback so referential equality is preserved unless the underlying
- * context reference changes.
- */
-export function useDataProvider(): IDataProvider {
-  const ctx = useContext(ScadaDataContext);
-  if (!ctx) {
-    throw new Error('useDataProvider must be used within a <ScadaDataProvider> or <SimulationDataProvider>');
-  }
+export type { DataProviderRootProps } from './DataProviderContext';
 
-  // subscribeToTags: register each tagId under its device code.
-  // Tag IDs in this codebase follow "deviceCode:tagName" convention, or a
-  // plain tagName when device is implicit.  We emit subscribeTag for each.
-  const subscribeToTags = useCallback(
-    (tagIds: string[]) => {
-      for (const tagId of tagIds) {
-        const [deviceCode, tagName] = splitTagId(tagId);
-        ctx.subscribeTag(deviceCode, tagName);
-      }
-    },
-    [ctx],
-  );
+// ── Simulation provider ───────────────────────────────────────────────────────
 
-  const unsubscribeFromTags = useCallback(
-    (tagIds: string[]) => {
-      for (const tagId of tagIds) {
-        const [deviceCode, tagName] = splitTagId(tagId);
-        ctx.unsubscribeTag(deviceCode, tagName);
-      }
-    },
-    [ctx],
-  );
+export { SimulationDataProviderInner } from './SimulationDataProvider';
 
-  const writeTagValue = useCallback(
-    async (tagId: string, value: unknown): Promise<void> => {
-      // Live write is handled by the socket layer; here we delegate to the
-      // context.  If the context does not expose a write method (read-only
-      // providers such as SimulationDataProvider stub it), we resolve silently.
-      const writeCtx = ctx as typeof ctx & { writeTagValue?: (tagId: string, value: unknown) => Promise<void> };
-      if (typeof writeCtx.writeTagValue === 'function') {
-        return writeCtx.writeTagValue(tagId, value);
-      }
-      // Fallback: no-op (simulation provider sets sim store directly)
-    },
-    [ctx],
-  );
+// ── Live device provider ──────────────────────────────────────────────────────
 
-  const getTagValue = useCallback(
-    (tagId: string): TagValueChange | null => {
-      const [deviceCode, tagName] = splitTagId(tagId);
-      const raw = ctx.getTagValue(deviceCode, tagName);
-      if (raw === undefined || raw === null) return null;
+export { LiveDeviceDataProviderInner } from './LiveDeviceDataProvider';
 
-      // Raw values from the socket layer are either plain scalars or
-      // { value, timestamp, quality } objects.
-      if (typeof raw === 'object' && 'value' in raw) {
-        return {
-          tagId,
-          value: (raw as { value: number | string | boolean }).value,
-          timestamp: (raw as { timestamp?: number }).timestamp ?? Date.now(),
-          quality: (raw as { quality?: TagValueChange['quality'] }).quality ?? 'good',
-        };
-      }
-      return {
-        tagId,
-        value: raw as number | string | boolean,
-        timestamp: Date.now(),
-        quality: 'good',
-      };
-    },
-    [ctx],
-  );
+// ── Hybrid provider ───────────────────────────────────────────────────────────
 
-  const queryHistory = useCallback(
-    async (tagIds: string[], from: Date, to: Date): Promise<HistoricalDataResult> => {
-      // Delegate to context if it exposes queryHistory; otherwise return empty.
-      const histCtx = ctx as typeof ctx & {
-        queryHistory?: (tagIds: string[], from: Date, to: Date) => Promise<HistoricalDataResult>;
-      };
-      if (typeof histCtx.queryHistory === 'function') {
-        return histCtx.queryHistory(tagIds, from, to);
-      }
-      const empty: Record<string, never[]> = {};
-      for (const id of tagIds) empty[id] = [];
-      return { data: empty };
-    },
-    [ctx],
-  );
+export {
+  HybridDataProviderInner,
+  HybridDataProviderContext,
+  useHybridDataProvider,
+} from './HybridDataProvider';
 
-  return {
-    subscribeToTags,
-    unsubscribeFromTags,
-    writeTagValue,
-    getTagValue,
-    queryHistory,
-    connectionState: ctx.isConnected ? 'connected' : 'connecting',
-  };
-}
+export type {
+  TagSource,
+  HybridDataProviderContextValue,
+} from './HybridDataProvider';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// ── Socket service ────────────────────────────────────────────────────────────
 
-/**
- * Split a composite tagId into [deviceCode, tagName].
- * Convention: "deviceCode:tagName"  →  ["deviceCode", "tagName"]
- *             "tagName"             →  ["__sim__",    "tagName"]
- */
-function splitTagId(tagId: string): [string, string] {
-  const colon = tagId.indexOf(':');
-  if (colon === -1) return ['__sim__', tagId];
-  return [tagId.slice(0, colon), tagId.slice(colon + 1)];
-}
+export {
+  ScadaSocketService,
+  getScadaSocketService,
+} from '../services/ScadaSocketService';
+
+export type {
+  ScadaEventPayloadMap,
+  ScadaEventCallback,
+} from '../services/ScadaSocketService';
+
+// ── Subscription manager ──────────────────────────────────────────────────────
+
+export {
+  TagSubscriptionManager,
+  createTagSubscriptionManager,
+} from '../services/TagSubscriptionManager';
+
+// ── Shared runtime types (re-exported for consumers) ─────────────────────────
+
+export type {
+  IDataProvider,
+  DataProviderType,
+  DataProviderConnectionState,
+  TagValueChange,
+  TagQuality,
+  HistoricalDataResult,
+  HistoricalDataPoint,
+} from '../types/scada-runtime.types';

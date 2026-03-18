@@ -227,6 +227,9 @@ services:
       NATS_URL: nats://nats:4222
       FARM_SEED_ENABLED: "false"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-aquaculture-dev-encryption-32ch!}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-aquaculture-dev-credential-key-32ch!}
+      SENTINEL_HUB_ENCRYPTION_KEY: ${ENCRYPTION_KEY:-aquaculture-dev-encryption-32ch!}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -304,6 +307,7 @@ services:
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -376,6 +380,7 @@ services:
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s

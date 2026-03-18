@@ -22,9 +22,14 @@ import {
   TenantGuard,
   ThrottlerModule,
   ThrottlerGuard,
+  SourceSchemaBootstrapService,
+  createTenantSchemaMiddleware,
+  createTenantConnectionBootstrap,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
 } from '@platform/backend-common';
-import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
-import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
+const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
+const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 import { HydroponicsSetupModule } from './setup/setup.module';
 import { HealthModule } from './health/health.module';
 
@@ -176,8 +181,14 @@ const complexityCache = new Map<string, number>();
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    // Bootstrap source schema tables on startup (creates template tables if missing)
+    SourceSchemaBootstrapService,
     // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
     TenantConnectionBootstrap,
+    // Auto-sync tenant schemas with source schema (creates missing tables/columns)
+    TenantSchemaSyncService,
+    // DB-level write guards on source schema (defense-in-depth)
+    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

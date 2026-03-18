@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, DataSource } from 'typeorm';
+import { getTenantSchemaName } from '@platform/backend-common';
 
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
 import { DashboardLayout } from './entities/dashboard-layout.entity';
@@ -12,6 +13,7 @@ export class DashboardService {
   constructor(
     @InjectRepository(DashboardLayout)
     private readonly dashboardLayoutRepository: Repository<DashboardLayout>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -207,18 +209,22 @@ export class DashboardService {
       return existing;
     }
 
-    const layout = this.dashboardLayoutRepository.create({
-      tenantId,
-      userId: undefined,
-      name: 'Default Dashboard',
-      description: 'System default dashboard for tenant',
-      widgets: [],
-      isDefault: false,
-      isSystemDefault: true,
+    const tenantSchema = getTenantSchemaName(tenantId);
+    return this.dataSource.transaction(async (txManager) => {
+      await txManager.query(`SET LOCAL search_path TO "${tenantSchema}", sensor, public`);
+      const repo = txManager.getRepository(DashboardLayout);
+      const layout = repo.create({
+        tenantId,
+        userId: undefined,
+        name: 'Default Dashboard',
+        description: 'System default dashboard for tenant',
+        widgets: [],
+        isDefault: false,
+        isSystemDefault: true,
+      });
+      const saved = await repo.save(layout);
+      this.logger.log(`Created empty system default layout for tenant ${tenantId}`);
+      return saved;
     });
-
-    const saved = await this.dashboardLayoutRepository.save(layout);
-    this.logger.log(`Created empty system default layout for tenant ${tenantId}`);
-    return saved;
   }
 }

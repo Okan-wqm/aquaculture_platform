@@ -49,8 +49,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
-import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
-import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@platform/backend-common';
+const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
+const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
 import { UnifiedTag } from './process/entities/unified-tag.entity';
@@ -362,6 +363,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     SourceSchemaBootstrapService,
     // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
     TenantConnectionBootstrap,
+    // Auto-sync tenant schemas with source schema (creates missing tables/columns)
+    TenantSchemaSyncService,
+    // DB-level write guards on source schema (defense-in-depth)
+    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

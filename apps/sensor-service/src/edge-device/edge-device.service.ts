@@ -679,7 +679,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return device;
     }
 
-    return await this.deviceRepository.save(device);
+    // SAFETY: Block writes without tenant context — would contaminate source schema
+    this.logger.error(
+      `BLOCKED: updateHeartbeat for device ${device.deviceCode ?? device.id} has no tenantSchema — would write to source schema`,
+    );
+    return device;
   }
 
   /**

@@ -8,7 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
-import { listTenantSchemas } from '@platform/backend-common';
+import { listTenantSchemas, requestContextStorage } from '@platform/backend-common';
 import { WeatherSettings } from '../entities/weather-settings.entity';
 import { WeatherSyncService } from './weather-sync.service';
 
@@ -69,9 +69,9 @@ export class WeatherCronService {
           }
 
           try {
-            const result = await this.syncService.syncTenant(
-              settings.tenantId,
-              settings.forecastDays,
+            const result = await requestContextStorage.run(
+              { tenantId: settings.tenantId, schemaName: schema },
+              () => this.syncService.syncTenant(settings.tenantId, settings.forecastDays),
             );
             syncedCount++;
             this.logger.log(

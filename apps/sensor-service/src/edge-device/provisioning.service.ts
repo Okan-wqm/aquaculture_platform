@@ -569,13 +569,12 @@ export class ProvisioningService {
 
     // Fingerprint duplicate check (with power-loss recovery - Fix 5)
     if (request.fingerprint.machineId) {
-      const existing = await this.deviceRepository
-        .createQueryBuilder('d')
-        .where('d.tenant_id = :tenantId', { tenantId: key.tenantId })
-        .andWhere("d.fingerprint->>'machineId' = :machineId", {
-          machineId: request.fingerprint.machineId,
-        })
-        .getOne();
+      const tenantSchema = this.getTenantSchemaFromId(key.tenantId);
+      const rows = await this.dataSource.query(
+        `SELECT * FROM "${tenantSchema}".edge_devices WHERE tenant_id = $1 AND fingerprint->>'machineId' = $2 LIMIT 1`,
+        [key.tenantId, request.fingerprint.machineId],
+      );
+      const existing = rows.length > 0 ? this.deviceRepository.create(rows[0] as Record<string, unknown>) : null;
 
       if (existing) {
         // If device was registered but never connected, return existing credentials for recovery
@@ -592,7 +591,11 @@ export class ProvisioningService {
           // Regenerate MQTT credentials for the recovery
           const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
           existing.mqttPasswordHash = mqttPasswordHash;
-          await this.deviceRepository.save(existing);
+          await this.dataSource.transaction(async (txManager) => {
+            const recoverySchema = this.getTenantSchemaFromId(existing.tenantId);
+            await txManager.query(`SET LOCAL search_path TO "${recoverySchema}", sensor, public`);
+            await txManager.save(existing);
+          });
           const mqttResult = await this.mqttAuthService.addDeviceCredentials(existing.mqttClientId ?? '', mqttPasswordHash);
           if (!mqttResult) {
             throw new Error('Failed to write MQTT credentials');
@@ -627,7 +630,10 @@ export class ProvisioningService {
 
     // Wrap in transaction: atomic maxDevices increment + device creation
     // If device creation fails, the usedCount rollback happens automatically
-    const saved = await this.deviceRepository.manager.transaction(async (transactionalManager) => {
+    const saved = await this.dataSource.transaction(async (transactionalManager) => {
+      const tenantSchema = this.getTenantSchemaFromId(key.tenantId);
+      await transactionalManager.query(`SET LOCAL search_path TO "${tenantSchema}", sensor, public`);
+
       // Atomically check and increment used count BEFORE device creation (prevents TOCTOU race + orphans)
       await this.tenantKeyService.incrementUsedCount(key.id, key.maxDevices ?? null, transactionalManager);
 

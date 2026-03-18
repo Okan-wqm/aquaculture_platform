@@ -31,6 +31,9 @@ export {
   RequestLoggingMiddleware,
 } from './middleware/tenant-context.middleware';
 
+// Tenant Schema Middleware (centralized factory)
+export { createTenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+
 // Database - Schema Manager and Tenant-Aware Repository
 export * from './database';
 

@@ -65,9 +65,8 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
     );
 
     if (tables.length > 0) {
-      this.logger.log(
-        `Source schema "${sourceSchema}" already has ${tables.length} tables — skipping bootstrap`,
-      );
+      // Schema has tables — check for missing ones (incremental sync)
+      await this.syncMissingTables(sourceSchema, tables);
       return;
     }
 
@@ -95,6 +94,44 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
 
     this.logger.log(
       `Source schema "${sourceSchema}" bootstrap complete — created ${tablesAfter.length} tables`,
+    );
+  }
+
+  /**
+   * Check if MODULE_SCHEMAS defines tables not yet present in the source schema.
+   * If so, run TypeORM synchronize() to create them.
+   */
+  private async syncMissingTables(
+    sourceSchema: string,
+    existingTables: Array<{ table_name: string }>,
+  ): Promise<void> {
+    // Dynamic import to avoid circular dependency
+    const { MODULE_SCHEMAS } = await import('./schema-manager.service');
+    const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
+    if (!mod) return;
+
+    const existingSet = new Set(existingTables.map(t => t.table_name));
+    const missing = mod.tables.filter(t => !existingSet.has(t));
+
+    if (missing.length === 0) {
+      this.logger.log(
+        `Source schema "${sourceSchema}" has all ${mod.tables.length} expected tables`,
+      );
+      return;
+    }
+
+    this.logger.warn(
+      `Source schema "${sourceSchema}" missing ${missing.length}/${mod.tables.length} tables — running synchronize: ${missing.join(', ')}`,
+    );
+
+    await this.dataSource.synchronize();
+
+    const tablesAfter = await this.dataSource.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
+      [sourceSchema],
+    );
+    this.logger.log(
+      `Source schema "${sourceSchema}" incremental sync complete — now has ${tablesAfter.length} tables`,
     );
   }
 

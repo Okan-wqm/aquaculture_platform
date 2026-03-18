@@ -16,13 +16,18 @@ import {
   TenantGuard,
   RolesGuard,
   RedisModule,
+  SourceSchemaBootstrapService,
+  createTenantSchemaMiddleware,
+  createTenantConnectionBootstrap,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
 } from '@platform/backend-common';
+const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
+const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
-import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
 
 // Nested ObjectTypes for orphanedTypes registration
 import { IncidentTimelineEvent } from './database/entities/alert-incident.entity';
@@ -149,8 +154,14 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       provide: APP_GUARD,
       useClass: RolesGuard,
     },
+    // Bootstrap source schema tables on startup (creates template tables if missing)
+    SourceSchemaBootstrapService,
     // Tenant connection pool patching for schema-level isolation
     TenantConnectionBootstrap,
+    // Auto-sync tenant schemas with source schema (creates missing tables/columns)
+    TenantSchemaSyncService,
+    // DB-level write guards on source schema (defense-in-depth)
+    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

@@ -20,9 +20,13 @@ import {
   TenantGuard,
   RolesGuard,
   SourceSchemaBootstrapService,
+  createTenantSchemaMiddleware,
+  createTenantConnectionBootstrap,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
 } from '@platform/backend-common';
-import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
-import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
+const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
+const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
 import { HRModule } from './hr/hr.module';
 import { HealthModule } from './health/health.module';
 import { LeaveModule } from './leave/leave.module';
@@ -261,6 +265,10 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     SourceSchemaBootstrapService,
     // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
     TenantConnectionBootstrap,
+    // Auto-sync tenant schemas with source schema (creates missing tables/columns)
+    TenantSchemaSyncService,
+    // DB-level write guards on source schema (defense-in-depth)
+    SourceSchemaWriteGuardService,
   ],
 })
 export class AppModule implements NestModule {

@@ -28,8 +28,9 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
-import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@platform/backend-common';
+const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
+const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
@@ -259,6 +260,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     SourceSchemaBootstrapService,
     // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
     TenantConnectionBootstrap,
+    // Auto-sync tenant schemas with source schema (creates missing tables/columns)
+    TenantSchemaSyncService,
+    // DB-level write guards on source schema (defense-in-depth)
+    SourceSchemaWriteGuardService,
     WatchdogCronService,
   ],
 })

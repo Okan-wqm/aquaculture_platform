@@ -1962,39 +1962,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Set PostgreSQL search_path for tenant-specific schema
-   * This ensures all database operations target the correct tenant's tables
-   */
-  private async setTenantSchema(tenantId: string): Promise<void> {
-    if (!tenantId || tenantId === 'default-tenant') {
-      // Fallback to shared sensor schema
-      await this.dataSource.query(`SET search_path TO "sensor", public`);
-      return;
-    }
-
-    // Sanitize tenant ID to prevent SQL injection - only allow alphanumeric and underscore
-    // Use 16 characters for collision safety - must match SchemaManagerService.getTenantSchemaName
-    const cleanId = tenantId.replace(/[^a-zA-Z0-9]/g, '').substring(0, 16).toLowerCase();
-    const schemaName = `tenant_${cleanId}`;
-
-    // Additional validation: ensure schema name is safe
-    if (!/^tenant_[a-zA-Z0-9]+$/.test(schemaName)) {
-      this.logger.warn(`Invalid schema name generated: ${schemaName}, falling back to sensor`);
-      await this.dataSource.query(`SET search_path TO "sensor", public`);
-      return;
-    }
-
-    try {
-      await this.dataSource.query(`SET search_path TO "${schemaName}", public`);
-      this.logger.debug(`Schema set to: ${schemaName}`);
-    } catch (error) {
-      // If tenant schema doesn't exist, fallback to sensor schema
-      this.logger.warn(`Failed to set schema ${schemaName}, falling back to sensor: ${String(error)}`);
-      await this.dataSource.query(`SET search_path TO "sensor", public`);
-    }
-  }
-
-  /**
    * Get connection status
    */
   isConnectedToBroker(): boolean {

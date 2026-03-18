@@ -41,7 +41,7 @@ export class WatchdogCronService implements OnModuleInit {
             JSON.stringify(
               report.violations
                 .filter((v) => v.severity === 'CRITICAL')
-                .map((v) => ({ type: v.type, schema: v.schema, table: v.table, detail: v.detail })),
+                .map((v) => ({ type: v.type, schema: v.schema, table: v.table, details: v.details })),
             ),
         );
       }

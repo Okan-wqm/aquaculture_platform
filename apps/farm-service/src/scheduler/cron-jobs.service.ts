@@ -15,7 +15,8 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, DataSource } from 'typeorm';
+import { listTenantSchemas } from '@platform/backend-common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
@@ -77,6 +78,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     private readonly sparePartService: SparePartService,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
+    private readonly dataSource: DataSource,
   ) {}
 
   async onModuleInit() {
@@ -161,6 +163,8 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     return config;
   }
 
+  // getTenantSchemas replaced by listTenantSchemas from @platform/backend-common
+
   /**
    * Load tenant configurations for cron jobs
    * Updates existing configs with fresh lastAccessed time, adds new ones
@@ -211,6 +215,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Her gün saat 06:00'da çalışır - Otomatik iş emri oluşturma
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_6AM, {
     name: 'generateMaintenanceWorkOrders',
@@ -222,32 +227,54 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Refresh tenant configs before processing
     await this.loadTenantConfigs();
-    const tenantIds = Array.from(this.tenantConfigs.keys());
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const tenantId of tenantIds) {
-      const config = this.getTenantConfig(tenantId);
-      if (!config?.maintenanceEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
       try {
-        const workOrders = await this.maintenanceScheduleService.processAutoGenerateWorkOrders(
-          tenantId,
-          config.systemUserId,
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM maintenance_schedules
+           WHERE "deletedAt" IS NULL LIMIT 100`,
         );
 
-        if (workOrders.length > 0) {
-          this.logger.log(
-            `Generated ${workOrders.length} work orders for tenant ${tenantId}`,
-          );
+        for (const { tenantId } of tenantRows) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.maintenanceEnabled) continue;
 
-          this.eventEmitter.emit('maintenance.workOrders.generated', {
-            tenantId,
-            workOrders,
-          });
+          try {
+            const workOrders = await this.maintenanceScheduleService.processAutoGenerateWorkOrders(
+              tenantId,
+              config?.systemUserId || 'system',
+            );
+
+            if (workOrders.length > 0) {
+              this.logger.log(
+                `Generated ${workOrders.length} work orders for tenant ${tenantId} (schema: ${schema})`,
+              );
+
+              this.eventEmitter.emit('maintenance.workOrders.generated', {
+                tenantId,
+                workOrders,
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to generate work orders for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
         }
-      } catch (error) {
+      } catch (err) {
         this.logger.error(
-          `Failed to generate work orders for tenant ${tenantId}: ${error}`,
+          `Maintenance work order generation failed for schema ${schema}: ${(err as Error).message}`,
         );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
     }
 
@@ -257,6 +284,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Her gün saat 07:00'da çalışır - Gecikmiş bakım uyarıları
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_7AM, {
     name: 'checkOverdueMaintenance',
@@ -267,54 +295,81 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Refresh tenant configs before processing
     await this.loadTenantConfigs();
-    const tenantIds = Array.from(this.tenantConfigs.keys());
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const tenantId of tenantIds) {
-      const config = this.getTenantConfig(tenantId);
-      if (!config?.alertsEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
       try {
-        const overdueSchedules = await this.scheduleRepository.find({
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        // Find all active schedules within this schema
+        const overdueSchedules = await queryRunner.manager.find(MaintenanceSchedule, {
           where: {
-            tenantId,
             status: MaintenanceScheduleStatus.ACTIVE,
           },
         });
 
-        const actuallyOverdue = overdueSchedules.filter((s) => s.isOverdue());
+        if (overdueSchedules.length === 0) continue;
 
-        if (actuallyOverdue.length > 0) {
-          this.logger.warn(
-            `Found ${actuallyOverdue.length} overdue maintenance schedules for tenant ${tenantId}`,
-          );
-
-          this.eventEmitter.emit('maintenance.overdue', {
-            tenantId,
-            schedules: actuallyOverdue,
-          });
+        // Group by tenantId for proper event emission
+        const byTenant = new Map<string, MaintenanceSchedule[]>();
+        for (const s of overdueSchedules) {
+          const list = byTenant.get(s.tenantId) || [];
+          list.push(s);
+          byTenant.set(s.tenantId, list);
         }
 
-        const upcoming = overdueSchedules.filter((s) => {
-          const days = s.getDaysUntilDue();
-          return days >= 0 && days <= 3;
-        });
+        for (const [tenantId, schedules] of byTenant) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.alertsEnabled) continue;
 
-        if (upcoming.length > 0) {
-          this.eventEmitter.emit('maintenance.upcoming', {
-            tenantId,
-            schedules: upcoming,
-          });
+          try {
+            const actuallyOverdue = schedules.filter((s) => s.isOverdue());
+
+            if (actuallyOverdue.length > 0) {
+              this.logger.warn(
+                `Found ${actuallyOverdue.length} overdue maintenance schedules for tenant ${tenantId} (schema: ${schema})`,
+              );
+
+              this.eventEmitter.emit('maintenance.overdue', {
+                tenantId,
+                schedules: actuallyOverdue,
+              });
+            }
+
+            const upcoming = schedules.filter((s) => {
+              const days = s.getDaysUntilDue();
+              return days >= 0 && days <= 3;
+            });
+
+            if (upcoming.length > 0) {
+              this.eventEmitter.emit('maintenance.upcoming', {
+                tenantId,
+                schedules: upcoming,
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to check overdue maintenance for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
         }
-      } catch (error) {
+      } catch (err) {
         this.logger.error(
-          `Failed to check overdue maintenance for tenant ${tenantId}: ${error}`,
+          `Overdue maintenance check failed for schema ${schema}: ${(err as Error).message}`,
         );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
     }
   }
 
   /**
    * Her gün saat 08:00'da çalışır - Gecikmiş iş emirleri uyarısı
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_8AM, {
     name: 'checkOverdueWorkOrders',
@@ -325,16 +380,17 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Refresh tenant configs before processing
     await this.loadTenantConfigs();
-    const tenantIds = Array.from(this.tenantConfigs.keys());
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const tenantId of tenantIds) {
-      const config = this.getTenantConfig(tenantId);
-      if (!config?.alertsEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
       try {
-        const overdueWorkOrders = await this.workOrderRepository.find({
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        const overdueWorkOrders = await queryRunner.manager.find(WorkOrder, {
           where: {
-            tenantId,
             status: In([
               WorkOrderStatus.DRAFT,
               WorkOrderStatus.PENDING_APPROVAL,
@@ -346,22 +402,46 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
           },
         });
 
-        const actuallyOverdue = overdueWorkOrders.filter((wo) => wo.isOverdue());
+        if (overdueWorkOrders.length === 0) continue;
 
-        if (actuallyOverdue.length > 0) {
-          this.logger.warn(
-            `Found ${actuallyOverdue.length} overdue work orders for tenant ${tenantId}`,
-          );
-
-          this.eventEmitter.emit('workOrder.overdue', {
-            tenantId,
-            workOrders: actuallyOverdue,
-          });
+        // Group by tenantId
+        const byTenant = new Map<string, WorkOrder[]>();
+        for (const wo of overdueWorkOrders) {
+          const list = byTenant.get(wo.tenantId) || [];
+          list.push(wo);
+          byTenant.set(wo.tenantId, list);
         }
-      } catch (error) {
+
+        for (const [tenantId, workOrders] of byTenant) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.alertsEnabled) continue;
+
+          try {
+            const actuallyOverdue = workOrders.filter((wo) => wo.isOverdue());
+
+            if (actuallyOverdue.length > 0) {
+              this.logger.warn(
+                `Found ${actuallyOverdue.length} overdue work orders for tenant ${tenantId} (schema: ${schema})`,
+              );
+
+              this.eventEmitter.emit('workOrder.overdue', {
+                tenantId,
+                workOrders: actuallyOverdue,
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to check overdue work orders for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
+        }
+      } catch (err) {
         this.logger.error(
-          `Failed to check overdue work orders for tenant ${tenantId}: ${error}`,
+          `Overdue work orders check failed for schema ${schema}: ${(err as Error).message}`,
         );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
     }
   }
@@ -372,6 +452,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Her gün saat 09:00'da çalışır - Düşük stok uyarıları
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_9AM, {
     name: 'checkLowStock',
@@ -382,43 +463,66 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Refresh tenant configs before processing
     await this.loadTenantConfigs();
-    const tenantIds = Array.from(this.tenantConfigs.keys());
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const tenantId of tenantIds) {
-      const config = this.getTenantConfig(tenantId);
-      if (!config?.alertsEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
       try {
-        const lowStockParts = await this.sparePartRepository.find({
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        const lowStockParts = await queryRunner.manager.find(SparePart, {
           where: {
-            tenantId,
             isActive: true,
             status: In([SparePartStatus.LOW_STOCK, SparePartStatus.OUT_OF_STOCK]),
           },
         });
 
-        if (lowStockParts.length > 0) {
-          this.logger.warn(
-            `Found ${lowStockParts.length} low stock parts for tenant ${tenantId}`,
-          );
+        if (lowStockParts.length === 0) continue;
 
-          const outOfStock = lowStockParts.filter(
-            (p) => p.status === SparePartStatus.OUT_OF_STOCK,
-          );
-          const lowStock = lowStockParts.filter(
-            (p) => p.status === SparePartStatus.LOW_STOCK,
-          );
-
-          this.eventEmitter.emit('inventory.lowStock', {
-            tenantId,
-            outOfStock,
-            lowStock,
-          });
+        // Group by tenantId
+        const byTenant = new Map<string, SparePart[]>();
+        for (const p of lowStockParts) {
+          const list = byTenant.get(p.tenantId) || [];
+          list.push(p);
+          byTenant.set(p.tenantId, list);
         }
-      } catch (error) {
+
+        for (const [tenantId, parts] of byTenant) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.alertsEnabled) continue;
+
+          try {
+            this.logger.warn(
+              `Found ${parts.length} low stock parts for tenant ${tenantId} (schema: ${schema})`,
+            );
+
+            const outOfStock = parts.filter(
+              (p) => p.status === SparePartStatus.OUT_OF_STOCK,
+            );
+            const lowStock = parts.filter(
+              (p) => p.status === SparePartStatus.LOW_STOCK,
+            );
+
+            this.eventEmitter.emit('inventory.lowStock', {
+              tenantId,
+              outOfStock,
+              lowStock,
+            });
+          } catch (error) {
+            this.logger.error(
+              `Failed to check low stock for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
+        }
+      } catch (err) {
         this.logger.error(
-          `Failed to check low stock for tenant ${tenantId}: ${error}`,
+          `Low stock check failed for schema ${schema}: ${(err as Error).message}`,
         );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
     }
   }
@@ -429,6 +533,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Her Pazartesi saat 06:00'da çalışır - Haftalık bakım özeti
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_WEEK, {
     name: 'weeklyMaintenanceSummary',
@@ -439,56 +544,82 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Refresh tenant configs before processing
     await this.loadTenantConfigs();
-    const tenantIds = Array.from(this.tenantConfigs.keys());
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
 
-    for (const tenantId of tenantIds) {
-      const config = this.getTenantConfig(tenantId);
-      if (!config?.reportsEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
       try {
-        const completedWorkOrders = await this.workOrderRepository.find({
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        const completedWorkOrders = await queryRunner.manager.find(WorkOrder, {
           where: {
-            tenantId,
             status: In([WorkOrderStatus.COMPLETED, WorkOrderStatus.VERIFIED]),
           },
         });
 
-        const lastWeekCompleted = completedWorkOrders.filter(
-          (wo) => wo.completedAt && wo.completedAt >= weekAgo,
-        );
+        if (completedWorkOrders.length === 0) continue;
 
-        const totalCompleted = lastWeekCompleted.length;
-        const totalCost = lastWeekCompleted.reduce(
-          (sum, wo) => sum + (Number(wo.costSummary?.totalCost) || 0),
-          0,
-        );
-        const avgDuration =
-          lastWeekCompleted.length > 0
-            ? lastWeekCompleted.reduce(
-                (sum, wo) => sum + (wo.actualDurationMinutes || 0),
-                0,
-              ) / lastWeekCompleted.length
-            : 0;
+        // Group by tenantId
+        const byTenant = new Map<string, WorkOrder[]>();
+        for (const wo of completedWorkOrders) {
+          const list = byTenant.get(wo.tenantId) || [];
+          list.push(wo);
+          byTenant.set(wo.tenantId, list);
+        }
 
-        this.eventEmitter.emit('report.weeklyMaintenance', {
-          tenantId,
-          period: { from: weekAgo, to: new Date() },
-          statistics: { totalCompleted, totalCost, avgDuration },
-          workOrders: lastWeekCompleted,
-        });
-      } catch (error) {
+        for (const [tenantId, workOrders] of byTenant) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.reportsEnabled) continue;
+
+          try {
+            const lastWeekCompleted = workOrders.filter(
+              (wo) => wo.completedAt && wo.completedAt >= weekAgo,
+            );
+
+            const totalCompleted = lastWeekCompleted.length;
+            const totalCost = lastWeekCompleted.reduce(
+              (sum, wo) => sum + (Number(wo.costSummary?.totalCost) || 0),
+              0,
+            );
+            const avgDuration =
+              lastWeekCompleted.length > 0
+                ? lastWeekCompleted.reduce(
+                    (sum, wo) => sum + (wo.actualDurationMinutes || 0),
+                    0,
+                  ) / lastWeekCompleted.length
+                : 0;
+
+            this.eventEmitter.emit('report.weeklyMaintenance', {
+              tenantId,
+              period: { from: weekAgo, to: new Date() },
+              statistics: { totalCompleted, totalCost, avgDuration },
+              workOrders: lastWeekCompleted,
+            });
+          } catch (error) {
+            this.logger.error(
+              `Failed to generate weekly summary for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
+        }
+      } catch (err) {
         this.logger.error(
-          `Failed to generate weekly summary for tenant ${tenantId}: ${error}`,
+          `Weekly maintenance summary failed for schema ${schema}: ${(err as Error).message}`,
         );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
     }
   }
 
   /**
    * Her ayın 1'inde saat 06:00'da çalışır - Aylık compliance raporu
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron('0 6 1 * *', {
     name: 'monthlyComplianceReport',
@@ -499,30 +630,52 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Refresh tenant configs before processing
     await this.loadTenantConfigs();
-    const tenantIds = Array.from(this.tenantConfigs.keys());
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const tenantId of tenantIds) {
-      const config = this.getTenantConfig(tenantId);
-      if (!config?.reportsEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
       try {
-        const report = await this.maintenanceScheduleService.getComplianceReport(
-          tenantId,
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM maintenance_schedules
+           WHERE "deletedAt" IS NULL LIMIT 100`,
         );
 
-        this.eventEmitter.emit('report.monthlyCompliance', {
-          tenantId,
-          report,
-          generatedAt: new Date(),
-        });
+        for (const { tenantId } of tenantRows) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.reportsEnabled) continue;
 
-        this.logger.log(
-          `Compliance report generated for tenant ${tenantId}: ${report.avgComplianceRate}% compliance`,
-        );
-      } catch (error) {
+          try {
+            const report = await this.maintenanceScheduleService.getComplianceReport(
+              tenantId,
+            );
+
+            this.eventEmitter.emit('report.monthlyCompliance', {
+              tenantId,
+              report,
+              generatedAt: new Date(),
+            });
+
+            this.logger.log(
+              `Compliance report generated for tenant ${tenantId} (schema: ${schema}): ${report.avgComplianceRate}% compliance`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to generate compliance report for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
+        }
+      } catch (err) {
         this.logger.error(
-          `Failed to generate compliance report for tenant ${tenantId}: ${error}`,
+          `Monthly compliance report failed for schema ${schema}: ${(err as Error).message}`,
         );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
     }
   }

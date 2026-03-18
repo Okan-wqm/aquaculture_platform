@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Role, SchemaManagerService } from '@platform/backend-common';
+import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { TenantCreatedEvent, TenantUpdatedEvent, UserInvitedEvent } from '@platform/event-contracts';
 import * as crypto from 'crypto';
@@ -161,7 +161,7 @@ export class TenantService {
       this.logger.log(`Creating schema for tenant ${saved.id}...`);
       const schemaResult = await this.schemaManager.createTenantSchema(
         saved.id,
-        ['sensor', 'farm', 'hr'], // Default modules
+        DEFAULT_TENANT_MODULES,
       );
 
       if (!schemaResult.success && !schemaResult.alreadyExists) {
@@ -556,15 +556,7 @@ export class TenantService {
     return query.getMany();
   }
 
-  /**
-   * Generate tenant schema name from tenant ID
-   * Format: tenant_{first16chars_of_uuid} (e.g., tenant_4b529829ea7948da)
-   * Must match SchemaManagerService.getTenantSchemaName
-   */
-  private getTenantSchemaName(tenantId: string): string {
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    return `tenant_${cleanId}`;
-  }
+  // getTenantSchemaName is imported from @platform/backend-common
 
   /**
    * Get tenant database information from PostgreSQL system catalogs
@@ -574,7 +566,7 @@ export class TenantService {
    */
   async getTenantDatabaseInfo(tenantId: string): Promise<TenantDatabaseInfo> {
     const tenant = await this.findById(tenantId);
-    const tenantSchemaName = this.getTenantSchemaName(tenantId);
+    const tenantSchemaName = getTenantSchemaName(tenantId);
 
     this.logger.debug(`Getting database info for tenant ${tenantId}, schema: ${tenantSchemaName}`);
 
@@ -724,7 +716,7 @@ export class TenantService {
       .filter((code): code is string => !!code);
 
     // Get tenant's dedicated schema name
-    const tenantSchemaName = this.getTenantSchemaName(tenantId);
+    const tenantSchemaName = getTenantSchemaName(tenantId);
 
     // Allowed schemas: tenant's own schema + tenant's module schemas
     // SECURITY: 'auth' schema excluded — contains passwords, MFA secrets, invitation tokens

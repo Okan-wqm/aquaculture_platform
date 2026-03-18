@@ -21,7 +21,7 @@ import {
   TargetParams,
   ToxicLimits,
   alkMgToMeq,
-} from './types';
+} from './types.js';
 import {
   phLineSlope,
   phLineIntercept,
@@ -33,9 +33,9 @@ import {
   alphaTwo,
   calcKspCalcite,
   calcKspAragonite,
-} from './water-quality';
-import { criticalPHforNH3 } from './ammonia-calc';
-import { criticalPHforCO2 } from './co2-calc';
+} from './water-quality.js';
+import { criticalPHforNH3 } from './ammonia-calc.js';
+import { criticalPHforCO2 } from './co2-calc.js';
 
 // ============================================================================
 // PH ISOLINE GENERATION

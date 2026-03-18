@@ -255,8 +255,8 @@ export function useGrowthSimulation(
   options?: { enabled?: boolean }
 ) {
   const { token, tenantId } = useAuth();
-  // Schema naming convention: tenant_{first8chars_of_uuid} without dashes
-  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 8).toLowerCase()}`;
+  // Schema naming convention: tenant_{first16chars_of_uuid} without dashes
+  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
 
   return useQuery({
     queryKey: ['feeding', 'growth-simulation', input],
@@ -280,8 +280,8 @@ export function useFeedConsumptionForecast(
   options?: { enabled?: boolean }
 ) {
   const { token, tenantId } = useAuth();
-  // Schema naming convention: tenant_{first8chars_of_uuid} without dashes
-  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 8).toLowerCase()}`;
+  // Schema naming convention: tenant_{first16chars_of_uuid} without dashes
+  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
 
   return useQuery({
     queryKey: ['feeding', 'forecast', input],
@@ -353,8 +353,8 @@ export function useEstimateSGR(
  */
 export function useActiveTanks(options?: { enabled?: boolean }) {
   const { token, tenantId } = useAuth();
-  // Schema naming convention: tenant_{first8chars_of_uuid} without dashes
-  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 8).toLowerCase()}`;
+  // Schema naming convention: tenant_{first16chars_of_uuid} without dashes
+  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
 
   return useQuery({
     queryKey: ['feeding', 'active-tanks', tenantId],

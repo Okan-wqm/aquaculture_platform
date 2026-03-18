@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
+import { requestContextStorage, RequestContext, getTenantSchemaName, isValidUUID } from '@platform/backend-common';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
+
+// UUID validation imported from @platform/backend-common (isValidUUID)
 
 /**
  * Sensor Reading Event interface
@@ -16,7 +19,13 @@ interface SensorReadingEvent extends IEvent {
 
 /**
  * Sensor Reading Event Handler
- * Listens to sensor readings and evaluates them against alert rules
+ * Listens to sensor readings and evaluates them against alert rules.
+ *
+ * IMPORTANT: NATS event handlers run OUTSIDE HTTP request context.
+ * There is NO AsyncLocalStorage context and NO TenantSchemaMiddleware.
+ * We must manually create an AsyncLocalStorage context with the correct
+ * schemaName so that TenantConnectionBootstrap's pool patch injects
+ * the correct SET search_path on every connection checkout.
  */
 @Injectable()
 export class SensorReadingEventHandler
@@ -41,6 +50,8 @@ export class SensorReadingEventHandler
     return 'SensorReading';
   }
 
+  // getTenantSchemaName imported from @platform/backend-common
+
   async handle(event: SensorReadingEvent): Promise<void> {
     this.logger.debug(
       `Processing sensor reading from ${event.sensorId}`,
@@ -56,14 +67,36 @@ export class SensorReadingEventHandler
       return;
     }
 
+    // Validate UUID format to prevent schema name injection
+    if (!isValidUUID(event.tenantId)) {
+      this.logger.error(
+        `Invalid tenantId format for sensor reading from ${event.sensorId}: ${event.tenantId}. Skipping.`,
+      );
+      return;
+    }
+
+    // NATS handlers have NO AsyncLocalStorage context.
+    // TenantConnectionBootstrap reads schemaName from AsyncLocalStorage
+    // on every pool connection checkout. We must manually create the context
+    // so that all repository calls within evaluateSensorReading() use the
+    // correct tenant schema.
+    const schemaName = getTenantSchemaName(event.tenantId);
+    const context: RequestContext = {
+      tenantId: event.tenantId,
+      schemaName,
+      correlationId: event.correlationId,
+    };
+
     try {
-      await this.evaluationService.evaluateSensorReading({
-        sensorId: event.sensorId,
-        tenantId: event.tenantId,
-        readings: event.readings,
-        farmId: event.farmId,
-        pondId: event.pondId,
-        timestamp: event.timestamp,
+      await requestContextStorage.run(context, async () => {
+        await this.evaluationService.evaluateSensorReading({
+          sensorId: event.sensorId,
+          tenantId: event.tenantId!,
+          readings: event.readings,
+          farmId: event.farmId,
+          pondId: event.pondId,
+          timestamp: event.timestamp,
+        });
       });
     } catch (error) {
       this.logger.error(

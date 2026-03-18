@@ -58,7 +58,7 @@ export interface SpecificationSchema {
   }>;
 }
 
-@Entity('equipment_types', { schema: 'farm' })
+@Entity('equipment_types')
 @Index(['code'], { unique: true })
 @Index(['category'])
 @Index(['isActive'])

@@ -111,7 +111,7 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
       FROM equipment eq
       LEFT JOIN departments dept ON dept.id = eq."departmentId"
       LEFT JOIN sites site ON site.id = dept."siteId"
-      LEFT JOIN farm.equipment_types eqt ON eqt.id = eq."equipmentTypeId"
+      LEFT JOIN equipment_types eqt ON eqt.id = eq."equipmentTypeId"
       WHERE eq."tenantId" = $1
         AND eqt.category = ANY($2)
         AND eq."isActive" = true

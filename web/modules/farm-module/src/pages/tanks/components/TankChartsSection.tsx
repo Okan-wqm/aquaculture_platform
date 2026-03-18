@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { PieChart, LineChart } from '@aquaculture/shared-ui';
+import { PieChart, LineChart, getTenantId } from '@aquaculture/shared-ui';
 import type { PieDataItem, LineDataset } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
 
@@ -100,15 +100,20 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   chartVisibility,
   analyticsData,
 }) => {
+  const collapseKey = useMemo(
+    () => `tanks-charts-collapsed-${getTenantId() || 'default'}`,
+    [],
+  );
+
   const [isCollapsed, setIsCollapsed] = useState(() => {
-    const saved = localStorage.getItem('tanks-charts-collapsed');
+    const saved = localStorage.getItem(collapseKey);
     return saved === 'true';
   });
 
   // Save collapse state to localStorage
   useEffect(() => {
-    localStorage.setItem('tanks-charts-collapsed', String(isCollapsed));
-  }, [isCollapsed]);
+    localStorage.setItem(collapseKey, String(isCollapsed));
+  }, [isCollapsed, collapseKey]);
 
   // Filter data by selected tank IDs
   const filteredData = useMemo(() => {

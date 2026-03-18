@@ -29,6 +29,7 @@ interface GraphQLContextRequest extends Request {
   };
 }
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
@@ -255,6 +256,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,
+    // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
+    TenantConnectionBootstrap,
   ],
 })
 export class AppModule implements NestModule {

@@ -5,7 +5,7 @@
  * and critical pH boundaries for given TAN concentrations.
  */
 
-import { getKNH4, getKH2S, phNbsToFree, swsToFree, totToFree } from './water-quality';
+import { getKNH4, getKH2S, phNbsToFree, swsToFree, totToFree } from './water-quality.js';
 
 /**
  * Calculate the fraction of un-ionized NH3 at given conditions

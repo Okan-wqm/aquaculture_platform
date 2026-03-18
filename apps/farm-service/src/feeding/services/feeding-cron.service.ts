@@ -24,6 +24,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as crypto from 'crypto';
+import { requestContextStorage, RequestContext, listTenantSchemas } from '@platform/backend-common';
 import { FeedingProgram, FeedingProgramStatus } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { DailyFeedingExecution, ExecutionStatus } from '../entities/daily-feeding-execution.entity';
@@ -59,6 +60,14 @@ interface CronJobMetrics {
   totalRecords: number;
   totalErrors: number;
   errorsByTenant: Record<string, string[]>;
+}
+
+interface TransitionWarningRow {
+  id: string;
+  tenantId: string;
+  equipmentCode: string;
+  equipmentName: string;
+  calculations: Record<string, any>;
 }
 
 // ============================================================================
@@ -245,6 +254,12 @@ export class FeedingCronService {
   }
 
   // ==========================================================================
+  // TENANT SCHEMA DISCOVERY
+  // ==========================================================================
+
+  // getTenantSchemas replaced by listTenantSchemas from @platform/backend-common
+
+  // ==========================================================================
   // DAILY PLAN GENERATION (06:00)
   // ==========================================================================
 
@@ -295,63 +310,162 @@ export class FeedingCronService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Process programs in batches with pagination
-      let offset = 0;
-      let hasMore = true;
-      const programsByTenant = new Map<string, FeedingProgram[]>();
+      // Discover all tenant schemas from information_schema
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      // Fetch all active programs with pagination, ordered by tenant
-      while (hasMore) {
-        const batch = await this.programRepo.find({
-          where: { status: FeedingProgramStatus.ACTIVE },
-          order: { tenantId: 'ASC', id: 'ASC' },
-          skip: offset,
-          take: BATCH_SIZE,
-        });
-
-        if (batch.length === 0) {
-          hasMore = false;
-          break;
-        }
-
-        // Group by tenant
-        for (const program of batch) {
-          const programs = programsByTenant.get(program.tenantId) || [];
-          programs.push(program);
-          programsByTenant.set(program.tenantId, programs);
-        }
-
-        offset += batch.length;
-        hasMore = batch.length === BATCH_SIZE;
-      }
-
-      if (programsByTenant.size === 0) {
-        this.logger.log('No active feeding programs found', { jobId: context.jobId });
+      if (tenantSchemas.length === 0) {
+        this.logger.log('No tenant schemas found', { jobId: context.jobId });
         metrics.success = true;
         return;
       }
 
       this.logger.log(
-        `Found ${offset} active programs across ${programsByTenant.size} tenants`,
+        `Discovered ${tenantSchemas.length} tenant schemas`,
         { jobId: context.jobId },
       );
 
-      // Process each tenant's programs with proper isolation
-      for (const [tenantId, programs] of programsByTenant) {
-        const tenantResult = await this.processTenantsPrograms(
-          tenantId,
-          programs,
-          today,
-          context,
-        );
+      // Process each tenant schema with proper search_path isolation
+      for (const schema of tenantSchemas) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
 
-        metrics.tenantsProcessed++;
-        metrics.totalRecords += tenantResult.generated;
-        metrics.totalErrors += tenantResult.errors.length;
+        try {
+          await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        if (tenantResult.errors.length > 0) {
-          metrics.errorsByTenant[tenantId] = tenantResult.errors;
-          this.emitTenantError(context.jobName, tenantId, tenantResult.errors, context);
+          // Fetch active programs within this tenant schema using pagination
+          let offset = 0;
+          let hasMore = true;
+          const programsByTenant = new Map<string, Array<{ id: string; code: string; tenantId: string }>>();
+
+          while (hasMore) {
+            const batch: Array<{ id: string; code: string; tenantId: string }> = await queryRunner.query(
+              `SELECT id, code, "tenantId"
+               FROM feeding_programs
+               WHERE status = $1
+               ORDER BY "tenantId" ASC, id ASC
+               OFFSET $2 LIMIT $3`,
+              [FeedingProgramStatus.ACTIVE, offset, BATCH_SIZE],
+            );
+
+            if (batch.length === 0) {
+              hasMore = false;
+              break;
+            }
+
+            for (const program of batch) {
+              const programs = programsByTenant.get(program.tenantId) || [];
+              programs.push(program);
+              programsByTenant.set(program.tenantId, programs);
+            }
+
+            offset += batch.length;
+            hasMore = batch.length === BATCH_SIZE;
+          }
+
+          if (programsByTenant.size === 0) {
+            continue;
+          }
+
+          this.logger.log(
+            `Schema ${schema}: found ${offset} active programs across ${programsByTenant.size} tenants`,
+            { jobId: context.jobId },
+          );
+
+          // Process each tenant's programs within this schema
+          for (const [tenantId, programs] of programsByTenant) {
+            const tenantContext: JobContext = { ...context, tenantId };
+            const result: TenantJobResult = {
+              tenantId,
+              generated: 0,
+              errors: [],
+              duration: 0,
+            };
+            const tenantStart = Date.now();
+
+            this.logger.debug(
+              `Processing ${programs.length} programs for tenant ${tenantId} in schema ${schema}`,
+              { jobId: context.jobId, tenantId },
+            );
+
+            // Wrap in requestContextStorage.run() so that repo calls inside
+            // executionService.generateDailyPlan() use the correct search_path
+            // via TenantConnectionBootstrap pool patch
+            const reqContext: RequestContext = { tenantId, schemaName: schema };
+
+            await requestContextStorage.run(reqContext, async () => {
+              for (const program of programs) {
+                try {
+                  const planResult = await this.withRetry(
+                    () => this.executionService.generateDailyPlan(
+                      program.id,
+                      today,
+                      program.tenantId,
+                    ),
+                    tenantContext,
+                    `generateDailyPlan-${program.code}`,
+                  );
+
+                  result.generated += planResult.executionsCreated;
+
+                  if (planResult.errors.length > 0) {
+                    result.errors.push(
+                      ...planResult.errors.map(e => `${program.code}: ${e}`),
+                    );
+                    this.logger.warn(
+                      `Program ${program.code} had ${planResult.errors.length} errors`,
+                      {
+                        jobId: context.jobId,
+                        tenantId,
+                        programCode: program.code,
+                        errors: planResult.errors,
+                      },
+                    );
+                  }
+                } catch (error) {
+                  const err = error instanceof Error ? error : new Error(String(error));
+                  const errorMsg = `Program ${program.code}: ${err.message}`;
+                  result.errors.push(errorMsg);
+
+                  this.logger.error(
+                    `Failed to process program ${program.code}`,
+                    err.stack,
+                    {
+                      jobId: context.jobId,
+                      tenantId,
+                      programCode: program.code,
+                      errorMessage: err.message,
+                    },
+                  );
+                }
+              }
+            });
+
+            result.duration = Date.now() - tenantStart;
+
+            this.logger.debug(
+              `Tenant ${tenantId} completed: ${result.generated} plans, ${result.errors.length} errors in ${result.duration}ms`,
+              { jobId: context.jobId, tenantId },
+            );
+
+            metrics.tenantsProcessed++;
+            metrics.totalRecords += result.generated;
+            metrics.totalErrors += result.errors.length;
+
+            if (result.errors.length > 0) {
+              metrics.errorsByTenant[tenantId] = result.errors;
+              this.emitTenantError(context.jobName, tenantId, result.errors, context);
+            }
+          }
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.logger.error(
+            `Daily plan generation failed for schema ${schema}: ${err.message}`,
+            err.stack,
+            { jobId: context.jobId },
+          );
+        } finally {
+          await queryRunner.query('RESET search_path').catch(() => {});
+          await queryRunner.release();
         }
       }
 
@@ -379,86 +493,6 @@ export class FeedingCronService {
     } finally {
       await this.releaseAdvisoryLock(context.jobName);
     }
-  }
-
-  /**
-   * Process all programs for a single tenant with proper error isolation
-   */
-  private async processTenantsPrograms(
-    tenantId: string,
-    programs: FeedingProgram[],
-    date: Date,
-    context: JobContext,
-  ): Promise<TenantJobResult> {
-    const tenantContext: JobContext = { ...context, tenantId };
-    const result: TenantJobResult = {
-      tenantId,
-      generated: 0,
-      errors: [],
-      duration: 0,
-    };
-    const tenantStart = Date.now();
-
-    this.logger.debug(
-      `Processing ${programs.length} programs for tenant ${tenantId}`,
-      { jobId: context.jobId, tenantId },
-    );
-
-    for (const program of programs) {
-      try {
-        // Use retry for transient failures
-        const planResult = await this.withRetry(
-          () => this.executionService.generateDailyPlan(
-            program.id,
-            date,
-            program.tenantId,
-          ),
-          tenantContext,
-          `generateDailyPlan-${program.code}`,
-        );
-
-        result.generated += planResult.executionsCreated;
-
-        if (planResult.errors.length > 0) {
-          result.errors.push(
-            ...planResult.errors.map(e => `${program.code}: ${e}`),
-          );
-          this.logger.warn(
-            `Program ${program.code} had ${planResult.errors.length} errors`,
-            {
-              jobId: context.jobId,
-              tenantId,
-              programCode: program.code,
-              errors: planResult.errors,
-            },
-          );
-        }
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        const errorMsg = `Program ${program.code}: ${err.message}`;
-        result.errors.push(errorMsg);
-
-        this.logger.error(
-          `Failed to process program ${program.code}`,
-          err.stack,
-          {
-            jobId: context.jobId,
-            tenantId,
-            programCode: program.code,
-            errorMessage: err.message,
-          },
-        );
-      }
-    }
-
-    result.duration = Date.now() - tenantStart;
-
-    this.logger.debug(
-      `Tenant ${tenantId} completed: ${result.generated} plans, ${result.errors.length} errors in ${result.duration}ms`,
-      { jobId: context.jobId, tenantId },
-    );
-
-    return result;
   }
 
   // ==========================================================================
@@ -516,74 +550,107 @@ export class FeedingCronService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Process in batches with pagination
-      // Using raw query with index hint for JSONB query optimization
-      let offset = 0;
-      let hasMore = true;
-      const warningsByTenant = new Map<string, DailyFeedingExecution[]>();
+      // Discover all tenant schemas from information_schema
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      while (hasMore) {
-        // Use raw query with explicit index hint for JSONB query
-        // This ensures the GIN index on calculations->'transitionWarning' is used
-        const executions = await this.executionRepo
-          .createQueryBuilder('e')
-          .where('e.executionDate = :today', { today })
-          .andWhere('e.status = :status', { status: ExecutionStatus.PLANNED })
-          .andWhere("e.calculations::jsonb ? :jsonKey", { jsonKey: 'transitionWarning' })
-          .orderBy('e.tenantId', 'ASC')
-          .addOrderBy('e.id', 'ASC')
-          .skip(offset)
-          .take(BATCH_SIZE)
-          .getMany();
-
-        if (executions.length === 0) {
-          hasMore = false;
-          break;
-        }
-
-        for (const execution of executions) {
-          const warnings = warningsByTenant.get(execution.tenantId) || [];
-          warnings.push(execution);
-          warningsByTenant.set(execution.tenantId, warnings);
-        }
-
-        offset += executions.length;
-        hasMore = executions.length === BATCH_SIZE;
-      }
-
-      if (warningsByTenant.size === 0) {
-        this.logger.log('No feed transitions needed today', { jobId: context.jobId });
+      if (tenantSchemas.length === 0) {
+        this.logger.log('No tenant schemas found', { jobId: context.jobId });
         return;
       }
 
-      const totalWarnings = Array.from(warningsByTenant.values())
-        .reduce((sum, arr) => sum + arr.length, 0);
+      let totalWarnings = 0;
+      let tenantsWithWarnings = 0;
 
-      this.logger.log(
-        `Found ${totalWarnings} tanks with transition warnings across ${warningsByTenant.size} tenants`,
-        { jobId: context.jobId },
-      );
+      // Process each tenant schema with proper search_path isolation
+      for (const schema of tenantSchemas) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
 
-      // Emit events for each tenant's transition warnings
-      for (const [tenantId, executions] of warningsByTenant) {
-        // TODO: Send notifications to operators when notification service is available
-        // For now, emit events for downstream processing
-        this.eventEmitter.emit('feeding.transitionWarnings', {
-          tenantId,
-          jobId: context.jobId,
-          date: today,
-          warnings: executions.map(e => ({
-            executionId: e.id,
-            equipmentCode: e.equipmentCode,
-            equipmentName: e.equipmentName,
-            currentFeed: e.calculations?.activeFeedCode ?? 'unknown',
-            transitionWarning: e.calculations?.transitionWarning,
-          })),
-        });
+        try {
+          await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+          // Use raw query with JSONB operator for GIN index optimization
+          let offset = 0;
+          let hasMore = true;
+          const warningsByTenant = new Map<string, TransitionWarningRow[]>();
+
+          while (hasMore) {
+            const rows: TransitionWarningRow[] = await queryRunner.query(
+              `SELECT id, "tenantId", "equipmentCode", "equipmentName", calculations
+               FROM daily_feeding_executions
+               WHERE "executionDate" = $1
+               AND status = $2
+               AND calculations::jsonb ? 'transitionWarning'
+               ORDER BY "tenantId" ASC, id ASC
+               OFFSET $3 LIMIT $4`,
+              [today, ExecutionStatus.PLANNED, offset, BATCH_SIZE],
+            );
+
+            if (rows.length === 0) {
+              hasMore = false;
+              break;
+            }
+
+            for (const row of rows) {
+              const warnings = warningsByTenant.get(row.tenantId) || [];
+              warnings.push(row);
+              warningsByTenant.set(row.tenantId, warnings);
+            }
+
+            offset += rows.length;
+            hasMore = rows.length === BATCH_SIZE;
+          }
+
+          if (warningsByTenant.size === 0) {
+            continue;
+          }
+
+          const schemaWarningCount = Array.from(warningsByTenant.values())
+            .reduce((sum, arr) => sum + arr.length, 0);
+          totalWarnings += schemaWarningCount;
+          tenantsWithWarnings += warningsByTenant.size;
+
+          this.logger.log(
+            `Schema ${schema}: found ${schemaWarningCount} tanks with transition warnings across ${warningsByTenant.size} tenants`,
+            { jobId: context.jobId },
+          );
+
+          // Emit events for each tenant's transition warnings
+          for (const [tenantId, executions] of warningsByTenant) {
+            // TODO: Send notifications to operators when notification service is available
+            // For now, emit events for downstream processing
+            this.eventEmitter.emit('feeding.transitionWarnings', {
+              tenantId,
+              jobId: context.jobId,
+              date: today,
+              warnings: executions.map(e => ({
+                executionId: e.id,
+                equipmentCode: e.equipmentCode,
+                equipmentName: e.equipmentName,
+                currentFeed: e.calculations?.activeFeedCode ?? 'unknown',
+                transitionWarning: e.calculations?.transitionWarning,
+              })),
+            });
+          }
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.logger.error(
+            `Feed transition check failed for schema ${schema}: ${err.message}`,
+            err.stack,
+            { jobId: context.jobId },
+          );
+        } finally {
+          await queryRunner.query('RESET search_path').catch(() => {});
+          await queryRunner.release();
+        }
+      }
+
+      if (totalWarnings === 0) {
+        this.logger.log('No feed transitions needed today', { jobId: context.jobId });
       }
 
       this.logJobEnd(context, {
-        tenantsProcessed: warningsByTenant.size,
+        tenantsProcessed: tenantsWithWarnings,
         totalRecords: totalWarnings,
       });
 

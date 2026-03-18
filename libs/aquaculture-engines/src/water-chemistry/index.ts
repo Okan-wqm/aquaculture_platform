@@ -5,9 +5,9 @@
  * No browser APIs - usable by both frontend and backend (ai-service).
  */
 
-export * from './types';
-export * from './water-quality';
-export * from './ammonia-calc';
-export * from './co2-calc';
-export * from './reagents';
-export * from './deffeyes-data';
+export * from './types.js';
+export * from './water-quality.js';
+export * from './ammonia-calc.js';
+export * from './co2-calc.js';
+export * from './reagents.js';
+export * from './deffeyes-data.js';

@@ -31,7 +31,7 @@ import { DataSource } from 'typeorm';
 
 // Fix: H8 -- per-route throttle for sensitive database operations
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common';
-import { MODULE_SCHEMAS } from '@platform/backend-common';
+import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@platform/backend-common';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 // ============================================================================
@@ -883,7 +883,7 @@ export class DatabaseExplorerController {
 
     // SECURITY: Block access to module schemas and tenant schemas
     // Fix: C11 -- system catalog erişim engeli
-    const blockedSchemas = ['sensor', 'farm', 'hr', 'hydroponics', 'pg_catalog', 'information_schema'];
+    const blockedSchemas = [...DEFAULT_TENANT_MODULES, 'pg_catalog', 'information_schema'];
     for (const blocked of blockedSchemas) {
       if (new RegExp(`\\b${blocked}\\.`, 'i').test(sqlWithoutComments)) {
         throw new BadRequestException('Query references restricted schemas');

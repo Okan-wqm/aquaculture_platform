@@ -22,6 +22,12 @@ export interface RequestContext {
   url?: string;
   /** Client IP address */
   ip?: string;
+  /**
+   * Resolved PostgreSQL schema name for tenant isolation (e.g. "tenant_4b529829ea7948da").
+   * Set by TenantSchemaMiddleware; consumed by TenantConnectionBootstrap to inject
+   * SET search_path at the pool connection checkout level.
+   */
+  schemaName?: string;
 }
 
 /**

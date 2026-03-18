@@ -5,6 +5,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@aquaculture/shared-ui';
+import { graphqlFetch } from '../config/api';
 
 // Types
 export interface Site {
@@ -98,30 +99,6 @@ const SYSTEMS_BY_DEPARTMENT_QUERY = `
   }
 `;
 
-// GraphQL fetch helper
-async function graphqlFetch<T>(
-  query: string,
-  variables: Record<string, unknown>,
-  token?: string | null
-): Promise<T> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
-
 /**
  * Hook to fetch sites list
  */
@@ -134,7 +111,6 @@ export function useSiteList(filter?: { isActive?: boolean; status?: string }) {
       const data = await graphqlFetch<{ sites: PaginatedSiteResponse }>(
         SITES_LIST_QUERY,
         { filter },
-        token
       );
       return data.sites;
     },
@@ -155,7 +131,6 @@ export function useDepartmentsBySite(siteId: string) {
       const data = await graphqlFetch<{ departmentsBySite: Department[] }>(
         DEPARTMENTS_BY_SITE_QUERY,
         { siteId },
-        token
       );
       return data.departmentsBySite;
     },
@@ -176,7 +151,6 @@ export function useSystemsByDepartment(departmentId: string) {
       const data = await graphqlFetch<{ systemsByDepartment: System[] }>(
         SYSTEMS_BY_DEPARTMENT_QUERY,
         { departmentId },
-        token
       );
       return data.systemsByDepartment;
     },

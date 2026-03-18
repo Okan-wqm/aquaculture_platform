@@ -3,6 +3,7 @@
  * Manages column visibility state with localStorage persistence
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { getTenantId } from '@aquaculture/shared-ui';
 import { COLUMN_VISIBILITY_STORAGE_KEY, TankColumn } from './types';
 import { DEFAULT_VISIBLE_COLUMNS, getAllColumnKeys, tankColumns, cleanerFishColumns } from './columns';
 
@@ -27,6 +28,12 @@ export function useColumnVisibility(
   storageKey: string = COLUMN_VISIBILITY_STORAGE_KEY,
   columns: TankColumn[] = tankColumns
 ): UseColumnVisibilityReturn {
+  // Scope the storage key by tenantId to prevent cross-tenant data leakage
+  const scopedStorageKey = useMemo(() => {
+    const tenantId = getTenantId() || 'default';
+    return `${storageKey}-${tenantId}`;
+  }, [storageKey]);
+
   // Get column keys and defaults for the provided columns.
   // PERF-015: When using the default tankColumns, reuse the pre-computed
   // DEFAULT_VISIBLE_COLUMNS constant instead of creating a new Set each render.
@@ -40,7 +47,7 @@ export function useColumnVisibility(
 
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem(storageKey);
+      const saved = localStorage.getItem(scopedStorageKey);
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -76,13 +83,13 @@ export function useColumnVisibility(
     const serialized = JSON.stringify(Array.from(visibleColumns));
     const timerId = setTimeout(() => {
       try {
-        localStorage.setItem(storageKey, serialized);
+        localStorage.setItem(scopedStorageKey, serialized);
       } catch (error) {
         if (import.meta.env.DEV) console.error('Failed to save column visibility settings:', error);
       }
     }, 0);
     return () => clearTimeout(timerId);
-  }, [visibleColumns, storageKey]);
+  }, [visibleColumns, scopedStorageKey]);
 
   /**
    * Toggle a single column's visibility

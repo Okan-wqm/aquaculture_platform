@@ -7,7 +7,7 @@
  * ionic strength corrections, and borate/sulfate/fluoride contributions.
  */
 
-import { tempCToK } from './types';
+import { tempCToK } from './types.js';
 
 // ============================================================================
 // SEAWATER COMPOSITION CONSTANTS

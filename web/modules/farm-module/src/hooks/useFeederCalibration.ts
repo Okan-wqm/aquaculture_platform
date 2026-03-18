@@ -65,7 +65,7 @@ export function useFeederCalibrations(equipmentId: string | null) {
 
   // Derive schema name per project convention
   const schemaName = tenantId
-    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 8).toLowerCase()}`
+    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`
     : null;
 
   return useQuery({
@@ -90,7 +90,7 @@ export function useSaveFeederCalibrations() {
   const queryClient = useQueryClient();
 
   const schemaName = tenantId
-    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 8).toLowerCase()}`
+    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`
     : null;
 
   return useMutation({

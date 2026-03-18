@@ -152,4 +152,13 @@ export class SchemaController {
   async getConnectionsByTenant() {
     return this.schemaService.getConnectionsByTenant();
   }
+
+  // ============================================================================
+  // Backfill
+  // ============================================================================
+
+  @Post('backfill-tracking')
+  async backfillTrackingRecords() {
+    return this.schemaService.backfillTrackingRecords();
+  }
 }

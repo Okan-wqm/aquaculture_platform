@@ -24,7 +24,7 @@ const SENSITIVE_FIELDS = new Set([
 ]);
 
 /**
- * Redact sensitive fields from an object before persisting to audit_logs.
+ * Redact sensitive fields from an object before persisting to sensor_audit_logs.
  */
 function redactSensitiveFields(
   obj: Record<string, unknown> | null | undefined,
@@ -97,7 +97,7 @@ export class AuditSubscriber implements EntitySubscriberInterface {
       const newValue = redactSensitiveFields(entityToPlain(event.entity));
 
       await event.queryRunner.query(
-        `INSERT INTO audit_logs
+        `INSERT INTO sensor_audit_logs
            (id, tenant_id, entity_type, entity_id, action, new_value, changed_by, changed_at)
          VALUES
            (gen_random_uuid(), $1, $2, $3, 'INSERT', $4, $5, NOW())`,
@@ -136,7 +136,7 @@ export class AuditSubscriber implements EntitySubscriberInterface {
       const newValue = redactSensitiveFields(newValues);
 
       await event.queryRunner.query(
-        `INSERT INTO audit_logs
+        `INSERT INTO sensor_audit_logs
            (id, tenant_id, entity_type, entity_id, action,
             previous_value, new_value, changed_fields, changed_by, changed_at)
          VALUES
@@ -176,7 +176,7 @@ export class AuditSubscriber implements EntitySubscriberInterface {
       const previousValue = redactSensitiveFields(entityToPlain(entity as object));
 
       await event.queryRunner.query(
-        `INSERT INTO audit_logs
+        `INSERT INTO sensor_audit_logs
            (id, tenant_id, entity_type, entity_id, action, previous_value, changed_by, changed_at)
          VALUES
            (gen_random_uuid(), $1, $2, $3, 'DELETE', $4, $5, NOW())`,

@@ -1,1 +1,1 @@
-export * from './water-chemistry';
+export * from './water-chemistry/index.js';

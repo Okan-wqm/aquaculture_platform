@@ -4,6 +4,11 @@
  * Her site birden fazla sorumlu kişiye sahip olabilir.
  * Sadece bir kişi primary (ana irtibat) olabilir.
  *
+ * TODO: Orphan entity - not registered in any module's forFeature().
+ * The Site entity has a commented-out @OneToMany relation to this entity.
+ * If this entity is needed, add it to SiteModule's TypeOrmModule.forFeature()
+ * and uncomment the relation in site.entity.ts.
+ *
  * @module Farm
  */
 import {

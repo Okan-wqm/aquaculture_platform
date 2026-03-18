@@ -87,6 +87,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'scada_packages',
       'scada_deploy_logs',
       'unified_tags',
+
+      // LoRa & Device Groups
+      'lora_devices',
+      'device_groups',
+      'device_group_members',
+
+      // Audit
+      'sensor_audit_logs',
     ],
   },
   {
@@ -182,23 +190,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'marine_observations',
       'weather_settings',
 
-      // Security & Compliance tables (tenant-specific audit trail)
-      'activity_logs',
-      'api_usage_logs',
-      'login_attempts',
-      'user_sessions',
-      'user_permissions',
-      'user_consents',
-      'compliance_reports',
-      'gdpr_data_requests',
-      'data_requests',
-      'retention_policies',
-      'security_events',
-      'security_incidents',
-      'threat_intelligence',
+      // Task management & Automation
+      'tasks',
+      'auto_rules',
+      'recurring_templates',
 
-      // Mobile user settings
-      'mobile_user_settings',
+      // Workers
+      'farm_workers',
     ],
   },
   {
@@ -238,6 +236,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'certification_types',
       'employee_certifications',
 
+      // Performance Management
+      'goals',
+      'performance_reviews',
+      'employee_kpis',
+
       // Aquaculture-specific
       'work_areas',
       'work_rotations',
@@ -252,6 +255,28 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'hydroponics_config',
     ],
   },
+  {
+    moduleName: 'alert',
+    sourceSchema: 'alert',
+    referenceDataTables: [],
+    tables: [
+      'alert_rules',
+      'alert_incidents',
+      'escalation_policies',
+      'alert_history',
+      'alert_audit_log',
+    ],
+  },
+  {
+    moduleName: 'ai',
+    sourceSchema: 'ai',
+    referenceDataTables: [],
+    tables: [
+      'agent_conversations',
+      'tenant_agent_configs',
+      'tool_execution_audit',
+    ],
+  },
 ];
 
 /**
@@ -260,6 +285,16 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
  *
  * NOTE: Reference data is copied from the same sourceSchema defined in MODULE_SCHEMAS.
  */
+/**
+ * Default module names for tenant provisioning.
+ * Derived from MODULE_SCHEMAS to prevent drift when new modules are added.
+ *
+ * Usage:
+ *   import { DEFAULT_TENANT_MODULES } from '@platform/backend-common';
+ *   await schemaManager.createTenantSchema(tenantId, DEFAULT_TENANT_MODULES);
+ */
+export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.map(m => m.moduleName);
+
 export const REFERENCE_DATA_TABLES: Record<string, string[]> = Object.fromEntries(
   MODULE_SCHEMAS.map(m => [m.moduleName, m.referenceDataTables || []]),
 );
@@ -298,62 +333,8 @@ export interface SchemaCreationResult {
   partialSuccess?: boolean;
 }
 
-/**
- * Simple LRU Cache implementation for schema existence checks.
- * Prevents excessive database queries for repeated checks.
- *
- * MULTI-INSTANCE LIMITATION: This cache is in-process only. In a multi-instance
- * (horizontally-scaled) deployment each pod maintains its own independent cache.
- * A schema created or dropped on one instance will NOT be reflected in the caches
- * of other instances until the TTL expires (default: 5 minutes). This is acceptable
- * for schema existence checks because:
- *   1. Schema creation is an infrequent, one-time operation per tenant.
- *   2. A false-negative (cache miss) simply causes an extra database round-trip.
- *   3. A false-positive (stale "exists" entry) is safe because the query will fail
- *      at the database level with a clear schema-not-found error.
- * If stronger cache coherence is required in future, replace with a Redis-backed
- * distributed cache.
- */
-class SchemaLRUCache {
-  private cache = new Map<string, { value: boolean; expiry: number }>();
-  private readonly maxSize: number;
-  private readonly ttlMs: number;
-
-  constructor(maxSize = 1000, ttlMs = 5 * 60 * 1000) {
-    this.maxSize = maxSize;
-    this.ttlMs = ttlMs;
-  }
-
-  get(key: string): boolean | undefined {
-    const entry = this.cache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiry) {
-      this.cache.delete(key);
-      return undefined;
-    }
-    // Move to end (most recently used)
-    this.cache.delete(key);
-    this.cache.set(key, entry);
-    return entry.value;
-  }
-
-  set(key: string, value: boolean): void {
-    // Evict oldest if at capacity
-    if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) this.cache.delete(firstKey);
-    }
-    this.cache.set(key, { value, expiry: Date.now() + this.ttlMs });
-  }
-
-  delete(key: string): void {
-    this.cache.delete(key);
-  }
-
-  clear(): void {
-    this.cache.clear();
-  }
-}
+// SchemaLRUCache is imported from ./schema-lru-cache (shared across all services)
+import { SchemaLRUCache } from './schema-lru-cache';
 
 /**
  * SECURITY: Validate SQL identifier (schema/table name) to prevent injection
@@ -385,8 +366,8 @@ function validateSqlIdentifier(identifier: string, type: 'schema' | 'table'): st
 export class SchemaManagerService {
   private readonly logger = new Logger(SchemaManagerService.name);
 
-  /** LRU cache for schema existence checks (max 1000 entries, 5 min TTL) */
-  private readonly schemaCache = new SchemaLRUCache(1000, 5 * 60 * 1000);
+  /** LRU cache for schema existence checks (max 1000 entries, positive TTL=5 min, negative TTL=30 s) */
+  private readonly schemaCache = new SchemaLRUCache(1000, 5 * 60 * 1000, 30_000);
 
   constructor(private readonly dataSource: DataSource) {}
 
@@ -491,7 +472,7 @@ export class SchemaManagerService {
    */
   async createTenantSchema(
     tenantId: string,
-    modules: string[] = ['sensor', 'farm', 'hr', 'hydroponics'],
+    modules: string[] = DEFAULT_TENANT_MODULES,
   ): Promise<SchemaCreationResult> {
     const startTime = Date.now();
     const schemaName = this.getTenantSchemaName(tenantId);
@@ -774,7 +755,7 @@ export class SchemaManagerService {
       await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
 
       // Invalidate cache entry for deleted schema
-      this.schemaCache.delete(schemaName);
+      this.schemaCache.invalidate(schemaName);
 
       this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
       return { success: true };
@@ -831,7 +812,7 @@ export class SchemaManagerService {
    * Call this after schema deletion
    */
   invalidateSchemaCache(schemaName: string): void {
-    this.schemaCache.delete(schemaName);
+    this.schemaCache.invalidate(schemaName);
   }
 
   /**
@@ -1398,7 +1379,7 @@ export class SchemaManagerService {
    */
   async syncTenantSchema(
     tenantId: string,
-    modules: string[] = ['sensor', 'farm', 'hr', 'hydroponics'],
+    modules: string[] = DEFAULT_TENANT_MODULES,
   ): Promise<{ created: string[]; skipped: string[]; errors: string[] }> {
     const schemaName = this.getTenantSchemaName(tenantId);
     const created: string[] = [];

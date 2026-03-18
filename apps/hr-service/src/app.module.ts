@@ -22,6 +22,7 @@ import {
   SourceSchemaBootstrapService,
 } from '@platform/backend-common';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
 import { HRModule } from './hr/hr.module';
 import { HealthModule } from './health/health.module';
 import { LeaveModule } from './leave/leave.module';
@@ -258,6 +259,8 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,
+    // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
+    TenantConnectionBootstrap,
   ],
 })
 export class AppModule implements NestModule {

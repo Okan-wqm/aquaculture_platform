@@ -47,7 +47,7 @@ export function useTankFeeders(tankEquipmentId: string | undefined) {
   const { token, tenantId } = useAuth();
 
   const schemaName = tenantId
-    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 8).toLowerCase()}`
+    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`
     : null;
 
   return useQuery({

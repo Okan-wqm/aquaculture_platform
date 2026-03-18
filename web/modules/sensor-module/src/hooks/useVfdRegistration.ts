@@ -16,33 +16,7 @@ import {
   VfdRegistrationWizardState,
   VfdWizardStep,
 } from '../types/vfd.types';
-import { getAccessToken } from '@aquaculture/shared-ui';
-
-// API base URL
-const API_URL = '/graphql';
-
-// GraphQL fetch helper
-async function graphqlFetch<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const token = getAccessToken();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
+import { graphqlFetch } from '../config/api';
 
 // GraphQL Queries
 const GET_VFD_DEVICE_QUERY = `

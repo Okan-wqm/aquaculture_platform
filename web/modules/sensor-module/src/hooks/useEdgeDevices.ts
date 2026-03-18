@@ -5,6 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@aquaculture/shared-ui';
+import { graphqlFetch } from '../config/api';
 import {
   EDGE_DEVICES_QUERY,
   EDGE_DEVICE_QUERY,
@@ -288,31 +289,6 @@ export interface RegenerateTokenResponse {
   tokenExpiresAt: string;
 }
 
-// ==================== GraphQL Fetch Helper ====================
-
-async function graphqlFetch<T>(
-  query: string,
-  variables: Record<string, unknown>,
-  token?: string | null
-): Promise<T> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
-
 // ==================== Query Hooks ====================
 
 /**
@@ -327,7 +303,6 @@ export function useEdgeDevices(filter?: EdgeDeviceFilter) {
       const data = await graphqlFetch<{ edgeDevices: EdgeDeviceConnection }>(
         EDGE_DEVICES_QUERY,
         (filter || {}) as Record<string, unknown>,
-        token
       );
       return data.edgeDevices;
     },
@@ -349,7 +324,6 @@ export function useEdgeDevice(id: string) {
       const data = await graphqlFetch<{ edgeDevice: EdgeDevice | null }>(
         EDGE_DEVICE_QUERY,
         { id },
-        token
       );
       return data.edgeDevice;
     },
@@ -370,7 +344,6 @@ export function useEdgeDeviceStats() {
       const data = await graphqlFetch<{ edgeDeviceStats: EdgeDeviceStats }>(
         EDGE_DEVICE_STATS_QUERY,
         {},
-        token
       );
       return data.edgeDeviceStats;
     },
@@ -394,7 +367,6 @@ export function useRegisterEdgeDevice() {
       const data = await graphqlFetch<{ registerEdgeDevice: EdgeDevice }>(
         REGISTER_EDGE_DEVICE_MUTATION,
         { input },
-        token
       );
       return data.registerEdgeDevice;
     },
@@ -417,7 +389,6 @@ export function useUpdateEdgeDevice() {
       const data = await graphqlFetch<{ updateEdgeDevice: EdgeDevice }>(
         UPDATE_EDGE_DEVICE_MUTATION,
         { id, input },
-        token
       );
       return data.updateEdgeDevice;
     },
@@ -440,7 +411,6 @@ export function useApproveEdgeDevice() {
       const data = await graphqlFetch<{ approveEdgeDevice: EdgeDevice }>(
         APPROVE_EDGE_DEVICE_MUTATION,
         { id },
-        token
       );
       return data.approveEdgeDevice;
     },
@@ -464,7 +434,6 @@ export function useSetDeviceMaintenanceMode() {
       const data = await graphqlFetch<{ setDeviceMaintenanceMode: EdgeDevice }>(
         SET_DEVICE_MAINTENANCE_MODE_MUTATION,
         { id, enabled },
-        token
       );
       return data.setDeviceMaintenanceMode;
     },
@@ -488,7 +457,6 @@ export function useDecommissionEdgeDevice() {
       const data = await graphqlFetch<{ decommissionEdgeDevice: EdgeDevice }>(
         DECOMMISSION_EDGE_DEVICE_MUTATION,
         { id, reason },
-        token
       );
       return data.decommissionEdgeDevice;
     },
@@ -511,7 +479,6 @@ export function usePingEdgeDevice() {
       const data = await graphqlFetch<{ pingEdgeDevice: PingResult }>(
         PING_EDGE_DEVICE_MUTATION,
         { id },
-        token
       );
       return data.pingEdgeDevice;
     },
@@ -532,7 +499,6 @@ export function useAddDeviceIoConfig() {
       const data = await graphqlFetch<{ addDeviceIoConfig: DeviceIoConfig }>(
         ADD_DEVICE_IO_CONFIG_MUTATION,
         { deviceId, input },
-        token
       );
       return data.addDeviceIoConfig;
     },
@@ -562,7 +528,6 @@ export function useUpdateDeviceIoConfig() {
       const data = await graphqlFetch<{ updateDeviceIoConfig: DeviceIoConfig }>(
         UPDATE_DEVICE_IO_CONFIG_MUTATION,
         { id, deviceId, input },
-        token
       );
       return data.updateDeviceIoConfig;
     },
@@ -584,7 +549,6 @@ export function useRemoveDeviceIoConfig() {
       const data = await graphqlFetch<{ removeDeviceIoConfig: boolean }>(
         REMOVE_DEVICE_IO_CONFIG_MUTATION,
         { id, deviceId },
-        token
       );
       return data.removeDeviceIoConfig;
     },
@@ -605,7 +569,7 @@ export function usePushIoConfig() {
     mutationFn: async (deviceId: string) => {
       const data = await graphqlFetch<{
         pushIoConfigToDevice: PushIoConfigResult;
-      }>(PUSH_IO_CONFIG_MUTATION, { deviceId }, token);
+      }>(PUSH_IO_CONFIG_MUTATION, { deviceId });
       return data.pushIoConfigToDevice;
     },
     onSuccess: (_, deviceId) => {
@@ -642,7 +606,6 @@ export function useSetDigitalOutput() {
       const data = await graphqlFetch<{ setDigitalOutput: SetDigitalOutputResult }>(
         SET_DIGITAL_OUTPUT_MUTATION,
         { input },
-        token,
       );
       return data.setDigitalOutput;
     },
@@ -739,7 +702,7 @@ export function useScanHardware() {
     mutationFn: async (deviceId: string) => {
       const data = await graphqlFetch<{
         scanEdgeDeviceHardware: HardwareScanResult;
-      }>(SCAN_HARDWARE_MUTATION, { deviceId }, token);
+      }>(SCAN_HARDWARE_MUTATION, { deviceId });
       return data.scanEdgeDeviceHardware;
     },
   });
@@ -769,7 +732,7 @@ export function useBulkAddIoConfig() {
     }) => {
       const data = await graphqlFetch<{
         bulkAddDeviceIoConfigs: BulkAddIoConfigResult;
-      }>(BULK_ADD_IO_CONFIG_MUTATION, { deviceId, inputs }, token);
+      }>(BULK_ADD_IO_CONFIG_MUTATION, { deviceId, inputs });
       return data.bulkAddDeviceIoConfigs;
     },
     onSuccess: (_, { deviceId }) => {
@@ -793,7 +756,6 @@ export function useDeviceInstallCommands(deviceId: string) {
       const data = await graphqlFetch<{ deviceInstallCommands: DeviceInstallCommands }>(
         DEVICE_INSTALL_COMMANDS_QUERY,
         { deviceId },
-        token
       );
       return data.deviceInstallCommands;
     },
@@ -817,7 +779,6 @@ export function useCreateProvisionedDevice() {
       const data = await graphqlFetch<{ createProvisionedDevice: ProvisionedDeviceResponse }>(
         CREATE_PROVISIONED_DEVICE_MUTATION,
         { input },
-        token
       );
       return data.createProvisionedDevice;
     },
@@ -841,7 +802,6 @@ export function useRegenerateDeviceToken() {
       const data = await graphqlFetch<{ regenerateDeviceToken: RegenerateTokenResponse }>(
         REGENERATE_DEVICE_TOKEN_MUTATION,
         { deviceId },
-        token
       );
       return data.regenerateDeviceToken;
     },
@@ -877,7 +837,6 @@ export function useAvailableFirmwareVersions() {
       const data = await graphqlFetch<{ availableFirmwareVersions: FirmwareVersionInfo[] }>(
         AVAILABLE_FIRMWARE_VERSIONS_QUERY,
         {},
-        token
       );
       return data.availableFirmwareVersions;
     },
@@ -898,7 +857,6 @@ export function useUpdateEdgeDeviceFirmware() {
       const data = await graphqlFetch<{ updateEdgeDeviceFirmware: boolean }>(
         UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION,
         { id, targetVersion },
-        token
       );
       return data.updateEdgeDeviceFirmware;
     },
@@ -921,7 +879,6 @@ export function useBulkUpdateEdgeDeviceFirmware() {
       const data = await graphqlFetch<{ bulkUpdateEdgeDeviceFirmware: BulkFirmwareUpdateResult }>(
         BULK_UPDATE_EDGE_DEVICE_FIRMWARE_MUTATION,
         { deviceIds, targetVersion },
-        token
       );
       return data.bulkUpdateEdgeDeviceFirmware;
     },

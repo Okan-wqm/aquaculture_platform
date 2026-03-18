@@ -7,7 +7,7 @@
 import { Injectable, Logger, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService } from '@platform/backend-common';
+import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@platform/backend-common';
 
 import {
   TenantSchema,
@@ -84,7 +84,7 @@ export class SchemaManagementService {
     try {
       // Use backend-common SchemaManagerService for full module table creation
       if (this.schemaManager) {
-        const allModules = ['sensor', 'farm', 'hr', 'hydroponics'];
+        const allModules = DEFAULT_TENANT_MODULES;
         const result = await this.schemaManager.createTenantSchema(tenantId, allModules);
 
         if (!result.success && !result.partialSuccess) {
@@ -659,5 +659,104 @@ export class SchemaManagementService {
       totalSizeBytes,
       avgSizeBytes: schemas.length > 0 ? Math.round(totalSizeBytes / schemas.length) : 0,
     };
+  }
+
+  /**
+   * Backfill tenant_schemas tracking records for existing tenant schemas
+   * that were created before this tracking was added.
+   *
+   * Scans information_schema for schemas matching the tenant_* naming pattern,
+   * cross-references with the tenants table, and inserts missing tracking records.
+   */
+  async backfillTrackingRecords(): Promise<{
+    created: number;
+    skipped: number;
+    errors: string[];
+  }> {
+    this.logger.log('Starting tenant_schemas backfill...');
+    let created = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      // Find all tenant_* schemas in the database
+      const existingSchemas: Array<{ schema_name: string }> = await queryRunner.query(`
+        SELECT schema_name
+        FROM information_schema.schemata
+        WHERE schema_name LIKE 'tenant_%'
+        ORDER BY schema_name
+      `);
+
+      for (const row of existingSchemas) {
+        const schemaName = row.schema_name;
+
+        try {
+          // Check if a tracking record already exists for this schema
+          const existingRecord = await this.schemaRepository.findOne({
+            where: { schemaName },
+          });
+
+          if (existingRecord) {
+            skipped++;
+            continue;
+          }
+
+          // Resolve tenantId by matching the schema name pattern against the tenants table
+          const tenantRows: Array<{ id: string }> = await queryRunner.query(`
+            SELECT id FROM tenants
+            WHERE LEFT(REPLACE(id::text, '-', ''), 16) = $1
+          `, [schemaName.replace('tenant_', '')]);
+
+          if (tenantRows.length === 0) {
+            errors.push(`No matching tenant found for schema ${schemaName}`);
+            continue;
+          }
+
+          const tenantId = tenantRows[0]!.id;
+
+          // Check if a tracking record already exists by tenantId (different schemaName)
+          const existingByTenant = await this.schemaRepository.findOne({
+            where: { tenantId },
+          });
+
+          if (existingByTenant) {
+            skipped++;
+            continue;
+          }
+
+          // Get table count for this schema
+          const tableCount = await this.getTableCount(schemaName);
+
+          // Create tracking record
+          const record = this.schemaRepository.create({
+            tenantId,
+            schemaName,
+            status: 'active' as SchemaStatus,
+            currentVersion: '1.0.0',
+            tableCount,
+          });
+          await this.schemaRepository.save(record);
+          created++;
+
+          this.logger.log(
+            `Backfilled tracking record: tenant ${tenantId} → ${schemaName} (${tableCount} tables)`,
+          );
+        } catch (err) {
+          const error = err as Error;
+          errors.push(`${schemaName}: ${error.message}`);
+          this.logger.warn(`Failed to backfill ${schemaName}: ${error.message}`);
+        }
+      }
+
+      this.logger.log(
+        `Backfill complete: ${created} created, ${skipped} skipped, ${errors.length} errors`,
+      );
+      return { created, skipped, errors };
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

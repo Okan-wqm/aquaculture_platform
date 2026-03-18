@@ -1,6 +1,7 @@
-import { Injectable, NestMiddleware, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import { DataSource, QueryRunner } from 'typeorm';
+import { DataSource } from 'typeorm';
+import { getRequestContext, SchemaLRUCache, getTenantSchemaName, isValidUUID } from '@platform/backend-common';
 
 /**
  * Request with tenant context
@@ -12,76 +13,25 @@ interface TenantRequest extends Request {
     sub?: string;
     email?: string;
   };
-  /** Dedicated QueryRunner pinned to a single pooled connection for this request */
-  tenantQueryRunner?: QueryRunner;
-}
-
-/**
- * Simple LRU Cache for schema existence checks.
- *
- * Uses separate TTLs for positive (schema exists) and negative (schema missing) entries
- * to avoid routing new-tenant traffic to the shared schema for up to 5 minutes (LOW-03).
- * Positive TTL: 5 minutes (schema existence is stable once created).
- * Negative TTL: 30 seconds (new tenant schemas are provisioned frequently; quick re-check).
- */
-class SchemaLRUCache {
-  private cache = new Map<string, { value: boolean; expiry: number }>();
-  private readonly maxSize: number;
-  private readonly positiveTtlMs: number;
-  private readonly negativeTtlMs: number;
-
-  constructor(maxSize = 1000, positiveTtlMs = 5 * 60 * 1000, negativeTtlMs = 30_000) {
-    this.maxSize = maxSize;
-    this.positiveTtlMs = positiveTtlMs;
-    this.negativeTtlMs = negativeTtlMs;
-  }
-
-  get(key: string): boolean | undefined {
-    const entry = this.cache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiry) {
-      this.cache.delete(key);
-      return undefined;
-    }
-    // Move to end (most-recently-used)
-    this.cache.delete(key);
-    this.cache.set(key, entry);
-    return entry.value;
-  }
-
-  set(key: string, value: boolean): void {
-    if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) this.cache.delete(firstKey);
-    }
-    // Apply shorter TTL for negative entries so newly-provisioned tenant schemas are
-    // picked up within 30 seconds rather than the full 5-minute positive TTL (LOW-03)
-    const ttl = value ? this.positiveTtlMs : this.negativeTtlMs;
-    this.cache.set(key, { value, expiry: Date.now() + ttl });
-  }
-
-  delete(key: string): void {
-    this.cache.delete(key);
-  }
+  schemaName?: string;
 }
 
 /**
  * Tenant Schema Middleware for Sensor Service
  *
- * Sets PostgreSQL search_path to tenant-specific schema at the start of each request.
- * This ensures all database operations target the correct tenant's tables.
+ * Resolves the tenant schema name from the request and stores it in:
+ * 1. req.schemaName - for direct access by handlers
+ * 2. AsyncLocalStorage RequestContext.schemaName - for pool-level search_path injection
  *
- * Connection Safety (D04-M02):
- * Uses a dedicated QueryRunner per request to pin a single pooled connection.
- * SET search_path and RESET search_path are guaranteed to execute on the SAME
- * physical connection, eliminating the race condition where res.on('finish')
- * could RESET a different connection than the one that was SET.
+ * The actual SET search_path is handled transparently by TenantConnectionBootstrap,
+ * which patches pg Pool.connect() to read schemaName from AsyncLocalStorage on every
+ * connection checkout. This ensures ALL database operations (including TypeORM repository
+ * calls that create their own QueryRunners) execute on the correct tenant schema.
  *
  * Features:
  * - SQL injection prevention via UUID validation
  * - LRU caching for schema existence checks (positive/negative TTL split)
- * - Per-request QueryRunner for connection-safe search_path management
- * - Fallback to shared 'sensor' schema for tenants without dedicated schema
+ * - No fallback to shared schema for authenticated tenants - zero tolerance isolation
  *
  * Schema naming convention: tenant_{first16chars_of_uuid_without_hyphens}
  * Example: tenant_4b529829ea7948da for tenantId 4b529829-ea79-48da-982c-cd6fbec8ffb7
@@ -100,142 +50,51 @@ export class TenantSchemaMiddleware implements NestMiddleware {
     // Extract tenant ID from request (set by UserContextMiddleware/TenantContextMiddleware)
     const tenantId = req.tenantId || req.user?.tenantId;
 
-    // Create a dedicated QueryRunner to pin a single pooled connection for this request.
-    // This guarantees SET and RESET execute on the same physical connection.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    if (tenantId && tenantId !== 'default-tenant') {
+      // Validate UUID format (SQL injection prevention)
+      if (!isValidUUID(tenantId)) {
+        throw new BadRequestException('Invalid tenant ID format');
+      }
 
-    try {
+      const schemaName = getTenantSchemaName(tenantId);
+      const schemaExists = await this.checkSchemaExists(schemaName);
 
-      if (tenantId && tenantId !== 'default-tenant') {
-        // Validate UUID format (SQL injection prevention)
-        if (!this.isValidUUID(tenantId)) {
-          throw new BadRequestException('Invalid tenant ID format');
-        }
-
-        const schemaName = this.getTenantSchemaName(tenantId);
-        const schemaExists = await this.checkSchemaExists(schemaName);
-
-        if (schemaExists) {
-          // Set search_path to tenant schema with public fallback
-          await this.setSearchPathSafe(queryRunner, schemaName);
-          this.logger.debug(`Schema search_path set to: ${schemaName}`);
-        } else {
-          // Fallback to sensor schema for unauthenticated or default requests
-          await this.setSearchPathSafe(queryRunner, this.DEFAULT_SCHEMA);
-          this.logger.debug(`Tenant ${tenantId}: using fallback schema ${this.DEFAULT_SCHEMA}`);
-        }
+      if (schemaExists) {
+        req.schemaName = schemaName;
       } else {
-        // Fallback to sensor schema for unauthenticated or default requests
-        await this.setSearchPathSafe(queryRunner, this.DEFAULT_SCHEMA);
-        this.logger.debug('Schema search_path set to: sensor (default)');
+        // No fallback to shared schema for authenticated tenants - zero tolerance isolation
+        throw new UnauthorizedException(`Tenant schema not found for tenant ${tenantId}`);
       }
-    } catch (error) {
-      this.logger.error(`Failed to set tenant schema: ${error instanceof Error ? error.message : String(error)}`);
-      // For authenticated requests with a tenant ID, return 503 instead of falling back
-      // to the shared schema, which would cause cross-tenant data contamination
-      if (tenantId && tenantId !== 'default-tenant') {
-        await this.safeRelease(queryRunner);
-        throw new BadRequestException('Tenant schema unavailable. Please try again later.');
-      }
-      // Only fall back to shared schema for unauthenticated requests
-      try {
-        await this.setSearchPathSafe(queryRunner, this.DEFAULT_SCHEMA);
-      } catch {
-        // Ignore if this also fails
-      }
+    } else {
+      req.schemaName = this.DEFAULT_SCHEMA;
     }
 
-    // Store the QueryRunner on the request so handlers can optionally use it
-    req.tenantQueryRunner = queryRunner;
-
-    // CRITICAL: Reset search_path and release the QueryRunner when response finishes.
-    // Because we use the same QueryRunner, RESET is guaranteed to hit the same
-    // physical connection that SET was called on -- eliminating the D04-M02 race.
-    let released = false;
-    const cleanup = async () => {
-      if (released) return;
-      released = true;
-      try {
-        await queryRunner.query('RESET search_path');
-      } catch (err) {
-        this.logger.debug(`Failed to reset search_path: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        await this.safeRelease(queryRunner);
+    // Store in request context (AsyncLocalStorage) for pool-level search_path injection
+    try {
+      const ctx = getRequestContext();
+      if (ctx) {
+        ctx.schemaName = req.schemaName;
       }
-    };
-
-    res.on('finish', () => { cleanup().catch(() => {}); });
-    res.on('close', () => { cleanup().catch(() => {}); });
+    } catch {
+      // RequestContext not available -- schemaName still on req
+    }
 
     next();
   }
 
-  /**
-   * Validate UUID format
-   */
-  private isValidUUID(id: string): boolean {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-  }
-
-  /**
-   * Generate tenant schema name from tenant ID
-   * Format: tenant_{first16chars_of_uuid_without_hyphens}
-   * Must match SchemaManagerService.getTenantSchemaName
-   */
-  private getTenantSchemaName(tenantId: string): string {
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    return `tenant_${cleanId}`;
-  }
-
-  /**
-   * Set search_path with SQL injection prevention on a specific QueryRunner.
-   *
-   * Search path order:
-   * 1. Target schema (tenant-specific or sensor default)
-   * 2. Sensor schema (shared system data like sensor_protocols, sensor_type_definitions)
-   * 3. Public schema (extensions, common functions)
-   */
-  private async setSearchPathSafe(qr: QueryRunner, schemaName: string): Promise<void> {
-    // Validate schema name format as additional safety
-    if (!/^[a-z0-9_]+$/.test(schemaName)) {
-      throw new BadRequestException('Invalid schema name');
-    }
-    // Include 'sensor' schema for shared system tables (same pattern as farm-service)
-    await qr.query(`SET search_path TO "${schemaName}", sensor, public`);
-  }
-
-  /**
-   * Safely release a QueryRunner, ignoring errors if already released
-   */
-  private async safeRelease(qr: QueryRunner): Promise<void> {
-    try {
-      if (!qr.isReleased) {
-        await qr.release();
-      }
-    } catch (err) {
-      this.logger.debug(`QueryRunner release error: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
+  // isValidUUID and getTenantSchemaName imported from @platform/backend-common
 
   /**
    * Check schema existence with LRU caching
    */
   private async checkSchemaExists(schemaName: string): Promise<boolean> {
-    const cached = this.schemaCache.get(schemaName);
-    if (cached !== undefined) return cached;
-
-    try {
-      const result = await this.dataSource.query(
+    return this.schemaCache.getOrCheck(schemaName, async () => {
+      const rows = await this.dataSource.query(
         `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
         [schemaName],
       );
-      const exists = result.length > 0;
-      this.schemaCache.set(schemaName, exists);
-      return exists;
-    } catch {
-      return false;
-    }
+      return rows.length > 0;
+    });
   }
 
   /**
@@ -243,6 +102,6 @@ export class TenantSchemaMiddleware implements NestMiddleware {
    * Call this after schema creation
    */
   invalidateCache(schemaName: string): void {
-    this.schemaCache.delete(schemaName);
+    this.schemaCache.invalidate(schemaName);
   }
 }

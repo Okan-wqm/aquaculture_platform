@@ -38,8 +38,12 @@ registerEnumType(BatchStatus, {
 
 /**
  * PondBatch entity - represents a group of aquatic species in a pond
- * Note: This is the legacy batch entity for pond-based aquaculture.
- * For tank-based RAS systems, use the Batch entity from batch/entities/batch.entity.ts
+ *
+ * @deprecated Legacy entity using 'batches' table for pond-based aquaculture.
+ * The new Batch entity (batch/entities/batch.entity.ts) uses 'batches_v2' for
+ * tank-based RAS systems. This entity is still actively used by FarmModule
+ * (registered in farm.module.ts forFeature, with resolver, command/query handlers).
+ * Plan migration path before removing.
  */
 @ObjectType('PondBatch')
 @Entity('batches')

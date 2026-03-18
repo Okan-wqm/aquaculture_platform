@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import type { NutrientProfile } from '../types/modes.types';
 import {
@@ -11,8 +11,12 @@ import type { HydroponicsConfig } from './useHydroponicsConfig';
 // The dynamic import below in importDefaults() ensures the full DEFAULT_NUTRIENT_PROFILES
 // dataset is tree-shaken from the initial bundle and only loaded on demand.
 
-const STORAGE_KEY = 'nutrient_profiles';
+const STORAGE_KEY_PREFIX = 'nutrient_profiles';
 const CONFIG_NAME = 'nutrient-profiles';
+
+function getStorageKey(tenantId: string | null | undefined): string {
+  return `${STORAGE_KEY_PREFIX}_${tenantId || 'default'}`;
+}
 
 // SEC-HYD-001: Runtime schema guard — reject any profile that does not conform to
 // the expected shape with numeric fields within agronomically plausible bounds.
@@ -44,9 +48,9 @@ function isValidProfile(p: unknown): p is NutrientProfile {
   );
 }
 
-function loadProfilesFromStorage(): NutrientProfile[] {
+function loadProfilesFromStorage(storageKey: string): NutrientProfile[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -57,8 +61,8 @@ function loadProfilesFromStorage(): NutrientProfile[] {
   }
 }
 
-function persistProfilesToStorage(profiles: NutrientProfile[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
+function persistProfilesToStorage(storageKey: string, profiles: NutrientProfile[]): void {
+  localStorage.setItem(storageKey, JSON.stringify(profiles));
 }
 
 /**
@@ -73,8 +77,9 @@ function extractProfilesFromConfig(config: HydroponicsConfig): NutrientProfile[]
 }
 
 export function useNutrientProfiles() {
-  const [profiles, setProfiles] = useState<NutrientProfile[]>(loadProfilesFromStorage);
   const { token, tenantId, isAuthenticated } = useAuth();
+  const storageKey = useMemo(() => getStorageKey(tenantId), [tenantId]);
+  const [profiles, setProfiles] = useState<NutrientProfile[]>(() => loadProfilesFromStorage(storageKey));
   // Track the backend config ID so updates go to the same row
   const configIdRef = useRef<string | null>(null);
   const initialLoadDone = useRef(false);
@@ -98,7 +103,7 @@ export function useNutrientProfiles() {
           const remoteProfiles = extractProfilesFromConfig(remote);
           if (remoteProfiles.length > 0) {
             setProfiles(remoteProfiles);
-            persistProfilesToStorage(remoteProfiles);
+            persistProfilesToStorage(storageKey, remoteProfiles);
           }
         }
       })
@@ -107,10 +112,15 @@ export function useNutrientProfiles() {
       });
   }, [isAuthenticated, token, tenantId]);
 
+  // Reload profiles when tenantId changes
+  useEffect(() => {
+    setProfiles(loadProfilesFromStorage(storageKey));
+  }, [storageKey]);
+
   // Keep localStorage in sync as offline fallback
   useEffect(() => {
-    persistProfilesToStorage(profiles);
-  }, [profiles]);
+    persistProfilesToStorage(storageKey, profiles);
+  }, [profiles, storageKey]);
 
   /**
    * Persist the current profiles array to the backend.

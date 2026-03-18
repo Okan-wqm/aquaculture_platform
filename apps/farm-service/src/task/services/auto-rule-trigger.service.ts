@@ -4,6 +4,11 @@
  * Event-driven service that listens to domain events and automatically
  * creates tasks when conditions match active AutoRules.
  *
+ * IMPORTANT: NATS event handlers run OUTSIDE HTTP request context.
+ * There is NO AsyncLocalStorage context and NO TenantSchemaMiddleware.
+ * All database operations MUST use a dedicated QueryRunner with explicit
+ * SET search_path to the correct tenant schema.
+ *
  * Supported trigger types:
  * - STOCK_LOW: inventory.lowStock events
  * - MAINTENANCE_DUE: maintenance.schedule.due events
@@ -23,9 +28,10 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { NatsEventBus, IEventHandler } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
+import { listTenantSchemas, getTenantSchemaName, isValidUUID } from '@platform/backend-common';
 import { AutoRule, AutoRuleTrigger } from '../entities/auto-rule.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
 
@@ -37,6 +43,8 @@ const TRIGGER_EVENT_MAP: Record<string, AutoRuleTrigger> = {
   'feeding.expiryWarning': AutoRuleTrigger.EXPIRY_NEAR,
 };
 
+// UUID validation imported from @platform/backend-common (isValidUUID)
+
 @Injectable()
 export class AutoRuleTriggerService implements OnModuleInit {
   private readonly logger = new Logger(AutoRuleTriggerService.name);
@@ -46,6 +54,7 @@ export class AutoRuleTriggerService implements OnModuleInit {
     private readonly autoRuleRepository: Repository<AutoRule>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    private readonly dataSource: DataSource,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -74,8 +83,14 @@ export class AutoRuleTriggerService implements OnModuleInit {
     }
   }
 
+  // getTenantSchemaName imported from @platform/backend-common
+
   /**
-   * Handle an incoming domain event and check for matching AutoRules
+   * Handle an incoming NATS domain event and check for matching AutoRules.
+   *
+   * NATS handlers run outside HTTP request context -- no AsyncLocalStorage,
+   * no TenantSchemaMiddleware. We must use a dedicated QueryRunner with
+   * explicit SET search_path for tenant schema isolation.
    */
   async handleEvent(eventName: string, event: any): Promise<void> {
     const tenantId = event?.tenantId;
@@ -84,41 +99,67 @@ export class AutoRuleTriggerService implements OnModuleInit {
       return;
     }
 
+    // Validate UUID format to prevent SQL injection via search_path
+    if (!isValidUUID(tenantId)) {
+      this.logger.error(`Event ${eventName} has invalid tenantId format: ${tenantId}`);
+      return;
+    }
+
     const triggerType = TRIGGER_EVENT_MAP[eventName];
     if (!triggerType) return;
 
     this.logger.debug(`Processing ${eventName} for tenant ${tenantId}`);
 
-    // Find active rules matching this trigger type for this tenant
-    const matchingRules = await this.autoRuleRepository.find({
-      where: {
-        tenantId,
-        trigger: triggerType,
-        isActive: true,
-      },
-    });
+    const schemaName = getTenantSchemaName(tenantId);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
 
-    if (matchingRules.length === 0) return;
+    try {
+      await queryRunner.query(`SET search_path TO "${schemaName}", farm, public`);
 
-    for (const rule of matchingRules) {
-      try {
-        await this.executeRule(rule, event);
-      } catch (err) {
-        this.logger.error(
-          `Failed to execute AutoRule ${rule.id}: ${(err as Error).message}`,
-        );
+      // Find active rules matching this trigger type for this tenant
+      const matchingRules = await queryRunner.manager.find(AutoRule, {
+        where: {
+          tenantId,
+          trigger: triggerType,
+          isActive: true,
+        },
+      });
+
+      if (matchingRules.length === 0) return;
+
+      for (const rule of matchingRules) {
+        try {
+          await this.executeRuleWithQueryRunner(rule, event, queryRunner);
+        } catch (err) {
+          this.logger.error(
+            `Failed to execute AutoRule ${rule.id}: ${(err as Error).message}`,
+          );
+        }
       }
+    } catch (err) {
+      this.logger.error(
+        `Failed to process ${eventName} for tenant ${tenantId}: ${(err as Error).message}`,
+      );
+    } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
+      await queryRunner.release();
     }
   }
 
   /**
-   * Execute a single AutoRule by creating a task
+   * Execute a single AutoRule by creating a task.
+   * Uses a pre-configured QueryRunner with correct search_path.
    */
-  private async executeRule(rule: AutoRule, triggerEvent: any): Promise<void> {
+  private async executeRuleWithQueryRunner(
+    rule: AutoRule,
+    triggerEvent: any,
+    queryRunner: QueryRunner,
+  ): Promise<void> {
     // Build task title with context from trigger event
     const taskTitle = this.interpolateTitle(rule.taskTitle, triggerEvent);
 
-    const task = this.taskRepository.create({
+    const task = queryRunner.manager.create(Task, {
       tenantId: rule.tenantId,
       title: taskTitle,
       description: rule.taskDescription || undefined,
@@ -137,12 +178,12 @@ export class AutoRuleTriggerService implements OnModuleInit {
       isRecurring: false,
     });
 
-    const saved = await this.taskRepository.save(task);
+    const saved = await queryRunner.manager.save(Task, task);
 
     // Update rule stats
     rule.lastTriggered = new Date();
     rule.triggerCount += 1;
-    await this.autoRuleRepository.save(rule);
+    await queryRunner.manager.save(AutoRule, rule);
 
     // Publish TaskCreated event for notification
     if (this.eventBus && saved.assignedTo) {
@@ -180,48 +221,74 @@ export class AutoRuleTriggerService implements OnModuleInit {
     });
   }
 
+  // getTenantSchemas and getTenantSchemaName imported from @platform/backend-common
+
   /**
    * SCHEDULE trigger type — runs every hour and checks for SCHEDULE-type rules.
    * These are simple time-based rules without external event triggers.
+   *
+   * Cron jobs also run outside HTTP request context, so we must iterate
+   * tenant schemas with dedicated QueryRunners (same pattern as cron-jobs.service.ts).
    */
   @Cron('0 0 * * * *')
   async processScheduleRules(): Promise<void> {
     this.logger.debug('Checking SCHEDULE-type AutoRules...');
 
-    const scheduleRules = await this.autoRuleRepository.find({
-      where: {
-        trigger: AutoRuleTrigger.SCHEDULE,
-        isActive: true,
-      },
-    });
-
-    if (scheduleRules.length === 0) return;
-
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
     const now = new Date();
 
-    for (const rule of scheduleRules) {
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+
       try {
-        // Check if enough time has passed since last trigger
-        // triggerCondition for SCHEDULE type contains interval in hours (e.g., "24", "48")
-        const intervalHours = parseInt(rule.triggerCondition, 10);
-        if (isNaN(intervalHours) || intervalHours <= 0) {
-          this.logger.warn(
-            `Invalid SCHEDULE interval for rule ${rule.id}: "${rule.triggerCondition}"`,
-          );
-          continue;
-        }
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        if (rule.lastTriggered) {
-          const elapsed =
-            (now.getTime() - new Date(rule.lastTriggered).getTime()) / 3600000;
-          if (elapsed < intervalHours) continue;
-        }
+        const scheduleRules = await queryRunner.manager.find(AutoRule, {
+          where: {
+            trigger: AutoRuleTrigger.SCHEDULE,
+            isActive: true,
+          },
+        });
 
-        await this.executeRule(rule, { tenantId: rule.tenantId });
+        if (scheduleRules.length === 0) continue;
+
+        for (const rule of scheduleRules) {
+          try {
+            // Check if enough time has passed since last trigger
+            // triggerCondition for SCHEDULE type contains interval in hours (e.g., "24", "48")
+            const intervalHours = parseInt(rule.triggerCondition, 10);
+            if (isNaN(intervalHours) || intervalHours <= 0) {
+              this.logger.warn(
+                `Invalid SCHEDULE interval for rule ${rule.id}: "${rule.triggerCondition}"`,
+              );
+              continue;
+            }
+
+            if (rule.lastTriggered) {
+              const elapsed =
+                (now.getTime() - new Date(rule.lastTriggered).getTime()) / 3600000;
+              if (elapsed < intervalHours) continue;
+            }
+
+            await this.executeRuleWithQueryRunner(
+              rule,
+              { tenantId: rule.tenantId },
+              queryRunner,
+            );
+          } catch (err) {
+            this.logger.error(
+              `Failed to process SCHEDULE rule ${rule.id}: ${(err as Error).message}`,
+            );
+          }
+        }
       } catch (err) {
         this.logger.error(
-          `Failed to process SCHEDULE rule ${rule.id}: ${(err as Error).message}`,
+          `SCHEDULE rules processing failed for schema ${schema}: ${(err as Error).message}`,
         );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
     }
   }

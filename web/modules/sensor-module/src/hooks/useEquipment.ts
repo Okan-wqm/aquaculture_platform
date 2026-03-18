@@ -4,6 +4,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@aquaculture/shared-ui';
+import { graphqlFetch } from '../config/api';
 import {
   EQUIPMENT_LIST_QUERY,
   EQUIPMENT_TYPES_QUERY,
@@ -82,30 +83,6 @@ interface PaginatedEquipmentResponse {
   limit: number;
 }
 
-// GraphQL fetch helper
-async function graphqlFetch<T>(
-  query: string,
-  variables: Record<string, unknown>,
-  token?: string | null
-): Promise<T> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
-
 /**
  * Hook to fetch paginated equipment list
  */
@@ -121,7 +98,6 @@ export function useEquipmentList(
       const data = await graphqlFetch<{ equipmentList: PaginatedEquipmentResponse }>(
         EQUIPMENT_LIST_QUERY,
         { filter, pagination },
-        token
       );
       return data.equipmentList;
     },
@@ -142,7 +118,6 @@ export function useEquipmentTypes(filter?: { category?: string; isActive?: boole
       const data = await graphqlFetch<{ equipmentTypes: EquipmentType[] }>(
         EQUIPMENT_TYPES_QUERY,
         { filter },
-        token
       );
       return data.equipmentTypes;
     },
@@ -163,7 +138,6 @@ export function useEquipment(id: string, includeRelations = false) {
       const data = await graphqlFetch<{ equipment: Equipment }>(
         EQUIPMENT_BY_ID_QUERY,
         { id, includeRelations },
-        token
       );
       return data.equipment;
     },
@@ -184,7 +158,6 @@ export function useEquipmentByDepartment(departmentId: string) {
       const data = await graphqlFetch<{ equipmentByDepartment: Equipment[] }>(
         EQUIPMENT_BY_DEPARTMENT_QUERY,
         { departmentId },
-        token
       );
       return data.equipmentByDepartment;
     },

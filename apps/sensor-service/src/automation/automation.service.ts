@@ -12,6 +12,7 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
+import { getTenantSchemaName } from '@platform/backend-common';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
@@ -91,14 +92,7 @@ export class AutomationService {
   // ============================================
   // Tenant Schema Helper
   // ============================================
-
-  /**
-   * Generate tenant schema name from tenant UUID.
-   * Must match TenantSchemaMiddleware.getTenantSchemaName.
-   */
-  private getTenantSchemaName(tenantId: string): string {
-    return `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
-  }
+  // getTenantSchemaName imported from @platform/backend-common
 
   /**
    * Execute a callback with a dedicated QueryRunner whose search_path is set
@@ -111,7 +105,7 @@ export class AutomationService {
     tenantId: string,
     fn: (manager: EntityManager) => Promise<T>,
   ): Promise<T> {
-    const schemaName = this.getTenantSchemaName(tenantId);
+    const schemaName = getTenantSchemaName(tenantId);
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     try {
@@ -825,7 +819,7 @@ export class AutomationService {
     programId: string,
     variables: SyncVariableInput[],
   ): Promise<SyncProgramVariablesResult> {
-    const schemaName = this.getTenantSchemaName(tenantId);
+    const schemaName = getTenantSchemaName(tenantId);
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -2567,62 +2561,83 @@ export class AutomationService {
   /**
    * Check for programs stuck in DEPLOYING status and revert them.
    *
-   * Runs every 60 seconds. Programs in DEPLOYING state for longer than
-   * 5 minutes are reverted to APPROVED and their deployment logs are
-   * marked as FAILED with a timeout message.
+   * Runs every 60 seconds. Iterates ALL tenant schemas so that programs in
+   * every tenant are checked, not just the default search_path.
+   * Programs in DEPLOYING state for longer than 5 minutes are reverted to
+   * APPROVED and their deployment logs are marked as FAILED with a timeout message.
    */
   @Interval(60_000)
   async checkDeployTimeout(): Promise<void> {
     const cutoff = new Date(Date.now() - AutomationService.DEPLOY_TIMEOUT_MS);
 
+    let schemas: Array<{ schema_name: string }>;
     try {
-      const timedOutPrograms = await this.programRepo.find({
-        where: {
-          status: ProgramStatus.DEPLOYING,
-          deployedAt: LessThan(cutoff),
-        },
-      });
-
-      if (timedOutPrograms.length === 0) return;
-
-      this.logger.warn(
-        `Found ${timedOutPrograms.length} program(s) stuck in DEPLOYING status, reverting to APPROVED`,
+      schemas = await this.dataSource.query(
+        `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`,
       );
-
-      for (const program of timedOutPrograms) {
-        try {
-          // Revert program to APPROVED (deployable) state
-          program.status = ProgramStatus.APPROVED;
-          await this.programRepo.save(program);
-
-          // Update the corresponding deployment log to FAILED
-          if (this.deploymentLogService) {
-            // Update the most recent DEPLOYING log(s) for this program
-            await this.dataSource.query(
-              `UPDATE "sensor"."deployment_logs"
-               SET status = 'failed',
-                   completed_at = NOW(),
-                   error_message = 'Deployment timeout: no response from device within 5 minutes'
-               WHERE program_id = $1
-                 AND status = 'deploying'
-                 AND deployed_at < $2`,
-              [program.id, cutoff.toISOString()],
-            );
-
-            this.logger.warn(
-              `Program ${program.programCode} (${program.id}) deployment timed out, reverted to APPROVED`,
-            );
-          }
-        } catch (error) {
-          this.logger.error(
-            `Failed to revert timed-out program ${program.id}: ${(error as Error).message}`,
-          );
-        }
-      }
     } catch (error) {
       this.logger.error(
-        `Deploy timeout check failed: ${(error as Error).message}`,
+        `Deploy timeout check failed to fetch tenant schemas: ${(error as Error).message}`,
       );
+      return;
+    }
+
+    for (const { schema_name } of schemas) {
+      const qr = this.dataSource.createQueryRunner();
+      try {
+        await qr.connect();
+        await qr.query(`SET search_path TO "${schema_name}", sensor, public`);
+
+        const timedOutPrograms = await qr.manager.find(AutomationProgram, {
+          where: {
+            status: ProgramStatus.DEPLOYING,
+            deployedAt: LessThan(cutoff),
+          },
+        });
+
+        if (timedOutPrograms.length === 0) continue;
+
+        this.logger.warn(
+          `Found ${timedOutPrograms.length} program(s) stuck in DEPLOYING in ${schema_name}, reverting to APPROVED`,
+        );
+
+        for (const program of timedOutPrograms) {
+          try {
+            // Revert program to APPROVED (deployable) state
+            program.status = ProgramStatus.APPROVED;
+            await qr.manager.save(program);
+
+            // Update the corresponding deployment log to FAILED
+            if (this.deploymentLogService) {
+              await qr.query(
+                `UPDATE "deployment_logs"
+                 SET status = 'failed',
+                     completed_at = NOW(),
+                     error_message = 'Deployment timeout: no response from device within 5 minutes'
+                 WHERE program_id = $1
+                   AND status = 'deploying'
+                   AND deployed_at < $2`,
+                [program.id, cutoff.toISOString()],
+              );
+
+              this.logger.warn(
+                `Program ${program.programCode} (${program.id}) deployment timed out in ${schema_name}, reverted to APPROVED`,
+              );
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to revert timed-out program ${program.id} in ${schema_name}: ${(error as Error).message}`,
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error(
+          `Deploy timeout check failed for ${schema_name}: ${(error as Error).message}`,
+        );
+      } finally {
+        await qr.query('RESET search_path').catch(() => {});
+        await qr.release();
+      }
     }
   }
 }

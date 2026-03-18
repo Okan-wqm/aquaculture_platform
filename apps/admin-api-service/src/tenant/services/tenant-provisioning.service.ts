@@ -2,9 +2,13 @@ import * as crypto from 'crypto';
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@platform/backend-common';
+import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@platform/backend-common';
 import { Repository, DataSource } from 'typeorm';
 
+import {
+  TenantSchema,
+  SchemaStatus,
+} from '../../database-management/entities/database-management.entity';
 import { EmailSenderService } from '../../settings/services/email-sender.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { RoleTemplateService } from '../../users/services/role-template.service';
@@ -83,6 +87,8 @@ export class TenantProvisioningService {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
+    @InjectRepository(TenantSchema)
+    private readonly tenantSchemaRepository: Repository<TenantSchema>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly tenantConfigurationService: TenantConfigurationService,
@@ -440,7 +446,7 @@ export class TenantProvisioningService {
     this.logger.log(`Creating schema for tenant ${tenant.id}`);
 
     // Always create ALL module tables for tenant isolation (regardless of assigned modules)
-    const modulesToCreate = ['sensor', 'farm', 'hr', 'hydroponics'];
+    const modulesToCreate = DEFAULT_TENANT_MODULES;
 
     // Create tenant schema with all module tables
     const result = await this.schemaManager.createTenantSchema(tenant.id, modulesToCreate);
@@ -452,6 +458,62 @@ export class TenantProvisioningService {
     this.logger.log(
       `Created tenant schema ${result.schemaName} with ${result.tablesCreated.length} tables in ${result.duration}ms`,
     );
+
+    // Track the schema in admin.tenant_schemas for visibility and management
+    await this.trackTenantSchema(
+      tenant.id,
+      result.schemaName,
+      result.tablesCreated.length,
+      result.alreadyExists,
+    );
+  }
+
+  /**
+   * Insert or update a tracking record in admin.tenant_schemas after schema creation.
+   * This is critical for admin dashboard visibility, migration tracking,
+   * and knowing which tenant schemas exist without querying information_schema.
+   */
+  private async trackTenantSchema(
+    tenantId: string,
+    schemaName: string,
+    tableCount: number,
+    alreadyExists?: boolean,
+  ): Promise<void> {
+    try {
+      // Check if a tracking record already exists (e.g., from a previous partial provisioning)
+      const existing = await this.tenantSchemaRepository.findOne({
+        where: { tenantId },
+      });
+
+      if (existing) {
+        // Update existing record to active
+        existing.status = 'active' as SchemaStatus;
+        existing.tableCount = tableCount || existing.tableCount;
+        await this.tenantSchemaRepository.save(existing);
+        this.logger.log(
+          `Updated tenant_schemas tracking record for tenant ${tenantId} (schema: ${schemaName})`,
+        );
+      } else {
+        // Insert new tracking record
+        const schemaRecord = this.tenantSchemaRepository.create({
+          tenantId,
+          schemaName,
+          status: 'active' as SchemaStatus,
+          currentVersion: '1.0.0',
+          tableCount: tableCount || 0,
+        });
+        await this.tenantSchemaRepository.save(schemaRecord);
+        this.logger.log(
+          `Created tenant_schemas tracking record for tenant ${tenantId} (schema: ${schemaName}, tables: ${tableCount})`,
+        );
+      }
+    } catch (error) {
+      // Log but don't fail provisioning — the actual schema was already created successfully.
+      // The tracking record can be backfilled later.
+      this.logger.warn(
+        `Failed to create tenant_schemas tracking record for tenant ${tenantId}: ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -712,6 +774,22 @@ export class TenantProvisioningService {
     const result = await this.schemaManager.deleteTenantSchema(tenant.id);
     if (!result.success) {
       throw new Error(`Schema cleanup failed: ${result.error}`);
+    }
+
+    // Update the tracking record to reflect deletion
+    try {
+      const schemaRecord = await this.tenantSchemaRepository.findOne({
+        where: { tenantId: tenant.id },
+      });
+      if (schemaRecord) {
+        schemaRecord.status = 'deleted' as SchemaStatus;
+        await this.tenantSchemaRepository.save(schemaRecord);
+        this.logger.log(`Marked tenant_schemas tracking record as deleted for tenant ${tenant.id}`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to update tenant_schemas tracking record during cleanup for tenant ${tenant.id}: ${(error as Error).message}`,
+      );
     }
 
     this.logger.log(`Tenant schema deleted for ${tenant.id}`);

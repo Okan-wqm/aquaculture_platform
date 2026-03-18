@@ -15,7 +15,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { listTenantSchemas } from '@platform/backend-common';
 import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -43,6 +44,7 @@ export class TaskService {
     private readonly taskRepository: Repository<Task>,
     @InjectRepository(RecurringTemplate)
     private readonly recurringTemplateRepository: Repository<RecurringTemplate>,
+    private readonly dataSource: DataSource,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -509,70 +511,99 @@ export class TaskService {
   }
 
   // -------------------------------------------------------------------------
+  // TENANT SCHEMA HELPERS
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
   // OVERDUE DETECTION (CRON)
   // -------------------------------------------------------------------------
 
   /**
-   * Gecikmiş görevleri her 30 dakikada bir tespit eder
+   * Gecikmiş görevleri her 30 dakikada bir tespit eder.
+   * Iterates ALL tenant schemas to ensure no tenant is missed.
    */
   @Cron('0 */30 * * * *')
   async detectOverdueTasks(): Promise<void> {
-    this.logger.log('Running overdue task detection...');
+    this.logger.log('Running overdue task detection across all tenant schemas...');
     const now = new Date();
 
-    await this.taskRepository.manager.transaction(async (manager) => {
-      const overdueTasks: Task[] = await manager.query(
-        `SELECT * FROM tasks
-         WHERE status IN ($1, $2)
-         AND "dueDate" < $3
-         AND "deletedAt" IS NULL
-         FOR UPDATE SKIP LOCKED`,
-        [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, now],
-      );
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    if (tenantSchemas.length === 0) {
+      this.logger.debug('No tenant schemas found, skipping overdue detection');
+      return;
+    }
 
-      if (overdueTasks.length === 0) {
-        this.logger.debug('No overdue tasks found');
-        return;
-      }
+    this.logger.log(`Processing overdue detection for ${tenantSchemas.length} tenant schemas`);
 
-      const tasksByTenant = new Map<string, Task[]>();
-      for (const task of overdueTasks) {
-        const tenantTasks = tasksByTenant.get(task.tenantId) || [];
-        tenantTasks.push(task);
-        tasksByTenant.set(task.tenantId, tenantTasks);
-      }
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-      const ids = overdueTasks.map(t => t.id);
-      await manager.query(
-        `UPDATE tasks SET status = $1, "updatedAt" = NOW() WHERE id = ANY($2::uuid[])`,
-        [TaskStatus.OVERDUE, ids],
-      );
+      try {
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-      if (this.eventBus) {
-        for (const [tenantId, tasks] of tasksByTenant) {
-          for (const task of tasks) {
-            try {
-              const hoursOverdue = Math.round(
-                (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
-              );
-              await this.eventBus.publish({
-                ...createBaseEvent('TaskOverdue', tenantId),
-                taskId: task.id,
-                title: task.title,
-                assignedTo: task.assignedTo,
-                dueDate: new Date(task.dueDate).toISOString(),
-                priority: task.priority,
-                hoursOverdue,
-              });
-            } catch (eventError) {
-              this.logger.warn(
-                `Failed to publish TaskOverdue event for task ${task.id}: ${(eventError as Error).message}`,
-              );
-            }
-          }
-          this.logger.log(`Marked ${tasks.length} tasks as overdue for tenant ${tenantId}`);
+        const overdueTasks: Task[] = await queryRunner.query(
+          `SELECT * FROM tasks
+           WHERE status IN ($1, $2)
+           AND "dueDate" < $3
+           AND "deletedAt" IS NULL
+           FOR UPDATE SKIP LOCKED`,
+          [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, now],
+        );
+
+        if (overdueTasks.length === 0) {
+          continue;
         }
+
+        const ids = overdueTasks.map((t) => t.id);
+        await queryRunner.query(
+          `UPDATE tasks SET status = $1, "updatedAt" = NOW() WHERE id = ANY($2::uuid[])`,
+          [TaskStatus.OVERDUE, ids],
+        );
+
+        // Group by tenant for event publishing
+        const tasksByTenant = new Map<string, Task[]>();
+        for (const task of overdueTasks) {
+          const tenantTasks = tasksByTenant.get(task.tenantId) || [];
+          tenantTasks.push(task);
+          tasksByTenant.set(task.tenantId, tenantTasks);
+        }
+
+        if (this.eventBus) {
+          for (const [tenantId, tasks] of tasksByTenant) {
+            for (const task of tasks) {
+              try {
+                const hoursOverdue = Math.round(
+                  (now.getTime() - new Date(task.dueDate).getTime()) / 3600000,
+                );
+                await this.eventBus.publish({
+                  ...createBaseEvent('TaskOverdue', tenantId),
+                  taskId: task.id,
+                  title: task.title,
+                  assignedTo: task.assignedTo,
+                  dueDate: new Date(task.dueDate).toISOString(),
+                  priority: task.priority,
+                  hoursOverdue,
+                });
+              } catch (eventError) {
+                this.logger.warn(
+                  `Failed to publish TaskOverdue event for task ${task.id}: ${(eventError as Error).message}`,
+                );
+              }
+            }
+            this.logger.log(
+              `Marked ${tasks.length} tasks as overdue for tenant ${tenantId} (schema: ${schema})`,
+            );
+          }
+        }
+      } catch (err) {
+        this.logger.error(
+          `Overdue detection failed for schema ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
-    });
+    }
   }
 }

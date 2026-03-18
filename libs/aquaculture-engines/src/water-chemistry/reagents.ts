@@ -9,8 +9,8 @@
  * 4. Calculate amounts for each reagent
  */
 
-import { ReagentInfo, DosingResult, DosingRecipe, DosingVisualization, OnDemandStep, OnDemandInput } from './types';
-import { calcPhForAlkDic, calcCo2OfDic, co2MmToMg } from './water-quality';
+import { ReagentInfo, DosingResult, DosingRecipe, DosingVisualization, OnDemandStep, OnDemandInput } from './types.js';
+import { calcPhForAlkDic, calcCo2OfDic, co2MmToMg } from './water-quality.js';
 
 // ============================================================================
 // REAGENT DATABASE

@@ -709,7 +709,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Use the dataSource to query directly since DeploymentLogService
       // doesn't expose a findByCommandId method
       const result = await this.dataSource.query(
-        `SELECT program_id FROM "sensor"."deployment_logs" WHERE command_id = $1 LIMIT 1`,
+        `SELECT program_id FROM "deployment_logs" WHERE command_id = $1 LIMIT 1`,
         [commandId],
       );
       if (result && result.length > 0 && result[0].program_id) {

@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role } from '@platform/backend-common';
+import { Role, getTenantSchemaName } from '@platform/backend-common';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
@@ -542,7 +542,7 @@ export class TenantAdminService {
     }
 
     // Get schema name from tenant ID (must match SchemaManagerService format)
-    const schemaName = this.getTenantSchemaName(tenant.id);
+    const schemaName = getTenantSchemaName(tenant.id);
 
     try {
       // Query PostgreSQL information_schema
@@ -613,7 +613,7 @@ export class TenantAdminService {
       .filter((code): code is string => !!code);
 
     // Get tenant's dedicated schema name
-    const tenantSchemaName = this.getTenantSchemaName(tenantId);
+    const tenantSchemaName = getTenantSchemaName(tenantId);
 
     // Allowed schemas: tenant's own schema + tenant's module schemas
     // SECURITY: 'auth' schema excluded — contains passwords, MFA secrets, invitation tokens
@@ -698,15 +698,7 @@ export class TenantAdminService {
     }
   }
 
-  /**
-   * Generate tenant schema name from tenant ID
-   * Format: tenant_{first16chars_of_uuid} (e.g., tenant_4b529829ea7948da)
-   * Must match SchemaManagerService.getTenantSchemaName
-   */
-  private getTenantSchemaName(tenantId: string): string {
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    return `tenant_${cleanId}`;
-  }
+  // getTenantSchemaName imported from @platform/backend-common
 
   /**
    * Infer module from table name based on naming convention

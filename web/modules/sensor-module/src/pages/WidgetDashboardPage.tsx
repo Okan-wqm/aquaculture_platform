@@ -5,29 +5,34 @@
  * Uses GridStack for responsive grid layout.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, LayoutGrid, Activity, Settings } from 'lucide-react';
+import { useAuth } from '@aquaculture/shared-ui';
 import { GridStackDashboard, DashboardLayout } from '../components/dashboard/GridStackDashboard';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-const STORAGE_KEY = 'sensor-dashboard-layout';
-
 // ============================================================================
 // Widget Dashboard Page
 // ============================================================================
 
 const WidgetDashboardPage: React.FC = () => {
+  const { tenantId } = useAuth();
+  const storageKey = useMemo(
+    () => `sensor-dashboard-layout-${tenantId || 'default'}`,
+    [tenantId],
+  );
+
   const [initialLayout, setInitialLayout] = useState<DashboardLayout | undefined>(undefined);
   const [layoutLoaded, setLayoutLoaded] = useState(false);
 
   // Load saved layout from localStorage
   useEffect(() => {
     try {
-      const savedLayout = localStorage.getItem(STORAGE_KEY);
+      const savedLayout = localStorage.getItem(storageKey);
       if (savedLayout) {
         const parsed = JSON.parse(savedLayout) as DashboardLayout;
         setInitialLayout(parsed);
@@ -36,12 +41,12 @@ const WidgetDashboardPage: React.FC = () => {
       console.error('Failed to load dashboard layout:', error);
     }
     setLayoutLoaded(true);
-  }, []);
+  }, [storageKey]);
 
   // Handle layout changes
   const handleLayoutChange = (layout: DashboardLayout) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+      localStorage.setItem(storageKey, JSON.stringify(layout));
     } catch (error) {
       console.error('Failed to save dashboard layout:', error);
     }

@@ -24,6 +24,7 @@ import {
   ThrottlerGuard,
 } from '@platform/backend-common';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
 import { HydroponicsSetupModule } from './setup/setup.module';
 import { HealthModule } from './health/health.module';
 
@@ -85,6 +86,9 @@ const complexityCache = new Map<string, number>();
           max: configService.get<number>('DB_POOL_SIZE', 5),
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 10000,
+          // Default search_path targets the source schema so TypeORM sync/migrations
+          // create tables there. TenantConnectionBootstrap overrides per-request.
+          options: '-c search_path=hydroponics,public',
         },
       };
       },
@@ -172,6 +176,8 @@ const complexityCache = new Map<string, number>();
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
+    TenantConnectionBootstrap,
   ],
 })
 export class AppModule implements NestModule {

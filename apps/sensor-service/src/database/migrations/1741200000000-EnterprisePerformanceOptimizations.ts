@@ -27,7 +27,7 @@ export class EnterprisePerformanceOptimizations1741200000000 implements Migratio
 
     // 4. Audit logs table (created here instead of via TypeORM sync to have proper indexes from the start)
     await queryRunner.query(`
-      CREATE TABLE IF NOT EXISTS audit_logs (
+      CREATE TABLE IF NOT EXISTS sensor_audit_logs (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id UUID NOT NULL,
         entity_type VARCHAR(100) NOT NULL,
@@ -42,13 +42,13 @@ export class EnterprisePerformanceOptimizations1741200000000 implements Migratio
     `);
 
     await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_entity
-      ON audit_logs (tenant_id, entity_type, entity_id)
+      CREATE INDEX IF NOT EXISTS idx_sensor_audit_logs_tenant_entity
+      ON sensor_audit_logs (tenant_id, entity_type, entity_id)
     `);
 
     await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_time
-      ON audit_logs (tenant_id, changed_at DESC)
+      CREATE INDEX IF NOT EXISTS idx_sensor_audit_logs_tenant_time
+      ON sensor_audit_logs (tenant_id, changed_at DESC)
     `);
 
     // 5. Device groups table
@@ -166,7 +166,7 @@ export class EnterprisePerformanceOptimizations1741200000000 implements Migratio
 
     await queryRunner.query(`DROP TABLE IF EXISTS device_group_members`);
     await queryRunner.query(`DROP TABLE IF EXISTS device_groups`);
-    await queryRunner.query(`DROP TABLE IF EXISTS audit_logs`);
+    await queryRunner.query(`DROP TABLE IF EXISTS sensor_audit_logs`);
 
     await queryRunner.query(`DROP INDEX IF EXISTS idx_edge_devices_lifecycle`);
     await queryRunner.query(`DROP INDEX IF EXISTS idx_sensors_offline_detection`);

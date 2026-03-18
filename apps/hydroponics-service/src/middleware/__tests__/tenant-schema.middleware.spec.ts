@@ -4,31 +4,33 @@
  * Covers the security-critical paths:
  * - Valid UUID accepted and schema routed correctly
  * - Invalid UUID format rejected with BadRequestException
- * - Non-existent schema rejected with NotFoundException (no silent fallback)
+ * - Non-existent schema rejected with UnauthorizedException (no silent fallback)
  * - Default schema used when no tenant ID is provided
- * - Connection-safe reset via QueryRunner (D04-M02 fix)
+ * - Schema name stored in AsyncLocalStorage for pool-level search_path injection
+ *
+ * NOTE: search_path is now set at the pool level by TenantConnectionBootstrap,
+ * not by the middleware. The middleware only resolves and stores the schema name.
  */
 
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { DataSource, QueryRunner } from 'typeorm';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+// Mock getRequestContext before importing the middleware
+const mockRequestContext: Record<string, unknown> = {};
+jest.mock('@platform/backend-common', () => {
+  const actual = jest.requireActual('@platform/backend-common');
+  return {
+    ...actual,
+    getRequestContext: () => mockRequestContext,
+  };
+});
+
 import { TenantSchemaMiddleware } from '../tenant-schema.middleware';
 
-function createMockQueryRunner(): jest.Mocked<QueryRunner> {
-  return {
-    connect: jest.fn().mockResolvedValue(undefined),
-    query: jest.fn().mockResolvedValue(undefined),
-    release: jest.fn().mockResolvedValue(undefined),
-    isReleased: false,
-  } as unknown as jest.Mocked<QueryRunner>;
-}
-
-function createMockDataSource(qr?: jest.Mocked<QueryRunner>) {
-  const queryRunner = qr ?? createMockQueryRunner();
+function createMockDataSource() {
   return {
     query: jest.fn(),
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-    __qr: queryRunner,
-  } as unknown as jest.Mocked<DataSource> & { __qr: jest.Mocked<QueryRunner> };
+  } as unknown as jest.Mocked<DataSource>;
 }
 
 function makeRequest(overrides: Record<string, unknown> = {}) {
@@ -41,40 +43,25 @@ function makeRequest(overrides: Record<string, unknown> = {}) {
     tenantId?: string;
     user?: { tenantId?: string; sub?: string; email?: string; role?: string };
     schemaName?: string;
-    tenantQueryRunner?: QueryRunner;
   };
 }
 
-interface MockResponse {
-  on: jest.Mock;
-  removeListener: jest.Mock;
-  __triggerEvent: (event: string) => void;
-}
-
-function makeResponse(): MockResponse {
-  const handlers: Record<string, Function[]> = {};
-  return {
-    on: jest.fn((event: string, handler: Function) => {
-      if (!handlers[event]) handlers[event] = [];
-      handlers[event].push(handler);
-    }),
-    removeListener: jest.fn(),
-    __triggerEvent: (event: string) => {
-      for (const h of handlers[event] || []) h();
-    },
-  };
+function makeResponse() {
+  return {} as any;
 }
 
 const noop = jest.fn();
 
 describe('TenantSchemaMiddleware', () => {
   let middleware: TenantSchemaMiddleware;
-  let ds: jest.Mocked<DataSource> & { __qr: jest.Mocked<QueryRunner> };
+  let ds: jest.Mocked<DataSource>;
 
   beforeEach(() => {
     ds = createMockDataSource();
     noop.mockReset();
     middleware = new TenantSchemaMiddleware(ds);
+    // Reset the mock request context
+    Object.keys(mockRequestContext).forEach(key => delete mockRequestContext[key]);
   });
 
   describe('when no tenant ID is provided', () => {
@@ -88,22 +75,13 @@ describe('TenantSchemaMiddleware', () => {
       expect(noop).toHaveBeenCalledTimes(1);
     });
 
-    it('sets search_path via QueryRunner, not DataSource', async () => {
+    it('stores schemaName in AsyncLocalStorage', async () => {
       const req = makeRequest();
       const res = makeResponse();
 
       await middleware.use(req as any, res as any, noop);
 
-      // SET search_path should be on the QueryRunner
-      const qrSetCalls = ds.__qr.query.mock.calls.filter(
-        (c) => typeof c[0] === 'string' && c[0].includes('SET search_path'),
-      );
-      expect(qrSetCalls.length).toBe(1);
-      // DataSource.query should NOT be called for SET
-      const dsSetCalls = (ds.query as jest.Mock).mock.calls.filter(
-        (c) => typeof c[0] === 'string' && c[0].includes('SET search_path'),
-      );
-      expect(dsSetCalls.length).toBe(0);
+      expect(mockRequestContext.schemaName).toBe('hydroponics');
     });
   });
 
@@ -124,14 +102,25 @@ describe('TenantSchemaMiddleware', () => {
       expect(noop).toHaveBeenCalledTimes(1);
     });
 
-    it('throws NotFoundException when the schema does not exist', async () => {
+    it('stores tenant schemaName in AsyncLocalStorage for pool-level injection', async () => {
+      (ds.query as jest.Mock).mockResolvedValueOnce([{ 1: 1 }]);
+
+      const req = makeRequest({ tenantId: validUuid });
+      const res = makeResponse();
+
+      await middleware.use(req as any, res as any, noop);
+
+      expect(mockRequestContext.schemaName).toBe('tenant_a0eebc999c0b4ef8');
+    });
+
+    it('throws UnauthorizedException when the schema does not exist', async () => {
       // pg_namespace query returns empty -- schema not found
       (ds.query as jest.Mock).mockResolvedValueOnce([]);
 
       const req = makeRequest({ tenantId: validUuid });
       const res = makeResponse();
 
-      await expect(middleware.use(req as any, res as any, noop)).rejects.toThrow(NotFoundException);
+      await expect(middleware.use(req as any, res as any, noop)).rejects.toThrow(UnauthorizedException);
       expect(noop).not.toHaveBeenCalled();
     });
 
@@ -175,14 +164,6 @@ describe('TenantSchemaMiddleware', () => {
       expect(ds.query).not.toHaveBeenCalled();
       expect(noop).not.toHaveBeenCalled();
     });
-
-    it('releases QueryRunner on validation error', async () => {
-      const req = makeRequest({ tenantId: 'not-a-uuid' });
-      const res = makeResponse();
-
-      await expect(middleware.use(req as any, res as any, noop)).rejects.toThrow(BadRequestException);
-      expect(ds.__qr.release).toHaveBeenCalled();
-    });
   });
 
   describe('schema name derivation', () => {
@@ -208,9 +189,7 @@ describe('TenantSchemaMiddleware', () => {
 
       // First request -- should query
       await middleware.use(makeRequest({ tenantId: uuid }) as any, makeResponse() as any, jest.fn());
-      // Second request -- should use cache (need new QR)
-      const qr2 = createMockQueryRunner();
-      (ds.createQueryRunner as jest.Mock).mockReturnValue(qr2);
+      // Second request -- should use cache
       await middleware.use(makeRequest({ tenantId: uuid }) as any, makeResponse() as any, jest.fn());
 
       // ds.query should only be called once (for the schema existence check)
@@ -224,70 +203,9 @@ describe('TenantSchemaMiddleware', () => {
       const schemaName = 'tenant_b0eebc999c0b4ef8';
       middleware.invalidateCache(schemaName);
 
-      const qr2 = createMockQueryRunner();
-      (ds.createQueryRunner as jest.Mock).mockReturnValue(qr2);
       await middleware.use(makeRequest({ tenantId: uuid }) as any, makeResponse() as any, jest.fn());
 
       expect(ds.query).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('connection-safe reset (D04-M02)', () => {
-    it('creates a QueryRunner and connects it per request', async () => {
-      const res = makeResponse();
-      await middleware.use(makeRequest() as any, res as any, noop);
-
-      expect(ds.createQueryRunner).toHaveBeenCalledTimes(1);
-      expect(ds.__qr.connect).toHaveBeenCalledTimes(1);
-    });
-
-    it('stores QueryRunner on request as tenantQueryRunner', async () => {
-      const req = makeRequest();
-      const res = makeResponse();
-      await middleware.use(req as any, res as any, noop);
-
-      expect(req.tenantQueryRunner).toBe(ds.__qr);
-    });
-
-    it('resets search_path on the SAME QueryRunner when finish fires', async () => {
-      const res = makeResponse();
-      await middleware.use(makeRequest() as any, res as any, noop);
-
-      res.__triggerEvent('finish');
-      await new Promise((r) => setTimeout(r, 10));
-
-      const resetCalls = ds.__qr.query.mock.calls.filter(
-        (c) => typeof c[0] === 'string' && c[0].includes('RESET'),
-      );
-      expect(resetCalls.length).toBe(1);
-    });
-
-    it('releases QueryRunner after cleanup', async () => {
-      const res = makeResponse();
-      await middleware.use(makeRequest() as any, res as any, noop);
-
-      res.__triggerEvent('finish');
-      await new Promise((r) => setTimeout(r, 10));
-
-      expect(ds.__qr.release).toHaveBeenCalled();
-    });
-
-    it('only cleans up once even if both finish and close fire', async () => {
-      const res = makeResponse();
-      await middleware.use(makeRequest() as any, res as any, noop);
-
-      res.__triggerEvent('finish');
-      await new Promise((r) => setTimeout(r, 10));
-
-      (ds.__qr as any).isReleased = true;
-
-      res.__triggerEvent('close');
-      await new Promise((r) => setTimeout(r, 10));
-
-      const resetCalls = ds.__qr.query.mock.calls.filter(
-        (c) => typeof c[0] === 'string' && c[0].includes('RESET'),
-      );
-      expect(resetCalls.length).toBe(1);
     });
   });
 });

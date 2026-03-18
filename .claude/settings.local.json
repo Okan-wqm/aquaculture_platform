@@ -490,7 +490,12 @@
       "Bash(if grep:*)",
       "Bash(then)",
       "Bash(sed -i 's|mkdir -p /var/cache/nginx|mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp \\\\&\\\\& chown -R nginx:nginx /var/cache/nginx|; t done; s|chown -R nginx:nginx /var/cache/nginx|# already done above|; :done' \"$f\")",
-      "Read(//var/aqua-saas/**)"
+      "Read(//var/aqua-saas/**)",
+      "Bash(pnpm install:*)",
+      "Bash(cd:*)",
+      "Bash(for svc:*)",
+      "Bash(do echo:*)",
+      "Read(//var/aqua-saas/apps/$svc/src/**)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,27 @@
+{
+  "name": "@platform/mcp-farm-management",
+  "version": "1.0.0",
+  "description": "MCP Server: Farm Intelligence — anomali tespiti, cross-domain korelasyon, root cause analizi",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.22.0",
+    "@platform/aquaculture-engines": "file:../../libs/aquaculture-engines"
+  },
+  "devDependencies": {
+    "typescript": "~5.4.0",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "vitest": "^3.0.0"
+  }
+}

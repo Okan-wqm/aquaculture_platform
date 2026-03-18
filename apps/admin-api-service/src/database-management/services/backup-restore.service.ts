@@ -10,6 +10,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan } from 'typeorm';
+import { isValidSchemaName } from '@platform/backend-common';
 
 import {
   TenantSchema,
@@ -339,6 +340,11 @@ export class BackupRestoreService {
     try {
       await queryRunner.startTransaction();
 
+      // SECURITY: Validate schema name before using in SQL (prevents SQL injection)
+      if (!isValidSchemaName(restore.targetSchemaName)) {
+        throw new BadRequestException('Invalid schema name');
+      }
+
       // Set search path
       await queryRunner.query(`SET search_path TO "${restore.targetSchemaName}"`);
 
@@ -376,6 +382,7 @@ export class BackupRestoreService {
       this.logger.error(`Restore failed: ${error.message}`);
       throw error;
     } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
     }
   }

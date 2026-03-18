@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, Not, In } from 'typeorm';
+import { DataSource, EntityManager, Not, In, LessThan } from 'typeorm';
+import { listTenantSchemas } from '@platform/backend-common';
 import { EmployeeCertification, CertificationStatus } from './entities/employee-certification.entity';
 import { CertificationType, CertificationRequirement } from './entities/certification-type.entity';
 import { Employee } from '../hr/entities/employee.entity';
@@ -12,22 +12,25 @@ import { Employee } from '../hr/entities/employee.entity';
  * Responsibilities:
  * 1. Mark certifications as EXPIRED when their expiryDate passes
  * 2. Update employee seaWorthy flag when mandatory offshore certifications expire
+ *
+ * Tenant isolation: iterates all tenant_* schemas via SET search_path on a
+ * dedicated QueryRunner, so each tenant's data is processed in isolation.
  */
 @Injectable()
 export class CertificationExpiryService {
   private readonly logger = new Logger(CertificationExpiryService.name);
 
   constructor(
-    @InjectRepository(EmployeeCertification)
-    private readonly certRepository: Repository<EmployeeCertification>,
-    @InjectRepository(CertificationType)
-    private readonly certTypeRepository: Repository<CertificationType>,
-    @InjectRepository(Employee)
-    private readonly employeeRepository: Repository<Employee>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  // ---------------------------------------------------------------------------
+  // Tenant schema discovery — uses listTenantSchemas from @platform/backend-common
+  // ---------------------------------------------------------------------------
 
   /**
    * Runs daily at 2:00 AM to process expired certifications.
+   * - Iterates all tenant schemas
    * - Finds ACTIVE/EXPIRING_SOON certifications whose expiryDate has passed
    * - Sets their status to EXPIRED
    * - Re-evaluates seaWorthy flag for affected employees
@@ -36,70 +39,101 @@ export class CertificationExpiryService {
   async processExpiredCertifications(): Promise<void> {
     this.logger.log('Starting certification expiry processing...');
 
-    const now = new Date();
-
-    // Find all certifications that should be marked as expired
-    const expiredCerts = await this.certRepository.find({
-      where: {
-        status: Not(In([CertificationStatus.EXPIRED, CertificationStatus.REVOKED])),
-        expiryDate: LessThan(now),
-        isDeleted: false,
-      },
-    });
-
-    if (expiredCerts.length === 0) {
-      this.logger.log('No expired certifications found.');
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    if (tenantSchemas.length === 0) {
+      this.logger.debug('No tenant schemas found, skipping certification expiry processing');
       return;
     }
 
-    this.logger.log(`Found ${expiredCerts.length} certification(s) to expire.`);
+    this.logger.log(`Processing certification expiry for ${tenantSchemas.length} tenant schema(s).`);
 
-    // Collect unique employee+tenant pairs for seaWorthy re-evaluation
-    const affectedEmployees = new Map<string, string>(); // employeeId -> tenantId
+    let totalExpired = 0;
+    let totalSeaWorthyRevoked = 0;
 
-    // Batch update statuses
-    for (const cert of expiredCerts) {
-      cert.status = CertificationStatus.EXPIRED;
-      affectedEmployees.set(cert.employeeId, cert.tenantId);
-    }
+    for (const schema of tenantSchemas) {
+      const qr = this.dataSource.createQueryRunner();
+      await qr.connect();
 
-    await this.certRepository.save(expiredCerts);
+      try {
+        await qr.query(`SET search_path TO "${schema}", hr, public`);
 
-    this.logger.log(`Marked ${expiredCerts.length} certification(s) as EXPIRED.`);
+        const manager = qr.manager;
+        const now = new Date();
 
-    // Re-evaluate seaWorthy for each affected employee
-    let seaWorthyUpdated = 0;
-    for (const [employeeId, tenantId] of affectedEmployees) {
-      const updated = await this.evaluateSeaWorthy(employeeId, tenantId);
-      if (updated) {
-        seaWorthyUpdated++;
+        // Find all certifications that should be marked as expired within this tenant schema
+        const expiredCerts = await manager.find(EmployeeCertification, {
+          where: {
+            status: Not(In([CertificationStatus.EXPIRED, CertificationStatus.REVOKED])),
+            expiryDate: LessThan(now),
+            isDeleted: false,
+          },
+        });
+
+        if (expiredCerts.length === 0) {
+          continue;
+        }
+
+        // Collect unique employee IDs for seaWorthy re-evaluation
+        const affectedEmployeeIds = new Set<string>();
+
+        // Batch update statuses
+        for (const cert of expiredCerts) {
+          cert.status = CertificationStatus.EXPIRED;
+          affectedEmployeeIds.add(cert.employeeId);
+        }
+
+        await manager.save(EmployeeCertification, expiredCerts);
+
+        this.logger.log(
+          `Schema ${schema}: marked ${expiredCerts.length} certification(s) as EXPIRED.`,
+        );
+        totalExpired += expiredCerts.length;
+
+        // Re-evaluate seaWorthy for each affected employee
+        for (const employeeId of affectedEmployeeIds) {
+          const updated = await this.evaluateSeaWorthy(manager, employeeId);
+          if (updated) {
+            totalSeaWorthyRevoked++;
+          }
+        }
+      } catch (err) {
+        this.logger.error(
+          `Certification expiry failed for schema ${schema}: ${err instanceof Error ? err.message : String(err)}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+      } finally {
+        await qr.query('RESET search_path').catch(() => {});
+        await qr.release();
       }
     }
 
     this.logger.log(
       `Certification expiry processing complete. ` +
-      `Expired: ${expiredCerts.length}, seaWorthy revoked: ${seaWorthyUpdated}`,
+      `Expired: ${totalExpired}, seaWorthy revoked: ${totalSeaWorthyRevoked}`,
     );
   }
 
   /**
    * Evaluate whether an employee still meets all mandatory offshore certification requirements.
+   * Uses the provided EntityManager (which already has search_path set).
    * Returns true if seaWorthy was changed to false.
    */
-  private async evaluateSeaWorthy(employeeId: string, tenantId: string): Promise<boolean> {
+  private async evaluateSeaWorthy(
+    manager: EntityManager,
+    employeeId: string,
+  ): Promise<boolean> {
     // Only check employees that are currently seaWorthy
-    const employee = await this.employeeRepository.findOne({
-      where: { id: employeeId, tenantId, isDeleted: false, seaWorthy: true },
+    const employee = await manager.findOne(Employee, {
+      where: { id: employeeId, isDeleted: false, seaWorthy: true },
     });
 
     if (!employee) {
       return false;
     }
 
-    // Find all mandatory offshore certification types for this tenant
-    const mandatoryCerts = await this.certTypeRepository.find({
+    // Find all mandatory offshore certification types within this tenant schema
+    const mandatoryCerts = await manager.find(CertificationType, {
       where: {
-        tenantId,
         isOffshoreRequired: true,
         requirement: CertificationRequirement.MANDATORY,
         isActive: true,
@@ -112,10 +146,9 @@ export class CertificationExpiryService {
     }
 
     // Find all ACTIVE certifications for this employee
-    const activeCerts = await this.certRepository.find({
+    const activeCerts = await manager.find(EmployeeCertification, {
       where: {
         employeeId,
-        tenantId,
         status: CertificationStatus.ACTIVE,
         isDeleted: false,
       },
@@ -126,12 +159,13 @@ export class CertificationExpiryService {
     );
 
     if (!allMandatoryMet) {
-      await this.employeeRepository.update(
-        { id: employeeId, tenantId },
+      await manager.update(
+        Employee,
+        { id: employeeId },
         { seaWorthy: false },
       );
       this.logger.warn(
-        `Employee ${employeeId} (tenant: ${tenantId}) seaWorthy set to false — ` +
+        `Employee ${employeeId} seaWorthy set to false — ` +
         `missing mandatory offshore certification(s) after expiry`,
       );
       return true;

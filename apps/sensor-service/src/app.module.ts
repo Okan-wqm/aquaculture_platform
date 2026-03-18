@@ -50,6 +50,7 @@ import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
 import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
 import { UnifiedTag } from './process/entities/unified-tag.entity';
@@ -82,6 +83,8 @@ import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
 import { AuditSubscriber } from './infrastructure/audit/audit.subscriber';
 import { LoRaDevice } from './edge-device/entities/lora-device.entity';
+import { TenantProvisioningKey } from './edge-device/entities/tenant-provisioning-key.entity';
+import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
 @Module({
   imports: [
@@ -127,6 +130,8 @@ import { LoRaDevice } from './edge-device/entities/lora-device.entity';
           EdgeDevice,
           DeviceIoConfig,
           LoRaDevice,
+          TenantProvisioningKey,
+          DeviceEvent,
           // Automation entities (IEC 61131-3)
           AutomationProgram,
           ProgramStep,
@@ -355,6 +360,8 @@ import { LoRaDevice } from './edge-device/entities/lora-device.entity';
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,
+    // Pool-level tenant schema routing (patches pg Pool.connect for search_path injection)
+    TenantConnectionBootstrap,
   ],
 })
 export class AppModule implements NestModule {

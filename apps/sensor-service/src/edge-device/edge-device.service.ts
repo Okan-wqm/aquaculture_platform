@@ -683,34 +683,67 @@ export class EdgeDeviceService implements OnModuleDestroy {
   }
 
   /**
-   * Mark devices as offline if no heartbeat received
+   * Mark devices as offline if no heartbeat received.
+   *
+   * Iterates ALL tenant schemas so that devices in every tenant are checked,
+   * not just the default search_path (which would only hit the `sensor` schema).
    */
   @Interval(60_000)
   async markStaleDevicesOffline(timeoutMinutes = 5): Promise<number> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    let totalAffected = 0;
 
-    const result = await this.deviceRepository
-      .createQueryBuilder()
-      .update(EdgeDevice)
-      .set({
-        isOnline: false,
-        lifecycleState: DeviceLifecycleState.OFFLINE,
-      })
-      .where('isOnline = :online', { online: true })
-      .andWhere('lastSeenAt < :cutoff', { cutoff })
-      .andWhere('lifecycleState NOT IN (:...excluded)', {
-        excluded: [
-          DeviceLifecycleState.DECOMMISSIONED,
-          DeviceLifecycleState.MAINTENANCE,
-        ],
-      })
-      .execute();
-
-    if (result.affected && result.affected > 0) {
-      this.logger.log(`Marked ${result.affected} devices as offline`);
+    let schemas: Array<{ schema_name: string }>;
+    try {
+      schemas = await this.dataSource.query(
+        `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`,
+      );
+    } catch (err) {
+      this.logger.error(`Failed to fetch tenant schemas for stale-device check: ${(err as Error).message}`);
+      return 0;
     }
 
-    return result.affected || 0;
+    for (const { schema_name } of schemas) {
+      const qr = this.dataSource.createQueryRunner();
+      try {
+        await qr.connect();
+        await qr.query(`SET search_path TO "${schema_name}", sensor, public`);
+
+        const result = await qr.query(
+          `UPDATE edge_devices
+           SET is_online = false,
+               lifecycle_state = $1
+           WHERE is_online = true
+             AND last_seen_at < $2
+             AND lifecycle_state NOT IN ($3, $4)`,
+          [
+            DeviceLifecycleState.OFFLINE,
+            cutoff.toISOString(),
+            DeviceLifecycleState.DECOMMISSIONED,
+            DeviceLifecycleState.MAINTENANCE,
+          ],
+        );
+
+        const affected = result?.rowCount ?? result?.affected ?? 0;
+        if (affected > 0) {
+          this.logger.log(`Marked ${affected} devices as offline in ${schema_name}`);
+          totalAffected += affected;
+        }
+      } catch (err) {
+        this.logger.error(
+          `Failed stale-device check for ${schema_name}: ${(err as Error).message}`,
+        );
+      } finally {
+        await qr.query('RESET search_path').catch(() => {});
+        await qr.release();
+      }
+    }
+
+    if (totalAffected > 0) {
+      this.logger.log(`Total devices marked offline across all tenants: ${totalAffected}`);
+    }
+
+    return totalAffected;
   }
 
   /**

@@ -15,7 +15,7 @@ import {
   co2MmToMg,
   calcKspCalcite,
   calcKspAragonite,
-} from './water-quality';
+} from './water-quality.js';
 
 /**
  * Calculate CO2 level (mg/L) from alkalinity and pH

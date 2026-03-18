@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, KpiCard } from '@aquaculture/shared-ui';
+import { Card, KpiCard, getTenantId } from '@aquaculture/shared-ui';
 import {
   BarChart,
   Bar,
@@ -121,6 +121,15 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   }, [data?.items]);
 
   // ============================================================================
+  // TENANT-SCOPED STORAGE KEYS
+  // ============================================================================
+
+  const tenantSuffix = useMemo(() => getTenantId() || 'default', []);
+  const timeRangeKey = useMemo(() => `tanks-chart-time-range-${tenantSuffix}`, [tenantSuffix]);
+  const visibilityKey = useMemo(() => `tanks-chart-visibility-${tenantSuffix}`, [tenantSuffix]);
+  const selectedIdsKey = useMemo(() => `tanks-chart-selected-ids-${tenantSuffix}`, [tenantSuffix]);
+
+  // ============================================================================
   // CHART SETTINGS STATE
   // ============================================================================
 
@@ -129,13 +138,13 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   const [chartSelectedTankIds, setChartSelectedTankIds] = useState<string[]>([]);
 
   const [chartTimeRange, setChartTimeRange] = useState<'7d' | '30d' | '90d'>(() => {
-    const saved = localStorage.getItem('tanks-chart-time-range');
+    const saved = localStorage.getItem(timeRangeKey);
     return (saved as '7d' | '30d' | '90d') || '30d';
   });
 
   const [chartVisibility, setChartVisibility] = useState<ChartVisibility>(() => {
     try {
-      const saved = localStorage.getItem('tanks-chart-visibility');
+      const saved = localStorage.getItem(visibilityKey);
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
         // HIGH-04: validate shape before spreading to prevent prototype pollution
@@ -164,7 +173,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
 
   useEffect(() => {
     if (tankData.length > 0 && chartSelectedTankIds.length === 0) {
-      const saved = localStorage.getItem('tanks-chart-selected-ids');
+      const saved = localStorage.getItem(selectedIdsKey);
       if (saved) {
         let parsedIds: unknown;
         try { parsedIds = JSON.parse(saved); } catch { parsedIds = null; }
@@ -181,21 +190,21 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         setChartSelectedTankIds(tankData.map(t => t.id));
       }
     }
-  }, [tankData]);
+  }, [tankData, selectedIdsKey]);
 
   useEffect(() => {
     if (chartSelectedTankIds.length > 0) {
-      localStorage.setItem('tanks-chart-selected-ids', JSON.stringify(chartSelectedTankIds));
+      localStorage.setItem(selectedIdsKey, JSON.stringify(chartSelectedTankIds));
     }
-  }, [chartSelectedTankIds]);
+  }, [chartSelectedTankIds, selectedIdsKey]);
 
   useEffect(() => {
-    localStorage.setItem('tanks-chart-time-range', chartTimeRange);
-  }, [chartTimeRange]);
+    localStorage.setItem(timeRangeKey, chartTimeRange);
+  }, [chartTimeRange, timeRangeKey]);
 
   useEffect(() => {
-    localStorage.setItem('tanks-chart-visibility', JSON.stringify(chartVisibility));
-  }, [chartVisibility]);
+    localStorage.setItem(visibilityKey, JSON.stringify(chartVisibility));
+  }, [chartVisibility, visibilityKey]);
 
   return (
     <div className="space-y-6">

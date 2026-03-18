@@ -21,7 +21,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In, DataSource, QueryRunner } from 'typeorm';
+import { listTenantSchemas } from '@platform/backend-common';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -161,6 +162,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly feedInventoryRepository: Repository<FeedInventory>,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
+    private readonly dataSource: DataSource,
   ) {}
 
   async onModuleInit() {
@@ -288,15 +290,6 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get active tenants for scheduled jobs
-   */
-  private async getActiveTenants(): Promise<string[]> {
-    // Refresh tenant configs
-    await this.loadTenantConfigs();
-    return Array.from(this.tenantConfigs.keys());
-  }
-
-  /**
    * Get tenant config and update lastAccessed timestamp
    * This helps track which configs are actively used for TTL-based cleanup
    */
@@ -307,6 +300,8 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     }
     return config;
   }
+
+  // getTenantSchemas replaced by listTenantSchemas from @platform/backend-common
 
   // -------------------------------------------------------------------------
   // CORE METHODS (User requested)
@@ -728,6 +723,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Her gün saat 05:00'da çalışır - Günlük yemleme planı oluşturma
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_5AM, {
     name: 'generateDailyFeedingPlan',
@@ -735,29 +731,53 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   })
   async generateDailyFeedingPlan(): Promise<void> {
     this.logger.log('Starting daily feeding plan generation');
+    const startTime = Date.now();
 
-    try {
-      const tenantIds = await this.getActiveTenants();
+    await this.loadTenantConfigs();
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const tenantId of tenantIds) {
-        const config = this.getTenantConfig(tenantId);
-        if (!config?.feedingEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-        try {
-          await this.generateTenantFeedingPlan(tenantId, new Date());
-        } catch (error) {
-          this.logger.error(`Failed to generate feeding plan for tenant ${tenantId}: ${error}`);
+      try {
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+        );
+
+        for (const { tenantId } of tenantRows) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.feedingEnabled) continue;
+
+          try {
+            await this.generateTenantFeedingPlan(tenantId, new Date(), queryRunner);
+          } catch (error) {
+            this.logger.error(
+              `Failed to generate feeding plan for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
         }
+      } catch (err) {
+        this.logger.error(
+          `Daily feeding plan generation failed for schema ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
-
-      this.logger.log('Daily feeding plan generation completed');
-    } catch (error) {
-      this.logger.error(`Failed to generate daily feeding plan: ${error}`);
     }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`Daily feeding plan generation completed in ${duration}ms`);
   }
 
   /**
    * Her saat başı çalışır - Yemleme hatırlatmaları
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_HOUR, {
     name: 'sendFeedingReminders',
@@ -766,39 +786,63 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   async sendFeedingReminders(): Promise<void> {
     this.logger.log('Checking for feeding reminders');
 
-    try {
-      const tenantIds = await this.getActiveTenants();
-      const now = new Date();
+    await this.loadTenantConfigs();
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    const now = new Date();
 
-      for (const tenantId of tenantIds) {
-        const config = this.getTenantConfig(tenantId);
-        if (!config?.feedingEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-        try {
-          const upcomingFeedings = await this.getUpcomingFeedings(tenantId, 1);
+      try {
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-          for (const feeding of upcomingFeedings) {
-            this.eventEmitter.emit('feeding.reminder', {
-              tenantId,
-              ...feeding,
-              reminderTime: now,
-            });
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+        );
+
+        for (const { tenantId } of tenantRows) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.feedingEnabled) continue;
+
+          try {
+            const upcomingFeedings = await this.getUpcomingFeedingsWithQR(tenantId, 1, queryRunner);
+
+            for (const feeding of upcomingFeedings) {
+              this.eventEmitter.emit('feeding.reminder', {
+                tenantId,
+                ...feeding,
+                reminderTime: now,
+              });
+            }
+
+            if (upcomingFeedings.length > 0) {
+              this.logger.log(
+                `Sent ${upcomingFeedings.length} feeding reminders for tenant ${tenantId} (schema: ${schema})`,
+              );
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to send feeding reminders for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
           }
-
-          if (upcomingFeedings.length > 0) {
-            this.logger.log(`Sent ${upcomingFeedings.length} feeding reminders for tenant ${tenantId}`);
-          }
-        } catch (error) {
-          this.logger.error(`Failed to send feeding reminders for tenant ${tenantId}: ${error}`);
         }
+      } catch (err) {
+        this.logger.error(
+          `Feeding reminders failed for schema ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
-    } catch (error) {
-      this.logger.error(`Failed to send feeding reminders: ${error}`);
     }
   }
 
   /**
    * Her gün saat 20:00'da çalışır - Günlük yemleme özeti ve analizi
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_8PM, {
     name: 'dailyFeedingSummary',
@@ -806,30 +850,53 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   })
   async dailyFeedingSummary(): Promise<void> {
     this.logger.log('Generating daily feeding summary');
+    const startTime = Date.now();
 
-    try {
-      const tenantIds = await this.getActiveTenants();
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+    await this.loadTenantConfigs();
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-      for (const tenantId of tenantIds) {
-        try {
-          const summary = await this.generateFeedingSummary(tenantId, today);
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-          this.eventEmitter.emit('feeding.dailySummary', {
-            tenantId,
-            date: today,
-            summary,
-          });
-        } catch (error) {
-          this.logger.error(`Failed to generate feeding summary for tenant ${tenantId}: ${error}`);
+      try {
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+        );
+
+        for (const { tenantId } of tenantRows) {
+          try {
+            const summary = await this.generateFeedingSummary(tenantId, today, queryRunner);
+
+            this.eventEmitter.emit('feeding.dailySummary', {
+              tenantId,
+              date: today,
+              summary,
+            });
+          } catch (error) {
+            this.logger.error(
+              `Failed to generate feeding summary for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
         }
+      } catch (err) {
+        this.logger.error(
+          `Daily feeding summary failed for schema ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
-
-      this.logger.log('Daily feeding summary completed');
-    } catch (error) {
-      this.logger.error(`Failed to generate daily feeding summary: ${error}`);
     }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`Daily feeding summary completed in ${duration}ms`);
   }
 
   // -------------------------------------------------------------------------
@@ -838,6 +905,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Her gün saat 18:00'da çalışır - FCR analizi ve uyarıları
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_6PM, {
     name: 'analyzeFCR',
@@ -845,36 +913,59 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   })
   async analyzeFCR(): Promise<void> {
     this.logger.log('Starting FCR analysis');
+    const startTime = Date.now();
 
-    try {
-      const tenantIds = await this.getActiveTenants();
+    await this.loadTenantConfigs();
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const tenantId of tenantIds) {
-        const config = this.getTenantConfig(tenantId);
-        if (!config?.fcrAlertsEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-        try {
-          const alerts = await this.checkFCRAlerts(tenantId);
+      try {
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-          if (alerts.length > 0) {
-            this.logger.warn(
-              `Found ${alerts.length} FCR alerts for tenant ${tenantId}`,
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+        );
+
+        for (const { tenantId } of tenantRows) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.fcrAlertsEnabled) continue;
+
+          try {
+            const alerts = await this.checkFCRAlerts(tenantId, queryRunner);
+
+            if (alerts.length > 0) {
+              this.logger.warn(
+                `Found ${alerts.length} FCR alerts for tenant ${tenantId} (schema: ${schema})`,
+              );
+
+              this.eventEmitter.emit('feeding.fcrAlerts', {
+                tenantId,
+                alerts,
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to analyze FCR for tenant ${tenantId} in schema ${schema}: ${error}`,
             );
-
-            this.eventEmitter.emit('feeding.fcrAlerts', {
-              tenantId,
-              alerts,
-            });
           }
-        } catch (error) {
-          this.logger.error(`Failed to analyze FCR for tenant ${tenantId}: ${error}`);
         }
+      } catch (err) {
+        this.logger.error(
+          `FCR analysis failed for schema ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
-
-      this.logger.log('FCR analysis completed');
-    } catch (error) {
-      this.logger.error(`Failed to analyze FCR: ${error}`);
     }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`FCR analysis completed in ${duration}ms`);
   }
 
   // -------------------------------------------------------------------------
@@ -883,6 +974,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Her gün saat 10:00'da çalışır - Yem stok kontrolü
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron(CronExpression.EVERY_DAY_AT_10AM, {
     name: 'checkFeedStock',
@@ -890,49 +982,73 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   })
   async checkFeedStock(): Promise<void> {
     this.logger.log('Checking feed stock levels');
+    const startTime = Date.now();
 
-    try {
-      const tenantIds = await this.getActiveTenants();
+    await this.loadTenantConfigs();
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const tenantId of tenantIds) {
-        const config = this.getTenantConfig(tenantId);
-        if (!config?.stockAlertsEnabled) continue;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-        try {
-          const lowStockFeeds = await this.getLowStockFeeds(tenantId);
+      try {
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-          if (lowStockFeeds.length > 0) {
-            this.logger.warn(
-              `Found ${lowStockFeeds.length} low stock feeds for tenant ${tenantId}`,
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+        );
+
+        for (const { tenantId } of tenantRows) {
+          const config = this.getTenantConfig(tenantId);
+          if (config && !config.stockAlertsEnabled) continue;
+
+          try {
+            const lowStockFeeds = await this.getLowStockFeeds(tenantId, queryRunner);
+
+            if (lowStockFeeds.length > 0) {
+              this.logger.warn(
+                `Found ${lowStockFeeds.length} low stock feeds for tenant ${tenantId} (schema: ${schema})`,
+              );
+
+              this.eventEmitter.emit('feeding.lowStock', {
+                tenantId,
+                feeds: lowStockFeeds,
+              });
+            }
+
+            const expiringFeeds = await this.getExpiringFeeds(tenantId, 7, queryRunner);
+            if (expiringFeeds.length > 0) {
+              this.eventEmitter.emit('feeding.expiryWarning', {
+                tenantId,
+                feeds: expiringFeeds,
+                daysUntilExpiry: 7,
+              });
+            }
+          } catch (error) {
+            this.logger.error(
+              `Failed to check feed stock for tenant ${tenantId} in schema ${schema}: ${error}`,
             );
-
-            this.eventEmitter.emit('feeding.lowStock', {
-              tenantId,
-              feeds: lowStockFeeds,
-            });
           }
-
-          const expiringFeeds = await this.getExpiringFeeds(tenantId, 7);
-          if (expiringFeeds.length > 0) {
-            this.eventEmitter.emit('feeding.expiryWarning', {
-              tenantId,
-              feeds: expiringFeeds,
-              daysUntilExpiry: 7,
-            });
-          }
-        } catch (error) {
-          this.logger.error(`Failed to check feed stock for tenant ${tenantId}: ${error}`);
         }
+      } catch (err) {
+        this.logger.error(
+          `Feed stock check failed for schema ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
-
-      this.logger.log('Feed stock check completed');
-    } catch (error) {
-      this.logger.error(`Failed to check feed stock: ${error}`);
     }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`Feed stock check completed in ${duration}ms`);
   }
 
   /**
    * Her hafta Pazartesi saat 07:00'da çalışır - Haftalık yem tüketim tahmini
+   * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
   @Cron('0 7 * * 1', {
     name: 'weeklyFeedForecast',
@@ -940,27 +1056,50 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   })
   async weeklyFeedForecast(): Promise<void> {
     this.logger.log('Generating weekly feed consumption forecast');
+    const startTime = Date.now();
 
-    try {
-      const tenantIds = await this.getActiveTenants();
+    await this.loadTenantConfigs();
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const tenantId of tenantIds) {
-        try {
-          const forecast = await this.generateFeedForecast(tenantId, 7);
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
 
-          this.eventEmitter.emit('feeding.weeklyForecast', {
-            tenantId,
-            forecast,
-          });
-        } catch (error) {
-          this.logger.error(`Failed to generate feed forecast for tenant ${tenantId}: ${error}`);
+      try {
+        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+
+        // Discover tenantIds within this schema
+        const tenantRows: { tenantId: string }[] = await queryRunner.query(
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+        );
+
+        for (const { tenantId } of tenantRows) {
+          try {
+            const forecast = await this.generateFeedForecast(tenantId, 7, queryRunner);
+
+            this.eventEmitter.emit('feeding.weeklyForecast', {
+              tenantId,
+              forecast,
+            });
+          } catch (error) {
+            this.logger.error(
+              `Failed to generate feed forecast for tenant ${tenantId} in schema ${schema}: ${error}`,
+            );
+          }
         }
+      } catch (err) {
+        this.logger.error(
+          `Weekly feed forecast failed for schema ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.query('RESET search_path').catch(() => {});
+        await queryRunner.release();
       }
-
-      this.logger.log('Weekly feed forecast completed');
-    } catch (error) {
-      this.logger.error(`Failed to generate weekly feed forecast: ${error}`);
     }
+
+    const duration = Date.now() - startTime;
+    this.logger.log(`Weekly feed forecast completed in ${duration}ms`);
   }
 
   // -------------------------------------------------------------------------
@@ -968,17 +1107,80 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   // -------------------------------------------------------------------------
 
   /**
-   * Generate tenant feeding plan for a specific date
+   * Get upcoming feedings using a QueryRunner for tenant schema isolation.
+   * Used by the sendFeedingReminders cron job.
+   */
+  private async getUpcomingFeedingsWithQR(
+    tenantId: string,
+    hours: number,
+    queryRunner: QueryRunner,
+  ): Promise<UpcomingFeeding[]> {
+    const now = new Date();
+    const futureDate = new Date(now.getTime() + hours * 60 * 60 * 1000);
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+
+    const repo = queryRunner.manager.getRepository(FeedingTable);
+
+    const feedingTables = await repo.find({
+      where: {
+        tenantId,
+        status: FeedingTableStatus.ACTIVE,
+        isActive: true,
+      },
+      relations: ['batch', 'feed'],
+    });
+
+    const upcomingFeedings: UpcomingFeeding[] = [];
+
+    for (const table of feedingTables) {
+      if (!table.schedule || table.schedule.length === 0) {
+        continue;
+      }
+
+      for (const entry of table.schedule) {
+        const entryDate = new Date(entry.date);
+
+        if (entryDate >= today && entryDate <= futureDate) {
+          upcomingFeedings.push({
+            scheduleId: table.id,
+            batchId: table.batchId,
+            batchNumber: table.batch?.batchNumber || 'Unknown',
+            feedId: table.feedId,
+            feedName: table.feed?.name || 'Unknown Feed',
+            scheduledDate: entryDate,
+            feedAmount: entry.feedAmount,
+            feedingFrequency: entry.feedingFrequency,
+            perFeedingAmount: entry.perFeedingAmount,
+          });
+        }
+      }
+    }
+
+    upcomingFeedings.sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
+    return upcomingFeedings;
+  }
+
+  /**
+   * Generate tenant feeding plan for a specific date.
+   * When called from a cron job, a QueryRunner with the correct search_path
+   * MUST be passed so that queries hit the tenant schema instead of the
+   * default search_path.
    */
   private async generateTenantFeedingPlan(
     tenantId: string,
     date: Date,
+    queryRunner?: QueryRunner,
   ): Promise<DailyFeedingPlan> {
     const entries: FeedingEntry[] = [];
     let totalFeedQuantity = 0;
 
-    // Get active feeding tables
-    const feedingTables = await this.feedingTableRepository.find({
+    // Get active feeding tables — use queryRunner.manager when available
+    const repo = queryRunner
+      ? queryRunner.manager.getRepository(FeedingTable)
+      : this.feedingTableRepository;
+
+    const feedingTables = await repo.find({
       where: {
         tenantId,
         status: FeedingTableStatus.ACTIVE,
@@ -1039,11 +1241,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Generate feeding summary for a date
+   * Generate feeding summary for a date.
+   * When called from a cron job, a QueryRunner with the correct search_path
+   * MUST be passed so that queries hit the tenant schema.
    */
   private async generateFeedingSummary(
     tenantId: string,
     date: Date,
+    queryRunner?: QueryRunner,
   ): Promise<{
     planned: number;
     completed: number;
@@ -1055,8 +1260,16 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
+    const recordRepo = queryRunner
+      ? queryRunner.manager.getRepository(FeedingRecord)
+      : this.feedingRecordRepository;
+
+    const tableRepo = queryRunner
+      ? queryRunner.manager.getRepository(FeedingTable)
+      : this.feedingTableRepository;
+
     // Get feeding records for the day
-    const records = await this.feedingRecordRepository.find({
+    const records = await recordRepo.find({
       where: {
         tenantId,
         feedingDate: Between(startOfDay, endOfDay),
@@ -1064,7 +1277,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     });
 
     // Get expected feedings from active schedules
-    const schedules = await this.feedingTableRepository.find({
+    const schedules = await tableRepo.find({
       where: {
         tenantId,
         status: FeedingTableStatus.ACTIVE,
@@ -1096,13 +1309,19 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Check FCR alerts for a tenant
+   * Check FCR alerts for a tenant.
+   * When called from a cron job, a QueryRunner with the correct search_path
+   * MUST be passed so that queries hit the tenant schema.
    */
-  private async checkFCRAlerts(tenantId: string): Promise<FCRAlert[]> {
+  private async checkFCRAlerts(tenantId: string, queryRunner?: QueryRunner): Promise<FCRAlert[]> {
     const alerts: FCRAlert[] = [];
 
+    const repo = queryRunner
+      ? queryRunner.manager.getRepository(Batch)
+      : this.batchRepository;
+
     // Get active batches with FCR data
-    const batches = await this.batchRepository.find({
+    const batches = await repo.find({
       where: {
         tenantId,
         isActive: true,
@@ -1145,13 +1364,20 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get low stock feeds for a tenant
+   * Get low stock feeds for a tenant.
+   * When called from a cron job, a QueryRunner with the correct search_path
+   * MUST be passed so that queries hit the tenant schema.
    */
   private async getLowStockFeeds(
     tenantId: string,
+    queryRunner?: QueryRunner,
   ): Promise<{ feedId: string; feedName: string; currentStock: number; minStock: number }[]> {
+    const repo = queryRunner
+      ? queryRunner.manager.getRepository(FeedInventory)
+      : this.feedInventoryRepository;
+
     // Check feed inventory
-    const lowStockInventory = await this.feedInventoryRepository.find({
+    const lowStockInventory = await repo.find({
       where: {
         tenantId,
         status: In([InventoryStatus.LOW_STOCK, InventoryStatus.OUT_OF_STOCK]),
@@ -1168,16 +1394,23 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get expiring feeds for a tenant
+   * Get expiring feeds for a tenant.
+   * When called from a cron job, a QueryRunner with the correct search_path
+   * MUST be passed so that queries hit the tenant schema.
    */
   private async getExpiringFeeds(
     tenantId: string,
     days: number,
+    queryRunner?: QueryRunner,
   ): Promise<{ feedId: string; feedName: string; expiryDate: Date; quantity: number }[]> {
+    const repo = queryRunner
+      ? queryRunner.manager.getRepository(FeedInventory)
+      : this.feedInventoryRepository;
+
     const expiryThreshold = new Date();
     expiryThreshold.setDate(expiryThreshold.getDate() + days);
 
-    const expiringInventory = await this.feedInventoryRepository.find({
+    const expiringInventory = await repo.find({
       where: {
         tenantId,
         expiryDate: LessThanOrEqual(expiryThreshold),
@@ -1197,22 +1430,33 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Generate feed forecast for a tenant
+   * Generate feed forecast for a tenant.
+   * When called from a cron job, a QueryRunner with the correct search_path
+   * MUST be passed so that queries hit the tenant schema.
    */
   private async generateFeedForecast(
     tenantId: string,
     days: number,
+    queryRunner?: QueryRunner,
   ): Promise<{
     totalRequired: number;
     byFeedType: { feedId: string; feedName: string; quantity: number }[];
     currentStock: number;
     shortfall: number;
   }> {
+    const tableRepo = queryRunner
+      ? queryRunner.manager.getRepository(FeedingTable)
+      : this.feedingTableRepository;
+
+    const invRepo = queryRunner
+      ? queryRunner.manager.getRepository(FeedInventory)
+      : this.feedInventoryRepository;
+
     const feedRequirements = new Map<string, { feedId: string; feedName: string; quantity: number }>();
     let totalRequired = 0;
 
     // Get active feeding tables
-    const feedingTables = await this.feedingTableRepository.find({
+    const feedingTables = await tableRepo.find({
       where: {
         tenantId,
         status: FeedingTableStatus.ACTIVE,
@@ -1247,7 +1491,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Get current stock
-    const inventory = await this.feedInventoryRepository.find({
+    const inventory = await invRepo.find({
       where: {
         tenantId,
         status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),

@@ -40,7 +40,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand>
 
       // Find max employee number for this pattern
       const result = await queryRunner.query(
-        `SELECT "employeeNumber" FROM employees WHERE "employeeNumber" LIKE $1 ORDER BY "employeeNumber" DESC LIMIT 1 FOR UPDATE`,
+        `SELECT "employeeNumber" FROM farm_workers WHERE "employeeNumber" LIKE $1 ORDER BY "employeeNumber" DESC LIMIT 1 FOR UPDATE`,
         [`${prefix}%`],
       );
 

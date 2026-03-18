@@ -5,6 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@aquaculture/shared-ui';
+import { graphqlFetch } from '../config/api';
 import {
   LORA_DEVICES_QUERY,
   ADD_LORA_DEVICE_MUTATION,
@@ -56,31 +57,6 @@ export interface LoRaDownlinkResult {
   error?: string;
 }
 
-// ==================== GraphQL Fetch Helper ====================
-
-async function graphqlFetch<T>(
-  query: string,
-  variables: Record<string, unknown>,
-  token?: string | null
-): Promise<T> {
-  const response = await fetch('/graphql', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL Error');
-  }
-
-  return result.data;
-}
-
 // ==================== Query Hooks ====================
 
 /**
@@ -96,7 +72,6 @@ export function useLoRaDevices(edgeDeviceId: string) {
       const data = await graphqlFetch<{ loraDevices: LoRaDevice[] }>(
         LORA_DEVICES_QUERY,
         { edgeDeviceId },
-        token
       );
       return data.loraDevices;
     },
@@ -128,7 +103,6 @@ export function useAddLoRaDevice() {
       const data = await graphqlFetch<{ addLoRaDevice: LoRaDevice }>(
         ADD_LORA_DEVICE_MUTATION,
         { edgeDeviceId, input },
-        token
       );
       return data.addLoRaDevice;
     },
@@ -156,7 +130,6 @@ export function useRemoveLoRaDevice() {
       const data = await graphqlFetch<{ removeLoRaDevice: boolean }>(
         REMOVE_LORA_DEVICE,
         { edgeDeviceId, loraDeviceId },
-        token
       );
       return data.removeLoRaDevice;
     },
@@ -186,7 +159,6 @@ export function useSendLoRaDownlink() {
       const data = await graphqlFetch<{ sendLoRaDownlink: LoRaDownlinkResult }>(
         SEND_LORA_DOWNLINK,
         { edgeDeviceId, loraDeviceId, input },
-        token
       );
       return data.sendLoRaDownlink;
     },

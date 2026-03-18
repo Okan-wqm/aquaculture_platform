@@ -378,6 +378,7 @@ export class MigrationManagementService {
         error: error.message,
       };
     } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
     }
   }
@@ -601,6 +602,7 @@ export class MigrationManagementService {
         error: error.message,
       };
     } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
     }
   }

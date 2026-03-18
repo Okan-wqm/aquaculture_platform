@@ -1,15 +1,16 @@
 /**
  * Farm Seed Service
  *
- * Farm modulune sahip tenant'lar icin gerekli baslangic verilerini olusturur:
- * - Test tenant ve kullanici
- * - EquipmentTypes (Tank, Pump, Aerator, Filter)
- * - Sites, Departments, Systems, SubSystems
- * - Tanks (bagimsiz entity)
- * - Species (turler)
- * - Feeds (yemler)
- * - Feed Inventory (yem stoklari)
- * - Sample Batch (ornek parti)
+ * IMPORTANT: This service seeds the farm SOURCE SCHEMA (template) only.
+ * It runs at module initialization via onModuleInit, using the default
+ * DataSource connection whose search_path is set to "farm, public".
+ * All queries intentionally target the farm source schema.
+ * Do NOT use this service to seed tenant schemas — use SchemaManagerService.copyReferenceData() instead.
+ *
+ * Seeds reference data (all environments) and test data (dev only):
+ * - EquipmentTypes, ChemicalTypes, SupplierTypes (reference/system-wide)
+ * - Test tenant, Sites, Departments, Systems, SubSystems
+ * - Tanks, Species, Feeds, Feed Inventory, Sample Batch (dev only)
  *
  * @module Database
  */
@@ -214,14 +215,14 @@ export class FarmSeedService implements OnModuleInit {
 
     for (const et of EQUIPMENT_TYPES_SEED) {
       const exists = await queryRunner.query(
-        `SELECT id FROM farm.equipment_types WHERE code = $1`,
+        `SELECT id FROM equipment_types WHERE code = $1`,
         [et.code]
       );
 
       if (exists.length > 0) {
         // UPDATE: Mevcut kaydın specificationSchema'sını güncelle
         await queryRunner.query(
-          `UPDATE farm.equipment_types
+          `UPDATE equipment_types
            SET name = $1,
                description = $2,
                category = $3,
@@ -244,7 +245,7 @@ export class FarmSeedService implements OnModuleInit {
       } else {
         // INSERT: Yeni kayıt ekle
         await queryRunner.query(
-          `INSERT INTO farm.equipment_types (id, name, code, description, category, icon, "specificationSchema", "allowedSubEquipmentTypes", "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
+          `INSERT INTO equipment_types (id, name, code, description, category, icon, "specificationSchema", "allowedSubEquipmentTypes", "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
            VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, $6, $7, true, true, $8, NOW(), NOW())`,
           [
             et.name,
@@ -272,20 +273,20 @@ export class FarmSeedService implements OnModuleInit {
 
     for (const ct of CHEMICAL_TYPES_SEED) {
       const exists = await queryRunner.query(
-        `SELECT id FROM farm.chemical_types WHERE code = $1`,
+        `SELECT id FROM chemical_types WHERE code = $1`,
         [ct.code]
       );
 
       if (exists.length > 0) {
         await queryRunner.query(
-          `UPDATE farm.chemical_types
+          `UPDATE chemical_types
            SET name = $1, description = $2, icon = $3, "sortOrder" = $4, "updatedAt" = NOW()
            WHERE code = $5`,
           [ct.name, ct.description, ct.icon, ct.sortOrder, ct.code]
         );
       } else {
         await queryRunner.query(
-          `INSERT INTO farm.chemical_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
+          `INSERT INTO chemical_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
            VALUES (uuid_generate_v4(), $1, $2, $3, $4, true, true, $5, NOW(), NOW())`,
           [ct.name, ct.code, ct.description, ct.icon, ct.sortOrder]
         );
@@ -304,20 +305,20 @@ export class FarmSeedService implements OnModuleInit {
 
     for (const st of SUPPLIER_TYPES_SEED) {
       const exists = await queryRunner.query(
-        `SELECT id FROM farm.supplier_types WHERE code = $1`,
+        `SELECT id FROM supplier_types WHERE code = $1`,
         [st.code]
       );
 
       if (exists.length > 0) {
         await queryRunner.query(
-          `UPDATE farm.supplier_types
+          `UPDATE supplier_types
            SET name = $1, description = $2, icon = $3, "sortOrder" = $4, "updatedAt" = NOW()
            WHERE code = $5`,
           [st.name, st.description, st.icon, st.sortOrder, st.code]
         );
       } else {
         await queryRunner.query(
-          `INSERT INTO farm.supplier_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
+          `INSERT INTO supplier_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
            VALUES (uuid_generate_v4(), $1, $2, $3, $4, true, true, $5, NOW(), NOW())`,
           [st.name, st.code, st.description, st.icon, st.sortOrder]
         );

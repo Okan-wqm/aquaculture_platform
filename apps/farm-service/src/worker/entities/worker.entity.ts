@@ -1,6 +1,6 @@
 /**
- * Worker Entity - Simplified view of HR employees table for farm-service
- * Maps to the 'employees' table (shared with HR service)
+ * Worker Entity - Farm workers for farm-service
+ * Maps to the 'farm_workers' table (separate from HR service's 'employees' table)
  */
 import {
   Entity,
@@ -13,7 +13,7 @@ import {
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common';
 
-@Entity('employees')
+@Entity('farm_workers')
 @Index(['tenantId', 'email'], { unique: true })
 @Index(['tenantId', 'department'])
 export class Worker {

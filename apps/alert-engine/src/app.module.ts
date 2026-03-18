@@ -21,6 +21,8 @@ import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { TenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
+import { TenantConnectionBootstrap } from './infrastructure/tenant-connection-bootstrap.service';
 
 // Nested ObjectTypes for orphanedTypes registration
 import { IncidentTimelineEvent } from './database/entities/alert-incident.entity';
@@ -59,6 +61,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         autoLoadEntities: true,
         synchronize: false,
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
+        extra: { options: '-c search_path=alert,public' },
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
           const sslEnabled = configService.get('DATABASE_SSL') === 'true';
@@ -146,6 +149,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       provide: APP_GUARD,
       useClass: RolesGuard,
     },
+    // Tenant connection pool patching for schema-level isolation
+    TenantConnectionBootstrap,
   ],
 })
 export class AppModule implements NestModule {
@@ -156,6 +161,7 @@ export class AppModule implements NestModule {
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,
         TenantContextMiddleware,
+        TenantSchemaMiddleware, // Schema-level tenant isolation via search_path
       )
       .forRoutes('*');
   }

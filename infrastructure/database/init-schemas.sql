@@ -13,8 +13,10 @@ CREATE SCHEMA IF NOT EXISTS farm;      -- farm-service: farms, tanks, batches, h
 CREATE SCHEMA IF NOT EXISTS sensor;    -- sensor-service: sensors, readings, alerts
 CREATE SCHEMA IF NOT EXISTS admin;     -- admin-api-service: analytics, system settings
 CREATE SCHEMA IF NOT EXISTS alert;     -- alert-engine: alert rules, incidents
-CREATE SCHEMA IF NOT EXISTS hr;        -- hr-service: employees, departments
-CREATE SCHEMA IF NOT EXISTS gateway;   -- gateway-api: rate limits, audit logs
+CREATE SCHEMA IF NOT EXISTS hr;            -- hr-service: employees, departments
+CREATE SCHEMA IF NOT EXISTS gateway;       -- gateway-api: rate limits, audit logs
+CREATE SCHEMA IF NOT EXISTS hydroponics;   -- hydroponics-service: grow systems, nutrients, cycles
+CREATE SCHEMA IF NOT EXISTS ai;            -- ai-service: models, predictions, recommendations
 
 -- Keep public schema for shared/common tables
 -- (Note: Consider deprecating in favor of explicit schema assignment)
@@ -29,6 +31,8 @@ GRANT USAGE ON SCHEMA admin TO aquaculture;
 GRANT USAGE ON SCHEMA alert TO aquaculture;
 GRANT USAGE ON SCHEMA hr TO aquaculture;
 GRANT USAGE ON SCHEMA gateway TO aquaculture;
+GRANT USAGE ON SCHEMA hydroponics TO aquaculture;
+GRANT USAGE ON SCHEMA ai TO aquaculture;
 
 -- Grant all privileges on tables in each schema
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO aquaculture;
@@ -39,6 +43,8 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA admin TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA alert TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA hr TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA gateway TO aquaculture;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA hydroponics TO aquaculture;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ai TO aquaculture;
 
 -- Grant sequence privileges (needed for auto-increment)
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO aquaculture;
@@ -49,6 +55,8 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA admin TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA alert TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA hr TO aquaculture;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA gateway TO aquaculture;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA hydroponics TO aquaculture;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ai TO aquaculture;
 
 -- Set default privileges for future tables
 ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO aquaculture;
@@ -59,6 +67,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT ALL ON TABLES TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA alert GRANT ALL ON TABLES TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA hr GRANT ALL ON TABLES TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON TABLES TO aquaculture;
+ALTER DEFAULT PRIVILEGES IN SCHEMA hydroponics GRANT ALL ON TABLES TO aquaculture;
+ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON TABLES TO aquaculture;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT ALL ON SEQUENCES TO aquaculture;
@@ -68,6 +78,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT ALL ON SEQUENCES TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA alert GRANT ALL ON SEQUENCES TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA hr GRANT ALL ON SEQUENCES TO aquaculture;
 ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON SEQUENCES TO aquaculture;
+ALTER DEFAULT PRIVILEGES IN SCHEMA hydroponics GRANT ALL ON SEQUENCES TO aquaculture;
+ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON SEQUENCES TO aquaculture;
 
 -- ============================================================================
 -- Cross-schema read access for analytics

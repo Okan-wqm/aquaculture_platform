@@ -4,6 +4,11 @@
  * Her tedarikçi birden fazla site'a hizmet verebilir.
  * Her site birden fazla tedarikçi kullanabilir.
  *
+ * TODO: Orphan entity - not registered in any module's forFeature().
+ * The Supplier entity has a commented-out @OneToMany relation to this entity.
+ * If this entity is needed, add it to SupplierModule's TypeOrmModule.forFeature()
+ * and uncomment the relation in supplier.entity.ts.
+ *
  * @module Farm
  */
 import {

@@ -378,6 +378,7 @@ export class DatabaseMonitoringService {
       const result = await queryRunner.query(`EXPLAIN (FORMAT JSON, ANALYZE false) ${query}`);
       return result[0]?.['QUERY PLAN'] || {};
     } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
     }
   }

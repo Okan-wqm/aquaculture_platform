@@ -24,6 +24,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
+import { getTenantId } from '@aquaculture/shared-ui';
 import { useScadaStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
 import { useSimulation } from '../../simulation';
@@ -73,11 +74,14 @@ function getMinMax(config: Record<string, any>): { min?: number; max?: number } 
   };
 }
 
-const LS_KEY = 'scada-sim-scenarios';
+function getScenarioStorageKey(): string {
+  const tenantId = getTenantId() || 'default';
+  return `scada-sim-scenarios-${tenantId}`;
+}
 
 function loadCustomScenarios(): Scenario[] {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(getScenarioStorageKey());
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -85,7 +89,7 @@ function loadCustomScenarios(): Scenario[] {
 }
 
 function saveCustomScenarios(scenarios: Scenario[]) {
-  localStorage.setItem(LS_KEY, JSON.stringify(scenarios));
+  localStorage.setItem(getScenarioStorageKey(), JSON.stringify(scenarios));
 }
 
 /* ------------------------------------------------------------------ */

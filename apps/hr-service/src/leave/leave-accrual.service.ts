@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { listTenantSchemas } from '@platform/backend-common';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { Employee, EmployeeStatus } from '../hr/entities/employee.entity';
@@ -15,7 +16,7 @@ import { Employee, EmployeeStatus } from '../hr/entities/employee.entity';
  *
  * Safety:
  * - Idempotent: lastAccrualDate prevents double-accrual within the same month
- * - Tenant-scoped: processes each tenant independently via tenantId column
+ * - Tenant-scoped: iterates tenant_* schemas via search_path isolation
  * - Transactional: each tenant's accrual runs inside a single transaction
  */
 @Injectable()
@@ -33,6 +34,10 @@ export class LeaveAccrualService {
   ) {}
 
   // ---------------------------------------------------------------------------
+  // Tenant schema discovery — uses listTenantSchemas from @platform/backend-common
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
   // Monthly accrual – 1st of every month at midnight
   // ---------------------------------------------------------------------------
   @Cron(CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT)
@@ -41,23 +46,19 @@ export class LeaveAccrualService {
     const now = new Date();
 
     try {
-      // Discover all distinct tenants that have accrual-based leave types
-      const tenantRows: { tenantId: string }[] = await this.leaveTypeRepository
-        .createQueryBuilder('lt')
-        .select('DISTINCT lt.tenantId', 'tenantId')
-        .where('lt.isAccrued = :isAccrued', { isAccrued: true })
-        .andWhere('lt.isActive = :isActive', { isActive: true })
-        .andWhere('lt.isDeleted = :isDeleted', { isDeleted: false })
-        .andWhere('lt.accrualRate IS NOT NULL')
-        .getRawMany();
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
+      if (tenantSchemas.length === 0) {
+        this.logger.debug('No tenant schemas found, skipping monthly accrual');
+        return;
+      }
 
-      this.logger.log(`Found ${tenantRows.length} tenant(s) with accrual leave types.`);
+      this.logger.log(`Processing monthly accrual for ${tenantSchemas.length} tenant schema(s).`);
 
       let totalAccrued = 0;
       let totalCreated = 0;
 
-      for (const { tenantId } of tenantRows) {
-        const result = await this.processTenantAccrual(tenantId, now);
+      for (const schema of tenantSchemas) {
+        const result = await this.processTenantAccrual(schema, now);
         totalAccrued += result.accrued;
         totalCreated += result.created;
       }
@@ -74,26 +75,28 @@ export class LeaveAccrualService {
   }
 
   /**
-   * Process accrual for a single tenant inside a transaction.
+   * Process accrual for a single tenant schema inside a transaction.
    */
   private async processTenantAccrual(
-    tenantId: string,
+    schemaName: string,
     now: Date,
   ): Promise<{ accrued: number; created: number }> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction();
 
     let accrued = 0;
     let created = 0;
 
     try {
+      // Set search_path BEFORE starting the transaction
+      await queryRunner.query(`SET search_path TO "${schemaName}", hr, public`);
+      await queryRunner.startTransaction();
+
       const manager = queryRunner.manager;
 
-      // 1. Fetch accrual-eligible leave types for this tenant
+      // 1. Fetch accrual-eligible leave types within this tenant schema
       const leaveTypes = await manager.find(LeaveType, {
         where: {
-          tenantId,
           isAccrued: true,
           isActive: true,
           isDeleted: false,
@@ -110,10 +113,9 @@ export class LeaveAccrualService {
         return { accrued: 0, created: 0 };
       }
 
-      // 2. Fetch all active employees for this tenant
+      // 2. Fetch all active employees within this tenant schema
       const employees = await manager.find(Employee, {
         where: {
-          tenantId,
           status: EmployeeStatus.ACTIVE,
           isDeleted: false,
         },
@@ -145,7 +147,6 @@ export class LeaveAccrualService {
           // Find or create leave balance for current year
           let balance = await manager.findOne(LeaveBalance, {
             where: {
-              tenantId,
               employeeId: employee.id,
               leaveTypeId: leaveType.id,
               year: currentYear,
@@ -156,7 +157,7 @@ export class LeaveAccrualService {
           if (!balance) {
             // Create a new balance record for the current year
             balance = manager.create(LeaveBalance, {
-              tenantId,
+              tenantId: employee.tenantId,
               employeeId: employee.id,
               leaveTypeId: leaveType.id,
               year: currentYear,
@@ -187,16 +188,11 @@ export class LeaveAccrualService {
           const currentAccrued = Number(balance.accrued) || 0;
           const newAccrued = currentAccrued + rate;
 
-          // If maxCarryOverDays is defined, cap total accrued balance
-          // (this prevents unlimited accumulation within the year)
-          const maxDays = leaveType.maxCarryOverDays != null
-            ? Number(leaveType.maxCarryOverDays)
-            : null;
+          // Cap: accrued should not exceed defaultDaysPerYear (annual entitlement cap)
           const defaultDays = leaveType.defaultDaysPerYear != null
             ? Number(leaveType.defaultDaysPerYear)
             : null;
 
-          // Cap: accrued should not exceed defaultDaysPerYear (annual entitlement cap)
           let cappedAccrued = newAccrued;
           if (defaultDays != null && cappedAccrued > defaultDays) {
             cappedAccrued = defaultDays;
@@ -212,15 +208,16 @@ export class LeaveAccrualService {
 
       await queryRunner.commitTransaction();
       this.logger.log(
-        `Tenant ${tenantId}: accrued ${accrued} balance(s), created ${created} new balance record(s).`,
+        `Schema ${schemaName}: accrued ${accrued} balance(s), created ${created} new balance record(s).`,
       );
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `Tenant ${tenantId} accrual failed, rolled back: ${error instanceof Error ? error.message : String(error)}`,
+        `Schema ${schemaName} accrual failed, rolled back: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
     } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
     }
 
@@ -239,22 +236,20 @@ export class LeaveAccrualService {
       const newYear = now.getFullYear(); // The year we are entering (e.g. 2027)
       const previousYear = newYear - 1;
 
-      // Discover all tenants that have leave balances for the previous year
-      const tenantRows: { tenantId: string }[] = await this.leaveBalanceRepository
-        .createQueryBuilder('lb')
-        .select('DISTINCT lb.tenantId', 'tenantId')
-        .where('lb.year = :year', { year: previousYear })
-        .andWhere('lb.isDeleted = :isDeleted', { isDeleted: false })
-        .getRawMany();
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
+      if (tenantSchemas.length === 0) {
+        this.logger.debug('No tenant schemas found, skipping year-end rollover');
+        return;
+      }
 
       this.logger.log(
-        `Year-end rollover: found ${tenantRows.length} tenant(s) with balances for year ${previousYear}.`,
+        `Year-end rollover: processing ${tenantSchemas.length} tenant schema(s) for year ${previousYear}.`,
       );
 
       let totalRolled = 0;
 
-      for (const { tenantId } of tenantRows) {
-        const rolled = await this.processTenantRollover(tenantId, previousYear, newYear);
+      for (const schema of tenantSchemas) {
+        const rolled = await this.processTenantRollover(schema, previousYear, newYear);
         totalRolled += rolled;
       }
 
@@ -270,26 +265,28 @@ export class LeaveAccrualService {
   }
 
   /**
-   * Process year-end rollover for a single tenant inside a transaction.
+   * Process year-end rollover for a single tenant schema inside a transaction.
    */
   private async processTenantRollover(
-    tenantId: string,
+    schemaName: string,
     previousYear: number,
     newYear: number,
   ): Promise<number> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction();
 
     let rolledOver = 0;
 
     try {
+      // Set search_path BEFORE starting the transaction
+      await queryRunner.query(`SET search_path TO "${schemaName}", hr, public`);
+      await queryRunner.startTransaction();
+
       const manager = queryRunner.manager;
 
-      // Fetch all previous year balances for this tenant (with leave type info for maxCarryOverDays)
+      // Fetch all previous year balances within this tenant schema (with leave type info for maxCarryOverDays)
       const previousBalances = await manager.find(LeaveBalance, {
         where: {
-          tenantId,
           year: previousYear,
           isDeleted: false,
         },
@@ -301,7 +298,6 @@ export class LeaveAccrualService {
         const employee = await manager.findOne(Employee, {
           where: {
             id: prevBalance.employeeId,
-            tenantId,
             status: EmployeeStatus.ACTIVE,
             isDeleted: false,
           },
@@ -341,7 +337,6 @@ export class LeaveAccrualService {
         // Check if a balance record already exists for the new year (idempotency)
         let newBalance = await manager.findOne(LeaveBalance, {
           where: {
-            tenantId,
             employeeId: prevBalance.employeeId,
             leaveTypeId: prevBalance.leaveTypeId,
             year: newYear,
@@ -360,7 +355,7 @@ export class LeaveAccrualService {
         } else {
           // Create new year balance with carry-over
           newBalance = manager.create(LeaveBalance, {
-            tenantId,
+            tenantId: prevBalance.tenantId,
             employeeId: prevBalance.employeeId,
             leaveTypeId: prevBalance.leaveTypeId,
             year: newYear,
@@ -378,15 +373,16 @@ export class LeaveAccrualService {
 
       await queryRunner.commitTransaction();
       this.logger.log(
-        `Tenant ${tenantId}: rolled over ${rolledOver} balance(s) from ${previousYear} to ${newYear}.`,
+        `Schema ${schemaName}: rolled over ${rolledOver} balance(s) from ${previousYear} to ${newYear}.`,
       );
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `Tenant ${tenantId} rollover failed, rolled back: ${error instanceof Error ? error.message : String(error)}`,
+        `Schema ${schemaName} rollover failed, rolled back: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
     } finally {
+      await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
     }
 

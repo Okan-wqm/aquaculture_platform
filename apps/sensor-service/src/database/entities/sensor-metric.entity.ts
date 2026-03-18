@@ -57,6 +57,11 @@ export const QualityCodes = {
 /**
  * SensorMetric Entity
  *
+ * NOTE: This entity is NOT registered in any module's forFeature() or the app.module entities list.
+ * It is intentionally used only as a TypeScript type interface and for constants (QualityCodes).
+ * The actual sensor_metrics table is created and managed via migrations (CreateSensorMetrics),
+ * not TypeORM synchronize, because it is a TimescaleDB hypertable.
+ *
  * Core time-series data storage optimized for TimescaleDB hypertable.
  * Uses narrow table design (EAV-like) for maximum flexibility and performance.
  *

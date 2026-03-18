@@ -21,6 +21,10 @@ const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
  * query builders, and raw queries.
  */
 export function createTenantConnectionBootstrap(sourceSchema: string) {
+  if (!/^[a-z][a-z0-9_]*$/.test(sourceSchema)) {
+    throw new Error(`Invalid sourceSchema: "${sourceSchema}" — must be lowercase alphanumeric with underscores`);
+  }
+
   @Injectable()
   class TenantConnectionBootstrapImpl implements OnModuleInit {
     readonly logger = new Logger(`TenantConnectionBootstrap[${sourceSchema}]`);
@@ -64,6 +68,9 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
                 (qErr: any) => {
                   if (qErr) {
                     logger.error(`Failed to set search_path to ${schemaName}: ${qErr.message}`);
+                    done(qErr);
+                    callback(qErr);
+                    return;
                   }
                   callback(null, client, done);
                 },
@@ -88,7 +95,13 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
           }
 
           if (schemaName && TENANT_SCHEMA_REGEX.test(schemaName)) {
-            await client.query(`SET search_path TO "${schemaName}", ${src}, public`);
+            try {
+              await client.query(`SET search_path TO "${schemaName}", ${src}, public`);
+            } catch (qErr) {
+              logger.error(`Failed to set search_path to ${schemaName}: ${(qErr as Error).message}`);
+              client.release(true); // release with error
+              throw qErr;
+            }
           } else if (!schemaName) {
             logger.debug(`Pool checkout (promise) without tenant context — using default search_path (${src},public)`);
           }

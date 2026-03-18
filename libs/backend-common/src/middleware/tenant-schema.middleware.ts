@@ -26,6 +26,10 @@ interface TenantRequest extends Request {
  *   const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
  */
 export function createTenantSchemaMiddleware(defaultSchema: string) {
+  if (!/^[a-z][a-z0-9_]*$/.test(defaultSchema)) {
+    throw new Error(`Invalid defaultSchema: "${defaultSchema}" — must be lowercase alphanumeric with underscores`);
+  }
+
   @Injectable()
   class TenantSchemaMiddlewareImpl implements NestMiddleware {
     readonly logger = new Logger(`TenantSchemaMiddleware[${defaultSchema}]`);
@@ -53,7 +57,8 @@ export function createTenantSchemaMiddleware(defaultSchema: string) {
         if (schemaExists) {
           req.schemaName = tenantSchema;
         } else {
-          throw new UnauthorizedException(`Tenant schema not found for tenant ${tenantId}`);
+          this.logger.warn(`Tenant schema not found for tenant ${tenantId}`);
+          throw new UnauthorizedException('Tenant not provisioned');
         }
       } else {
         req.schemaName = defaultSchema;

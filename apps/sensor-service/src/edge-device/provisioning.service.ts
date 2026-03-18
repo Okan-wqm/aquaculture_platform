@@ -570,11 +570,22 @@ export class ProvisioningService {
     // Fingerprint duplicate check (with power-loss recovery - Fix 5)
     if (request.fingerprint.machineId) {
       const tenantSchema = this.getTenantSchemaFromId(key.tenantId);
-      const rows = await this.dataSource.query(
-        `SELECT * FROM "${tenantSchema}".edge_devices WHERE tenant_id = $1 AND fingerprint->>'machineId' = $2 LIMIT 1`,
-        [key.tenantId, request.fingerprint.machineId],
-      );
-      const existing = rows.length > 0 ? this.deviceRepository.create(rows[0] as Record<string, unknown>) : null;
+      const qr = this.dataSource.createQueryRunner();
+      await qr.connect();
+      let existing: EdgeDevice | null = null;
+      try {
+        await qr.query(`SET search_path TO "${tenantSchema}", sensor, public`);
+        existing = await qr.manager.getRepository(EdgeDevice)
+          .createQueryBuilder('d')
+          .where('d.tenant_id = :tenantId', { tenantId: key.tenantId })
+          .andWhere("d.fingerprint->>'machineId' = :machineId", {
+            machineId: request.fingerprint.machineId,
+          })
+          .getOne();
+      } finally {
+        await qr.query('RESET search_path').catch(() => {});
+        await qr.release();
+      }
 
       if (existing) {
         // If device was registered but never connected, return existing credentials for recovery

@@ -13,6 +13,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { getTenantSchemaName, isValidUUID } from '@platform/backend-common';
 import { CodeSequence } from '../entities/code-sequence.entity';
 
 export interface CodeGeneratorOptions {
@@ -60,8 +61,13 @@ export class CodeGeneratorService {
     await queryRunner.startTransaction();
 
     try {
+      // Validate tenantId to prevent SQL injection before schema derivation
+      if (!isValidUUID(options.tenantId)) {
+        throw new Error(`Invalid tenantId format: ${options.tenantId}`);
+      }
       // Set search_path to tenant schema so code_sequences resolves to the correct tenant schema
-      await queryRunner.query(`SET LOCAL search_path TO "tenant_${options.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}", farm, public`);
+      const tenantSchema = getTenantSchemaName(options.tenantId);
+      await queryRunner.query(`SET LOCAL search_path TO "${tenantSchema}", farm, public`);
 
       // Lock ile sequence kaydını bul veya oluştur
       let sequence = await queryRunner.manager.findOne(CodeSequence, {

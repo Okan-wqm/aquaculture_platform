@@ -118,7 +118,6 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     tableName: string,
     report: SyncReport,
   ): Promise<void> {
-    // Get columns from source schema
     const sourceColumns = await this.getColumns(sourceSchema, tableName);
     const tenantColumns = await this.getColumns(tenantSchema, tableName);
     const tenantColumnNames = new Set(tenantColumns.map((c: any) => c.column_name));
@@ -126,19 +125,23 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     for (const col of sourceColumns) {
       if (!tenantColumnNames.has(col.column_name)) {
         try {
-          // Build full data type (e.g., "character varying(255)", "numeric(10,2)")
-          const dataType = col.data_type === 'USER-DEFINED' ? col.udt_name : col.full_data_type;
+          const dataType = col.full_data_type;
           const nullClause = col.is_nullable === 'NO' ? 'NOT NULL' : '';
-          const defaultClause = col.column_default ? `DEFAULT ${col.column_default}` : '';
+          // Skip schema-qualified defaults (sequences etc.) — they reference source schema
+          const hasSchemaDefault = col.column_default && col.column_default.includes(`${sourceSchema}.`);
+          const defaultClause = col.column_default && !hasSchemaDefault
+            ? `DEFAULT ${col.column_default}`
+            : '';
+          // For NOT NULL without default, use a permissive approach
+          const effectiveNull = (nullClause === 'NOT NULL' && !defaultClause) ? '' : nullClause;
 
           await this.dataSource.query(`
             ALTER TABLE "${tenantSchema}"."${tableName}"
-            ADD COLUMN IF NOT EXISTS "${col.column_name}" ${dataType} ${nullClause} ${defaultClause}
+            ADD COLUMN IF NOT EXISTS "${col.column_name}" ${dataType} ${effectiveNull} ${defaultClause}
           `);
           report.columnsAdded++;
           this.logger.log(`Added missing column: ${tenantSchema}.${tableName}.${col.column_name}`);
         } catch (error) {
-          // Non-fatal — NOT NULL without DEFAULT may fail if table has rows
           const msg = `Column ${tenantSchema}.${tableName}.${col.column_name}: ${error instanceof Error ? error.message : String(error)}`;
           report.errors.push(msg);
           this.logger.warn(`Sync column error (non-fatal): ${msg}`);
@@ -158,20 +161,16 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   private async getColumns(schema: string, table: string): Promise<any[]> {
     return this.dataSource.query(
       `SELECT
-        column_name,
-        data_type,
-        udt_name,
-        is_nullable,
-        column_default,
-        CASE
-          WHEN data_type = 'character varying' THEN 'character varying' || COALESCE('(' || character_maximum_length || ')', '')
-          WHEN data_type = 'numeric' THEN 'numeric' || COALESCE('(' || numeric_precision || ',' || numeric_scale || ')', '')
-          WHEN data_type = 'USER-DEFINED' THEN udt_name
-          ELSE data_type
-        END AS full_data_type
-      FROM information_schema.columns
-      WHERE table_schema = $1 AND table_name = $2
-      ORDER BY ordinal_position`,
+        a.attname AS column_name,
+        format_type(a.atttypid, a.atttypmod) AS full_data_type,
+        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+        pg_get_expr(d.adbin, d.adrelid) AS column_default
+      FROM pg_attribute a
+      LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+      WHERE a.attrelid = ($1 || '.' || $2)::regclass
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+      ORDER BY a.attnum`,
       [schema, table],
     );
   }

@@ -57,7 +57,7 @@ export function getTenantSchemaName(tenantId: string): string {
 export async function listTenantSchemas(dataSource: DataSource): Promise<string[]> {
   const rows: { schema_name: string }[] = await dataSource.query(
     `SELECT schema_name FROM information_schema.schemata
-     WHERE schema_name LIKE 'tenant_%'
+     WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
      ORDER BY schema_name`,
   );
   return rows.map((r) => r.schema_name);

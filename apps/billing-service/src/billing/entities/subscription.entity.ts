@@ -100,7 +100,6 @@ export class Subscription {
 
   @Field()
   @Column({ name: 'tenant_id' })
-  @Index()
   tenantId!: string;
 
   @Field({ nullable: true })

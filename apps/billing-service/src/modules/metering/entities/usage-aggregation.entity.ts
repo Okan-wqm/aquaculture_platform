@@ -27,7 +27,6 @@ export class UsageAggregation {
   id!: string;
 
   @Column({ type: 'uuid', name: 'tenant_id' })
-  @Index()
   tenantId!: string;
 
   @Column({ type: 'varchar', length: 20 })

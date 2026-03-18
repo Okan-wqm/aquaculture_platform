@@ -101,7 +101,6 @@ export class Invoice {
 
   @Field()
   @Column({ name: 'tenant_id' })
-  @Index()
   tenantId!: string;
 
   @Field()

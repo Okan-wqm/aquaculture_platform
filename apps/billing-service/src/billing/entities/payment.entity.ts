@@ -89,7 +89,6 @@ export class Payment {
 
   @Field()
   @Column({ name: 'tenant_id' })
-  @Index()
   tenantId!: string;
 
   @Field()
@@ -98,7 +97,6 @@ export class Payment {
 
   @Field()
   @Column({ name: 'invoice_id' })
-  @Index()
   invoiceId!: string;
 
   // Bi-directional relationship - using string-based lazy loading to avoid circular dependency

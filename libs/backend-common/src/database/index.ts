@@ -15,3 +15,6 @@ export * from './schema-lru-cache';
 
 // Tenant Schema Utilities (pure functions, no DI required)
 export * from './tenant-schema.utils';
+
+// Watchdog system (source contamination scanner, cross-tenant probe, drift detector)
+export * from './watchdog';

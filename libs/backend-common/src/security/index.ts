@@ -27,3 +27,6 @@ export * from './validators';
 
 // GDPR Compliance (Consent Management, Data Subject Rights)
 export * from './gdpr';
+
+// Security Event Service (Audit logging for security events)
+export * from './security-event.service';

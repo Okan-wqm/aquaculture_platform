@@ -14,6 +14,9 @@ export * from './ai-events';
 export * from './task-events';
 export * from './edge-device-events';
 
+// Security events (auth failures, rate limit, CSP violations, etc.)
+export * from './security';
+
 // Re-export all domain union types for convenience
 import type { AuthEvent } from './auth-events';
 import type { TenantEvent } from './tenant-events';

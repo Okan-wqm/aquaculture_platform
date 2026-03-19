@@ -130,8 +130,8 @@ export interface FeedForecastInput {
 // ============================================================================
 
 const GROWTH_SIMULATION_QUERY = `
-  query GrowthSimulation($tenantId: ID!, $schemaName: String!, $input: GrowthSimulationInput!) {
-    growthSimulation(tenantId: $tenantId, schemaName: $schemaName, input: $input) {
+  query GrowthSimulation($input: GrowthSimulationInput!) {
+    growthSimulation(input: $input) {
       projections {
         day
         date
@@ -173,8 +173,8 @@ const GROWTH_SIMULATION_QUERY = `
 `;
 
 const FEED_CONSUMPTION_FORECAST_QUERY = `
-  query FeedConsumptionForecast($tenantId: ID!, $schemaName: String!, $input: FeedForecastInput) {
-    feedConsumptionForecast(tenantId: $tenantId, schemaName: $schemaName, input: $input) {
+  query FeedConsumptionForecast($input: FeedForecastInput) {
+    feedConsumptionForecast(input: $input) {
       forecastDays
       startDate
       endDate
@@ -221,8 +221,8 @@ const ESTIMATE_SGR_QUERY = `
 `;
 
 const ACTIVE_TANKS_QUERY = `
-  query ActiveTanks($tenantId: ID!, $schemaName: String!) {
-    activeTanks(tenantId: $tenantId, schemaName: $schemaName) {
+  query ActiveTanks {
+    activeTanks {
       tankId
       tankName
       tankCode
@@ -255,15 +255,13 @@ export function useGrowthSimulation(
   options?: { enabled?: boolean }
 ) {
   const { token, tenantId } = useAuth();
-  // Schema naming convention: tenant_{first16chars_of_uuid} without dashes
-  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
 
   return useQuery({
     queryKey: ['feeding', 'growth-simulation', input],
     queryFn: async () => {
       const data = await graphqlClient.request<{ growthSimulation: GrowthSimulationResult }>(
         GROWTH_SIMULATION_QUERY,
-        { tenantId, schemaName, input }
+        { input }
       );
       return data.growthSimulation;
     },
@@ -280,15 +278,13 @@ export function useFeedConsumptionForecast(
   options?: { enabled?: boolean }
 ) {
   const { token, tenantId } = useAuth();
-  // Schema naming convention: tenant_{first16chars_of_uuid} without dashes
-  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
 
   return useQuery({
     queryKey: ['feeding', 'forecast', input],
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedConsumptionForecast: FeedForecastResult }>(
         FEED_CONSUMPTION_FORECAST_QUERY,
-        { tenantId, schemaName, input: input ?? {} }
+        { input: input ?? {} }
       );
       return data.feedConsumptionForecast;
     },
@@ -353,15 +349,12 @@ export function useEstimateSGR(
  */
 export function useActiveTanks(options?: { enabled?: boolean }) {
   const { token, tenantId } = useAuth();
-  // Schema naming convention: tenant_{first16chars_of_uuid} without dashes
-  const schemaName = `tenant_${tenantId?.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
 
   return useQuery({
     queryKey: ['feeding', 'active-tanks', tenantId],
     queryFn: async () => {
       const data = await graphqlClient.request<{ activeTanks: ActiveTank[] }>(
-        ACTIVE_TANKS_QUERY,
-        { tenantId, schemaName }
+        ACTIVE_TANKS_QUERY
       );
       return data.activeTanks;
     },

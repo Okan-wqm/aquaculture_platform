@@ -271,7 +271,7 @@ export function useFeedingRecord(id: string) {
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedingRecord: FeedingRecord }>(
         FEEDING_RECORD_QUERY,
-        { id, tenantId }
+        { id }
       );
       return data.feedingRecord;
     },
@@ -298,7 +298,6 @@ export function useFeedingRecordsList(
       const data = await graphqlClient.request<{ feedingRecords: FeedingRecordConnection }>(
         FEEDING_RECORDS_QUERY,
         {
-          tenantId,
           filter,
           pagination: {
             page: pagination?.page ?? 1,
@@ -338,7 +337,7 @@ export function useDailyFeedingPlan(
     queryFn: async () => {
       const data = await graphqlClient.request<{ dailyFeedingPlan: DailyFeedingPlanResponse }>(
         DAILY_FEEDING_PLAN_QUERY,
-        { tenantId, siteId, date }
+        { siteId, date }
       );
       return data.dailyFeedingPlan;
     },
@@ -364,7 +363,7 @@ export function useFeedingSummary(
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedingSummary: FeedingSummaryResponse }>(
         FEEDING_SUMMARY_QUERY,
-        { tenantId, entityType, entityId, startDate, endDate }
+        { entityType, entityId, startDate, endDate }
       );
       return data.feedingSummary;
     },
@@ -377,7 +376,7 @@ export function useFeedingSummary(
  * Hook to create a new feeding record
  */
 export function useCreateFeedingRecord() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -390,7 +389,7 @@ export function useCreateFeedingRecord() {
       }
       const data = await graphqlClient.request<{ createFeedingRecord: FeedingRecord }>(
         CREATE_FEEDING_RECORD_MUTATION,
-        { tenantId, userId: user?.id, input }
+        { input }
       );
       return data.createFeedingRecord;
     },
@@ -406,7 +405,7 @@ export function useCreateFeedingRecord() {
  * Hook to update a feeding record
  */
 export function useUpdateFeedingRecord() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -419,7 +418,7 @@ export function useUpdateFeedingRecord() {
       }
       const data = await graphqlClient.request<{ updateFeedingRecord: FeedingRecord }>(
         UPDATE_FEEDING_RECORD_MUTATION,
-        { tenantId, id, userId: user?.id, input }
+        { id, input }
       );
       return data.updateFeedingRecord;
     },
@@ -481,7 +480,7 @@ export function useFeedInventoryList(
  * Hook to add feed inventory (purchase)
  */
 export function useAddFeedInventory() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -494,7 +493,7 @@ export function useAddFeedInventory() {
       }
       const data = await graphqlClient.request<{ addFeedInventory: FeedInventory }>(
         ADD_FEED_INVENTORY_MUTATION,
-        { tenantId, userId: user?.id, input }
+        { input }
       );
       return data.addFeedInventory;
     },
@@ -509,7 +508,7 @@ export function useAddFeedInventory() {
  * Hook to consume feed from inventory
  */
 export function useConsumeFeedInventory() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -522,7 +521,7 @@ export function useConsumeFeedInventory() {
       }
       const data = await graphqlClient.request<{ consumeFeedInventory: FeedInventory }>(
         CONSUME_FEED_INVENTORY_MUTATION,
-        { tenantId, userId: user?.id, input }
+        { input }
       );
       return data.consumeFeedInventory;
     },
@@ -537,7 +536,7 @@ export function useConsumeFeedInventory() {
  * Hook to adjust feed inventory (correction)
  */
 export function useAdjustFeedInventory() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -550,7 +549,7 @@ export function useAdjustFeedInventory() {
       }
       const data = await graphqlClient.request<{ adjustFeedInventory: FeedInventory }>(
         ADJUST_FEED_INVENTORY_MUTATION,
-        { tenantId, userId: user?.id, input }
+        { input }
       );
       return data.adjustFeedInventory;
     },

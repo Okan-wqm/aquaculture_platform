@@ -15,8 +15,8 @@
  * Tek bir buyume olcumu getir
  */
 export const GROWTH_MEASUREMENT_QUERY = `
-  query GrowthMeasurement($tenantId: ID!, $id: ID!) {
-    growthMeasurement(tenantId: $tenantId, id: $id) {
+  query GrowthMeasurement($id: ID!) {
+    growthMeasurement(id: $id) {
       id
       tenantId
       batchId
@@ -76,11 +76,10 @@ export const GROWTH_MEASUREMENT_QUERY = `
  */
 export const GROWTH_MEASUREMENTS_QUERY = `
   query GrowthMeasurements(
-    $tenantId: ID!
     $filter: GrowthMeasurementFilterInput
     $pagination: GrowthPaginationInput
   ) {
-    growthMeasurements(tenantId: $tenantId, filter: $filter, pagination: $pagination) {
+    growthMeasurements(filter: $filter, pagination: $pagination) {
       items {
         id
         tenantId
@@ -125,8 +124,8 @@ export const GROWTH_MEASUREMENTS_QUERY = `
  * Batch icin buyume analizi getir
  */
 export const GROWTH_ANALYSIS_QUERY = `
-  query GrowthAnalysis($tenantId: ID!, $batchId: ID!) {
-    growthAnalysis(tenantId: $tenantId, batchId: $batchId) {
+  query GrowthAnalysis($batchId: ID!) {
+    growthAnalysis(batchId: $batchId) {
       batchId
       batchCode
       speciesName
@@ -191,8 +190,8 @@ export const GROWTH_ANALYSIS_QUERY = `
  * Batch icin son olcumu getir
  */
 export const LATEST_GROWTH_MEASUREMENT_QUERY = `
-  query LatestGrowthMeasurement($tenantId: ID!, $batchId: ID!) {
-    latestGrowthMeasurement(tenantId: $tenantId, batchId: $batchId) {
+  query LatestGrowthMeasurement($batchId: ID!) {
+    latestGrowthMeasurement(batchId: $batchId) {
       id
       tenantId
       batchId
@@ -224,8 +223,8 @@ export const LATEST_GROWTH_MEASUREMENT_QUERY = `
  * Batch buyume gecmisi
  */
 export const BATCH_GROWTH_HISTORY_QUERY = `
-  query BatchGrowthHistory($tenantId: ID!, $batchId: ID!, $limit: Int) {
-    batchGrowthHistory(tenantId: $tenantId, batchId: $batchId, limit: $limit) {
+  query BatchGrowthHistory($batchId: ID!, $limit: Int) {
+    batchGrowthHistory(batchId: $batchId, limit: $limit) {
       id
       tenantId
       batchId
@@ -264,8 +263,8 @@ export const BATCH_GROWTH_HISTORY_QUERY = `
  * Yeni buyume ornekleme kaydi olustur
  */
 export const RECORD_GROWTH_SAMPLE_MUTATION = `
-  mutation RecordGrowthSample($tenantId: ID!, $userId: ID!, $input: RecordGrowthSampleInput!) {
-    recordGrowthSample(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation RecordGrowthSample($input: RecordGrowthSampleInput!) {
+    recordGrowthSample(input: $input) {
       id
       tenantId
       batchId
@@ -302,14 +301,10 @@ export const RECORD_GROWTH_SAMPLE_MUTATION = `
  */
 export const UPDATE_BATCH_WEIGHT_FROM_SAMPLE_MUTATION = `
   mutation UpdateBatchWeightFromSample(
-    $tenantId: ID!
-    $userId: ID!
     $batchId: ID!
     $measurementId: ID!
   ) {
     updateBatchWeightFromSample(
-      tenantId: $tenantId
-      userId: $userId
       batchId: $batchId
       measurementId: $measurementId
     ) {
@@ -327,15 +322,11 @@ export const UPDATE_BATCH_WEIGHT_FROM_SAMPLE_MUTATION = `
  */
 export const VERIFY_MEASUREMENT_MUTATION = `
   mutation VerifyMeasurement(
-    $tenantId: ID!
     $measurementId: ID!
-    $userId: ID!
     $notes: String
   ) {
     verifyMeasurement(
-      tenantId: $tenantId
       measurementId: $measurementId
-      userId: $userId
       notes: $notes
     ) {
       id

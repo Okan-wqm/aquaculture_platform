@@ -16,8 +16,8 @@ export interface TankFeeder {
 // PERF-013: Pass category filter to the server so only feeder-type sub-equipment
 // is returned, reducing over-fetch for tanks with many non-feeder sub-equipment items.
 const GET_TANK_FEEDERS_QUERY = `
-  query GetSubEquipmentByParent($tenantId: ID!, $schemaName: String!, $parentEquipmentId: ID!, $includeInactive: Boolean, $category: String) {
-    getSubEquipmentByParent(tenantId: $tenantId, schemaName: $schemaName, parentEquipmentId: $parentEquipmentId, includeInactive: $includeInactive, category: $category) {
+  query GetSubEquipmentByParent($parentEquipmentId: ID!, $includeInactive: Boolean, $category: String) {
+    subEquipmentByParent(parentEquipmentId: $parentEquipmentId, includeInactive: $includeInactive, category: $category) {
       id
       name
       code
@@ -46,26 +46,20 @@ interface SubEquipmentResponse {
 export function useTankFeeders(tankEquipmentId: string | undefined) {
   const { token, tenantId } = useAuth();
 
-  const schemaName = tenantId
-    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`
-    : null;
-
   return useQuery({
     queryKey: ['sub-equipment', 'feeders', tenantId, tankEquipmentId],
     queryFn: async () => {
-      if (!tenantId || !tankEquipmentId || !schemaName) return [];
+      if (!tenantId || !tankEquipmentId) return [];
 
       const data = await graphqlClient.request<{
-        getSubEquipmentByParent: SubEquipmentResponse[];
+        subEquipmentByParent: SubEquipmentResponse[];
       }>(GET_TANK_FEEDERS_QUERY, {
-        tenantId,
-        schemaName,
         parentEquipmentId: tankEquipmentId,
         includeInactive: false,
         category: 'feeder', // server-side category filter (PERF-013)
       });
 
-      const allSubEquipment = data.getSubEquipmentByParent || [];
+      const allSubEquipment = data.subEquipmentByParent || [];
 
       // Client-side fallback filter in case the server doesn't support the category param yet
       const feeders = allSubEquipment.filter(
@@ -83,7 +77,7 @@ export function useTankFeeders(tankEquipmentId: string | undefined) {
         status: f.isActive ? 'ACTIVE' : 'INACTIVE',
       }));
     },
-    enabled: !!token && !!tenantId && !!tankEquipmentId && !!schemaName,
+    enabled: !!token && !!tenantId && !!tankEquipmentId,
     staleTime: 60000,
   });
 }

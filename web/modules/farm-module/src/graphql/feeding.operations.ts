@@ -80,8 +80,8 @@ const FEED_INVENTORY_FIELDS = `
  * Get a single feeding record by ID
  */
 export const FEEDING_RECORD_QUERY = `
-  query FeedingRecord($id: ID!, $tenantId: ID!) {
-    feedingRecord(id: $id, tenantId: $tenantId) {
+  query FeedingRecord($id: ID!) {
+    feedingRecord(id: $id) {
       ${FEEDING_RECORD_FIELDS}
     }
   }
@@ -91,8 +91,8 @@ export const FEEDING_RECORD_QUERY = `
  * List feeding records with filters and pagination
  */
 export const FEEDING_RECORDS_QUERY = `
-  query FeedingRecords($tenantId: ID!, $filter: FeedingRecordFilterInput, $pagination: FeedingPaginationInput) {
-    feedingRecords(tenantId: $tenantId, filter: $filter, pagination: $pagination) {
+  query FeedingRecords($filter: FeedingRecordFilterInput, $pagination: FeedingPaginationInput) {
+    feedingRecords(filter: $filter, pagination: $pagination) {
       items {
         ${FEEDING_RECORD_FIELDS}
       }
@@ -106,8 +106,8 @@ export const FEEDING_RECORDS_QUERY = `
  * Get daily feeding plan for a site
  */
 export const DAILY_FEEDING_PLAN_QUERY = `
-  query DailyFeedingPlan($tenantId: ID!, $siteId: ID!, $date: DateTime) {
-    dailyFeedingPlan(tenantId: $tenantId, siteId: $siteId, date: $date) {
+  query DailyFeedingPlan($siteId: ID!, $date: DateTime) {
+    dailyFeedingPlan(siteId: $siteId, date: $date) {
       date
       siteId
       plannedFeedings {
@@ -134,8 +134,8 @@ export const DAILY_FEEDING_PLAN_QUERY = `
  * Get feeding summary/statistics
  */
 export const FEEDING_SUMMARY_QUERY = `
-  query FeedingSummary($tenantId: ID!, $entityType: String!, $entityId: ID!, $startDate: DateTime, $endDate: DateTime) {
-    feedingSummary(tenantId: $tenantId, entityType: $entityType, entityId: $entityId, startDate: $startDate, endDate: $endDate) {
+  query FeedingSummary($entityType: String!, $entityId: ID!, $startDate: DateTime, $endDate: DateTime) {
+    feedingSummary(entityType: $entityType, entityId: $entityId, startDate: $startDate, endDate: $endDate) {
       batchId
       siteId
       startDate
@@ -163,8 +163,8 @@ export const FEEDING_SUMMARY_QUERY = `
  * Get feed inventory with filters and pagination
  */
 export const FEED_INVENTORY_QUERY = `
-  query FeedInventory($tenantId: ID!, $filter: FeedInventoryFilterInput, $pagination: FeedingPaginationInput) {
-    feedInventory(tenantId: $tenantId, filter: $filter, pagination: $pagination) {
+  query FeedInventory($filter: FeedInventoryFilterInput, $pagination: FeedingPaginationInput) {
+    feedInventory(filter: $filter, pagination: $pagination) {
       items {
         ${FEED_INVENTORY_FIELDS}
       }
@@ -182,8 +182,8 @@ export const FEED_INVENTORY_QUERY = `
  * Create a new feeding record
  */
 export const CREATE_FEEDING_RECORD_MUTATION = `
-  mutation CreateFeedingRecord($tenantId: ID!, $userId: ID!, $input: CreateFeedingRecordInput!) {
-    createFeedingRecord(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation CreateFeedingRecord($input: CreateFeedingRecordInput!) {
+    createFeedingRecord(input: $input) {
       ${FEEDING_RECORD_FIELDS}
     }
   }
@@ -193,8 +193,8 @@ export const CREATE_FEEDING_RECORD_MUTATION = `
  * Update an existing feeding record
  */
 export const UPDATE_FEEDING_RECORD_MUTATION = `
-  mutation UpdateFeedingRecord($tenantId: ID!, $id: ID!, $userId: ID!, $input: UpdateFeedingRecordInput!) {
-    updateFeedingRecord(tenantId: $tenantId, id: $id, userId: $userId, input: $input) {
+  mutation UpdateFeedingRecord($id: ID!, $input: UpdateFeedingRecordInput!) {
+    updateFeedingRecord(id: $id, input: $input) {
       ${FEEDING_RECORD_FIELDS}
     }
   }
@@ -204,8 +204,8 @@ export const UPDATE_FEEDING_RECORD_MUTATION = `
  * Add feed inventory (purchase)
  */
 export const ADD_FEED_INVENTORY_MUTATION = `
-  mutation AddFeedInventory($tenantId: ID!, $userId: ID!, $input: AddFeedInventoryInput!) {
-    addFeedInventory(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation AddFeedInventory($input: AddFeedInventoryInput!) {
+    addFeedInventory(input: $input) {
       ${FEED_INVENTORY_FIELDS}
     }
   }
@@ -215,8 +215,8 @@ export const ADD_FEED_INVENTORY_MUTATION = `
  * Consume feed from inventory
  */
 export const CONSUME_FEED_INVENTORY_MUTATION = `
-  mutation ConsumeFeedInventory($tenantId: ID!, $userId: ID!, $input: ConsumeFeedInventoryInput!) {
-    consumeFeedInventory(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation ConsumeFeedInventory($input: ConsumeFeedInventoryInput!) {
+    consumeFeedInventory(input: $input) {
       ${FEED_INVENTORY_FIELDS}
     }
   }
@@ -226,8 +226,8 @@ export const CONSUME_FEED_INVENTORY_MUTATION = `
  * Adjust feed inventory (correction)
  */
 export const ADJUST_FEED_INVENTORY_MUTATION = `
-  mutation AdjustFeedInventory($tenantId: ID!, $userId: ID!, $input: AdjustFeedInventoryInput!) {
-    adjustFeedInventory(tenantId: $tenantId, userId: $userId, input: $input) {
+  mutation AdjustFeedInventory($input: AdjustFeedInventoryInput!) {
+    adjustFeedInventory(input: $input) {
       ${FEED_INVENTORY_FIELDS}
     }
   }

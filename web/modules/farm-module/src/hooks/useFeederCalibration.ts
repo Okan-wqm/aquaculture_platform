@@ -26,8 +26,8 @@ export interface FeederCalibrationItemInput {
 }
 
 const FEEDER_CALIBRATIONS_QUERY = `
-  query FeederCalibrations($tenantId: ID!, $schemaName: String!, $equipmentId: ID!) {
-    feederCalibrations(tenantId: $tenantId, schemaName: $schemaName, equipmentId: $equipmentId) {
+  query FeederCalibrations($equipmentId: ID!) {
+    feederCalibrations(equipmentId: $equipmentId) {
       id
       equipmentId
       feedSizeMm
@@ -42,8 +42,8 @@ const FEEDER_CALIBRATIONS_QUERY = `
 `;
 
 const SAVE_FEEDER_CALIBRATIONS_MUTATION = `
-  mutation SaveFeederCalibrations($tenantId: ID!, $schemaName: String!, $input: SaveFeederCalibrationsInput!) {
-    saveFeederCalibrations(tenantId: $tenantId, schemaName: $schemaName, input: $input) {
+  mutation SaveFeederCalibrations($input: SaveFeederCalibrationsInput!) {
+    saveFeederCalibrations(input: $input) {
       id
       equipmentId
       feedSizeMm
@@ -63,22 +63,17 @@ const SAVE_FEEDER_CALIBRATIONS_MUTATION = `
 export function useFeederCalibrations(equipmentId: string | null) {
   const { token, tenantId } = useAuth();
 
-  // Derive schema name per project convention
-  const schemaName = tenantId
-    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`
-    : null;
-
   return useQuery({
     queryKey: ['feederCalibrations', tenantId, equipmentId],
     queryFn: async () => {
       const data = await graphqlClient.request<{ feederCalibrations: FeederCalibration[] }>(
         FEEDER_CALIBRATIONS_QUERY,
-        { tenantId, schemaName, equipmentId },
+        { equipmentId },
       );
       return data.feederCalibrations;
     },
     staleTime: 30000,
-    enabled: !!token && !!tenantId && !!equipmentId && !!schemaName,
+    enabled: !!token && !!tenantId && !!equipmentId,
   });
 }
 
@@ -89,19 +84,15 @@ export function useSaveFeederCalibrations() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
-  const schemaName = tenantId
-    ? `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`
-    : null;
-
   return useMutation({
     mutationFn: async ({ equipmentId, calibrations }: {
       equipmentId: string;
       calibrations: FeederCalibrationItemInput[];
     }) => {
-      if (!tenantId || !schemaName) throw new Error('Tenant context required');
+      if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ saveFeederCalibrations: FeederCalibration[] }>(
         SAVE_FEEDER_CALIBRATIONS_MUTATION,
-        { tenantId, schemaName, input: { equipmentId, calibrations } },
+        { input: { equipmentId, calibrations } },
       );
       return data.saveFeederCalibrations;
     },

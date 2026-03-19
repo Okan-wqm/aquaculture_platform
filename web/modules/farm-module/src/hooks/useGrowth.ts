@@ -235,7 +235,7 @@ export function useGrowthMeasurement(id: string) {
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ growthMeasurement: GrowthMeasurement }>(
         GROWTH_MEASUREMENT_QUERY,
-        { tenantId, id }
+        { id }
       );
       return data.growthMeasurement;
     },
@@ -270,7 +270,7 @@ export function useGrowthMeasurements(
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ growthMeasurements: GrowthMeasurementConnection }>(
         GROWTH_MEASUREMENTS_QUERY,
-        { tenantId, filter, pagination }
+        { filter, pagination }
       );
       return data.growthMeasurements;
     },
@@ -305,7 +305,7 @@ export function useGrowthAnalysis(
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ growthAnalysis: GrowthAnalysis }>(
         GROWTH_ANALYSIS_QUERY,
-        { tenantId, batchId }
+        { batchId }
       );
       return data.growthAnalysis;
     },
@@ -339,7 +339,7 @@ export function useLatestGrowthMeasurement(
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ latestGrowthMeasurement: GrowthMeasurement | null }>(
         LATEST_GROWTH_MEASUREMENT_QUERY,
-        { tenantId, batchId }
+        { batchId }
       );
       return data.latestGrowthMeasurement;
     },
@@ -374,7 +374,7 @@ export function useBatchGrowthHistory(
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ batchGrowthHistory: GrowthMeasurement[] }>(
         BATCH_GROWTH_HISTORY_QUERY,
-        { tenantId, batchId, limit }
+        { batchId, limit }
       );
       return data.batchGrowthHistory;
     },
@@ -401,7 +401,7 @@ export function useBatchGrowthHistory(
  * Yeni buyume ornekleme kaydi olustur
  */
 export function useRecordGrowthSample() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -412,12 +412,9 @@ export function useRecordGrowthSample() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      if (!user?.id) {
-        throw new Error('User context required. Please re-login.');
-      }
       const data = await graphqlClient.request<{ recordGrowthSample: GrowthMeasurement }>(
         RECORD_GROWTH_SAMPLE_MUTATION,
-        { tenantId, userId: user.id, input }
+        { input }
       );
       return data.recordGrowthSample;
     },
@@ -434,7 +431,7 @@ export function useRecordGrowthSample() {
  * Batch agirligini olcum sonucuyla guncelle
  */
 export function useUpdateBatchWeightFromSample() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -445,12 +442,9 @@ export function useUpdateBatchWeightFromSample() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      if (!user?.id) {
-        throw new Error('User context required. Please re-login.');
-      }
       const data = await graphqlClient.request<{ updateBatchWeightFromSample: GrowthMeasurement }>(
         UPDATE_BATCH_WEIGHT_FROM_SAMPLE_MUTATION,
-        { tenantId, userId: user.id, batchId, measurementId }
+        { batchId, measurementId }
       );
       return data.updateBatchWeightFromSample;
     },
@@ -465,7 +459,7 @@ export function useUpdateBatchWeightFromSample() {
  * Olcumu dogrula
  */
 export function useVerifyMeasurement() {
-  const { token, tenantId, user } = useAuth();
+  const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -476,12 +470,9 @@ export function useVerifyMeasurement() {
       if (!tenantId) {
         throw new Error('Tenant context required. Please re-login.');
       }
-      if (!user?.id) {
-        throw new Error('User context required. Please re-login.');
-      }
       const data = await graphqlClient.request<{ verifyMeasurement: GrowthMeasurement }>(
         VERIFY_MEASUREMENT_MUTATION,
-        { tenantId, measurementId, userId: user.id, notes }
+        { measurementId, notes }
       );
       return data.verifyMeasurement;
     },

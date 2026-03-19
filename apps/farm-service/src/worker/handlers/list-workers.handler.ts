@@ -15,7 +15,7 @@ export class ListWorkersHandler implements IQueryHandler<ListWorkersQuery> {
     const { tenantId } = query;
 
     return this.workerRepository.find({
-      where: { tenantId, isDeleted: false, isFarmWorker: true },
+      where: { tenantId, isDeleted: false },
       order: { firstName: 'ASC', lastName: 'ASC' },
     });
   }

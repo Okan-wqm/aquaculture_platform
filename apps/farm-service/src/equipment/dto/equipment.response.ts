@@ -249,8 +249,8 @@ export class EquipmentResponse {
   @Field(() => Int, { nullable: true, description: 'Number of sub-equipment items' })
   subEquipmentCount?: number;
 
-  @Field(() => ID)
-  equipmentTypeId: string;
+  @Field(() => ID, { nullable: true })
+  equipmentTypeId?: string;
 
   @Field(() => EquipmentTypeResponse, { nullable: true })
   equipmentType?: EquipmentTypeResponse;

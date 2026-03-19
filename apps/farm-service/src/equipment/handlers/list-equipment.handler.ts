@@ -7,7 +7,7 @@
  */
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
 import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
 import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
@@ -72,6 +72,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     private readonly tankRepository: Repository<Tank>,
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: ListEquipmentQuery): Promise<PaginatedResult<Equipment>> {
@@ -358,9 +359,11 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
       return this.equipmentTypesCache.map;
     }
 
-    const equipmentTypes = await this.equipmentTypeRepository.find({
-      where: { category: EquipmentCategory.TANK },
-    });
+    // Use explicit farm schema to avoid tenant shadow tables
+    const equipmentTypes: EquipmentType[] = await this.dataSource.query(
+      `SELECT * FROM "farm"."equipment_types" WHERE "category" = $1`,
+      [EquipmentCategory.TANK],
+    );
 
     const map = new Map<string, EquipmentType>();
     for (const type of equipmentTypes) {

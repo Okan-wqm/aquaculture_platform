@@ -21,7 +21,6 @@ export class Worker {
   id: string;
 
   @Column()
-  @Index()
   tenantId: string;
 
   @Column({ unique: true })

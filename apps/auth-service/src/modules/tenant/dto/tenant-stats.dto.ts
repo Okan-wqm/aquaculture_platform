@@ -1,5 +1,6 @@
 import { ObjectType, Field, Int, Float, InputType } from '@nestjs/graphql';
 import { IsString, MaxLength, Matches } from 'class-validator';
+import { GraphQLJSON } from 'graphql-type-json';
 
 /**
  * Tenant statistics response
@@ -164,6 +165,162 @@ export class TableSchemaInfo {
 
   @Field(() => [IndexInfo])
   indexes!: IndexInfo[];
+}
+
+// ============================================================================
+// Audit Log Types
+// ============================================================================
+
+@ObjectType()
+export class AuditLogEntryResponse {
+  @Field()
+  id!: string;
+
+  @Field()
+  performedBy!: string;
+
+  @Field({ nullable: true })
+  performedByEmail?: string;
+
+  @Field()
+  action!: string;
+
+  @Field()
+  entityType!: string;
+
+  @Field({ nullable: true })
+  entityId?: string;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  details?: Record<string, unknown>;
+
+  @Field()
+  severity!: string;
+
+  @Field({ nullable: true })
+  ipAddress?: string;
+
+  @Field({ nullable: true })
+  userAgent?: string;
+
+  @Field()
+  createdAt!: Date;
+}
+
+@ObjectType()
+export class AuditLogPage {
+  @Field(() => [AuditLogEntryResponse])
+  data!: AuditLogEntryResponse[];
+
+  @Field(() => Int)
+  total!: number;
+}
+
+// ============================================================================
+// Tenant Activity Types
+// ============================================================================
+
+@ObjectType()
+export class RecentLoginResponse {
+  @Field()
+  id!: string;
+
+  @Field()
+  userId!: string;
+
+  @Field()
+  email!: string;
+
+  @Field({ nullable: true })
+  firstName?: string;
+
+  @Field({ nullable: true })
+  lastName?: string;
+
+  @Field()
+  loginAt!: Date;
+
+  @Field({ nullable: true })
+  ipAddress?: string;
+
+  @Field({ nullable: true })
+  userAgent?: string;
+
+  @Field({ nullable: true })
+  deviceType?: string;
+
+  @Field()
+  success!: boolean;
+}
+
+@ObjectType()
+export class UserActivitySummaryResponse {
+  @Field()
+  userId!: string;
+
+  @Field()
+  email!: string;
+
+  @Field({ nullable: true })
+  firstName?: string;
+
+  @Field({ nullable: true })
+  lastName?: string;
+
+  @Field(() => Int)
+  totalActions!: number;
+
+  @Field({ nullable: true })
+  lastActiveAt?: Date;
+
+  @Field(() => Int)
+  loginCount!: number;
+}
+
+@ObjectType()
+export class DailyActiveUsersResponse {
+  @Field()
+  date!: string;
+
+  @Field(() => Int)
+  count!: number;
+}
+
+@ObjectType()
+export class TenantActivityResponse {
+  @Field(() => [RecentLoginResponse])
+  recentLogins!: RecentLoginResponse[];
+
+  @Field(() => Int)
+  activeSessions!: number;
+
+  @Field(() => [UserActivitySummaryResponse])
+  userActivitySummaries!: UserActivitySummaryResponse[];
+
+  @Field(() => [DailyActiveUsersResponse])
+  dailyActiveUsers!: DailyActiveUsersResponse[];
+}
+
+// ============================================================================
+// Module Usage Stats Types
+// ============================================================================
+
+@ObjectType()
+export class ModuleUsageStatResponse {
+  @Field()
+  moduleCode!: string;
+
+  @Field(() => Int)
+  userCount!: number;
+
+  @Field({ nullable: true })
+  lastAccessAt?: Date;
+
+  @Field(() => Int)
+  actionsThisMonth!: number;
+
+  @Field(() => Int)
+  actionsLastMonth!: number;
 }
 
 /**

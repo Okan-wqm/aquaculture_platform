@@ -18,7 +18,7 @@ import {
   email as emailValidator,
   minLength,
   validateField,
-  clearTokens,
+  clearSession,
 } from '@aquaculture/shared-ui';
 import type { MfaChallengeResult } from '@aquaculture/shared-ui';
 
@@ -503,7 +503,7 @@ const AcceptInvitationForm: React.FC = () => {
 
         // Clear any existing session before redirecting to login
         // so the user must authenticate fresh with their new credentials
-        clearTokens();
+        clearSession();
         navigate('/login');
       } catch (err) {
         setErrors({

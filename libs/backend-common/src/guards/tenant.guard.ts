@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Reflector } from '@nestjs/core';
-import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY } from '../decorators/roles.decorator';
+import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
 import { TenantRequest } from '../types/tenant-request.interface';
 
 /**
@@ -58,8 +58,22 @@ export class TenantGuard implements CanActivate {
       request = context.switchToHttp().getRequest<TenantRequest>();
     }
 
-    const tenantId = this.extractTenantId(request);
     const user = request.user;
+
+    // SUPER_ADMIN operates in system scope - no tenant enforcement required.
+    // They can optionally specify a tenant via header/argument for cross-tenant access.
+    if (this.isSuperAdmin(user)) {
+      const tenantId = this.extractTenantId(request);
+      if (tenantId) {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(tenantId)) {
+          request.tenantId = tenantId;
+        }
+      }
+      return true;
+    }
+
+    const tenantId = this.extractTenantId(request);
 
     // If no tenant ID in request, deny access
     if (!tenantId) {
@@ -83,6 +97,17 @@ export class TenantGuard implements CanActivate {
     request.tenantId = tenantId;
 
     return true;
+  }
+
+  /**
+   * Check if the user has SUPER_ADMIN role.
+   * Supports both the `roles` array and the deprecated `role` string field.
+   */
+  private isSuperAdmin(user?: TenantRequest['user']): boolean {
+    if (!user) return false;
+    if (user.roles?.includes(Role.SUPER_ADMIN)) return true;
+    if (user.role === Role.SUPER_ADMIN) return true;
+    return false;
   }
 
   private extractTenantId(request: TenantRequest): string | undefined {

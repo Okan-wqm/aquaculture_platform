@@ -5,6 +5,7 @@
  */
 
 import { print, type DocumentNode } from 'graphql';
+import { tokenLifecycle } from './token-lifecycle';
 
 // ============================================================================
 // Type Definitions
@@ -115,23 +116,49 @@ export function setTokens(access: string, _refresh?: string): void {
 
   // SECURITY: Expose frozen getter on window for Module Federation cross-bundle access
   installAuthGlobal();
+
+  // Notify lifecycle manager that a token is available
+  tokenLifecycle.notifyTokenSet(access);
 }
 
 /**
- * Clear tokens
+ * Clear access token only.
+ * tenantId is intentionally NOT cleared here - it is preserved during
+ * refresh cycles so that X-Tenant-Id header is not lost between token expiry
+ * and successful refresh. For full session teardown use clearSession().
  */
 export function clearTokens(): void {
+  accessToken = null;
+  // NOTE: tenantId is intentionally NOT cleared here.
+  // It is only cleared on explicit logout via clearSession().
+
+  // Re-install auth global in case it wasn't set yet
+  installAuthGlobal();
+
+  // Notify lifecycle manager
+  tokenLifecycle.notifyTokenCleared();
+}
+
+/**
+ * Clear full session (tokens + tenant ID).
+ * Called on explicit logout or when refresh permanently fails.
+ * Unlike clearTokens(), this also removes tenantId from memory and localStorage.
+ */
+export function clearSession(): void {
   accessToken = null;
   tenantId = null;
 
   try {
     localStorage.removeItem('tenant_id');
-  } catch (e) {
+  } catch {
     // Ignore
   }
 
   // Re-install auth global in case it wasn't set yet
   installAuthGlobal();
+
+  // Notify lifecycle manager
+  tokenLifecycle.notifyTokenCleared();
 }
 
 /**
@@ -165,16 +192,15 @@ export async function silentRefresh(): Promise<boolean> {
       return false;
     }
 
-    accessToken = result.data.refreshToken.accessToken;
+    // CRITICAL: Use setTokens() instead of direct assignment so that
+    // tokenLifecycle.notifyTokenSet() fires, transitioning from REFRESHING → READY
+    setTokens(result.data.refreshToken.accessToken);
 
     // Restore tenant ID from refresh response (critical for X-Tenant-Id header)
     const refreshedTenantId = result.data.refreshToken.user?.tenantId;
     if (refreshedTenantId) {
       setTenantId(refreshedTenantId);
     }
-
-    // Re-install auth global in case it wasn't set yet
-    installAuthGlobal();
 
     return true;
   } catch {
@@ -285,6 +311,22 @@ class GraphQLClient {
     // Convert DocumentNode to string if needed (e.g. from graphql-tag gql`...`)
     const queryString = typeof query === 'string' ? query : print(query);
 
+    // LIFECYCLE BARRIER: Wait for token to be ready before sending request.
+    // Skip the barrier for the refreshToken mutation itself to avoid deadlock
+    // (refresh must fire to PRODUCE the token that the barrier waits for).
+    const isRefreshMutation = queryString.includes('refreshToken');
+    if (!isRefreshMutation) {
+      try {
+        await tokenLifecycle.waitForReady();
+      } catch {
+        // Barrier timed out or auth permanently failed.
+        // If we have a token in memory anyway (race condition edge case), proceed.
+        if (!getAccessToken()) {
+          throw new GraphQLClientError('Authentication required', 'UNAUTHENTICATED');
+        }
+      }
+    }
+
     // Build request headers
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -333,8 +375,8 @@ class GraphQLClient {
         try {
           await this.handleUnauthorized();
         } catch {
-          // Refresh failed — clear session and throw so callers can redirect to /login
-          clearTokens();
+          // Refresh failed — clear full session and throw so callers can redirect to /login
+          clearSession();
           throw new GraphQLClientError('Session expired', 'UNAUTHENTICATED');
         }
         return this.request(query, variables, options, retryCount + 1);
@@ -425,13 +467,13 @@ class GraphQLClient {
       });
 
       if (!response.ok) {
-        clearTokens();
+        clearSession();
         throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
       }
 
       const result = await response.json();
       if (result.errors || !result.data?.refreshToken?.accessToken) {
-        clearTokens();
+        clearSession();
         throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
       }
 
@@ -443,7 +485,7 @@ class GraphQLClient {
         setTenantId(refreshedTenantId);
       }
     } catch (error) {
-      clearTokens();
+      clearSession();
       throw error;
     }
   }
@@ -507,6 +549,18 @@ class RestClient {
   ): Promise<T> {
     const { body, params, headers: customHeaders, timeout } = options || {};
 
+    // LIFECYCLE BARRIER: Wait for token to be ready before sending request.
+    // REST calls never contain refreshToken mutations, so always await.
+    try {
+      await tokenLifecycle.waitForReady();
+    } catch {
+      // Barrier timed out or auth permanently failed.
+      // If we have a token in memory anyway, proceed.
+      if (!getAccessToken()) {
+        throw new RestClientError('Authentication required', 401);
+      }
+    }
+
     // Build URL
     let url = `${this.config.restBaseUrl}${path}`;
     if (params) {
@@ -559,8 +613,8 @@ class RestClient {
         try {
           await this.handleUnauthorized();
         } catch {
-          // Refresh failed — clear session and throw
-          clearTokens();
+          // Refresh failed — clear full session and throw
+          clearSession();
           throw new RestClientError('Session expired', 401);
         }
         return this.request(method, path, options, retryCount + 1);
@@ -626,13 +680,13 @@ class RestClient {
       });
 
       if (!response.ok) {
-        clearTokens();
+        clearSession();
         throw new RestClientError('Token refresh failed', response.status);
       }
 
       const result = await response.json();
       if (result.errors || !result.data?.refreshToken?.accessToken) {
-        clearTokens();
+        clearSession();
         throw new RestClientError('Token refresh failed', 401);
       }
 
@@ -644,7 +698,7 @@ class RestClient {
         setTenantId(refreshedTenantId);
       }
     } catch (error) {
-      clearTokens();
+      clearSession();
       throw error;
     }
   }

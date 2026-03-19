@@ -90,6 +90,7 @@ export class LeaveRequest {
   @Index()
   employeeId!: string;
 
+  @Field(() => Employee, { nullable: true })
   @ManyToOne(() => Employee, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'employeeId' })
   employee?: Employee;
@@ -98,6 +99,7 @@ export class LeaveRequest {
   @Column()
   leaveTypeId!: string;
 
+  @Field(() => LeaveType, { nullable: true })
   @ManyToOne(() => LeaveType, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'leaveTypeId' })
   leaveType?: LeaveType;

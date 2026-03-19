@@ -123,10 +123,26 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       httpRequest.headers.set('cookie', cookie);
     }
 
-    // Forward tenant ID - prefer JWT tenantId, fallback to header
-    const tenantId = req.user?.tenantId ?? req.headers['x-tenant-id'];
-    if (tenantId) {
-      httpRequest.headers.set('x-tenant-id', tenantId);
+    // Forward tenant ID - prefer JWT tenantId (trusted), fallback to header
+    // SECURITY: Only forward valid, non-empty UUIDs to prevent subgraphs from
+    // receiving "null", "undefined", empty strings, or array values as tenant ID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let resolvedTenantId = req.user?.tenantId;
+    if (!resolvedTenantId) {
+      // Fallback: header (may be string[] if sent multiple times — use first element)
+      const headerVal = req.headers['x-tenant-id'];
+      const candidate = Array.isArray(headerVal) ? headerVal[0] : headerVal;
+      if (typeof candidate === 'string') {
+        resolvedTenantId = candidate.trim();
+      }
+    }
+    if (
+      resolvedTenantId &&
+      typeof resolvedTenantId === 'string' &&
+      resolvedTenantId.length > 0 &&
+      uuidRegex.test(resolvedTenantId)
+    ) {
+      httpRequest.headers.set('x-tenant-id', resolvedTenantId);
     }
 
     // Forward correlation ID and trace context for distributed tracing

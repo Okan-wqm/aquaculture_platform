@@ -413,17 +413,26 @@ export const WORK_AREA_FRAGMENT = gql`
     name
     description
     workAreaType
+    riskLevel
     siteId
-    siteName
-    location
-    maxCapacity
-    currentOccupancy
+    coordinates {
+      latitude
+      longitude
+    }
     isOffshore
-    requiresCertifications
-    safetyEquipment
-    emergencyProcedures
+    maxCapacity
+    requiredCertifications
+    requiredPPE
+    requiresDivingCertification
+    requiresVesselCertification
+    requiresSeaWorthy
+    emergencyContact
+    emergencyProcedure
+    colorCode
     displayOrder
     isActive
+    createdAt
+    updatedAt
   }
 `;
 

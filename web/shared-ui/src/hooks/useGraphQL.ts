@@ -4,8 +4,8 @@
  * @tanstack/react-query ile entegre çalışır
  */
 
-import { useCallback, useState } from 'react';
-import { graphqlClient, GraphQLRequestOptions } from '../utils/api-client';
+import { useCallback, useRef, useState } from 'react';
+import { graphqlClient, GraphQLClientError, GraphQLRequestOptions } from '../utils/api-client';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -60,6 +60,9 @@ export interface UseGraphQLQueryOptions<TVariables> {
  *   `query GetFarms { farms { id name } }`
  * );
  */
+/** Maximum consecutive UNAUTHENTICATED retries per hook instance */
+const MAX_AUTH_RETRIES = 3;
+
 export function useGraphQLQuery<TData, TVariables extends Record<string, unknown> = Record<string, unknown>>(
   queryKey: string,
   query: string,
@@ -70,6 +73,9 @@ export function useGraphQLQuery<TData, TVariables extends Record<string, unknown
     isLoading: false,
     error: null,
   });
+
+  /** Track consecutive auth failures to prevent infinite retry loops */
+  const authRetryCount = useRef(0);
 
   const execute = useCallback(async () => {
     if (options?.enabled === false) return;
@@ -82,16 +88,42 @@ export function useGraphQLQuery<TData, TVariables extends Record<string, unknown
         options?.variables as Record<string, unknown>,
         options?.requestOptions
       );
+      // Reset retry counter on success
+      authRetryCount.current = 0;
       setState({ data: response, isLoading: false, error: null });
       return response;
     } catch (error) {
       const err = error instanceof Error ? error : new Error('GraphQL error');
+
+      // Track UNAUTHENTICATED errors to prevent infinite retry spirals.
+      // The GraphQLClient already retries once internally; if we still get
+      // UNAUTHENTICATED here, the refresh cycle has failed.
+      if (
+        error instanceof GraphQLClientError &&
+        (error.code === 'UNAUTHENTICATED' || error.code === 'REFRESH_FAILED')
+      ) {
+        authRetryCount.current++;
+        if (authRetryCount.current >= MAX_AUTH_RETRIES) {
+          if (import.meta.env.DEV) {
+            console.warn(
+              `[useGraphQLQuery:${queryKey}] Max auth retries (${MAX_AUTH_RETRIES}) exceeded, giving up`,
+            );
+          }
+        }
+      }
+
       setState({ data: null, isLoading: false, error: err });
       throw err;
     }
-  }, [query, options?.variables, options?.enabled, options?.requestOptions]);
+  }, [query, queryKey, options?.variables, options?.enabled, options?.requestOptions]);
 
-  const refetch = useCallback(() => execute(), [execute]);
+  const refetch = useCallback(() => {
+    // If we've exceeded auth retries, don't retry — the user needs to re-login
+    if (authRetryCount.current >= MAX_AUTH_RETRIES) {
+      return Promise.resolve();
+    }
+    return execute();
+  }, [execute]);
 
   return {
     ...state,

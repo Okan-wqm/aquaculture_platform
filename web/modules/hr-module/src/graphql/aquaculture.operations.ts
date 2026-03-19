@@ -228,6 +228,9 @@ export const GET_CURRENTLY_OFFSHORE = gql`
   ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
+// NOTE: offshoreHeadcount query does not exist in backend.
+// useOffshoreHeadcount hook uses client-side aggregation from currentlyOffshore + offshoreWorkAreas.
+// Kept as dead code reference for potential future backend implementation.
 export const GET_OFFSHORE_HEADCOUNT = gql`
   query GetOffshoreHeadcount {
     offshoreHeadcount {
@@ -300,6 +303,9 @@ export const GET_CREW_ASSIGNMENTS = gql`
   ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
+// NOTE: seaLandSplit query does not exist in backend.
+// useSeaLandSplit hook uses client-side aggregation from currentlyOffshore + employees.
+// Kept as dead code reference for potential future backend implementation.
 export const GET_SEA_LAND_SPLIT = gql`
   query GetSeaLandSplit($departmentId: ID) {
     seaLandSplit(departmentId: $departmentId) {

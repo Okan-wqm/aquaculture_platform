@@ -42,16 +42,19 @@ export interface WorkArea extends BaseEntity {
   name: string;
   description?: string;
   workAreaType: WorkAreaType;
+  riskLevel?: string;
   siteId?: string;
-  siteName?: string;
-  location?: GeoLocation;
+  coordinates?: { latitude: number; longitude: number };
   maxCapacity?: number;
-  currentOccupancy?: number;
   isOffshore: boolean;
-  requiresCertifications: string[];
-  requiredCertifications?: { id: string; name: string }[];
-  safetyEquipment?: string[];
-  emergencyProcedures?: string;
+  requiredCertifications?: string[];
+  requiredPPE?: string[];
+  requiresDivingCertification?: boolean;
+  requiresVesselCertification?: boolean;
+  requiresSeaWorthy?: boolean;
+  emergencyContact?: string;
+  emergencyProcedure?: string;
+  colorCode?: string;
   displayOrder: number;
   isActive: boolean;
 }
@@ -142,24 +145,36 @@ export interface CreateWorkAreaInput {
   name: string;
   description?: string;
   workAreaType: WorkAreaType;
+  riskLevel?: string;
   siteId?: string;
-  location?: GeoLocation;
+  coordinates?: { latitude: number; longitude: number };
   maxCapacity?: number;
   isOffshore?: boolean;
-  requiresCertifications?: string[];
-  safetyEquipment?: string[];
-  emergencyProcedures?: string;
+  requiredCertifications?: string[];
+  requiredPPE?: string[];
+  requiresDivingCertification?: boolean;
+  requiresVesselCertification?: boolean;
+  requiresSeaWorthy?: boolean;
+  emergencyContact?: string;
+  emergencyProcedure?: string;
+  colorCode?: string;
 }
 
 export interface UpdateWorkAreaInput {
   id: string;
   name?: string;
   description?: string;
+  riskLevel?: string;
   maxCapacity?: number;
   isOffshore?: boolean;
-  requiresCertifications?: string[];
-  safetyEquipment?: string[];
-  emergencyProcedures?: string;
+  requiredCertifications?: string[];
+  requiredPPE?: string[];
+  requiresDivingCertification?: boolean;
+  requiresVesselCertification?: boolean;
+  requiresSeaWorthy?: boolean;
+  emergencyContact?: string;
+  emergencyProcedure?: string;
+  colorCode?: string;
   isActive?: boolean;
 }
 

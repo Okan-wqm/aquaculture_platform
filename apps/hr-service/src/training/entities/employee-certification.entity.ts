@@ -94,6 +94,19 @@ export class EmployeeCertification {
   @Column({ type: 'date', nullable: true })
   expiryDate?: Date;
 
+  /**
+   * Computed field: days until this certification expires.
+   * Negative values indicate the cert has already expired (daysSinceExpiry equivalent).
+   * Null if no expiryDate is set.
+   */
+  @Field(() => Int, { nullable: true })
+  get daysUntilExpiry(): number | null {
+    if (!this.expiryDate) return null;
+    const now = new Date();
+    const expiry = new Date(this.expiryDate);
+    return Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
   @Field(() => CertificationStatus)
   @Column({ type: 'enum', enum: CertificationStatus, default: CertificationStatus.PENDING })
   status!: CertificationStatus;

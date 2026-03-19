@@ -69,7 +69,7 @@ export const GET_EXPIRED_CERTIFICATIONS = gql`
   query GetExpiredCertifications($departmentId: ID) {
     expiredCertifications(departmentId: $departmentId) {
       ...EmployeeCertificationFull
-      daysSinceExpiry
+      daysUntilExpiry
     }
   }
   ${EMPLOYEE_CERTIFICATION_FRAGMENT}

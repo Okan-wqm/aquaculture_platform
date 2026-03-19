@@ -19,6 +19,7 @@ import {
   GetCertificationTypesQuery,
   GetEmployeeCertificationsQuery,
   GetExpiringCertificationsQuery,
+  GetExpiredCertificationsQuery,
   GetTrainingCoursesQuery,
   GetTrainingEnrollmentsQuery,
 } from './queries';
@@ -150,6 +151,17 @@ export class TrainingResolver {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
       new GetExpiringCertificationsQuery(tenantId, daysUntilExpiry, departmentId),
+    );
+  }
+
+  @Query(() => [EmployeeCertification], { name: 'expiredCertifications' })
+  async getExpiredCertifications(
+    @Context() context: GraphQLContext,
+    @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
+  ): Promise<EmployeeCertification[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(
+      new GetExpiredCertificationsQuery(tenantId, departmentId),
     );
   }
 

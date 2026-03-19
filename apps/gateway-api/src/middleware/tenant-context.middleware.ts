@@ -270,6 +270,18 @@ export class TenantContextMiddleware implements NestMiddleware {
       // Resolve tenant ID from various sources
       const tenantId = this.resolveTenantId(req);
 
+      // SUPER_ADMIN users operate in system scope - tenantId is optional.
+      // If a tenant ID is provided (e.g. via X-Tenant-Id header for cross-tenant access),
+      // resolve it normally. If not, allow the request through without tenant context.
+      const user = (req as TenantContextRequest & { user?: { role?: string; roles?: string[] } }).user;
+      const isSuperAdmin =
+        user?.roles?.includes('SUPER_ADMIN') || user?.role === 'SUPER_ADMIN';
+
+      if (!tenantId && isSuperAdmin) {
+        tenantReq.tenantId = undefined;
+        return next();
+      }
+
       if (!tenantId) {
         throw new BadRequestException({
           code: 'TENANT_NOT_FOUND',

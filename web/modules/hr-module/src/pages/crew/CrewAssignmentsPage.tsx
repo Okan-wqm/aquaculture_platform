@@ -107,12 +107,12 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
           <Users className="h-4 w-4" />
           <span>{employeeCount} assigned</span>
         </div>
-        {workArea.location && (
+        {workArea.coordinates && (
           <div className="flex items-center gap-1 text-sm text-gray-500">
             <MapPin className="h-3 w-3" />
             {/* BUG-018: maritime GPS requires 5 decimal places (~1m precision) */}
             <span>
-              {workArea.location.latitude.toFixed(5)}, {workArea.location.longitude.toFixed(5)}
+              {workArea.coordinates.latitude.toFixed(5)}, {workArea.coordinates.longitude.toFixed(5)}
             </span>
           </div>
         )}
@@ -386,23 +386,23 @@ export function CrewAssignmentsPage() {
                 </h3>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {offshoreEmployees.slice(0, 6).map((offshoreStatus) => (
+                {offshoreEmployees.slice(0, 6).map((emp) => (
                   <Link
-                    key={offshoreStatus.employee.id}
-                    to={`/hr/employees/${offshoreStatus.employee.id}`}
+                    key={emp.id}
+                    to={`/hr/employees/${emp.id}`}
                     className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
                   >
                     <EmployeeAvatar
-                      firstName={offshoreStatus.employee.firstName}
-                      lastName={offshoreStatus.employee.lastName}
+                      firstName={emp.firstName}
+                      lastName={emp.lastName}
                       size="sm"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="truncate font-medium text-gray-900 dark:text-white">
-                        {offshoreStatus.employee.firstName} {offshoreStatus.employee.lastName}
+                        {emp.firstName} {emp.lastName}
                       </p>
                       <p className="truncate text-sm text-gray-500">
-                        {offshoreStatus.employee.position || 'Crew Member'}
+                        {emp.position || 'Crew Member'}
                       </p>
                     </div>
                     <Anchor className="h-4 w-4 text-blue-500" />

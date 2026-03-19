@@ -103,9 +103,27 @@ describe('api-client', () => {
         expect(apiClient.getAccessToken()).toBeNull();
       });
 
-      it('should clear tenant_id from localStorage', async () => {
+      it('should NOT clear tenant_id from localStorage (preserved for refresh cycles)', async () => {
         localStorage.setItem('tenant_id', 'tenant-123');
         apiClient.clearTokens();
+        // tenantId is intentionally preserved during token clear (refresh cycles)
+        // Use clearSession() to also clear tenantId
+        expect(localStorage.getItem('tenant_id')).toBe('tenant-123');
+      });
+    });
+
+    describe('clearSession', () => {
+      it('should clear access token from memory', async () => {
+        apiClient.setTokens('token-to-clear');
+        expect(apiClient.getAccessToken()).toBe('token-to-clear');
+
+        apiClient.clearSession();
+        expect(apiClient.getAccessToken()).toBeNull();
+      });
+
+      it('should clear tenant_id from localStorage', async () => {
+        localStorage.setItem('tenant_id', 'tenant-123');
+        apiClient.clearSession();
         expect(localStorage.getItem('tenant_id')).toBeNull();
       });
 
@@ -115,7 +133,7 @@ describe('api-client', () => {
           throw new Error('localStorage disabled');
         };
 
-        expect(() => apiClient.clearTokens()).not.toThrow();
+        expect(() => apiClient.clearSession()).not.toThrow();
         localStorage.removeItem = originalRemoveItem;
       });
     });

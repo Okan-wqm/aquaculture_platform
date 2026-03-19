@@ -10,7 +10,8 @@
  */
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { setTokens, clearTokens, silentRefresh, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
+import { setTokens, clearSession, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
+import { tokenLifecycle } from '../utils/token-lifecycle';
 
 // ============================================================================
 // Types
@@ -258,19 +259,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     }
 
     const checkAuth = async () => {
-      // Try to use existing in-memory token first
-      let token = getAccessToken();
+      // Use lifecycle manager to initialize token.
+      // This handles silent refresh, barrier management, and proactive refresh scheduling.
+      const initialized = await tokenLifecycle.initialize();
 
-      // If no in-memory token, attempt silent refresh via httpOnly cookie
-      if (!token) {
-        const refreshed = await silentRefresh();
-        if (!refreshed) {
-          dispatch({ type: 'AUTH_FAILURE', payload: '' });
-          return;
-        }
-        token = getAccessToken();
+      if (!initialized) {
+        // No session to restore (new visitor or expired refresh token)
+        dispatch({ type: 'AUTH_FAILURE', payload: '' });
+        return;
       }
 
+      // Token is ready — verify we actually have one
+      const token = getAccessToken();
       if (!token) {
         dispatch({ type: 'AUTH_FAILURE', payload: '' });
         return;
@@ -281,18 +281,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       const meData = await fetchMe();
       if (meData) {
         // Restore tenant ID from server response — critical when localStorage
-        // was cleared (e.g. after a failed token refresh called clearTokens())
+        // was cleared (e.g. after a failed token refresh called clearSession())
         if (meData.user.tenantId) {
           setTenantId(meData.user.tenantId);
         }
         dispatch({ type: 'AUTH_SUCCESS', payload: meData });
       } else {
-        clearTokens();
+        clearSession();
         dispatch({ type: 'AUTH_FAILURE', payload: '' });
       }
     };
 
     checkAuth();
+
+    // NOTE: Do NOT call tokenLifecycle.destroy() here.
+    // The lifecycle manager is a process-level singleton shared across MFE bundles.
+    // Destroying it on AuthProvider unmount would permanently break the auth system
+    // since the singleton cannot be recreated (window global is non-configurable).
+    // The singleton's timers are cleaned up by the browser on page unload.
   }, [autoCheck, fetchMe]);
 
   /**
@@ -473,7 +479,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       `;
       await graphqlClient.request(LOGOUT_MUTATION).catch(() => {});
     } finally {
-      clearTokens();
+      // Use clearSession (not clearTokens) to also remove tenantId on explicit logout
+      clearSession();
       dispatch({ type: 'LOGOUT' });
     }
   }, []);
@@ -627,7 +634,7 @@ export function useAuthContext(): AuthContextValue {
       return { redirectPath: '/' };
     },
     logout: async () => {
-      clearTokens();
+      clearSession();
       // Use location.replace to avoid history pollution (SEC-008: avoid window.location.href anti-pattern)
       if (typeof window !== 'undefined') {
         window.location.replace('/login');

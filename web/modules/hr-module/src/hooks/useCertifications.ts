@@ -149,11 +149,16 @@ export function useExpiredCertifications(departmentId?: string) {
     queryKey: certificationKeys.expired(departmentId),
     queryFn: () =>
       graphqlRequest<{
-        expiredCertifications: (EmployeeCertification & { daysSinceExpiry: number })[];
+        expiredCertifications: (EmployeeCertification & { daysUntilExpiry: number })[];
       }, unknown>(client, GET_EXPIRED_CERTIFICATIONS, {
         departmentId,
       }),
-    select: (data) => data.expiredCertifications,
+    // Map daysUntilExpiry (negative for expired) to daysSinceExpiry (positive)
+    select: (data) =>
+      data.expiredCertifications.map((cert) => ({
+        ...cert,
+        daysSinceExpiry: cert.daysUntilExpiry != null ? Math.abs(cert.daysUntilExpiry) : 0,
+      })),
   });
 }
 

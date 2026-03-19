@@ -3,7 +3,7 @@
  *
  * Comprehensive tests for the AuthContext module covering:
  * - AuthProvider: Login flow (mutation -> setTokens -> fetchMe -> AUTH_SUCCESS)
- * - AuthProvider: Logout (clearTokens -> dispatch LOGOUT)
+ * - AuthProvider: Logout (clearSession -> dispatch LOGOUT)
  * - hasRoleOrHigher: SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER
  * - hasModuleAccess: Module code checks
  * - MF fallback: Context unavailable -> fail-closed (isAuthenticated: false)
@@ -13,6 +13,18 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react';
+
+// Mock the token-lifecycle module before importing AuthContext
+vi.mock('../../utils/token-lifecycle', () => ({
+  tokenLifecycle: {
+    getState: vi.fn(() => 'READY'),
+    waitForReady: vi.fn(async () => {}),
+    initialize: vi.fn(async () => true),
+    notifyTokenSet: vi.fn(),
+    notifyTokenCleared: vi.fn(),
+    destroy: vi.fn(),
+  },
+}));
 
 // Mock the api-client module before importing AuthContext
 vi.mock('../../utils/api-client', () => {
@@ -24,6 +36,9 @@ vi.mock('../../utils/api-client', () => {
       _accessToken = token;
     }),
     clearTokens: vi.fn(() => {
+      _accessToken = null;
+    }),
+    clearSession: vi.fn(() => {
       _accessToken = null;
       _tenantId = null;
     }),
@@ -46,7 +61,8 @@ vi.mock('../../utils/api-client', () => {
 
 // Import after mocking
 import { AuthProvider, useAuthContext, type UserRole, type AuthUser } from '../AuthContext';
-import { setTokens, clearTokens, getAccessToken, silentRefresh, graphqlClient, setTenantId } from '../../utils/api-client';
+import { setTokens, clearTokens, clearSession, getAccessToken, silentRefresh, graphqlClient, setTenantId } from '../../utils/api-client';
+import { tokenLifecycle } from '../../utils/token-lifecycle';
 
 // ============================================================================
 // Test Helpers
@@ -57,7 +73,14 @@ const mockSilentRefresh = silentRefresh as ReturnType<typeof vi.fn>;
 const mockGetAccessToken = getAccessToken as ReturnType<typeof vi.fn>;
 const mockSetTokens = setTokens as ReturnType<typeof vi.fn>;
 const mockClearTokens = clearTokens as ReturnType<typeof vi.fn>;
+const mockClearSession = clearSession as ReturnType<typeof vi.fn>;
 const mockSetTenantId = setTenantId as ReturnType<typeof vi.fn>;
+const mockTokenLifecycle = tokenLifecycle as {
+  initialize: ReturnType<typeof vi.fn>;
+  getState: ReturnType<typeof vi.fn>;
+  waitForReady: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+};
 
 function createMockUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
@@ -109,6 +132,10 @@ describe('AuthContext', () => {
     mockGetAccessToken.mockReturnValue(null);
     mockSilentRefresh.mockResolvedValue(false);
     mockGraphqlRequest.mockReset();
+    // Reset tokenLifecycle mock defaults
+    mockTokenLifecycle.initialize.mockResolvedValue(true);
+    mockTokenLifecycle.getState.mockReturnValue('READY');
+    mockTokenLifecycle.waitForReady.mockResolvedValue(undefined);
     // Reset internal token state
     const apiClient = vi.mocked(await import('../../utils/api-client'));
     if ((apiClient as any).__resetTokens) {
@@ -290,13 +317,13 @@ describe('AuthContext', () => {
         await result.current.logout();
       });
 
-      expect(mockClearTokens).toHaveBeenCalled();
+      expect(mockClearSession).toHaveBeenCalled();
       expect(result.current.isAuthenticated).toBe(false);
       expect(result.current.user).toBeNull();
       expect(result.current.modules).toEqual([]);
     });
 
-    it('should still clear tokens even if logout mutation fails', async () => {
+    it('should still clear session even if logout mutation fails', async () => {
       const user = createMockUser();
 
       // Login
@@ -322,8 +349,8 @@ describe('AuthContext', () => {
         await result.current.logout();
       });
 
-      // Should still clear tokens despite error
-      expect(mockClearTokens).toHaveBeenCalled();
+      // Should still clear session despite error
+      expect(mockClearSession).toHaveBeenCalled();
       expect(result.current.isAuthenticated).toBe(false);
     });
   });
@@ -585,11 +612,11 @@ describe('AuthContext', () => {
       expect(loginResult.redirectPath).toBe('/');
     });
 
-    it('fallback logout should clear tokens', async () => {
+    it('fallback logout should clear session', async () => {
       const { result } = renderHook(() => useAuthContext());
 
       await result.current.logout();
-      expect(mockClearTokens).toHaveBeenCalled();
+      expect(mockClearSession).toHaveBeenCalled();
     });
   });
 
@@ -793,15 +820,13 @@ describe('AuthContext', () => {
   // ============================================================================
 
   describe('Auto-check on mount', () => {
-    it('should attempt silent refresh and fetch user when autoCheck is true', async () => {
+    it('should use tokenLifecycle.initialize() and fetch user when autoCheck is true', async () => {
       const user = createMockUser();
 
-      mockGetAccessToken.mockReturnValue(null);
-      mockSilentRefresh.mockResolvedValue(true);
-      // After silent refresh, getAccessToken returns a token
-      mockGetAccessToken
-        .mockReturnValueOnce(null) // first check
-        .mockReturnValue('restored-token'); // after refresh
+      // tokenLifecycle.initialize() returns true (session restored)
+      mockTokenLifecycle.initialize.mockResolvedValue(true);
+      // After lifecycle init, getAccessToken returns a token
+      mockGetAccessToken.mockReturnValue('restored-token');
 
       mockGraphqlRequest.mockResolvedValueOnce(createMeResponse(user));
 
@@ -813,14 +838,14 @@ describe('AuthContext', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      expect(mockSilentRefresh).toHaveBeenCalled();
+      expect(mockTokenLifecycle.initialize).toHaveBeenCalled();
       expect(result.current.isAuthenticated).toBe(true);
       expect(result.current.user?.email).toBe('test@example.com');
     });
 
-    it('should set AUTH_FAILURE when silent refresh fails', async () => {
+    it('should set AUTH_FAILURE when tokenLifecycle.initialize() fails', async () => {
+      mockTokenLifecycle.initialize.mockResolvedValue(false);
       mockGetAccessToken.mockReturnValue(null);
-      mockSilentRefresh.mockResolvedValue(false);
 
       const { result } = renderHook(() => useAuthContext(), {
         wrapper: createWrapper(true),

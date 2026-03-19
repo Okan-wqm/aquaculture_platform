@@ -3,6 +3,7 @@
  * TanStack Query hooks for work areas, rotations, and crew management
  */
 
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
@@ -18,10 +19,8 @@ import {
   GET_UPCOMING_ROTATIONS,
   GET_ROTATION_CALENDAR,
   GET_CURRENTLY_OFFSHORE,
-  GET_OFFSHORE_HEADCOUNT,
   GET_ROTATION_CHANGEOVERS,
   GET_CREW_ASSIGNMENTS,
-  GET_SEA_LAND_SPLIT,
   GET_SAFETY_TRAINING_RECORDS,
   CREATE_WORK_AREA,
   UPDATE_WORK_AREA,
@@ -36,6 +35,7 @@ import {
   CONFIRM_SAFETY_TRAINING_ATTENDANCE,
 } from '../graphql';
 import type {
+  Employee,
   WorkArea,
   WorkRotation,
   SafetyTrainingRecord,
@@ -46,12 +46,12 @@ import type {
   CreateWorkRotationInput,
   UpdateWorkRotationInput,
   CreateSafetyTrainingRecordInput,
-  OffshoreStatus,
   CrewAssignment,
   RotationCalendarEntry,
   WorkAreaOccupancyReport,
   PaginatedResponse,
 } from '../types';
+import { useEmployees } from './useEmployees';
 
 // Query Keys
 export const workAreaKeys = {
@@ -331,7 +331,7 @@ export function useCurrentlyOffshore(workAreaId?: string) {
   return useQuery({
     queryKey: crewKeys.currentlyOffshore(workAreaId),
     queryFn: () =>
-      graphqlRequest<{ currentlyOffshore: OffshoreStatus[] }, unknown>(
+      graphqlRequest<{ currentlyOffshore: Employee[] }, unknown>(
         client,
         GET_CURRENTLY_OFFSHORE,
         { workAreaId }
@@ -341,21 +341,51 @@ export function useCurrentlyOffshore(workAreaId?: string) {
   });
 }
 
+/**
+ * Client-side aggregation of offshore headcount data.
+ * Uses currentlyOffshore + offshoreWorkAreas queries instead of a dedicated
+ * offshoreHeadcount backend query (which does not exist).
+ */
 export function useOffshoreHeadcount() {
-  const client = useGraphQLClient();
+  const offshoreQuery = useCurrentlyOffshore();
+  const offshoreWorkAreasQuery = useOffshoreWorkAreas();
 
-  return useQuery({
-    queryKey: crewKeys.offshoreHeadcount(),
-    queryFn: () =>
-      graphqlRequest<{
-        offshoreHeadcount: {
-          totalOffshore: number;
-          byWorkArea: { workAreaId: string; workAreaName: string; count: number; maxCapacity: number }[];
-          byRotationType: { rotationType: string; count: number }[];
-        };
-      }, unknown>(client, GET_OFFSHORE_HEADCOUNT, {}),
-    select: (data) => data.offshoreHeadcount,
-  });
+  const data = useMemo(() => {
+    const offshoreEmployees = offshoreQuery.data ?? [];
+    const workAreas = offshoreWorkAreasQuery.data ?? [];
+
+    const totalOffshore = offshoreEmployees.length;
+
+    // Build byWorkArea from offshore work areas
+    const byWorkArea = workAreas.map((wa: WorkArea) => ({
+      workAreaId: wa.id,
+      workAreaName: wa.name,
+      // Exact per-work-area counts are not available from currentlyOffshore;
+      // report capacity only.
+      count: 0,
+      maxCapacity: wa.maxCapacity ?? 0,
+    }));
+
+    // Build byRotationType from employee personnelCategory
+    const rotationMap = new Map<string, number>();
+    for (const emp of offshoreEmployees) {
+      const key = (emp as Employee & { personnelCategory?: string }).personnelCategory ?? 'UNKNOWN';
+      rotationMap.set(key, (rotationMap.get(key) ?? 0) + 1);
+    }
+    const byRotationType = Array.from(rotationMap.entries()).map(([rotationType, count]) => ({
+      rotationType,
+      count,
+    }));
+
+    return { totalOffshore, byWorkArea, byRotationType };
+  }, [offshoreQuery.data, offshoreWorkAreasQuery.data]);
+
+  return {
+    data,
+    isLoading: offshoreQuery.isLoading || offshoreWorkAreasQuery.isLoading,
+    error: offshoreQuery.error || offshoreWorkAreasQuery.error,
+    isError: offshoreQuery.isError || offshoreWorkAreasQuery.isError,
+  };
 }
 
 export function useCrewAssignments() {
@@ -373,22 +403,69 @@ export function useCrewAssignments() {
   });
 }
 
-export function useSeaLandSplit(departmentId?: string) {
-  const client = useGraphQLClient();
+/**
+ * Client-side aggregation of sea/land split data.
+ * Uses currentlyOffshore + employees queries instead of a dedicated
+ * seaLandSplit backend query (which does not exist).
+ *
+ * Categories:
+ * - offshore: employees returned by currentlyOffshore query
+ * - onLeave: employees with status ON_LEAVE
+ * - onshore: all remaining active employees
+ * - inTransit: currently empty (no transit status available from backend)
+ */
+export function useSeaLandSplit(_departmentId?: string) {
+  const offshoreQuery = useCurrentlyOffshore();
+  // Backend EmployeeFilterInput does not support departmentHrId; fetch all
+  // employees and rely on the offshore query for the split.
+  const employeesQuery = useEmployees();
 
-  return useQuery({
-    queryKey: crewKeys.seaLandSplit(departmentId),
-    queryFn: () =>
-      graphqlRequest<{
-        seaLandSplit: {
-          offshore: { count: number; employees: { id: string; firstName: string; lastName: string; currentWorkArea?: string }[] };
-          onshore: { count: number; employees: { id: string; firstName: string; lastName: string }[] };
-          inTransit: { count: number; employees: { id: string; firstName: string; lastName: string; destination?: string }[] };
-          onLeave: { count: number; employees: { id: string; firstName: string; lastName: string }[] };
-        };
-      }, unknown>(client, GET_SEA_LAND_SPLIT, { departmentId }),
-    select: (data) => data.seaLandSplit,
-  });
+  const data = useMemo(() => {
+    const offshoreEmployees = offshoreQuery.data ?? [];
+    const allEmployees = employeesQuery.data?.items ?? [];
+    const offshoreIds = new Set(offshoreEmployees.map((e) => e.id));
+
+    const offshore = offshoreEmployees.map((e) => ({
+      id: e.id,
+      firstName: e.firstName,
+      lastName: e.lastName,
+      currentWorkArea: e.personnelCategory ?? undefined,
+    }));
+
+    const onLeave = allEmployees
+      .filter((e) => e.status === 'ON_LEAVE' && !offshoreIds.has(e.id))
+      .map((e) => ({
+        id: e.id,
+        firstName: e.firstName,
+        lastName: e.lastName,
+      }));
+    const onLeaveIds = new Set(onLeave.map((e) => e.id));
+
+    const onshore = allEmployees
+      .filter((e) => !offshoreIds.has(e.id) && !onLeaveIds.has(e.id))
+      .map((e) => ({
+        id: e.id,
+        firstName: e.firstName,
+        lastName: e.lastName,
+      }));
+
+    // inTransit: not available from current backend — return empty
+    const inTransit: { id: string; firstName: string; lastName: string; destination?: string }[] = [];
+
+    return {
+      offshore: { count: offshore.length, employees: offshore },
+      onshore: { count: onshore.length, employees: onshore },
+      inTransit: { count: inTransit.length, employees: inTransit },
+      onLeave: { count: onLeave.length, employees: onLeave },
+    };
+  }, [offshoreQuery.data, employeesQuery.data]);
+
+  return {
+    data,
+    isLoading: offshoreQuery.isLoading || employeesQuery.isLoading,
+    error: offshoreQuery.error || employeesQuery.error,
+    isError: offshoreQuery.isError || employeesQuery.isError,
+  };
 }
 
 // =====================

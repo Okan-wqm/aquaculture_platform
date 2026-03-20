@@ -55,23 +55,11 @@ async function bootstrap(): Promise<void> {
   app.use(
     helmet({
       // Content Security Policy - strict in production
-      contentSecurityPolicy: isProduction
-        ? {
-            directives: {
-              defaultSrc: ["'self'"],
-              scriptSrc: ["'self'"],
-              styleSrc: ["'self'", "'unsafe-inline'"], // Allow inline styles for GraphQL Playground
-              imgSrc: ["'self'", 'data:', 'https:'],
-              fontSrc: ["'self'"],
-              connectSrc: ["'self'"],
-              objectSrc: ["'none'"],
-              frameSrc: ["'none'"],
-              baseUri: ["'self'"],
-              formAction: ["'self'"],
-              upgradeInsecureRequests: [],
-            },
-          }
-        : false, // Disable in development for GraphQL Playground
+      // CSP is handled by the edge nginx (droplet.conf / nginx.prod.conf).
+      // Gateway sits behind nginx which sets CSP; Helmet's CSP would create
+      // duplicate headers (nginx already strips it via proxy_hide_header, but
+      // disabling here avoids wasted work and dev-environment conflicts).
+      contentSecurityPolicy: false,
 
       // HSTS - Strict Transport Security (production only)
       strictTransportSecurity: isProduction

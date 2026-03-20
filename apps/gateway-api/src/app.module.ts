@@ -183,6 +183,26 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     }
   }
 
+  override async didReceiveResponse<TResult>({
+    response,
+    context,
+  }: {
+    response: { http?: { headers: Headers }; body: TResult };
+    request: unknown;
+    context?: GatewayContext | Record<string, unknown>;
+  }): Promise<TResult> {
+    // Forward set-cookie headers from subgraph → browser
+    // Critical for httpOnly refresh token cookie from auth-service
+    if (context && 'res' in context) {
+      const res = (context as GatewayContext).res;
+      const setCookieHeader = response.http?.headers?.get('set-cookie');
+      if (setCookieHeader) {
+        // Append (don't overwrite) — multiple subgraphs may set cookies
+        res.append('set-cookie', setCookieHeader);
+      }
+    }
+    return response.body;
+  }
 }
 
 @Module({

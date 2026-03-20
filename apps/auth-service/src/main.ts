@@ -39,20 +39,9 @@ async function bootstrap(): Promise<void> {
   // Security middleware with production-appropriate settings
   app.use(
     helmet({
-      contentSecurityPolicy: isProduction
-        ? {
-            directives: {
-              defaultSrc: ["'self'"],
-              scriptSrc: ["'self'"],
-              styleSrc: ["'self'", "'unsafe-inline'"],
-              imgSrc: ["'self'", 'data:', 'https:'],
-              fontSrc: ["'self'"],
-              connectSrc: ["'self'"],
-              objectSrc: ["'none'"],
-              frameSrc: ["'none'"],
-            },
-          }
-        : false,
+      // CSP is handled by the edge nginx (droplet.conf / nginx.prod.conf).
+      // Auth-service sits behind gateway behind nginx — no need for its own CSP.
+      contentSecurityPolicy: false,
       strictTransportSecurity: isProduction
         ? { maxAge: HTTP_SECURITY.HSTS_MAX_AGE, includeSubDomains: true, preload: true }
         : false,

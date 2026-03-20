@@ -20,7 +20,7 @@
  * export class PaginatedEmployeeResponse extends PaginatedResponse(Employee) {}
  * ```
  */
-import { InputType, Field, Int, ObjectType } from '@nestjs/graphql';
+import { Field, Int, ObjectType } from '@nestjs/graphql';
 import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
 
@@ -38,7 +38,6 @@ export type SortOrder = 'ASC' | 'DESC';
  * - sortBy: Field to sort by (default: 'createdAt')
  * - sortOrder: Sort direction ASC or DESC (default: 'DESC')
  */
-@InputType('PaginationInput')
 export class PaginationInput {
   @Field(() => Int, { nullable: true, defaultValue: 0, description: 'Number of items to skip' })
   @IsOptional()

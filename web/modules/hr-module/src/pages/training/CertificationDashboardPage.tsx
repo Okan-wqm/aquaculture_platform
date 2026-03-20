@@ -31,7 +31,7 @@ import { cn } from '@aquaculture/shared-ui';
 import {
   useCertificationTypes,
   useExpiringCertifications,
-  useEmployeeCertifications,
+  useAllCertifications,
   useEmployees,
 } from '../../hooks';
 import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
@@ -42,6 +42,7 @@ import type {
   EmployeeCertification,
   CertificationCategory,
   CertificationStatus,
+  CertificationRequirement,
   PaginationInput,
 } from '../../types';
 
@@ -180,7 +181,7 @@ const CertificationTypeCard: React.FC<{
             <p className="text-sm text-gray-500 dark:text-gray-400">{categoryConfig.label}</p>
           </div>
         </div>
-        {type.isMandatory && (
+        {type.requirement === 'mandatory' && (
           <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
             Required
           </span>
@@ -239,23 +240,31 @@ export function CertificationDashboardPage() {
   const { data: expiring7 } = useExpiringCertifications(7);
   const { data: employees, isLoading: loadingEmployees } = useEmployees({}, { limit: 1000 });
 
+  // Server-side filtered & paginated certifications
+  const certFilter = {
+    ...(statusFilter ? { status: statusFilter as CertificationStatus } : {}),
+    ...(categoryFilter ? { category: categoryFilter as CertificationCategory } : {}),
+  };
+  const { data: certData, isLoading: loadingCerts } = useAllCertifications(
+    Object.keys(certFilter).length > 0 ? certFilter : undefined,
+    pagination,
+  );
+  const allCertifications = certData?.items || [];
+  const certTotal = certData?.total || 0;
+
   // Calculate stats
   const totalCertTypes = certTypes?.length || 0;
-  const mandatoryCertTypes = certTypes?.filter((t) => t.isMandatory).length || 0;
+  const mandatoryCertTypes = certTypes?.filter((t) => t.requirement === 'mandatory').length || 0;
   const expiringIn30Days = expiring30?.length || 0;
   const expiringIn7Days = expiring7?.length || 0;
   const expiredCount = expiring30?.filter((c) => c.expiryDate ? new Date(c.expiryDate) < new Date() : false).length || 0;
 
-  // Employee.certifications is string[] (IDs only), not full objects.
-  // Use an empty array for now — requires useEmployeeCertifications hook for full data.
-  const allCertifications: EmployeeCertification[] = [];
-
   const activeCertifications = allCertifications.filter((c) => c.status === ('ACTIVE' as CertificationStatus));
-  const totalActive = activeCertifications.length;
+  const totalActive = certData?.total || 0;
 
   // Calculate compliance rate
   const employeesWithMandatoryCerts = employees?.items?.filter((emp) => {
-    const mandatoryTypes = certTypes?.filter((t) => t.isMandatory) || [];
+    const mandatoryTypes = certTypes?.filter((t) => t.requirement === 'mandatory') || [];
     const empCertTypeIds = emp.certifications || [];
     return mandatoryTypes.every((mt) => empCertTypeIds.includes(mt.id));
   }).length || 0;
@@ -304,7 +313,7 @@ export function CertificationDashboardPage() {
               <p className="font-medium text-gray-900 dark:text-white">
                 {row.certificationType?.name}
               </p>
-              <p className="text-sm text-gray-500">{row.certificateNumber}</p>
+              <p className="text-sm text-gray-500">{row.certificationNumber}</p>
             </div>
           </div>
         );
@@ -314,7 +323,7 @@ export function CertificationDashboardPage() {
       key: 'issuedBy',
       header: 'Issued By',
       accessor: (row) => (
-        <span className="text-gray-600 dark:text-gray-300">{row.certificationType?.issuingAuthority || row.issuedBy || '-'}</span>
+        <span className="text-gray-600 dark:text-gray-300">{row.issuingAuthority || '-'}</span>
       ),
     },
     {
@@ -332,7 +341,7 @@ export function CertificationDashboardPage() {
         return (
           <div className="text-sm">
             <p className="text-gray-900 dark:text-white">
-              {new Date(row.issuedDate).toLocaleDateString()} -{' '}
+              {new Date(row.issueDate).toLocaleDateString()} -{' '}
               {expiryDate.toLocaleDateString()}
             </p>
             <p
@@ -392,23 +401,17 @@ export function CertificationDashboardPage() {
     });
   };
 
-  const filteredCertifications = allCertifications.filter((cert) => {
-    if (statusFilter && cert.status !== statusFilter) return false;
-    if (
-      categoryFilter &&
-      cert.certificationType?.category !== categoryFilter
-    )
-      return false;
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const matchesEmployee =
-        cert.employee?.firstName.toLowerCase().includes(query) ||
-        cert.employee?.lastName.toLowerCase().includes(query);
-      const matchesCert = cert.certificationType?.name.toLowerCase().includes(query);
-      if (!matchesEmployee && !matchesCert) return false;
-    }
-    return true;
-  });
+  // Client-side search filter on top of server-side filters
+  const filteredCertifications = searchQuery
+    ? allCertifications.filter((cert) => {
+        const query = searchQuery.toLowerCase();
+        const matchesEmployee =
+          cert.employee?.firstName?.toLowerCase().includes(query) ||
+          cert.employee?.lastName?.toLowerCase().includes(query);
+        const matchesCert = cert.certificationType?.name?.toLowerCase().includes(query);
+        return matchesEmployee || matchesCert;
+      })
+    : allCertifications;
 
   const isLoading = loadingTypes || loadingExpiring30 || loadingEmployees;
 
@@ -443,7 +446,7 @@ export function CertificationDashboardPage() {
           value={totalActive}
           icon={<CheckCircle className="h-5 w-5 text-green-600" />}
           color="bg-green-50 dark:bg-green-900/30"
-          isLoading={loadingEmployees}
+          isLoading={loadingCerts}
         />
         <StatCard
           title="Cert Types"
@@ -585,7 +588,7 @@ export function CertificationDashboardPage() {
               data={activeCertifications.slice(0, 5)}
               columns={certificationColumns}
               keyExtractor={(row) => row.id}
-              isLoading={loadingEmployees}
+              isLoading={loadingCerts}
               emptyMessage="No certifications found"
             />
           </div>
@@ -646,9 +649,9 @@ export function CertificationDashboardPage() {
             data={filteredCertifications}
             columns={certificationColumns}
             keyExtractor={(row) => row.id}
-            isLoading={loadingEmployees}
+            isLoading={loadingCerts}
             emptyMessage="No certifications found"
-            total={filteredCertifications.length}
+            total={certTotal}
             page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
             pageSize={pagination.limit || 20}
             onPageChange={handlePageChange}
@@ -790,7 +793,7 @@ export function CertificationDashboardPage() {
             </h3>
             <div className="space-y-3">
               {certTypes
-                ?.filter((t) => t.isMandatory)
+                ?.filter((t) => t.requirement === 'mandatory')
                 .map((type) => {
                   const totalEmployees = employees?.total || 0;
                   const certifiedCount = allCertifications.filter(

@@ -20,6 +20,10 @@ export type { FormFieldProps } from './FormField';
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
 
+// Searchable Select (single-select with filtering)
+export { SearchableSelect } from './SearchableSelect';
+export type { SearchableSelectProps } from './SearchableSelect';
+
 // Date Components
 export { DatePicker } from './DatePicker';
 export type { DatePickerProps } from './DatePicker';

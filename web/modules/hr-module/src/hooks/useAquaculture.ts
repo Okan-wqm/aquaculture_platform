@@ -107,7 +107,7 @@ export function useWorkAreas(filter?: WorkAreaFilterInput) {
   return useQuery({
     queryKey: workAreaKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ workAreas: WorkArea[] }, unknown>(
+      graphqlRequest<{ workAreas: { items: WorkArea[]; total: number } }, unknown>(
         client,
         GET_WORK_AREAS,
         {
@@ -117,7 +117,7 @@ export function useWorkAreas(filter?: WorkAreaFilterInput) {
           isActive: filter?.isActive,
         }
       ),
-    select: (data) => data.workAreas,
+    select: (data) => data.workAreas.items ?? [],
   });
 }
 

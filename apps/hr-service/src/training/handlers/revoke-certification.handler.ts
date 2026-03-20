@@ -100,7 +100,7 @@ export class RevokeCertificationHandler
       certification.revocationReason = reason;
       certification.updatedBy = userId;
 
-      const savedCertification = await certificationRepo.save(certification);
+      await certificationRepo.save(certification);
 
       // After revoking, check if employee still meets all mandatory offshore certifications.
       // If not, set seaWorthy = false.
@@ -112,10 +112,16 @@ export class RevokeCertificationHandler
 
       await queryRunner.commitTransaction();
 
-      // Publish event for notification/audit purposes
-      this.eventBus.publish(new CertificationRevokedEvent(savedCertification));
+      // Re-fetch with relations so GraphQL response includes employee & certificationType
+      const result = await this.dataSource.getRepository(EmployeeCertification).findOne({
+        where: { id: certificationId, tenantId },
+        relations: ['employee', 'certificationType'],
+      });
 
-      return savedCertification;
+      // Publish event for notification/audit purposes
+      this.eventBus.publish(new CertificationRevokedEvent(result!));
+
+      return result!;
     } catch (error) {
       await queryRunner.rollbackTransaction();
 

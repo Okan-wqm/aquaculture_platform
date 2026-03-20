@@ -129,6 +129,35 @@ export const GET_CERTIFICATIONS_FOR_WORK_AREA = gql`
   ${CERTIFICATION_TYPE_FRAGMENT}
 `;
 
+export const GET_ALL_CERTIFICATIONS = gql`
+  query GetAllCertifications(
+    $status: CertificationStatus
+    $category: CertificationCategory
+    $employeeId: String
+    $certificationTypeId: String
+    $limit: Int
+    $offset: Int
+  ) {
+    allCertifications(
+      status: $status
+      category: $category
+      employeeId: $employeeId
+      certificationTypeId: $certificationTypeId
+      limit: $limit
+      offset: $offset
+    ) {
+      items {
+        ...EmployeeCertificationFull
+      }
+      total
+      limit
+      offset
+      hasMore
+    }
+  }
+  ${EMPLOYEE_CERTIFICATION_FRAGMENT}
+`;
+
 // =====================
 // Training Queries
 // =====================

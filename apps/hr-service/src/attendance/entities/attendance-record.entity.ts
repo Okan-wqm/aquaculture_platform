@@ -154,6 +154,7 @@ export class AttendanceRecord {
   @Index()
   employeeId!: string;
 
+  @Field(() => Employee, { nullable: true })
   @ManyToOne(() => Employee, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'employeeId' })
   employee?: Employee;

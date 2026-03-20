@@ -19,7 +19,7 @@ import {
   FileText,
   TrendingUp,
 } from 'lucide-react';
-import { cn, useAuth } from '@aquaculture/shared-ui';
+import { cn, useAuth, SearchableSelect } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -209,22 +209,19 @@ function CreatePayrollModal({
               </h3>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Employee <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={employeeId}
-                    onChange={(e) => setEmployeeId(e.target.value)}
+                  <SearchableSelect
+                    label="Employee"
                     required
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">Select employee...</option>
-                    {employees.map((emp) => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.firstName} {emp.lastName} ({emp.employeeNumber})
-                      </option>
-                    ))}
-                  </select>
+                    options={employees.map((emp) => ({
+                      value: emp.id,
+                      label: `${emp.firstName} ${emp.lastName} (${emp.employeeNumber})`,
+                    }))}
+                    value={employeeId}
+                    onChange={(val) => setEmployeeId(String(val))}
+                    placeholder="Select employee..."
+                    searchPlaceholder="Search employees..."
+                    size="md"
+                  />
                 </div>
 
                 <div>
@@ -493,7 +490,7 @@ const PayrollPage: React.FC = () => {
   // Data fetching
   const { data: allPayrolls, isLoading: loadingAll } = usePayrolls(filter);
   const { data: pendingPayrolls, isLoading: loadingPending } = usePendingPayrolls();
-  const { data: employeesData } = useEmployees(undefined, { limit: 500, offset: 0 });
+  const { data: employeesData } = useEmployees(undefined, { limit: 1000, offset: 0 });
 
   // Mutations
   const createMutation = useCreatePayroll();
@@ -845,27 +842,24 @@ const PayrollPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Employee
-              </label>
-              <select
+              <SearchableSelect
+                label="Employee"
+                options={employees.map((emp) => ({
+                  value: emp.id,
+                  label: `${emp.firstName} ${emp.lastName} (${emp.employeeNumber})`,
+                }))}
                 value={filter.employeeId || ''}
-                onChange={(e) =>
+                onChange={(val) =>
                   setFilter((prev) => ({
                     ...prev,
-                    employeeId: e.target.value || undefined,
+                    employeeId: val ? String(val) : undefined,
                     offset: 0,
                   }))
                 }
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">All Employees</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.firstName} {emp.lastName}
-                  </option>
-                ))}
-              </select>
+                placeholder="All Employees"
+                searchPlaceholder="Search employees..."
+                size="md"
+              />
             </div>
           </div>
 

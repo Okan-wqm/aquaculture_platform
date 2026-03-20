@@ -36,6 +36,8 @@ export { NumberInput } from './Form/NumberInput';
 export type { NumberInputProps } from './Form/NumberInput';
 export { MultiSelect } from './Form/MultiSelect';
 export type { MultiSelectProps, MultiSelectOption } from './Form/MultiSelect';
+export { SearchableSelect } from './Form/SearchableSelect';
+export type { SearchableSelectProps } from './Form/SearchableSelect';
 export { DynamicSpecificationForm } from './Form/DynamicSpecificationForm';
 export type {
   DynamicSpecificationFormProps,

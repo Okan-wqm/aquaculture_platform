@@ -10,6 +10,7 @@ import {
   GET_EMPLOYEE_CERTIFICATIONS,
   GET_EXPIRING_CERTIFICATIONS,
   GET_EXPIRED_CERTIFICATIONS,
+  GET_ALL_CERTIFICATIONS,
   GET_CERTIFICATION_COMPLIANCE_REPORT,
   GET_EMPLOYEE_CERTIFICATION_STATUS,
   GET_TRAINING_COURSES,
@@ -40,6 +41,7 @@ import type {
   EnrollInTrainingInput,
   CompleteTrainingInput,
   CertificationCategory,
+  CertificationStatus,
   PaginationInput,
   PaginatedResponse,
 } from '../types';
@@ -58,6 +60,8 @@ export const certificationKeys = {
     [...certificationKeys.all, 'expiring', daysUntilExpiry, departmentId] as const,
   expired: (departmentId?: string) =>
     [...certificationKeys.all, 'expired', departmentId] as const,
+  allList: (filter?: { status?: CertificationStatus; category?: CertificationCategory; employeeId?: string; certificationTypeId?: string }, pagination?: PaginationInput) =>
+    [...certificationKeys.all, 'allList', { filter, pagination }] as const,
   compliance: (departmentId?: string) =>
     [...certificationKeys.all, 'compliance', departmentId] as const,
   status: (employeeId: string) =>
@@ -162,6 +166,34 @@ export function useExpiredCertifications(departmentId?: string) {
   });
 }
 
+export function useAllCertifications(
+  filter?: {
+    status?: CertificationStatus;
+    category?: CertificationCategory;
+    employeeId?: string;
+    certificationTypeId?: string;
+  },
+  pagination?: PaginationInput,
+) {
+  const client = useGraphQLClient();
+
+  return useQuery({
+    queryKey: certificationKeys.allList(filter, pagination),
+    queryFn: () =>
+      graphqlRequest<{
+        allCertifications: PaginatedResponse<EmployeeCertification>;
+      }, unknown>(client, GET_ALL_CERTIFICATIONS, {
+        status: filter?.status,
+        category: filter?.category,
+        employeeId: filter?.employeeId,
+        certificationTypeId: filter?.certificationTypeId,
+        limit: pagination?.limit,
+        offset: pagination?.offset,
+      }),
+    select: (data) => data.allCertifications,
+  });
+}
+
 export function useCertificationComplianceReport(departmentId?: string) {
   const client = useGraphQLClient();
 
@@ -198,8 +230,8 @@ export function useEmployeeCertificationStatus(employeeId: string) {
             certificationTypeId: string;
             certificationTypeName: string;
             category: CertificationCategory;
-            isMandatory: boolean;
-            requiredForOffshore: boolean;
+            requirement: string;
+            isOffshoreRequired: boolean;
           }[];
         };
       }, unknown>(client, GET_EMPLOYEE_CERTIFICATION_STATUS, {
@@ -224,12 +256,12 @@ export function useTrainingCourses(filter?: {
   return useQuery({
     queryKey: trainingKeys.courseList(filter),
     queryFn: () =>
-      graphqlRequest<{ trainingCourses: TrainingCourse[] }, unknown>(
+      graphqlRequest<{ trainingCourses: { items: TrainingCourse[]; total: number } }, unknown>(
         client,
         GET_TRAINING_COURSES,
         { filter }
       ),
-    select: (data) => data.trainingCourses,
+    select: (data) => data.trainingCourses.items ?? [],
   });
 }
 
@@ -307,11 +339,9 @@ export function useAddEmployeeCertification() {
         {
           employeeId: input.employeeId,
           certificationTypeId: input.certificationTypeId,
-          issueDate: input.issuedDate,
+          issueDate: input.issueDate,
           expiryDate: input.expiryDate,
-          issuingAuthority: input.issuedBy,
-          externalCertificationId: input.certificateNumber,
-          notes: undefined,
+          issuingAuthority: input.issuingAuthority,
         }
       ),
     onSuccess: (data) => {
@@ -336,7 +366,7 @@ export function useVerifyCertification() {
       graphqlRequest<{ verifyCertification: EmployeeCertification }, unknown>(
         client,
         VERIFY_CERTIFICATION,
-        { id: input.id, notes: input.verificationNotes }
+        { id: input.id, notes: input.notes }
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
@@ -424,7 +454,7 @@ export function useEnrollInTraining() {
         ENROLL_IN_TRAINING,
         {
           employeeId: input.employeeId,
-          trainingCourseId: input.courseId,
+          trainingCourseId: input.trainingCourseId,
           dueDate: input.dueDate,
           sessionId: input.sessionId,
           instructor: input.instructor,

@@ -112,6 +112,11 @@ export class AddEmployeeCertificationHandler
     // Publish event for notification/audit purposes
     this.eventBus.publish(new CertificationAddedEvent(savedCertification));
 
-    return savedCertification;
+    // Re-fetch with relations so GraphQL response includes employee & certificationType
+    const result = await this.certificationRepository.findOne({
+      where: { id: savedCertification.id, tenantId },
+      relations: ['employee', 'certificationType'],
+    });
+    return result!;
   }
 }

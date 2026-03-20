@@ -9,8 +9,6 @@ import { Link } from 'react-router-dom';
 import { GraduationCap, Users, Clock, Award, Plus, Shield } from 'lucide-react';
 import { cn } from '@aquaculture/shared-ui';
 import { useTrainingCourses, useCurrentEmployeeId } from '../hooks';
-import type { CertificationCategory } from '../types';
-
 const TrainingPage: React.FC = () => {
   const employeeId = useCurrentEmployeeId();
 
@@ -65,9 +63,9 @@ const TrainingPage: React.FC = () => {
                 <div className="rounded-lg bg-indigo-50 p-2 dark:bg-indigo-900/30">
                   <GraduationCap className="h-5 w-5 text-indigo-600" />
                 </div>
-                {course.category && (
-                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', categoryColors[course.category] || 'bg-gray-100 text-gray-800')}>
-                    {course.category.replace('_', ' ')}
+                {course.trainingType && (
+                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', categoryColors[course.trainingType.toLowerCase()] || 'bg-gray-100 text-gray-800')}>
+                    {course.trainingType.replace('_', ' ')}
                   </span>
                 )}
               </div>
@@ -76,16 +74,16 @@ const TrainingPage: React.FC = () => {
                 <p className="mb-3 text-sm text-gray-500 line-clamp-2">{course.description}</p>
               )}
               <div className="flex items-center justify-between text-xs text-gray-500">
-                {course.durationHours && (
+                {course.durationMinutes && (
                   <div className="flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5" />
-                    <span>{course.durationHours}h</span>
+                    <span>{Math.round(course.durationMinutes / 60)}h</span>
                   </div>
                 )}
-                {course.maxParticipants && (
+                {course.maxAttempts && (
                   <div className="flex items-center gap-1">
                     <Users className="h-3.5 w-3.5" />
-                    <span>Max {course.maxParticipants}</span>
+                    <span>Max {course.maxAttempts} attempts</span>
                   </div>
                 )}
                 {course.isMandatory && (

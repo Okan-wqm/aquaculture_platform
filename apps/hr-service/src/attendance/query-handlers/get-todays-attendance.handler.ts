@@ -18,6 +18,7 @@ export class GetTodaysAttendanceHandler implements IQueryHandler<GetTodaysAttend
     const today = new Date().toISOString().split('T')[0];
 
     const qb = this.attendanceRepository.createQueryBuilder('ar')
+      .leftJoinAndSelect('ar.employee', 'employee')
       .where('ar.tenantId = :tenantId', { tenantId })
       .andWhere('ar.date = :today', { today })
       .andWhere('ar.isDeleted = false')

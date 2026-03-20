@@ -74,6 +74,7 @@ export class EmployeeCertification {
   @Index()
   employeeId!: string;
 
+  @Field(() => Employee, { nullable: true })
   @ManyToOne(() => Employee, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'employeeId' })
   employee?: Employee;
@@ -82,6 +83,7 @@ export class EmployeeCertification {
   @Column()
   certificationTypeId!: string;
 
+  @Field(() => CertificationType, { nullable: true })
   @ManyToOne(() => CertificationType)
   @JoinColumn({ name: 'certificationTypeId' })
   certificationType?: CertificationType;

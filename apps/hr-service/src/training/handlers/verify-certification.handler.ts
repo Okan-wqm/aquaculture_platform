@@ -48,11 +48,16 @@ export class VerifyCertificationHandler
 
       certification.updatedBy = userId;
 
-      const savedCertification = await certificationRepo.save(certification);
+      await certificationRepo.save(certification);
 
       await queryRunner.commitTransaction();
 
-      return savedCertification;
+      // Re-fetch with relations so GraphQL response includes employee & certificationType
+      const result = await this.dataSource.getRepository(EmployeeCertification).findOne({
+        where: { id: certificationId, tenantId },
+        relations: ['employee', 'certificationType'],
+      });
+      return result!;
     } catch (error) {
       await queryRunner.rollbackTransaction();
 

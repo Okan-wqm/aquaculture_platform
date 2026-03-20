@@ -20,16 +20,36 @@ import {
   GetEmployeeCertificationsQuery,
   GetExpiringCertificationsQuery,
   GetExpiredCertificationsQuery,
+  GetAllCertificationsQuery,
   GetTrainingCoursesQuery,
   GetTrainingEnrollmentsQuery,
 } from './queries';
 import { PaginatedTrainingCourses } from './query-handlers/get-training-courses.handler';
 import { PaginatedTrainingEnrollments } from './query-handlers/get-training-enrollments.handler';
+import { PaginatedEmployeeCertifications } from './query-handlers/get-all-certifications.handler';
 
 @ObjectType()
 class TrainingCourseConnection {
   @Field(() => [TrainingCourse])
   items!: TrainingCourse[];
+
+  @Field(() => Int)
+  total!: number;
+
+  @Field(() => Int)
+  limit!: number;
+
+  @Field(() => Int)
+  offset!: number;
+
+  @Field()
+  hasMore!: boolean;
+}
+
+@ObjectType()
+class EmployeeCertificationConnection {
+  @Field(() => [EmployeeCertification])
+  items!: EmployeeCertification[];
 
   @Field(() => Int)
   total!: number;
@@ -162,6 +182,25 @@ export class TrainingResolver {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
       new GetExpiredCertificationsQuery(tenantId, departmentId),
+    );
+  }
+
+  // =====================
+  // All Certifications (Paginated)
+  // =====================
+  @Query(() => EmployeeCertificationConnection, { name: 'allCertifications' })
+  async getAllCertifications(
+    @Context() context: GraphQLContext,
+    @Args('status', { type: () => CertificationStatus, nullable: true }) status?: CertificationStatus,
+    @Args('category', { type: () => CertificationCategory, nullable: true }) category?: CertificationCategory,
+    @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
+    @Args('certificationTypeId', { type: () => ID, nullable: true }) certificationTypeId?: string,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
+    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+  ): Promise<PaginatedEmployeeCertifications> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(
+      new GetAllCertificationsQuery(tenantId, employeeId, certificationTypeId, status, category, limit, offset),
     );
   }
 

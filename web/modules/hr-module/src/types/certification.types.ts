@@ -32,12 +32,17 @@ export enum CertificationStatus {
   REVOKED = 'REVOKED',
 }
 
-export enum TrainingDeliveryMethod {
-  IN_PERSON = 'IN_PERSON',
-  ONLINE = 'ONLINE',
-  HYBRID = 'HYBRID',
-  ON_THE_JOB = 'ON_THE_JOB',
-  SELF_PACED = 'SELF_PACED',
+export enum VerificationStatus {
+  UNVERIFIED = 'UNVERIFIED',
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
+  VERIFIED = 'VERIFIED',
+  VERIFICATION_FAILED = 'VERIFICATION_FAILED',
+}
+
+export enum CertificationRequirement {
+  MANDATORY = 'MANDATORY',
+  RECOMMENDED = 'RECOMMENDED',
+  OPTIONAL = 'OPTIONAL',
 }
 
 export enum EnrollmentStatus {
@@ -58,71 +63,94 @@ export interface CertificationType extends BaseEntity {
   name: string;
   description?: string;
   category: CertificationCategory;
+  requirement: CertificationRequirement;
   issuingAuthority?: string;
-  validityMonths: number;
-  renewalReminderDays: number;
-  isMandatory: boolean;
-  requiredForOffshore: boolean;
-  requiredForDiving: boolean;
-  requiredForVessel: boolean;
-  prerequisiteCertificationIds: string[];
-  prerequisites?: CertificationType[];
+  validityMonths?: number;
+  renewalReminderDays?: number;
+  requiresRenewal: boolean;
+  requiresPhysicalAssessment: boolean;
+  isOffshoreRequired: boolean;
+  isDivingRequired: boolean;
+  applicableWorkAreas?: string[];
+  prerequisiteCertifications?: string[];
+  colorCode?: string;
   displayOrder: number;
   isActive: boolean;
 }
 
 export interface EmployeeCertification extends BaseEntity {
   employeeId: string;
+  // Relations — populated only when query handler uses leftJoinAndSelect
   employee?: Employee;
   certificationTypeId: string;
   certificationType?: CertificationType;
-  certificateNumber?: string;
-  issuedDate: string;
+  certificationNumber: string;
+  issueDate: string;
   expiryDate?: string;
-  issuedBy?: string;
+  daysUntilExpiry?: number;
   status: CertificationStatus;
+  verificationStatus: VerificationStatus;
   verifiedBy?: string;
   verifiedAt?: string;
-  verificationNotes?: string;
-  attachmentUrl?: string;
-  reminderSentAt?: string;
+  issuingAuthority?: string;
+  externalCertificationId?: string;
+  notes?: string;
+  documents?: {
+    documentId: string;
+    fileName: string;
+    uploadedAt: string;
+    documentType?: string;
+  }[];
   revokedBy?: string;
   revokedAt?: string;
   revocationReason?: string;
+  previousCertificationId?: string;
+  isRenewal: boolean;
+  reminderSent: boolean;
+  reminderSentAt?: string;
 }
 
 export interface TrainingCourse extends BaseEntity {
   code: string;
   name: string;
   description?: string;
-  category: CertificationCategory;
-  deliveryMethod: TrainingDeliveryMethod;
-  durationHours: number;
-  maxParticipants?: number;
+  trainingType: string;
+  level: string;
+  durationMinutes: number;
+  maxAttempts?: number;
   passingScore?: number;
   certificationTypeId?: string;
-  certificationType?: CertificationType;
-  prerequisiteCourseIds: string[];
-  prerequisites?: TrainingCourse[];
+  prerequisites: string[];
   isMandatory: boolean;
-  refresherMonths?: number;
+  validityMonths?: number;
   isActive: boolean;
 }
 
 export interface TrainingEnrollment extends BaseEntity {
   employeeId: string;
-  employee?: Employee;
-  courseId: string;
-  course?: TrainingCourse;
-  enrolledAt: string;
+  trainingCourseId: string;
+  status: EnrollmentStatus;
+  enrollmentDate: string;
+  dueDate?: string;
   startedAt?: string;
   completedAt?: string;
-  status: EnrollmentStatus;
-  score?: number;
-  passed?: boolean;
+  progressPercent: number;
+  finalScore?: number;
+  attemptCount: number;
+  assessmentAttempts?: {
+    attemptNumber: number;
+    score: number;
+    passed: boolean;
+    attemptedAt: string;
+    durationMinutes?: number;
+  }[];
+  certificateId?: string;
+  sessionId?: string;
+  instructor?: string;
+  location?: string;
   feedback?: string;
-  instructorNotes?: string;
-  certificateIssuedAt?: string;
+  feedbackRating?: number;
+  notes?: string;
 }
 
 export interface CertificationComplianceReport {
@@ -170,29 +198,30 @@ export interface CreateCertificationTypeInput {
   name: string;
   description?: string;
   category: CertificationCategory;
+  requirement?: CertificationRequirement;
   issuingAuthority?: string;
-  validityMonths: number;
+  validityMonths?: number;
   renewalReminderDays?: number;
-  isMandatory?: boolean;
-  requiredForOffshore?: boolean;
-  requiredForDiving?: boolean;
-  requiredForVessel?: boolean;
-  prerequisiteCertificationIds?: string[];
+  requiresRenewal?: boolean;
+  requiresPhysicalAssessment?: boolean;
+  isOffshoreRequired?: boolean;
+  isDivingRequired?: boolean;
+  applicableWorkAreas?: string[];
+  prerequisiteCertifications?: string[];
 }
 
 export interface AddEmployeeCertificationInput {
   employeeId: string;
   certificationTypeId: string;
-  certificateNumber?: string;
-  issuedDate: string;
+  certificationNumber?: string;
+  issueDate: string;
   expiryDate?: string;
-  issuedBy?: string;
-  attachmentUrl?: string;
+  issuingAuthority?: string;
 }
 
 export interface VerifyCertificationInput {
   id: string;
-  verificationNotes?: string;
+  notes?: string;
 }
 
 export interface RevokeCertificationInput {
@@ -204,28 +233,27 @@ export interface CreateTrainingCourseInput {
   code: string;
   name: string;
   description?: string;
-  category: CertificationCategory;
-  deliveryMethod: TrainingDeliveryMethod;
-  durationHours: number;
-  maxParticipants?: number;
+  trainingType: string;
+  level: string;
+  durationMinutes: number;
+  maxAttempts?: number;
   passingScore?: number;
   certificationTypeId?: string;
-  prerequisiteCourseIds?: string[];
+  prerequisites?: string[];
   isMandatory?: boolean;
-  refresherMonths?: number;
+  validityMonths?: number;
 }
 
 export interface EnrollInTrainingInput {
   employeeId: string;
-  courseId: string;
+  trainingCourseId: string;
 }
 
 export interface CompleteTrainingInput {
   enrollmentId: string;
   score?: number;
-  passed: boolean;
   feedback?: string;
-  instructorNotes?: string;
+  feedbackRating?: number;
 }
 
 export interface CertificationFilterInput {
@@ -238,8 +266,8 @@ export interface CertificationFilterInput {
 
 export interface TrainingFilterInput {
   employeeId?: string;
-  courseId?: string;
-  category?: CertificationCategory;
+  trainingCourseId?: string;
+  trainingType?: string;
   status?: EnrollmentStatus;
   isMandatory?: boolean;
 }
@@ -286,14 +314,6 @@ export const ENROLLMENT_STATUS_CONFIG: Record<EnrollmentStatus, { label: string;
   [EnrollmentStatus.FAILED]: { label: 'Failed', variant: 'error' },
   [EnrollmentStatus.WITHDRAWN]: { label: 'Withdrawn', variant: 'default' },
   [EnrollmentStatus.NO_SHOW]: { label: 'No Show', variant: 'error' },
-};
-
-export const TRAINING_DELIVERY_METHOD_LABELS: Record<TrainingDeliveryMethod, string> = {
-  [TrainingDeliveryMethod.IN_PERSON]: 'In-Person',
-  [TrainingDeliveryMethod.ONLINE]: 'Online',
-  [TrainingDeliveryMethod.HYBRID]: 'Hybrid',
-  [TrainingDeliveryMethod.ON_THE_JOB]: 'On-the-Job',
-  [TrainingDeliveryMethod.SELF_PACED]: 'Self-Paced',
 };
 
 /**

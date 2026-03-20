@@ -191,7 +191,7 @@ export function WeeklySchedulePage() {
           }
         }`,
         {
-          filter: { status: 'active', limit: 200, offset: 0 },
+          filter: { status: 'ACTIVE', limit: 1000, offset: 0 },
         }
       ),
     select: (data) => data.employees,

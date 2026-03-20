@@ -198,7 +198,12 @@ export const LEAVE_REQUEST_FRAGMENT = gql`
     contactDuringLeave
     status
     currentApprovalLevel
-    approvalHistory
+    approvalHistory {
+      action
+      actorId
+      timestamp
+      notes
+    }
     approvedBy
     approvedAt
     rejectedBy
@@ -207,7 +212,11 @@ export const LEAVE_REQUEST_FRAGMENT = gql`
     cancelledBy
     cancelledAt
     cancellationReason
-    attachments
+    attachments {
+      documentId
+      fileName
+      uploadedAt
+    }
     createdAt
     updatedAt
   }
@@ -302,14 +311,17 @@ export const CERTIFICATION_TYPE_FRAGMENT = gql`
     name
     description
     category
+    requirement
     issuingAuthority
     validityMonths
     renewalReminderDays
-    isMandatory
-    requiredForOffshore
-    requiredForDiving
-    requiredForVessel
-    prerequisiteCertificationIds
+    requiresRenewal
+    requiresPhysicalAssessment
+    isOffshoreRequired
+    isDivingRequired
+    applicableWorkAreas
+    prerequisiteCertifications
+    colorCode
     displayOrder
     isActive
   }
@@ -320,7 +332,17 @@ export const EMPLOYEE_CERTIFICATION_FRAGMENT = gql`
     id
     tenantId
     employeeId
+    employee {
+      ...EmployeeBasic
+    }
     certificationTypeId
+    certificationType {
+      id
+      code
+      name
+      category
+      requirement
+    }
     certificationNumber
     issueDate
     expiryDate
@@ -347,6 +369,7 @@ export const EMPLOYEE_CERTIFICATION_FRAGMENT = gql`
     createdAt
     updatedAt
   }
+  ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
 export const TRAINING_COURSE_FRAGMENT = gql`
@@ -356,15 +379,15 @@ export const TRAINING_COURSE_FRAGMENT = gql`
     code
     name
     description
-    category
-    deliveryMethod
-    durationHours
-    maxParticipants
+    trainingType
+    level
+    durationMinutes
+    maxAttempts
     passingScore
     certificationTypeId
-    prerequisiteCourseIds
+    prerequisites
     isMandatory
-    refresherMonths
+    validityMonths
     isActive
   }
 `;
@@ -374,31 +397,32 @@ export const TRAINING_ENROLLMENT_FRAGMENT = gql`
     id
     tenantId
     employeeId
-    employee {
-      ...EmployeeBasic
-    }
-    courseId
-    course {
-      id
-      code
-      name
-      category
-      deliveryMethod
-      durationHours
-    }
-    enrolledAt
+    trainingCourseId
+    status
+    enrollmentDate
+    dueDate
     startedAt
     completedAt
-    status
-    score
-    passed
+    progressPercent
+    finalScore
+    attemptCount
+    assessmentAttempts {
+      attemptNumber
+      score
+      passed
+      attemptedAt
+      durationMinutes
+    }
+    certificateId
+    sessionId
+    instructor
+    location
     feedback
-    instructorNotes
-    certificateIssuedAt
+    feedbackRating
+    notes
     createdAt
     updatedAt
   }
-  ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
 // =====================

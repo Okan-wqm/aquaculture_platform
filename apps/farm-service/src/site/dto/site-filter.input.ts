@@ -1,9 +1,10 @@
 /**
  * Site Filter Input DTO
  */
-import { InputType, Field, Int } from '@nestjs/graphql';
-import { IsOptional, IsString, IsBoolean, IsEnum, IsInt, Min, Max } from 'class-validator';
+import { InputType, Field } from '@nestjs/graphql';
+import { IsOptional, IsString, IsBoolean, IsEnum } from 'class-validator';
 import { SiteStatus } from '../entities/site.entity';
+import { StandardPaginationInput } from '@platform/backend-common';
 
 @InputType()
 export class SiteFilterInput {
@@ -34,29 +35,6 @@ export class SiteFilterInput {
 }
 
 // ARCH-NOTE: Renamed to avoid GraphQL schema collision with @platform/backend-common PaginationInput.
-// Farm-service uses page/limit pattern; platform shared uses offset/limit.
+// Now extends StandardPaginationInput (page/limit) from the shared lib.
 @InputType('FarmPaginationInput')
-export class PaginationInput {
-  @Field(() => Int, { nullable: true, defaultValue: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @Field(() => Int, { nullable: true, defaultValue: 20 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @Field({ nullable: true, defaultValue: 'createdAt' })
-  @IsOptional()
-  @IsString()
-  sortBy?: string;
-
-  @Field({ nullable: true, defaultValue: 'DESC' })
-  @IsOptional()
-  @IsString()
-  sortOrder?: 'ASC' | 'DESC';
-}
+export class PaginationInput extends StandardPaginationInput {}

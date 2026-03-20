@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsUUID,
   IsInt,
+  IsIn,
   Min,
   Max,
   MaxLength,
@@ -12,7 +13,7 @@ import {
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
-import { PaginationInput, PaginatedResponse } from '@platform/backend-common';
+import { StandardPaginationInput, PaginatedResponse } from '@platform/backend-common';
 
 /**
  * Filter input for querying VFD devices
@@ -66,11 +67,11 @@ export class VfdDeviceFilterDto {
  * Extends PaginationInput with VFD-specific sortBy validation.
  */
 @InputType('VfdPaginationInput')
-export class VfdPaginationDto extends PaginationInput {
+export class VfdPaginationDto extends StandardPaginationInput {
   @Field({ nullable: true, defaultValue: 'createdAt', description: 'Field to sort by (name, brand, status, createdAt, updatedAt)' })
   @IsOptional()
   @IsString()
-  @IsEnum(['name', 'brand', 'status', 'createdAt', 'updatedAt'])
+  @IsIn(['name', 'brand', 'status', 'createdAt', 'updatedAt'])
   override sortBy?: string;
 }
 

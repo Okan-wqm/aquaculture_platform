@@ -1,6 +1,7 @@
-import { InputType, Field, Int } from '@nestjs/graphql';
-import { IsOptional, IsEnum, IsUUID, IsInt, IsBoolean, Min, Max } from 'class-validator';
+import { InputType, Field } from '@nestjs/graphql';
+import { IsOptional, IsEnum, IsUUID, IsBoolean } from 'class-validator';
 import { EmployeeStatus, EmploymentType, Department, PersonnelCategory } from '../entities/employee.entity';
+import { StandardPaginationInput } from '@platform/backend-common';
 
 @InputType()
 export class EmployeeFilterInput {
@@ -38,17 +39,7 @@ export class EmployeeFilterInput {
   @IsOptional()
   @IsBoolean()
   seaWorthy?: boolean;
-
-  @Field(() => Int, { nullable: true, defaultValue: 0 })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  offset?: number;
-
-  @Field(() => Int, { nullable: true, defaultValue: 20 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
 }
+
+@InputType('EmployeePaginationInput')
+export class EmployeePaginationInput extends StandardPaginationInput {}

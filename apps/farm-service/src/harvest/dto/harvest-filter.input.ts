@@ -15,12 +15,12 @@ import {
   IsNumber,
   IsArray,
   Min,
-  Max,
   IsDate,
   IsBoolean,
   IsNotEmpty,
   MaxLength,
 } from 'class-validator';
+import { StandardPaginationInput } from '@platform/backend-common';
 import { Type } from 'class-transformer';
 import { HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
@@ -162,31 +162,12 @@ export class HarvestFilterInput {
 /**
  * Pagination input for harvest queries
  */
-@InputType()
-export class HarvestPaginationInput {
-  @Field(() => Int, { nullable: true, defaultValue: 1, description: 'Page number (1-based)' })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @Field(() => Int, { nullable: true, defaultValue: 20, description: 'Items per page' })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
+@InputType('HarvestPaginationInput')
+export class HarvestPaginationInput extends StandardPaginationInput {
   @Field({ nullable: true, defaultValue: 'harvestDate', description: 'Field to sort by' })
   @IsOptional()
   @IsString()
-  @MaxLength(50)
   sortBy?: string;
-
-  @Field({ nullable: true, defaultValue: 'DESC', description: 'Sort direction (ASC or DESC)' })
-  @IsOptional()
-  @IsString()
-  sortOrder?: 'ASC' | 'DESC';
 }
 
 /**

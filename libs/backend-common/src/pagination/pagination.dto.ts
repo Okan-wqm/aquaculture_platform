@@ -1,33 +1,42 @@
 /**
  * Shared Pagination DTOs
  *
- * Standard pagination pattern for the platform using offset/limit with hasMore.
+ * Platform-wide pagination types and utilities.
+ *
+ * Standard Pattern (page/limit with full metadata):
+ * - Input: StandardPaginationInput (page, limit, sortBy, sortOrder)
+ * - Output: StandardPaginatedResponse<T> (items, total, page, limit, totalPages, hasNextPage, hasPreviousPage)
+ *
+ * Legacy Pattern (offset/limit with hasMore) — @deprecated, Phase 3 removal:
+ * - Input: PaginationInput
+ * - Output: PaginatedResponse<T>
  *
  * @module Pagination
- *
- * @example Input Usage:
- * ```typescript
- * @Query(() => PaginatedEmployeeResponse)
- * async employees(
- *   @Args('pagination', { nullable: true }) pagination?: PaginationInput,
- * ): Promise<PaginatedResult<Employee>> { ... }
- * ```
- *
- * @example Response Usage:
- * ```typescript
- * // Create a typed response class for your entity
- * @ObjectType()
- * export class PaginatedEmployeeResponse extends PaginatedResponse(Employee) {}
- * ```
  */
-import { Field, Int, ObjectType } from '@nestjs/graphql';
-import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
+import { Field, Int, ObjectType, InputType, registerEnumType } from '@nestjs/graphql';
+import { IsOptional, IsInt, Min, Max, IsString, IsEnum, IsIn, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
 
+// ============================================================================
+// ENUMS
+// ============================================================================
+
 /**
- * Sort order for pagination queries
+ * Sort direction enum — registered as a GraphQL enum type.
  */
-export type SortOrder = 'ASC' | 'DESC';
+export enum SortOrder {
+  ASC = 'ASC',
+  DESC = 'DESC',
+}
+
+registerEnumType(SortOrder, {
+  name: 'SortOrder',
+  description: 'Sort direction for paginated queries',
+});
+
+// ============================================================================
+// LEGACY PAGINATION (deprecated — Phase 3 removal)
+// ============================================================================
 
 /**
  * @deprecated Use `StandardPaginationInput` instead. This offset-based input will be removed in Phase 3.
@@ -38,6 +47,7 @@ export type SortOrder = 'ASC' | 'DESC';
  * - sortBy: Field to sort by (default: 'createdAt')
  * - sortOrder: Sort direction ASC or DESC (default: 'DESC')
  */
+@InputType({ isAbstract: true })
 export class PaginationInput {
   @Field(() => Int, { nullable: true, defaultValue: 0, description: 'Number of items to skip' })
   @IsOptional()
@@ -63,14 +73,14 @@ export class PaginationInput {
   @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name (alphanumeric and underscore only)' })
   sortBy?: string;
 
-  @Field({ nullable: true, defaultValue: 'DESC', description: 'Sort direction (ASC or DESC)' })
+  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction (ASC or DESC)' })
   @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
+  @IsEnum(SortOrder)
   sortOrder?: SortOrder;
 }
 
 /**
- * Interface for paginated results
+ * @deprecated Use `IStandardPaginatedResult` instead.
  */
 export interface IPaginatedResult<T> {
   items: T[];
@@ -79,19 +89,7 @@ export interface IPaginatedResult<T> {
 }
 
 /**
- * Creates a typed paginated response class for GraphQL.
- *
- * @param classRef - The entity class to paginate
- * @returns A new ObjectType class with typed items array
- *
- * @example
- * ```typescript
- * import { Employee } from './entities/employee.entity';
- * import { PaginatedResponse } from '@platform/backend-common';
- *
- * @ObjectType()
- * export class PaginatedEmployeeResponse extends PaginatedResponse(Employee) {}
- * ```
+ * @deprecated Use `StandardPaginatedResponse` instead.
  */
 export function PaginatedResponse<T>(classRef: Type<T>): Type<IPaginatedResult<T>> {
   @ObjectType({ isAbstract: true })
@@ -108,27 +106,12 @@ export function PaginatedResponse<T>(classRef: Type<T>): Type<IPaginatedResult<T
   return PaginatedResponseClass as Type<IPaginatedResult<T>>;
 }
 
-/**
- * Helper function to calculate hasMore from pagination parameters
- *
- * @param total - Total count of items
- * @param offset - Current offset
- * @param limit - Current limit
- * @returns Whether there are more items available
- */
+/** @deprecated Use `createStandardPaginatedResult` instead. */
 export function calculateHasMore(total: number, offset: number, limit: number): boolean {
   return offset + limit < total;
 }
 
-/**
- * Helper function to create a paginated result
- *
- * @param items - Array of items for current page
- * @param total - Total count of items
- * @param offset - Current offset
- * @param limit - Current limit
- * @returns Paginated result object
- */
+/** @deprecated Use `createStandardPaginatedResult` instead. */
 export function createPaginatedResult<T>(
   items: T[],
   total: number,
@@ -143,20 +126,27 @@ export function createPaginatedResult<T>(
 }
 
 // ============================================================================
-// STANDARD PAGINATION (Phase 1 — page/limit based)
+// STANDARD PAGINATION (page/limit based)
 // ============================================================================
 
 /**
- * Standard pagination input using page/limit pattern.
+ * Standard pagination input — the platform-wide base class.
  *
- * This is the new standard for the platform:
+ * All per-service pagination inputs SHOULD extend this class:
+ * ```typescript
+ * @InputType('FarmPaginationInput')
+ * export class FarmPaginationInput extends StandardPaginationInput {}
+ * ```
+ *
+ * Fields:
  * - page: 1-based page number (default: 1, max: 1000)
  * - limit: Items per page (default: 20, max: 100)
- * - sortBy: Field to sort by (default: 'createdAt') — consumers MUST validate against an allowlist
- * - sortOrder: Sort direction ASC or DESC (default: 'DESC')
+ * - sortBy: Field to sort by (default: 'createdAt') — regex-validated
+ * - sortOrder: ASC or DESC (default: DESC) — enum-validated
  *
  * Includes a computed `offset` getter for TypeORM `skip()` compatibility.
  */
+@InputType({ isAbstract: true })
 export class StandardPaginationInput {
   @Field(() => Int, { nullable: true, defaultValue: 1, description: 'Page number (1-based)' })
   @IsOptional()
@@ -178,9 +168,9 @@ export class StandardPaginationInput {
   @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
   sortBy?: string;
 
-  @Field({ nullable: true, defaultValue: 'DESC', description: 'Sort direction' })
+  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction' })
   @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
+  @IsEnum(SortOrder)
   sortOrder?: SortOrder;
 
   /** Computed offset for TypeORM skip() — page-to-offset bridge */
@@ -204,9 +194,6 @@ export interface IStandardPaginatedResult<T> {
 
 /**
  * Creates a typed paginated response class for GraphQL (standard page-based).
- *
- * @param classRef - The entity class to paginate
- * @returns A new ObjectType class with typed items array and page metadata
  *
  * @example
  * ```typescript

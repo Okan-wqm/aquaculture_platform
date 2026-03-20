@@ -20,6 +20,7 @@ import {
   PlcSecurityMode,
   PlcAuthMode,
 } from '../entities/plc-connection.entity';
+import { StandardPaginationInput } from '@platform/backend-common';
 
 /**
  * Input DTO for creating a new PLC connection
@@ -424,31 +425,7 @@ export class PlcConnectionFilterDto {
  * Pagination input for PLC queries
  */
 @InputType('PlcPaginationInput')
-export class PlcPaginationDto {
-  @Field(() => Int, { nullable: true, defaultValue: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @Field(() => Int, { nullable: true, defaultValue: 20 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @Field({ nullable: true, defaultValue: 'createdAt' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  sortBy?: string;
-
-  @Field({ nullable: true, defaultValue: 'DESC' })
-  @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
-}
+export class PlcPaginationDto extends StandardPaginationInput {}
 
 /**
  * Paginated PLC connections response

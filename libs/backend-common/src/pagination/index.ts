@@ -1,26 +1,20 @@
 /**
  * Pagination Module
  *
- * Provides standardized pagination types and utilities for GraphQL APIs.
- *
- * Legacy Pattern (offset/limit with hasMore):
- * - Input: PaginationInput (offset, limit, sortBy, sortOrder) — @deprecated
- * - Output: PaginatedResponse<T> (items, total, hasMore) — @deprecated
- *
  * Standard Pattern (page/limit with full metadata):
  * - Input: StandardPaginationInput (page, limit, sortBy, sortOrder)
  * - Output: StandardPaginatedResponse<T> (items, total, page, limit, totalPages, hasNextPage, hasPreviousPage)
  *
+ * Legacy Pattern (offset/limit with hasMore) — @deprecated, Phase 3 removal:
+ * - Input: PaginationInput
+ * - Output: PaginatedResponse<T>
+ *
  * @module Pagination
  */
 export {
-  // Legacy (deprecated — Phase 3 removal)
-  PaginationInput,
-  PaginatedResponse,
-  IPaginatedResult,
-  calculateHasMore,
-  createPaginatedResult,
-  // Standard (Phase 1+)
+  // Enum
+  SortOrder,
+  // Standard (use these)
   StandardPaginationInput,
   StandardPaginatedResponse,
   IStandardPaginatedResult,
@@ -28,6 +22,10 @@ export {
   fromCqrsPaginated,
   safeSortField,
   safeSortOrder,
-  // Shared
-  SortOrder,
+  // Legacy (deprecated — Phase 3 removal)
+  PaginationInput,
+  PaginatedResponse,
+  IPaginatedResult,
+  calculateHasMore,
+  createPaginatedResult,
 } from './pagination.dto';

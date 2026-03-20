@@ -157,6 +157,8 @@ export interface PaginationParams {
 
 /**
  * Sayfalı sonuç
+ * @deprecated Use `StandardPaginatedResult<T>` instead. This type uses `hasNext`/`hasPrevious`
+ * which does not align with the backend standard (`hasNextPage`/`hasPreviousPage`).
  */
 export interface PaginatedResult<T> {
   items: T[];

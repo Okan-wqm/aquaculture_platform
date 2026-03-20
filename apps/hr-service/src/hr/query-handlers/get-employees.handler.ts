@@ -22,7 +22,7 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
   ) {}
 
   async execute(query: GetEmployeesQuery): Promise<PaginatedEmployees> {
-    const { tenantId, filter } = query;
+    const { tenantId, filter, pagination } = query;
 
     const where: FindOptionsWhere<Employee> = { tenantId, isDeleted: false };
 
@@ -48,9 +48,10 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
       where.seaWorthy = filter.seaWorthy;
     }
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(filter?.limit || 20, 1), 100);
-    const effectiveOffset = Math.max(filter?.offset || 0, 0);
+    // Use pagination arg (page-based) with fallback defaults
+    const page = pagination?.page ?? 1;
+    const effectiveLimit = Math.min(Math.max(pagination?.limit ?? 20, 1), 100);
+    const effectiveOffset = (page - 1) * effectiveLimit;
 
     const [items, total] = await this.employeeRepository.findAndCount({
       where,

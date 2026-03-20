@@ -12,7 +12,7 @@ import { UpdateEmployeeInput } from './dto/update-employee.input';
 import { CreatePayrollInput } from './dto/create-payroll.input';
 import { CreateDepartmentInput } from './dto/create-department.input';
 import { UpdateDepartmentInput } from './dto/update-department.input';
-import { EmployeeFilterInput } from './dto/employee-filter.input';
+import { EmployeeFilterInput, EmployeePaginationInput } from './dto/employee-filter.input';
 import { CreateEmployeeCommand } from './commands/create-employee.command';
 import { UpdateEmployeeCommand } from './commands/update-employee.command';
 import { CreatePayrollCommand } from './commands/create-payroll.command';
@@ -119,10 +119,11 @@ export class HRResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getEmployees(
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
+    @Args('pagination', { nullable: true }) pagination: EmployeePaginationInput,
     @Context() context: GraphQLContext,
   ): Promise<PaginatedEmployees> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetEmployeesQuery(tenantId, filter));
+    return this.queryBus.execute(new GetEmployeesQuery(tenantId, filter, pagination));
   }
 
   @Query(() => [Employee], { name: 'employeesByDepartment' })
@@ -135,8 +136,9 @@ export class HRResolver {
     @Context() context: GraphQLContext,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
+    const page = Math.floor(offset / limit) + 1;
     const result = await this.queryBus.execute(
-      new GetEmployeesQuery(tenantId, { department, limit, offset }),
+      new GetEmployeesQuery(tenantId, { department }, { page, limit }),
     );
     return result.items;
   }
@@ -150,8 +152,9 @@ export class HRResolver {
     @Context() context: GraphQLContext,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
+    const page = Math.floor(offset / limit) + 1;
     const result = await this.queryBus.execute(
-      new GetEmployeesQuery(tenantId, { status: EmployeeStatus.ACTIVE, limit, offset }),
+      new GetEmployeesQuery(tenantId, { status: EmployeeStatus.ACTIVE }, { page, limit }),
     );
     return result.items;
   }

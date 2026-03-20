@@ -4,6 +4,7 @@ import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNot
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
+import { StandardPaginationInput } from '@platform/backend-common';
 
 import { CreateDataChannelInput, DataChannelType } from './data-channel.dto';
 
@@ -407,22 +408,9 @@ export class SensorFilterInput {
 }
 
 // ARCH-NOTE: Renamed to avoid GraphQL schema collision with @platform/backend-common PaginationInput.
-// Sensor-service uses page/pageSize pattern; platform shared uses offset/limit.
+// Now extends StandardPaginationInput (page/limit + sortBy/sortOrder).
 @InputType('SensorPaginationInput')
-export class PaginationInput {
-  @Field(() => Int, { defaultValue: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @Field(() => Int, { defaultValue: 20 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  pageSize?: number;
-}
+export class PaginationInput extends StandardPaginationInput {}
 
 // Parent-Child Registration Types
 

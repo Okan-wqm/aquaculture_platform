@@ -206,7 +206,7 @@ export function useDepartmentList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['departments', 'list', filter],
+    queryKey: ['departments', 'list', tenantId, filter],
     queryFn: async () => {
       const data = await graphqlClient.request<{ departments: PaginatedResponse }>(
         DEPARTMENTS_LIST_QUERY,

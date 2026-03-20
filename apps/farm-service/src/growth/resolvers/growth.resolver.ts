@@ -21,11 +21,10 @@ import {
   ObjectType,
 } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { IsInt, Min, Max } from 'class-validator';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginationInput } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -155,18 +154,7 @@ export class GrowthMeasurementFilterInput {
 }
 
 @InputType('GrowthPaginationInput')
-export class GrowthPaginationInput {
-  @Field(() => Int, { defaultValue: 0 })
-  @IsInt()
-  @Min(0)
-  offset: number;
-
-  @Field(() => Int, { defaultValue: 20 })
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit: number;
-}
+export class GrowthPaginationInput extends StandardPaginationInput {}
 
 // ============================================================================
 // RESPONSE TYPES (Order matters - referenced types must be defined first)
@@ -457,7 +445,7 @@ export class GrowthResolver {
           isVerified: filter?.verifiedOnly,
           measuredBy: filter?.measuredBy,
         },
-        1, // page
+        pagination?.page ?? 1,
         pagination?.limit ?? 20,
       ),
     );

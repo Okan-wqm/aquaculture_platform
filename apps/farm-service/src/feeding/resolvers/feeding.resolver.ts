@@ -21,12 +21,12 @@ import {
   ObjectType,
   registerEnumType,
 } from '@nestjs/graphql';
-import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, Max, IsArray, IsDate } from 'class-validator';
+import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Roles, Role, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { Roles, Role, CurrentTenant, CurrentUser, StandardPaginationInput } from '@platform/backend-common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import GraphQLJSON from 'graphql-type-json';
@@ -323,18 +323,7 @@ export class FeedInventoryFilterInput {
 }
 
 @InputType('FeedingPaginationInput')
-export class FeedingPaginationInput {
-  @Field(() => Int, { defaultValue: 1 })
-  @IsInt()
-  @Min(1)
-  page: number;
-
-  @Field(() => Int, { defaultValue: 20 })
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit: number;
-}
+export class FeedingPaginationInput extends StandardPaginationInput {}
 
 // ============================================================================
 // RESPONSE TYPES

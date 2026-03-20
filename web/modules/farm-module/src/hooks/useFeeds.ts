@@ -480,7 +480,7 @@ export function useFeedList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ feeds: PaginatedResponse }>(
         FEEDS_LIST_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.feeds;
     },

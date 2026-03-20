@@ -21,7 +21,7 @@ import {
   ObjectType,
   registerEnumType,
 } from '@nestjs/graphql';
-import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
+import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, Max, IsArray, IsDate } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -325,9 +325,14 @@ export class FeedInventoryFilterInput {
 @InputType('FeedingPaginationInput')
 export class FeedingPaginationInput {
   @Field(() => Int, { defaultValue: 1 })
+  @IsInt()
+  @Min(1)
   page: number;
 
   @Field(() => Int, { defaultValue: 20 })
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit: number;
 }
 
@@ -831,7 +836,7 @@ export class FeedingResolver {
           fromDate: filter?.startDate,
           toDate: filter?.endDate,
           feedingMethod: filter?.feedingMethod ? [filter.feedingMethod] : undefined,
-          appetite: filter?.appetite,
+          appetite: filter?.appetite ? [filter.appetite as FishAppetite] : undefined,
           fedBy: filter?.fedBy,
           hasVariance: filter?.hasVariance,
         },

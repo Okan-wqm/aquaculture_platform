@@ -159,7 +159,7 @@ export function useStorageLocationList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ storageLocations: PaginatedResponse }>(
         STORAGE_LOCATIONS_LIST_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.storageLocations;
     },

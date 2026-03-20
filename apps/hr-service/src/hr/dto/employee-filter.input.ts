@@ -49,6 +49,6 @@ export class EmployeeFilterInput {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(1000)
+  @Max(100)
   limit?: number;
 }

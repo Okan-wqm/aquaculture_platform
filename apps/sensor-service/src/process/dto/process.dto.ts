@@ -1,6 +1,6 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsInt } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsInt, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ProcessStatus, ProcessNode, ProcessEdge } from '../entities/process.entity';
@@ -148,11 +148,14 @@ export class ProcessPaginationInput {
   @Field(() => Int, { nullable: true, defaultValue: 0 })
   @IsOptional()
   @IsInt()
+  @Min(0)
   offset?: number;
 
   @Field(() => Int, { nullable: true, defaultValue: 20 })
   @IsOptional()
   @IsInt()
+  @Min(1)
+  @Max(100)
   limit?: number;
 }
 

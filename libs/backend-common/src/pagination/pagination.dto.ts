@@ -23,6 +23,7 @@
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
+import { PaginatedQueryResult } from '@platform/cqrs';
 
 /**
  * Sort order for pagination queries
@@ -30,9 +31,9 @@ import { Type } from '@nestjs/common';
 export type SortOrder = 'ASC' | 'DESC';
 
 /**
- * Standard pagination input using offset/limit pattern.
+ * @deprecated Use `StandardPaginationInput` instead. This offset-based input will be removed in Phase 3.
  *
- * This is the preferred pagination pattern for the platform:
+ * Pagination input using offset/limit pattern.
  * - offset: Number of items to skip (default: 0)
  * - limit: Maximum number of items to return (default: 20, max: 100)
  * - sortBy: Field to sort by (default: 'createdAt')
@@ -140,4 +141,159 @@ export function createPaginatedResult<T>(
     total,
     hasMore: calculateHasMore(total, offset, limit),
   };
+}
+
+// ============================================================================
+// STANDARD PAGINATION (Phase 1 — page/limit based)
+// ============================================================================
+
+/**
+ * Standard pagination input using page/limit pattern.
+ *
+ * This is the new standard for the platform:
+ * - page: 1-based page number (default: 1, max: 1000)
+ * - limit: Items per page (default: 20, max: 100)
+ * - sortBy: Field to sort by (default: 'createdAt') — consumers MUST validate against an allowlist
+ * - sortOrder: Sort direction ASC or DESC (default: 'DESC')
+ *
+ * Includes a computed `offset` getter for TypeORM `skip()` compatibility.
+ */
+export class StandardPaginationInput {
+  @Field(() => Int, { nullable: true, defaultValue: 1, description: 'Page number (1-based)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  page?: number;
+
+  @Field(() => Int, { nullable: true, defaultValue: 20, description: 'Items per page (max 100)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @Field({ nullable: true, defaultValue: 'createdAt', description: 'Sort field' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
+  sortBy?: string;
+
+  @Field({ nullable: true, defaultValue: 'DESC', description: 'Sort direction' })
+  @IsOptional()
+  @IsEnum(['ASC', 'DESC'])
+  sortOrder?: SortOrder;
+
+  /** Computed offset for TypeORM skip() — page-to-offset bridge */
+  get offset(): number {
+    return ((this.page ?? 1) - 1) * (this.limit ?? 20);
+  }
+}
+
+/**
+ * Interface for standard paginated results (page-based).
+ */
+export interface IStandardPaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+/**
+ * Creates a typed paginated response class for GraphQL (standard page-based).
+ *
+ * @param classRef - The entity class to paginate
+ * @returns A new ObjectType class with typed items array and page metadata
+ *
+ * @example
+ * ```typescript
+ * @ObjectType()
+ * export class PaginatedBatchResponse extends StandardPaginatedResponse(Batch) {}
+ * ```
+ */
+export function StandardPaginatedResponse<T>(classRef: Type<T>): Type<IStandardPaginatedResult<T>> {
+  @ObjectType({ isAbstract: true })
+  abstract class StandardPaginatedResponseClass implements IStandardPaginatedResult<T> {
+    @Field(() => [classRef], { description: 'Array of items' })
+    items!: T[];
+
+    @Field(() => Int, { description: 'Total count of items matching the query' })
+    total!: number;
+
+    @Field(() => Int, { description: 'Current page number' })
+    page!: number;
+
+    @Field(() => Int, { description: 'Items per page' })
+    limit!: number;
+
+    @Field(() => Int, { description: 'Total number of pages' })
+    totalPages!: number;
+
+    @Field(() => Boolean, { description: 'Whether there is a next page' })
+    hasNextPage!: boolean;
+
+    @Field(() => Boolean, { description: 'Whether there is a previous page' })
+    hasPreviousPage!: boolean;
+  }
+  return StandardPaginatedResponseClass as Type<IStandardPaginatedResult<T>>;
+}
+
+/**
+ * Helper: create a standard paginated result from raw data.
+ */
+export function createStandardPaginatedResult<T>(
+  items: T[],
+  total: number,
+  page: number,
+  limit: number,
+): IStandardPaginatedResult<T> {
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPreviousPage: page > 1,
+  };
+}
+
+/**
+ * Bridge: CQRS PaginatedQueryResult → IStandardPaginatedResult
+ */
+export function fromCqrsPaginated<T>(result: PaginatedQueryResult<T>): IStandardPaginatedResult<T> {
+  const p = result.pagination;
+  return {
+    items: result.data,
+    total: p.total,
+    page: p.page,
+    limit: p.limit,
+    totalPages: p.totalPages,
+    hasNextPage: p.hasNextPage,
+    hasPreviousPage: p.hasPreviousPage,
+  };
+}
+
+/**
+ * Safe sort field allowlist enforcement.
+ * Returns the requested field if it's in the allowlist, otherwise the default.
+ */
+export function safeSortField(
+  requested: string | undefined,
+  allowlist: readonly string[],
+  defaultField: string,
+): string {
+  return requested && allowlist.includes(requested) ? requested : defaultField;
+}
+
+/**
+ * Safe sort order — normalizes to 'ASC' or 'DESC'.
+ */
+export function safeSortOrder(requested: string | undefined): 'ASC' | 'DESC' {
+  return requested?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 }

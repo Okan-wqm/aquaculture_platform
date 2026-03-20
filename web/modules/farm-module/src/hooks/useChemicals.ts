@@ -388,7 +388,7 @@ export function useChemicalList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ chemicals: PaginatedResponse }>(
         CHEMICALS_LIST_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.chemicals;
     },

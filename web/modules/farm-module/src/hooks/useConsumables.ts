@@ -200,7 +200,7 @@ export function useConsumableList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ consumables: PaginatedResponse }>(
         CONSUMABLES_LIST_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.consumables;
     },

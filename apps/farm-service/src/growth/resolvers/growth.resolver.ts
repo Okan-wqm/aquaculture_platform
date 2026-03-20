@@ -21,6 +21,7 @@ import {
   ObjectType,
 } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { IsInt, Min, Max } from 'class-validator';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -156,9 +157,14 @@ export class GrowthMeasurementFilterInput {
 @InputType('GrowthPaginationInput')
 export class GrowthPaginationInput {
   @Field(() => Int, { defaultValue: 0 })
+  @IsInt()
+  @Min(0)
   offset: number;
 
   @Field(() => Int, { defaultValue: 20 })
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit: number;
 }
 

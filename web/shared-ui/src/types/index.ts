@@ -168,6 +168,25 @@ export interface PaginatedResult<T> {
   hasPrevious: boolean;
 }
 
+/** Standard pagination input for GraphQL queries */
+export interface StandardPaginationInput {
+  page: number;
+  limit: number;
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+}
+
+/** Standard paginated response from GraphQL queries */
+export interface StandardPaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
 /**
  * API hata yanıtı
  */

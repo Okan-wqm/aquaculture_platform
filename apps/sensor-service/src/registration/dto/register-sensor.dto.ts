@@ -1,6 +1,6 @@
 import { InputType, Field, ID, ObjectType, registerEnumType, Float, Int } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNotEmpty, IsObject, IsArray, ValidateNested } from 'class-validator';
+import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNotEmpty, IsObject, IsArray, ValidateNested, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
@@ -413,11 +413,14 @@ export class PaginationInput {
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
   @IsInt()
+  @Min(1)
   page?: number;
 
   @Field(() => Int, { defaultValue: 20 })
   @IsOptional()
   @IsInt()
+  @Min(1)
+  @Max(100)
   pageSize?: number;
 }
 

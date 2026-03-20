@@ -288,7 +288,7 @@ export function useSystemList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ systems: PaginatedResponse }>(
         SYSTEMS_LIST_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.systems;
     },

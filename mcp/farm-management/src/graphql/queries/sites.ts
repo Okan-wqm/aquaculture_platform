@@ -172,7 +172,7 @@ export async function fetchSites(
   filter?: { isActive?: boolean },
 ): Promise<PaginatedSitesResponse> {
   const query = `
-    query ListSites($filter: SiteFilterInput, $pagination: PaginationInput) {
+    query ListSites($filter: SiteFilterInput, $pagination: FarmPaginationInput) {
       sites(filter: $filter, pagination: $pagination) {
         items {
           id
@@ -202,7 +202,7 @@ export async function fetchSites(
 
   const data = await client.query<{ sites: PaginatedSitesResponse }>(query, {
     filter: filter ?? null,
-    pagination: { limit: 100 },
+    pagination: { page: 1, limit: 100 },
   });
   return data.sites;
 }

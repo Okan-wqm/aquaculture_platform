@@ -341,7 +341,7 @@ export function useEquipmentList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
         EQUIPMENT_LIST_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.equipmentList;
     },

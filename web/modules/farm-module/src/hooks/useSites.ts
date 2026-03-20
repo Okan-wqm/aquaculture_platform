@@ -238,7 +238,7 @@ export function useSiteList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ sites: PaginatedResponse }>(
         SITES_LIST_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.sites;
     },

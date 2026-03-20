@@ -307,7 +307,7 @@ export function useStockMovements(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ stockMovements: PaginatedMovementsResponse }>(
         STOCK_MOVEMENTS_QUERY,
-        { filter }
+        { filter, pagination: { page: 1, limit: 100 } }
       );
       return data.stockMovements;
     },

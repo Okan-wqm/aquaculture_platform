@@ -23,7 +23,6 @@
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
-import { PaginatedQueryResult } from '@platform/cqrs';
 
 /**
  * Sort order for pagination queries
@@ -264,9 +263,20 @@ export function createStandardPaginatedResult<T>(
 }
 
 /**
- * Bridge: CQRS PaginatedQueryResult → IStandardPaginatedResult
+ * Bridge: CQRS PaginatedQueryResult → IStandardPaginatedResult.
+ * Uses structural typing to avoid a hard dependency on @platform/cqrs.
  */
-export function fromCqrsPaginated<T>(result: PaginatedQueryResult<T>): IStandardPaginatedResult<T> {
+export function fromCqrsPaginated<T>(result: {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+}): IStandardPaginatedResult<T> {
   const p = result.pagination;
   return {
     items: result.data,

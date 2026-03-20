@@ -1,4 +1,6 @@
 import { RemoteGraphQLDataSource } from '@apollo/gateway';
+import { GatewayGraphQLRequestContext, GatewayGraphQLResponse } from '@apollo/server-gateway-interface';
+import type { ResponsePath } from '@apollo/query-planner';
 import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
@@ -183,14 +185,12 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     }
   }
 
-  override async didReceiveResponse<TResult>({
-    response,
-    context,
-  }: {
-    response: { http?: { headers: Headers }; body: TResult };
-    request: unknown;
-    context?: GatewayContext | Record<string, unknown>;
-  }): Promise<TResult> {
+  override didReceiveResponse(
+    requestContext: Required<Pick<GatewayGraphQLRequestContext<GatewayContext>, 'request' | 'response' | 'context'>> & {
+      pathInIncomingRequest?: ResponsePath;
+    },
+  ): GatewayGraphQLResponse {
+    const { response, context } = requestContext;
     // Forward set-cookie headers from subgraph → browser
     // Critical for httpOnly refresh token cookie from auth-service
     if (context && 'res' in context) {
@@ -201,7 +201,7 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
         res.append('set-cookie', setCookieHeader);
       }
     }
-    return response.body;
+    return response;
   }
 }
 

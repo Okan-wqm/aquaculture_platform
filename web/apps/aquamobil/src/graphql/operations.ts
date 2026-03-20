@@ -76,7 +76,7 @@ export const CREATE_HARVEST_RECORD = `
 
 // Feeding queries and mutations
 export const GET_TODAYS_FEEDING_PLAN = `
-  query TodaysFeedingPlan($date: Date!) {
+  query TodaysFeedingPlan($date: DateTime!) {
     dailyFeedingExecutions(date: $date) {
       id
       equipmentId

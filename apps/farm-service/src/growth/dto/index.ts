@@ -5,4 +5,3 @@
  */
 export * from './create-growth-measurement.input';
 export * from './update-growth-measurement.input';
-export * from './growth-measurement-filter.input';

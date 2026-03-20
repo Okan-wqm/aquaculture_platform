@@ -357,6 +357,12 @@ export class BatchFilterInput implements BatchFilter {
   @Field(() => ID, { nullable: true })
   tankId?: string;
 
+  @Field(() => ID, { nullable: true, description: 'Filter batches by site (joins through tank_batches → equipment → department)' })
+  siteId?: string;
+
+  @Field(() => ID, { nullable: true, description: 'Filter batches by department' })
+  departmentId?: string;
+
   @Field({ nullable: true })
   isActive?: boolean;
 

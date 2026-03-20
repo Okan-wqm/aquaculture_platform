@@ -10,17 +10,28 @@ import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
 
 export interface HarvestFilterCriteria {
   batchId?: string;
+  batchIds?: string[];
   tankId?: string;
+  tankIds?: string[];
+  pondId?: string;
+  siteId?: string;
   status?: HarvestRecordStatus;
+  statuses?: HarvestRecordStatus[];
   qualityGrade?: QualityGrade;
+  qualityGrades?: QualityGrade[];
   method?: HarvestMethod;
   productForm?: ProductForm;
   startDate?: Date;
   endDate?: Date;
   qualityApproved?: boolean;
+  harvestedBy?: string;
   search?: string;
   minBiomass?: number;
   maxBiomass?: number;
+  minAverageWeight?: number;
+  maxAverageWeight?: number;
+  minQuantity?: number;
+  maxQuantity?: number;
 }
 
 export interface HarvestPaginationOptions {

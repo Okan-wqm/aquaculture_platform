@@ -121,6 +121,18 @@ export class FeedingProgramFilterInput {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  startDateFrom?: Date;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  startDateTo?: Date;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  includeInactive?: boolean;
 }
 
 // ============================================================================
@@ -385,6 +397,18 @@ export class FeedingProgramResolver {
 
       if (filter?.status) {
         queryBuilder.andWhere('program.status = :status', { status: filter.status });
+      }
+
+      if (filter?.startDateFrom) {
+        queryBuilder.andWhere('program.startDate >= :startDateFrom', { startDateFrom: filter.startDateFrom });
+      }
+
+      if (filter?.startDateTo) {
+        queryBuilder.andWhere('program.startDate <= :startDateTo', { startDateTo: filter.startDateTo });
+      }
+
+      if (filter?.includeInactive === false) {
+        queryBuilder.andWhere('program.status != :inactiveStatus', { inactiveStatus: 'INACTIVE' });
       }
 
       if (filter?.search) {

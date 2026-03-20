@@ -145,6 +145,12 @@ export class GrowthMeasurementFilterInput {
 
   @Field({ nullable: true })
   verifiedOnly?: boolean;
+
+  @Field(() => [String], { nullable: true })
+  performance?: string[];
+
+  @Field({ nullable: true })
+  measuredBy?: string;
 }
 
 @InputType('GrowthPaginationInput')
@@ -439,9 +445,11 @@ export class GrowthResolver {
           batchId: filter?.batchId,
           tankId: filter?.tankId,
           measurementType: filter?.measurementType ? [filter.measurementType] : undefined,
+          performance: filter?.performance as any,
           fromDate: filter?.startDate,
           toDate: filter?.endDate,
           isVerified: filter?.verifiedOnly,
+          measuredBy: filter?.measuredBy,
         },
         1, // page
         pagination?.limit ?? 20,

@@ -392,7 +392,7 @@ describe('Batch GraphQL API (e2e)', () => {
     describe('batches', () => {
       it('should list batches with pagination', async () => {
         const batchesQuery = `
-          query ListBatches($tenantId: ID!, $pagination: PaginationInput) {
+          query ListBatches($tenantId: ID!, $pagination: FarmPaginationInput) {
             batches(tenantId: $tenantId, pagination: $pagination) {
               items {
                 id

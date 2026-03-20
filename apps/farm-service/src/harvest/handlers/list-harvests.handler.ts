@@ -48,16 +48,40 @@ export class ListHarvestsHandler implements IQueryHandler<ListHarvestsQuery, Pag
         qb.andWhere('harvest.batchId = :batchId', { batchId: filter.batchId });
       }
 
+      if (filter.batchIds?.length) {
+        qb.andWhere('harvest.batchId IN (:...batchIds)', { batchIds: filter.batchIds });
+      }
+
       if (filter.tankId) {
         qb.andWhere('harvest.tankId = :tankId', { tankId: filter.tankId });
+      }
+
+      if (filter.tankIds?.length) {
+        qb.andWhere('harvest.tankId IN (:...tankIds)', { tankIds: filter.tankIds });
+      }
+
+      if (filter.pondId) {
+        qb.andWhere('harvest.pondId = :pondId', { pondId: filter.pondId });
+      }
+
+      if (filter.siteId) {
+        qb.andWhere('harvest.siteId = :siteId', { siteId: filter.siteId });
       }
 
       if (filter.status) {
         qb.andWhere('harvest.status = :status', { status: filter.status });
       }
 
+      if (filter.statuses?.length) {
+        qb.andWhere('harvest.status IN (:...statuses)', { statuses: filter.statuses });
+      }
+
       if (filter.qualityGrade) {
         qb.andWhere('harvest.qualityGrade = :qualityGrade', { qualityGrade: filter.qualityGrade });
+      }
+
+      if (filter.qualityGrades?.length) {
+        qb.andWhere('harvest.qualityGrade IN (:...qualityGrades)', { qualityGrades: filter.qualityGrades });
       }
 
       if (filter.method) {
@@ -80,12 +104,32 @@ export class ListHarvestsHandler implements IQueryHandler<ListHarvestsQuery, Pag
         qb.andWhere('harvest.qualityApproved = :qualityApproved', { qualityApproved: filter.qualityApproved });
       }
 
+      if (filter.harvestedBy) {
+        qb.andWhere('harvest.harvestedBy = :harvestedBy', { harvestedBy: filter.harvestedBy });
+      }
+
       if (filter.minBiomass !== undefined) {
         qb.andWhere('harvest.totalBiomass >= :minBiomass', { minBiomass: filter.minBiomass });
       }
 
       if (filter.maxBiomass !== undefined) {
         qb.andWhere('harvest.totalBiomass <= :maxBiomass', { maxBiomass: filter.maxBiomass });
+      }
+
+      if (filter.minAverageWeight !== undefined) {
+        qb.andWhere('harvest.averageWeight >= :minAverageWeight', { minAverageWeight: filter.minAverageWeight });
+      }
+
+      if (filter.maxAverageWeight !== undefined) {
+        qb.andWhere('harvest.averageWeight <= :maxAverageWeight', { maxAverageWeight: filter.maxAverageWeight });
+      }
+
+      if (filter.minQuantity !== undefined) {
+        qb.andWhere('harvest.quantityHarvested >= :minQuantity', { minQuantity: filter.minQuantity });
+      }
+
+      if (filter.maxQuantity !== undefined) {
+        qb.andWhere('harvest.quantityHarvested <= :maxQuantity', { maxQuantity: filter.maxQuantity });
       }
 
       if (filter.search) {

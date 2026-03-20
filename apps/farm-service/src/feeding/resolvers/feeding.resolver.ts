@@ -290,6 +290,15 @@ export class FeedingRecordFilterInput {
 
   @Field(() => FeedingMethod, { nullable: true })
   feedingMethod?: FeedingMethod;
+
+  @Field({ nullable: true })
+  appetite?: string;
+
+  @Field({ nullable: true })
+  fedBy?: string;
+
+  @Field({ nullable: true })
+  hasVariance?: boolean;
 }
 
 @InputType()
@@ -308,6 +317,9 @@ export class FeedInventoryFilterInput {
 
   @Field({ nullable: true })
   includeExpiringSoon?: boolean;
+
+  @Field(() => ID, { nullable: true })
+  departmentId?: string;
 }
 
 @InputType('FeedingPaginationInput')
@@ -819,6 +831,9 @@ export class FeedingResolver {
           fromDate: filter?.startDate,
           toDate: filter?.endDate,
           feedingMethod: filter?.feedingMethod ? [filter.feedingMethod] : undefined,
+          appetite: filter?.appetite,
+          fedBy: filter?.fedBy,
+          hasVariance: filter?.hasVariance,
         },
         pagination?.page ?? 1,
         pagination?.limit ?? 20,
@@ -871,6 +886,7 @@ export class FeedingResolver {
         {
           siteId: filter?.siteId,
           feedId: filter?.feedId,
+          departmentId: filter?.departmentId,
           status: filter?.status ? [filter.status] : undefined,
           lowStockOnly: filter?.includeLowStock,
           expiringWithinDays: filter?.includeExpiringSoon ? 30 : undefined,

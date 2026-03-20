@@ -22,7 +22,9 @@
       "@aquaculture/backend-common": ["../../libs/backend-common/src/index.ts"],
       "@aquaculture/backend-common/*": ["../../libs/backend-common/src/*"],
       "@platform/event-contracts": ["../../libs/event-contracts/src/index.ts"],
-      "@platform/event-contracts/*": ["../../libs/event-contracts/src/*"]
+      "@platform/event-contracts/*": ["../../libs/event-contracts/src/*"],
+      "@platform/event-bus": ["../../platform/libs/event-bus/src/index.ts"],
+      "@platform/event-bus/*": ["../../platform/libs/event-bus/src/*"]
     }
   },
   "include": ["src/**/*"],

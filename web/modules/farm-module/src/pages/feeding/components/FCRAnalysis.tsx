@@ -14,8 +14,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  LineChart,
-  Line,
   ReferenceLine,
 } from 'recharts';
 
@@ -43,17 +41,6 @@ interface FCRAnalysisProps {
   batchId: string;
   batches: Batch[];
 }
-
-// PERF-017: Define mock historical data at module scope so it is not
-// re-created as a new array reference on every render cycle.
-const HISTORICAL_FCR_DATA = [
-  { month: 'Jan', actual: 1.18, target: 1.2 },
-  { month: 'Feb', actual: 1.22, target: 1.2 },
-  { month: 'Mar', actual: 1.15, target: 1.2 },
-  { month: 'Apr', actual: 1.19, target: 1.2 },
-  { month: 'May', actual: 1.24, target: 1.2 },
-  { month: 'Jun', actual: 1.21, target: 1.2 },
-];
 
 export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
   const [selectedMetric, setSelectedMetric] = useState<'fcr' | 'sgr'>('fcr');
@@ -226,29 +213,13 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       {/* Historical Trend */}
       <div className="bg-white rounded-lg shadow p-4">
         <h3 className="text-lg font-medium text-gray-900 mb-4">FCR Historical Trend</h3>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={HISTORICAL_FCR_DATA}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis domain={[1, 1.4]} />
-              <Tooltip />
-              <Legend />
-              <ReferenceLine y={1.2} stroke="#10B981" strokeDasharray="3 3" label="Target" />
-              <Line
-                type="monotone"
-                dataKey="actual"
-                stroke="#3B82F6"
-                strokeWidth={2}
-                name="Actual FCR"
-                dot={{ fill: '#3B82F6' }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+          <svg className="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+          </svg>
+          <p className="text-sm font-medium text-gray-500">Not enough historical data yet</p>
+          <p className="text-xs text-gray-400 mt-1">FCR trend will appear once sufficient feeding records are accumulated.</p>
         </div>
-        <p className="text-xs text-gray-500 mt-2 text-center">
-          * Historical data is illustrative. Connect to actual records for live data.
-        </p>
       </div>
 
       {/* Detailed Batch Table */}

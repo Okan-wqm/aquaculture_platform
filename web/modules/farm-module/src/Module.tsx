@@ -18,7 +18,6 @@ import TanksPage from './pages/tanks/TanksPage';
 import SentinelHubSettingsPage from './pages/settings/SentinelHubSettingsPage';
 import FeedingPage from './pages/feeding/FeedingPage';
 import FeedingProgramForm from './pages/feeding/FeedingProgramForm';
-import FeedingRecordsPage from './pages/feeding/FeedingRecordsPage';
 import StoragePage from './pages/storage/StoragePage';
 import HealthEventsPage from './pages/health/HealthEventsPage';
 import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
@@ -63,8 +62,9 @@ const FarmModule: React.FC = () => {
       <Route path="feeding/protocols/new" element={<FeedingProgramForm />} />
       <Route path="feeding/protocols/:programId/edit" element={<FeedingProgramForm />} />
 
-      {/* Feeding Records & Inventory - records, daily plan, summary, inventory */}
-      <Route path="feeding/records/*" element={<FeedingRecordsPage />} />
+      {/* Feeding Records - redirect to unified hub */}
+      <Route path="feeding/records" element={<Navigate to="/sites/feeding?tab=records" replace />} />
+      <Route path="feeding/records/*" element={<Navigate to="/sites/feeding?tab=records" replace />} />
 
       {/* Feeding Management - Daily Plan, Growth Forecast, Stock, FCR Analysis */}
       <Route path="feeding/*" element={<FeedingPage />} />

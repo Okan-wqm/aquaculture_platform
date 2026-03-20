@@ -18,7 +18,7 @@ import {
   ChemicalDocument,
   CreateChemicalInput,
 } from '../../../hooks/useChemicals';
-import { useSupplierList, Supplier } from '../../../hooks/useSuppliers';
+import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
 
 // ============================================================================
@@ -413,7 +413,7 @@ export const ChemicalsTab: React.FC = () => {
   const { data: chemicalTypesData = [] } = useChemicalTypes();
   // Use fallback categories when API data is not available
   const chemicalTypes = chemicalTypesData.length > 0 ? chemicalTypesData : FALLBACK_CHEMICAL_CATEGORIES;
-  const { data: suppliersData } = useSupplierList({ type: 'CHEMICAL' as any });
+  const { data: suppliersData } = useSupplierList({ type: SupplierType.CHEMICAL });
   const { data: sitesData } = useSiteList();
   const createChemical = useCreateChemical();
   const updateChemical = useUpdateChemical();

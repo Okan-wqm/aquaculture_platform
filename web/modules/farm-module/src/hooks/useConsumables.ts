@@ -89,7 +89,7 @@ interface PaginatedResponse {
 }
 
 const CONSUMABLES_LIST_QUERY = `
-  query Consumables($filter: ConsumableFilterInput, $pagination: PaginationInput) {
+  query Consumables($filter: ConsumableFilterInput, $pagination: FarmPaginationInput) {
     consumables(filter: $filter, pagination: $pagination) {
       items {
         id

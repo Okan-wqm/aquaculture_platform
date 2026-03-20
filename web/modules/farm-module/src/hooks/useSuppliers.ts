@@ -131,7 +131,7 @@ interface PaginatedResponse {
 
 // GraphQL queries
 const SUPPLIERS_LIST_QUERY = `
-  query Suppliers($filter: SupplierFilterInput, $pagination: PaginationInput) {
+  query Suppliers($filter: SupplierFilterInput, $pagination: FarmPaginationInput) {
     suppliers(filter: $filter, pagination: $pagination) {
       items {
         id

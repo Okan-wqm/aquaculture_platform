@@ -63,7 +63,7 @@ interface PaginatedResponse {
 }
 
 const STORAGE_LOCATIONS_LIST_QUERY = `
-  query StorageLocations($filter: StorageLocationFilterInput, $pagination: PaginationInput) {
+  query StorageLocations($filter: StorageLocationFilterInput, $pagination: FarmPaginationInput) {
     storageLocations(filter: $filter, pagination: $pagination) {
       items {
         id

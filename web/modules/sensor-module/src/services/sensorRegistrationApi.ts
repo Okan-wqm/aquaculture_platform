@@ -141,7 +141,7 @@ export const GET_SENSOR = gql`
 `;
 
 export const GET_SENSORS = gql`
-  query GetSensors($filter: SensorFilterInput, $pagination: PaginationInput) {
+  query GetSensors($filter: SensorFilterInput, $pagination: SensorPaginationInput) {
     sensors(filter: $filter, pagination: $pagination) {
       items {
         id

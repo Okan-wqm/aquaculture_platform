@@ -103,28 +103,20 @@ export const DAILY_FEEDING_EXECUTION_FRAGMENT = gql`
 
 /**
  * Yemleme programlarini listele
- * Filter ve pagination destekli
+ * Filter destekli (pagination yok)
  *
+ * SCHEMA-CONTRACT: Backend returns unpaginated [FeedingProgram]. Filter-only.
  * MED-06: List query uses FeedingProgramBasic to avoid over-fetching sensitive
  * feedAssignments / fcrTable / settings JSON blobs. Use FEEDING_PROGRAM_QUERY
  * (single-item) when the full detail view is needed.
  */
 export const FEEDING_PROGRAMS_QUERY = gql`
-  query FeedingPrograms(
-    $filter: FeedingProgramFilterInput
-    $pagination: PaginationInput
-  ) {
-    feedingPrograms(filter: $filter, pagination: $pagination) {
-      items {
-        ...FeedingProgramBasic
-        tanks {
-          ...FeedingProgramTankFull
-        }
+  query FeedingPrograms($filter: FeedingProgramFilterInput) {
+    feedingPrograms(filter: $filter) {
+      ...FeedingProgramBasic
+      tanks {
+        ...FeedingProgramTankFull
       }
-      total
-      page
-      limit
-      hasMore
     }
   }
   ${FEEDING_PROGRAM_BASIC_FRAGMENT}
@@ -150,32 +142,25 @@ export const FEEDING_PROGRAM_QUERY = gql`
 
 /**
  * Gunluk yemleme calistirmalarini listele
- * Belirli bir tarih veya tarih araligi icin
+ * Belirli bir tarih icin
+ *
+ * SCHEMA-CONTRACT: Backend returns flat array, no pagination. Date is required.
  */
 export const DAILY_FEEDING_EXECUTIONS_QUERY = gql`
-  query DailyFeedingExecutions(
-    $filter: DailyFeedingExecutionFilterInput
-    $pagination: PaginationInput
-  ) {
-    dailyFeedingExecutions(filter: $filter, pagination: $pagination) {
-      items {
-        ...DailyFeedingExecutionFull
-        feedingProgram {
-          id
-          name
-          code
-        }
-        feedingProgramTank {
-          id
-          equipmentName
-          equipmentCode
-          currentFeedCode
-        }
+  query DailyFeedingExecutions($date: DateTime!, $siteId: ID) {
+    dailyFeedingExecutions(date: $date, siteId: $siteId) {
+      ...DailyFeedingExecutionFull
+      feedingProgram {
+        id
+        name
+        code
       }
-      total
-      page
-      limit
-      hasMore
+      feedingProgramTank {
+        id
+        equipmentName
+        equipmentCode
+        currentFeedCode
+      }
     }
   }
   ${DAILY_FEEDING_EXECUTION_FRAGMENT}
@@ -184,45 +169,24 @@ export const DAILY_FEEDING_EXECUTIONS_QUERY = gql`
 /**
  * Bugunun yemleme planini getir
  * Tum tanklar icin planlanan ve gerceklesen verilerle
+ *
+ * SCHEMA-CONTRACT: Backend returns flat [DailyFeedingExecution], not a wrapper type.
+ * Summary stats (completedTanks, totalPlannedKg, etc.) computed client-side from execution data.
  */
 export const TODAYS_FEEDING_PLAN_QUERY = gql`
-  query TodaysFeedingPlan(
-    $date: Date
-    $feedingProgramId: ID
-    $equipmentId: ID
-  ) {
-    todaysFeedingPlan(
-      date: $date
-      feedingProgramId: $feedingProgramId
-      equipmentId: $equipmentId
-    ) {
-      date
-      executions {
-        ...DailyFeedingExecutionFull
-        feedingProgram {
-          id
-          name
-          code
-          settings
-        }
-        feedingProgramTank {
-          id
-          equipmentName
-          equipmentCode
-          currentFeedId
-          currentFeedCode
-          temperatureSensorId
-        }
+  query TodaysFeedingPlan($programId: ID!) {
+    todaysFeedingPlan(programId: $programId) {
+      ...DailyFeedingExecutionFull
+      feedingProgram {
+        id
+        name
+        code
       }
-      summary {
-        totalTanks
-        completedTanks
-        pendingTanks
-        skippedTanks
-        totalPlannedFeedKg
-        totalActualFeedKg
-        completionPercent
-        transitionWarnings
+      feedingProgramTank {
+        id
+        equipmentName
+        equipmentCode
+        currentFeedCode
       }
     }
   }
@@ -231,9 +195,12 @@ export const TODAYS_FEEDING_PLAN_QUERY = gql`
 
 /**
  * Program istatistiklerini getir
+ *
+ * DEAD-CODE: Backend resolver feedingProgramStats does NOT exist yet.
+ * This query is pre-defined for a planned analytics feature. Do NOT call until backend implements it.
  */
 export const FEEDING_PROGRAM_STATS_QUERY = gql`
-  query FeedingProgramStats($programId: ID!, $startDate: Date, $endDate: Date) {
+  query FeedingProgramStats($programId: ID!, $startDate: DateTime, $endDate: DateTime) {
     feedingProgramStats(
       programId: $programId
       startDate: $startDate
@@ -277,6 +244,9 @@ export const FEEDING_PROGRAM_STATS_QUERY = gql`
 
 /**
  * Program takvimini getir (ay bazli)
+ *
+ * DEAD-CODE: Backend resolver feedingProgramCalendar does NOT exist yet.
+ * This query is pre-defined for a planned calendar feature. Do NOT call until backend implements it.
  */
 export const FEEDING_PROGRAM_CALENDAR_QUERY = gql`
   query FeedingProgramCalendar($programId: ID!, $year: Int!, $month: Int!) {
@@ -299,10 +269,13 @@ export const FEEDING_PROGRAM_CALENDAR_QUERY = gql`
 
 /**
  * Aktif programlari getir (dashboard icin)
+ *
+ * SCHEMA-CONTRACT: Backend returns [FeedingProgram], no todaysSummary sub-field.
+ * Optional siteId filter available.
  */
 export const ACTIVE_FEEDING_PROGRAMS_QUERY = gql`
-  query ActiveFeedingPrograms {
-    activeFeedingPrograms {
+  query ActiveFeedingPrograms($siteId: ID) {
+    activeFeedingPrograms(siteId: $siteId) {
       ...FeedingProgramBasic
       tanks {
         id
@@ -311,12 +284,6 @@ export const ACTIVE_FEEDING_PROGRAMS_QUERY = gql`
         currentFeedCode
         isActive
       }
-      todaysSummary {
-        completedTanks
-        totalTanks
-        totalPlannedKg
-        totalActualKg
-      }
     }
   }
   ${FEEDING_PROGRAM_BASIC_FRAGMENT}
@@ -324,6 +291,10 @@ export const ACTIVE_FEEDING_PROGRAMS_QUERY = gql`
 
 /**
  * Tank icin uygun programlari getir
+ *
+ * DEAD-CODE: Backend resolver availableProgramsForTank does NOT exist yet.
+ * This query is pre-defined for a planned tank-program assignment feature.
+ * Do NOT call until backend implements it.
  */
 export const AVAILABLE_PROGRAMS_FOR_TANK_QUERY = gql`
   query AvailableProgramsForTank($equipmentId: ID!) {

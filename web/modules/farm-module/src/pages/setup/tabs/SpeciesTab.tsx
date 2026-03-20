@@ -22,7 +22,8 @@ import {
   speciesCategoryColors,
   waterTypeColors,
 } from '../../../hooks/useSpecies';
-import { useSupplierList } from '../../../hooks/useSuppliers';
+// ARCH-NOTE: Always use SupplierType enum, never hardcode string values. GraphQL enums are case-sensitive.
+import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
 
 // Predefined species tags
@@ -138,7 +139,7 @@ export const SpeciesTab: React.FC = () => {
   const createSpecies = useCreateSpecies();
   const updateSpecies = useUpdateSpecies();
   const deleteSpeciesMutation = useDeleteSpecies();
-  const { data: suppliersData } = useSupplierList({ type: 'fry' as any });
+  const { data: suppliersData } = useSupplierList({ type: SupplierType.FRY });
   const { data: feedsData } = useFeedList();
 
   // Local state

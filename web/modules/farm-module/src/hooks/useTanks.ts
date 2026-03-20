@@ -134,7 +134,7 @@ interface TanksResponse {
 
 // GraphQL query for equipment (tanks, ponds, cages) with batch metrics
 const EQUIPMENT_WITH_BATCHES_QUERY = `
-  query EquipmentWithBatches($filter: EquipmentFilterInput, $pagination: PaginationInput) {
+  query EquipmentWithBatches($filter: EquipmentFilterInput, $pagination: FarmPaginationInput) {
     equipmentList(filter: $filter, pagination: $pagination) {
       items {
         id

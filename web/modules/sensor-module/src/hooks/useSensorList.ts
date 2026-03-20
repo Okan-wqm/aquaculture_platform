@@ -63,9 +63,9 @@ export interface SensorListResult {
 
 // GraphQL Query - Uses the sensors query from registration.resolver.ts
 // Returns SensorListType with pagination input object
-// Note: PaginationInput in federation only accepts 'page' (not pageSize due to farm-service conflict)
+// SCHEMA-CONTRACT: Sensor-service uses SensorPaginationInput (page/pageSize)
 const GET_SENSORS_QUERY = `
-  query GetSensors($pagination: PaginationInput) {
+  query GetSensors($pagination: SensorPaginationInput) {
     sensors(pagination: $pagination) {
       items {
         id

@@ -105,8 +105,9 @@ export const FEEDING_PROTOCOL_QUERY = `
 /**
  * List feeding protocols with filters and pagination
  */
+// SCHEMA-CONTRACT: Farm-service uses FarmPaginationInput (page/limit), not platform PaginationInput (offset/limit)
 export const FEEDING_PROTOCOLS_QUERY = `
-  query FeedingProtocols($filter: FeedingProtocolFilterInput, $pagination: PaginationInput) {
+  query FeedingProtocols($filter: FeedingProtocolFilterInput, $pagination: FarmPaginationInput) {
     feedingProtocols(filter: $filter, pagination: $pagination) {
       items {
         ${FEEDING_PROTOCOL_FIELDS}

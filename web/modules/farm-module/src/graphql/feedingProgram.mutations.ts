@@ -241,10 +241,12 @@ export const RECORD_DAILY_FEEDING = gql`
 /**
  * Gunluk yemlemeyi atla
  * Belirli bir gun icin yemleme atlanir
+ *
+ * SCHEMA-CONTRACT: Backend takes SkipDailyFeedingInput object, field name is skipReason (not reason)
  */
 export const SKIP_DAILY_FEEDING = gql`
-  mutation SkipDailyFeeding($executionId: ID!, $reason: String!) {
-    skipDailyFeeding(executionId: $executionId, reason: $reason) {
+  mutation SkipDailyFeeding($input: SkipDailyFeedingInput!) {
+    skipDailyFeeding(input: $input) {
       ...DailyFeedingExecutionFull
     }
   }
@@ -275,13 +277,13 @@ export const RECORD_BULK_FEEDING = gql`
 /**
  * Gunluk plani yeniden hesapla
  * Biomass veya sicaklik degisikliklerinde kullanilir
+ *
+ * SCHEMA-CONTRACT: Returns plain DailyFeedingExecution. No previousCalculations/changeReason fields.
  */
 export const RECALCULATE_DAILY_PLAN = gql`
   mutation RecalculateDailyPlan($executionId: ID!, $newParameters: RecalculateParametersInput) {
     recalculateDailyPlan(executionId: $executionId, newParameters: $newParameters) {
       ...DailyFeedingExecutionFull
-      previousCalculations
-      changeReason
     }
   }
   ${DAILY_FEEDING_EXECUTION_FRAGMENT}
@@ -359,13 +361,15 @@ export const UPDATE_FCR_TABLE = gql`
 
 /**
  * Programi kopyala (sablondan yeni program olustur)
+ *
+ * SCHEMA-CONTRACT: Backend declares startDate as plain string, not Date/DateTime
  */
 export const CLONE_FEEDING_PROGRAM = gql`
   mutation CloneFeedingProgram(
     $sourceId: ID!
     $newName: String!
     $newCode: String!
-    $startDate: Date!
+    $startDate: String!
   ) {
     cloneFeedingProgram(
       sourceId: $sourceId

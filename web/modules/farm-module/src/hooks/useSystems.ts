@@ -62,7 +62,7 @@ interface PaginatedResponse {
 
 // GraphQL queries
 const SYSTEMS_LIST_QUERY = `
-  query Systems($filter: SystemFilterInput, $pagination: PaginationInput) {
+  query Systems($filter: SystemFilterInput, $pagination: FarmPaginationInput) {
     systems(filter: $filter, pagination: $pagination) {
       items {
         id

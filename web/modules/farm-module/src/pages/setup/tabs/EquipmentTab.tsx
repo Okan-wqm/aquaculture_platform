@@ -82,26 +82,55 @@ function camelCaseToLabel(key: string): string {
 /**
  * Render equipment specification entries.
  * Defined outside the component to avoid re-creation on every render cycle (PERF-018).
+ *
+ * ARCH-NOTE: Equipment specifications contain nested objects (dimensions, waterFlow, aeration).
+ * This renderer handles 3 levels: primitives (direct display), booleans (Yes/No),
+ * and nested objects (recursively rendered as sub-groups).
+ * null/undefined values are skipped to avoid empty rows.
  */
 function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[] {
-  return Object.entries(specs).map(([key, value]) => {
-    if (typeof value === 'boolean') {
-      return (
+  return Object.entries(specs)
+    .filter(([, value]) => value != null)
+    .flatMap(([key, value]) => {
+      if (typeof value === 'boolean') {
+        return [
+          <div key={key} className="flex justify-between text-sm">
+            <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
+            <span className={`font-medium ${value ? 'text-green-600' : 'text-gray-500'}`}>
+              {value ? 'Yes' : 'No'}
+            </span>
+          </div>,
+        ];
+      }
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        const nested = value as Record<string, unknown>;
+        return [
+          <div key={`${key}-header`} className="text-sm font-semibold text-gray-700 mt-1 capitalize">
+            {camelCaseToLabel(key)}
+          </div>,
+          ...Object.entries(nested)
+            .filter(([, v]) => v != null)
+            .map(([subKey, subValue]) => (
+              <div key={`${key}-${subKey}`} className="flex justify-between text-sm pl-2">
+                <span className="text-gray-500 capitalize">{camelCaseToLabel(subKey)}:</span>
+                <span className="text-gray-900 font-medium">
+                  {typeof subValue === 'boolean'
+                    ? (subValue ? 'Yes' : 'No')
+                    : typeof subValue === 'object'
+                      ? JSON.stringify(subValue)
+                      : String(subValue)}
+                </span>
+              </div>
+            )),
+        ];
+      }
+      return [
         <div key={key} className="flex justify-between text-sm">
           <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
-          <span className={`font-medium ${value ? 'text-green-600' : 'text-gray-500'}`}>
-            {value ? 'Yes' : 'No'}
-          </span>
-        </div>
-      );
-    }
-    return (
-      <div key={key} className="flex justify-between text-sm">
-        <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
-        <span className="text-gray-900 font-medium">{String(value)}</span>
-      </div>
-    );
-  });
+          <span className="text-gray-900 font-medium">{String(value)}</span>
+        </div>,
+      ];
+    });
 }
 
 const typeIcons: Record<string, string> = {

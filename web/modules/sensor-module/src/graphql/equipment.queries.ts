@@ -3,7 +3,7 @@
  */
 
 export const EQUIPMENT_LIST_QUERY = `
-  query EquipmentList($filter: EquipmentFilterInput, $pagination: PaginationInput) {
+  query EquipmentList($filter: EquipmentFilterInput, $pagination: FarmPaginationInput) {
     equipmentList(filter: $filter, pagination: $pagination) {
       items {
         id

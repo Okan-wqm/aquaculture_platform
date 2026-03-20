@@ -231,7 +231,7 @@ interface PaginatedResponse {
 
 // GraphQL queries
 const FEEDS_LIST_QUERY = `
-  query Feeds($filter: FeedFilterInput, $pagination: PaginationInput) {
+  query Feeds($filter: FeedFilterInput, $pagination: FarmPaginationInput) {
     feeds(filter: $filter, pagination: $pagination) {
       items {
         id

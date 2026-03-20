@@ -193,7 +193,7 @@ const STORAGE_OVERVIEW_QUERY = `
 `;
 
 const STOCK_MOVEMENTS_QUERY = `
-  query StockMovements($filter: StockMovementFilterInput, $pagination: PaginationInput) {
+  query StockMovements($filter: StockMovementFilterInput, $pagination: FarmPaginationInput) {
     stockMovements(filter: $filter, pagination: $pagination) {
       items {
         id

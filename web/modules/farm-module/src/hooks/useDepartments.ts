@@ -57,7 +57,7 @@ interface PaginatedResponse {
 
 // GraphQL queries
 const DEPARTMENTS_LIST_QUERY = `
-  query Departments($filter: DepartmentFilterInput, $pagination: PaginationInput) {
+  query Departments($filter: DepartmentFilterInput, $pagination: FarmPaginationInput) {
     departments(filter: $filter, pagination: $pagination) {
       items {
         id

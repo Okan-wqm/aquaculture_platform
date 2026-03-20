@@ -156,8 +156,9 @@ export function getStatusLabel(status: FeedingStatus): string {
 // GRAPHQL QUERIES & MUTATIONS
 // ============================================================================
 
+// SCHEMA-CONTRACT: NestJS maps TypeScript Date → GraphQL DateTime, not Date
 const DAILY_FEEDING_EXECUTIONS_QUERY = `
-  query DailyFeedingExecutions($date: Date!, $siteId: ID) {
+  query DailyFeedingExecutions($date: DateTime!, $siteId: ID) {
     dailyFeedingExecutions(date: $date, siteId: $siteId) {
       id
       equipmentId

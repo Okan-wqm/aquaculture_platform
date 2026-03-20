@@ -176,7 +176,7 @@ interface PaginatedResponse {
 
 // GraphQL queries
 const CHEMICALS_LIST_QUERY = `
-  query Chemicals($filter: ChemicalFilterInput, $pagination: PaginationInput) {
+  query Chemicals($filter: ChemicalFilterInput, $pagination: FarmPaginationInput) {
     chemicals(filter: $filter, pagination: $pagination) {
       items {
         id

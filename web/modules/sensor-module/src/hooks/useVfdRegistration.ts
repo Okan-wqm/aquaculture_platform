@@ -51,7 +51,7 @@ const GET_VFD_DEVICE_QUERY = `
 `;
 
 const GET_VFD_DEVICES_QUERY = `
-  query GetVfdDevices($filter: VfdFilterInput, $pagination: PaginationInput) {
+  query GetVfdDevices($filter: VfdFilterInput, $pagination: VfdPaginationInput) {
     vfdDevices(filter: $filter, pagination: $pagination) {
       items {
         id

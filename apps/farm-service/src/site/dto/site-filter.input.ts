@@ -33,7 +33,9 @@ export class SiteFilterInput {
   search?: string;
 }
 
-@InputType()
+// ARCH-NOTE: Renamed to avoid GraphQL schema collision with @platform/backend-common PaginationInput.
+// Farm-service uses page/limit pattern; platform shared uses offset/limit.
+@InputType('FarmPaginationInput')
 export class PaginationInput {
   @Field(() => Int, { nullable: true, defaultValue: 1 })
   @IsOptional()

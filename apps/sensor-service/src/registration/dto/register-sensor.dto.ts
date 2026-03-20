@@ -406,7 +406,9 @@ export class SensorFilterInput {
   search?: string;
 }
 
-@InputType()
+// ARCH-NOTE: Renamed to avoid GraphQL schema collision with @platform/backend-common PaginationInput.
+// Sensor-service uses page/pageSize pattern; platform shared uses offset/limit.
+@InputType('SensorPaginationInput')
 export class PaginationInput {
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()

@@ -1,13 +1,14 @@
 /**
  * Equipment GraphQL Resolver
  */
-import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent, Context } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard } from '@platform/backend-common';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
+import { FarmGraphQLContext } from '../common/types/graphql-context.types';
 import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { FeedSelectorService } from '../feeding/services/feed-selector.service';
@@ -230,27 +231,34 @@ export class EquipmentResolver {
    * Works for equipment that can hold fish (tanks, ponds, cages)
    */
   @ResolveField(() => EquipmentBatchMetrics, { nullable: true })
-  async batchMetrics(@Parent() equipment: Equipment): Promise<EquipmentBatchMetrics | null> {
+  async batchMetrics(
+    @Parent() equipment: Equipment,
+    @Context() ctx?: FarmGraphQLContext,
+  ): Promise<EquipmentBatchMetrics | null> {
     // Only load for equipment that can hold fish
     if (!equipment.isTank && !equipment.canHoldFish?.()) {
-      // Also check equipmentType category (handle both uppercase and lowercase)
       const category = equipment.equipmentType?.category?.toUpperCase();
       if (!['TANK', 'POND', 'CAGE'].includes(category)) {
         return null;
       }
     }
 
-    // Use raw query with explicit tenant schema to avoid search_path issues
     const tenantId = equipment.tenantId;
     const schemaName = getTenantSchemaName(tenantId);
+    const loaders = ctx?.loaders;
 
-    const result = await this.tankBatchRepository.query(
-      `SELECT * FROM "${schemaName}".tank_batches WHERE "tenantId" = $1 AND "tankId" = $2 LIMIT 1`,
-      [tenantId, equipment.id]
-    );
+    // ── Step 1: Get TankBatch (DataLoader or fallback) ────────────────
+    let tankBatch: any;
+    if (loaders?.tankBatchLoader) {
+      tankBatch = await loaders.tankBatchLoader.load(equipment.id);
+    } else {
+      const result = await this.tankBatchRepository.query(
+        `SELECT * FROM "${schemaName}".tank_batches WHERE "tenantId" = $1 AND "tankId" = $2 LIMIT 1`,
+        [tenantId, equipment.id],
+      );
+      tankBatch = result?.[0];
+    }
 
-    const tankBatch = result?.[0];
-    // Return null only if no tank batch exists OR if both production and cleaner fish are empty
     const hasProductionFish = tankBatch?.totalQuantity > 0;
     const hasCleanerFish = tankBatch?.cleanerFishQuantity > 0;
     if (!tankBatch || (!hasProductionFish && !hasCleanerFish)) {
@@ -265,7 +273,7 @@ export class EquipmentResolver {
       daysSinceStocking = Math.floor((now.getTime() - stocked.getTime()) / (1000 * 60 * 60 * 24));
     }
 
-    // Fetch batch entity to get mortality/performance metrics + species
+    // ── Step 2: Get Batch + Species metrics (DataLoader or fallback) ──
     let batchMetrics: {
       initialQuantity?: number;
       totalMortality?: number;
@@ -278,22 +286,27 @@ export class EquipmentResolver {
     } = {};
 
     if (tankBatch.primaryBatchId) {
-      const batchResult = await this.tankBatchRepository.query(
-        `SELECT
-          b."initialQuantity",
-          b."totalMortality",
-          b."cullCount",
-          b."sgr",
-          b."fcr",
-          s."code" as "speciesCode"
-        FROM "${schemaName}".batches_v2 b
-        LEFT JOIN "${schemaName}".species s ON b."speciesId" = s."id"
-        WHERE b."tenantId" = $1 AND b."id" = $2
-        LIMIT 1`,
-        [tenantId, tankBatch.primaryBatchId]
-      );
+      let batch: any;
+      if (loaders?.batchSpeciesLoader) {
+        batch = await loaders.batchSpeciesLoader.load(tankBatch.primaryBatchId);
+      } else {
+        const batchResult = await this.tankBatchRepository.query(
+          `SELECT
+            b."initialQuantity",
+            b."totalMortality",
+            b."cullCount",
+            b."sgr",
+            b."fcr",
+            s."code" as "speciesCode"
+          FROM "${schemaName}".batches_v2 b
+          LEFT JOIN "${schemaName}".species s ON b."speciesId" = s."id"
+          WHERE b."tenantId" = $1 AND b."id" = $2
+          LIMIT 1`,
+          [tenantId, tankBatch.primaryBatchId],
+        );
+        batch = batchResult?.[0];
+      }
 
-      const batch = batchResult?.[0];
       if (batch) {
         const initialQty = batch.initialQuantity || 0;
         const totalMort = batch.totalMortality || 0;
@@ -311,7 +324,7 @@ export class EquipmentResolver {
       }
     }
 
-    // Get feed information if we have batch, avgWeight and biomass
+    // ── Step 3: Get Feed info (DataLoader or fallback) ────────────────
     let feedInfo: {
       feedCode?: string;
       feedName?: string;
@@ -324,21 +337,36 @@ export class EquipmentResolver {
 
     if (tankBatch.primaryBatchId && avgWeightG > 0 && biomassKg > 0) {
       try {
-        const feedResult = await this.feedSelectorService.selectFeedForBatch(
-          tenantId,
-          schemaName,
-          tankBatch.primaryBatchId,
-          avgWeightG,
-          biomassKg,
-        );
-
-        if (feedResult) {
-          feedInfo = {
-            feedCode: feedResult.feedCode,
-            feedName: feedResult.feedName,
-            feedingRatePercent: feedResult.feedingRatePercent,
-            dailyFeedKg: feedResult.dailyFeedKg,
-          };
+        if (loaders?.feedSelectionLoader) {
+          // Set context for the feed loader before loading
+          (loaders.feedSelectionLoader as any).setContext?.(
+            tankBatch.primaryBatchId, avgWeightG, biomassKg,
+          );
+          const feedResult = await loaders.feedSelectionLoader.load(tankBatch.primaryBatchId);
+          if (feedResult) {
+            feedInfo = {
+              feedCode: feedResult.feedCode,
+              feedName: feedResult.feedName,
+              feedingRatePercent: feedResult.feedingRatePercent,
+              dailyFeedKg: feedResult.dailyFeedKg,
+            };
+          }
+        } else {
+          const feedResult = await this.feedSelectorService.selectFeedForBatch(
+            tenantId,
+            schemaName,
+            tankBatch.primaryBatchId,
+            avgWeightG,
+            biomassKg,
+          );
+          if (feedResult) {
+            feedInfo = {
+              feedCode: feedResult.feedCode,
+              feedName: feedResult.feedName,
+              feedingRatePercent: feedResult.feedingRatePercent,
+              dailyFeedKg: feedResult.dailyFeedKg,
+            };
+          }
         }
       } catch (error: unknown) {
         this.logger.warn(`Error getting feed info for tank ${equipment.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -359,11 +387,8 @@ export class EquipmentResolver {
       lastSamplingAt: tankBatch.lastSamplingAt,
       lastMortalityAt: tankBatch.lastMortalityAt,
       daysSinceStocking,
-      // Mortality & Performance metrics from Batch
       ...batchMetrics,
-      // Feed information
       ...feedInfo,
-      // Cleaner Fish metrics
       cleanerFishQuantity: tankBatch.cleanerFishQuantity || undefined,
       cleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg) || undefined,
       cleanerFishDetails: tankBatch.cleanerFishDetails || undefined,

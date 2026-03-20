@@ -63,6 +63,9 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { EventListenersModule } from './events/event-listeners.module';
 import { TaskModule } from './task/task.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { GraphQLContextFactory } from './common/graphql-context.factory';
+import { getTenantSchemaName } from './common/utils/schema-sanitizer';
+import { TankBatch } from './batch/entities/tank-batch.entity';
 
 @Module({
   imports: [
@@ -138,9 +141,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     // GraphQL Federation
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
+      imports: [ConfigModule, TypeOrmModule.forFeature([TankBatch])],
+      inject: [ConfigService, GraphQLContextFactory],
+      useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
         autoSchemaFile: {
           federation: 2,
         },
@@ -176,7 +179,17 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
                 : [],
             };
           }
-          return { req };
+
+          // Create per-request DataLoaders for equipment batch metrics (N+1 → bulk)
+          const tenantHeader = req.headers['x-tenant-id'];
+          const tenantId = typeof tenantHeader === 'string' ? tenantHeader : undefined;
+          let loaders;
+          if (tenantId) {
+            const schema = getTenantSchemaName(tenantId);
+            loaders = contextFactory.createLoaders(tenantId, schema);
+          }
+
+          return { req, loaders };
         },
         buildSchemaOptions: {
           orphanedTypes: [],
@@ -265,6 +278,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     // DB-level write guards on source schema (defense-in-depth)
     SourceSchemaWriteGuardService,
     WatchdogCronService,
+    // Per-request DataLoader factory for equipment N+1 elimination
+    GraphQLContextFactory,
   ],
 })
 export class AppModule implements NestModule {

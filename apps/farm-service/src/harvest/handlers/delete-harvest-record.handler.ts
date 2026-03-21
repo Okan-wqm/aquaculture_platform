@@ -8,7 +8,7 @@
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DeleteHarvestRecordCommand } from '../commands/delete-harvest-record.command';
 import { HarvestRecord, HarvestRecordStatus } from '../entities/harvest-record.entity';
@@ -28,6 +28,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: DeleteHarvestRecordCommand): Promise<boolean> {
@@ -48,54 +49,67 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
       throw new BadRequestException('Cannot delete dispatched or delivered harvest records');
     }
 
-    // Reverse the batch quantity changes
-    const batch = await this.batchRepository.findOne({
-      where: { id: harvestRecord.batchId, tenantId },
-    });
-
-    if (batch) {
-      batch.currentQuantity += harvestRecord.quantityHarvested;
-      batch.harvestedQuantity = Math.max(0, (batch.harvestedQuantity || 0) - harvestRecord.quantityHarvested);
-      batch.retentionRate = batch.getRetentionRate();
-      batch.updatedBy = deletedBy;
-      await this.batchRepository.save(batch);
-    }
-
-    // Reverse the tank batch changes
-    if (harvestRecord.tankId) {
-      const tankBatch = await this.tankBatchRepository.findOne({
-        where: { tenantId, tankId: harvestRecord.tankId },
+    // All reversal operations in a single transaction for data consistency
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // Reverse the batch quantity changes
+      const batch = await queryRunner.manager.findOne(Batch, {
+        where: { id: harvestRecord.batchId, tenantId },
       });
 
-      if (tankBatch) {
-        const biomassKg = Number(harvestRecord.totalBiomass);
-        tankBatch.totalQuantity = Number(tankBatch.totalQuantity) + harvestRecord.quantityHarvested;
-        tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + biomassKg;
-        tankBatch.currentQuantity = tankBatch.totalQuantity;
-        tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
+      if (batch) {
+        batch.currentQuantity += harvestRecord.quantityHarvested;
+        batch.harvestedQuantity = Math.max(0, (batch.harvestedQuantity || 0) - harvestRecord.quantityHarvested);
+        batch.retentionRate = batch.getRetentionRate();
+        batch.updatedBy = deletedBy;
+        await queryRunner.manager.save(Batch, batch);
+      }
 
-        if (tankBatch.totalQuantity > 0) {
-          tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
+      // Reverse the tank batch changes
+      if (harvestRecord.tankId) {
+        const tankBatch = await queryRunner.manager.findOne(TankBatch, {
+          where: { tenantId, tankId: harvestRecord.tankId },
+        });
+
+        if (tankBatch) {
+          const biomassKg = Number(harvestRecord.totalBiomass);
+          tankBatch.totalQuantity = Number(tankBatch.totalQuantity) + harvestRecord.quantityHarvested;
+          tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + biomassKg;
+          tankBatch.currentQuantity = tankBatch.totalQuantity;
+          tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
+
+          if (tankBatch.totalQuantity > 0) {
+            tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
+          }
+
+          await queryRunner.manager.save(TankBatch, tankBatch);
         }
 
-        await this.tankBatchRepository.save(tankBatch);
+        // Reverse tank changes
+        const tank = await queryRunner.manager.findOne(Tank, {
+          where: { id: harvestRecord.tankId, tenantId },
+        });
+
+        if (tank) {
+          tank.currentBiomass = Number(tank.currentBiomass || 0) + Number(harvestRecord.totalBiomass);
+          tank.currentCount = (tank.currentCount || 0) + harvestRecord.quantityHarvested;
+          await queryRunner.manager.save(Tank, tank);
+        }
       }
 
-      // Reverse tank changes
-      const tank = await this.tankRepository.findOne({
-        where: { id: harvestRecord.tankId, tenantId },
-      });
+      // Mark the harvest record as cancelled (soft delete)
+      harvestRecord.status = HarvestRecordStatus.CANCELLED;
+      await queryRunner.manager.save(HarvestRecord, harvestRecord);
 
-      if (tank) {
-        tank.currentBiomass = Number(tank.currentBiomass || 0) + Number(harvestRecord.totalBiomass);
-        tank.currentCount = (tank.currentCount || 0) + harvestRecord.quantityHarvested;
-        await this.tankRepository.save(tank);
-      }
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Mark the harvest record as cancelled (soft delete)
-    harvestRecord.status = HarvestRecordStatus.CANCELLED;
-    await this.harvestRepository.save(harvestRecord);
 
     return true;
   }

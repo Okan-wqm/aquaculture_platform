@@ -1,6 +1,7 @@
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
-import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetPayrollsQuery } from '../queries/get-payrolls.query';
 import { Payroll } from '../entities/payroll.entity';
 

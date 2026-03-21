@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
 import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';
@@ -49,6 +49,7 @@ export class EquipmentResolver {
   /**
    * Create new equipment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => EquipmentResponse)
   async createEquipment(
     @Args('input') input: CreateEquipmentInput,
@@ -63,6 +64,7 @@ export class EquipmentResolver {
   /**
    * Update existing equipment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => EquipmentResponse)
   async updateEquipment(
     @Args('input') input: UpdateEquipmentInput,
@@ -92,6 +94,7 @@ export class EquipmentResolver {
    * Delete (soft) equipment
    * @param cascade If true, cascade soft delete all related items (child equipment, sub-equipment)
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteEquipment(
     @Args('id', { type: () => ID }) id: string,
@@ -415,6 +418,7 @@ export class EquipmentResolver {
   /**
    * Save (upsert) feeder calibrations for an equipment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => [FeederCalibrationResponse])
   async saveFeederCalibrations(
     @Args('input') input: SaveFeederCalibrationsInput,

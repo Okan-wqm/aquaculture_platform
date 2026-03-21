@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { StorageLocationResponse, PaginatedStorageLocationsResponse } from './dto/storage-location.response';
 import { StorageInventoryResponse } from './dto/storage-inventory.response';
 import { StockMovementResponse, PaginatedStockMovementsResponse } from './dto/stock-movement.response';
@@ -106,6 +106,7 @@ export class StorageResolver {
 
   // === Storage Locations ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => StorageLocationResponse)
   async createStorageLocation(
     @Args('input') input: CreateStorageLocationInput,
@@ -116,6 +117,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => StorageLocationResponse)
   async updateStorageLocation(
     @Args('input') input: UpdateStorageLocationInput,
@@ -127,6 +129,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteStorageLocation(
     @Args('id', { type: () => ID }) id: string,
@@ -171,6 +174,7 @@ export class StorageResolver {
 
   // === Stock Movements ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => StockMovementResponse)
   async recordStockMovement(
     @Args('input') input: RecordStockMovementInput,
@@ -181,6 +185,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => StockMovementResponse)
   async transferStock(
     @Args('input') input: TransferStockInput,
@@ -247,6 +252,7 @@ export class StorageResolver {
     return this.queryBus.execute(query);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => PurchaseOrderResponse)
   async createPurchaseOrder(
     @Args('input') input: CreatePurchaseOrderInput,
@@ -257,6 +263,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => PurchaseOrderResponse)
   async updatePurchaseOrderStatus(
     @Args('input') input: UpdatePurchaseOrderStatusInput,
@@ -267,6 +274,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => PurchaseOrderResponse)
   async receiveDelivery(
     @Args('input') input: ReceiveDeliveryInput,
@@ -277,6 +285,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => PurchaseOrderResponse)
   async cancelPurchaseOrder(
     @Args('id', { type: () => ID }) id: string,

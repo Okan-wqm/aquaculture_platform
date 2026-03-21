@@ -67,13 +67,13 @@ export class FarmResolver {
     id: string;
     tenantId?: string;
   }): Promise<Farm | null> {
+    if (!reference.tenantId) {
+      this.logger.warn(`resolveReference called without tenantId for farm ${reference.id} — rejecting for tenant isolation`);
+      return null;
+    }
     try {
-      // Federation reference lookups are cross-tenant by design
-      // Security check: only return farm if it exists (no tenant filter)
-      // The gateway ensures the requesting user has access to related data
-      // Use empty string as fallback when tenantId is not provided in federation reference
       return await this.queryBus.execute(
-        new GetFarmQuery(reference.id, reference.tenantId ?? '', true, false),
+        new GetFarmQuery(reference.id, reference.tenantId, true, false),
       );
     } catch (error: unknown) {
       this.logger.debug(`Error in resolveReference: ${error instanceof Error ? error.message : String(error)}`);

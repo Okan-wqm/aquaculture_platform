@@ -8,7 +8,7 @@ import {
   Index,
   VersionColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, Float } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Directive } from '@nestjs/graphql';
 // Note: Pond is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Pond } from './pond.entity';
@@ -30,6 +30,7 @@ export class Location {
  * Multi-tenant with tenant isolation
  */
 @ObjectType()
+@Directive('@key(fields: "id")')
 @Entity('farms')
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'isActive'])

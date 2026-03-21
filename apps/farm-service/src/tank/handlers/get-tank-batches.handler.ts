@@ -8,7 +8,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetTankBatchesQuery, TankBatchesResult, TankBatchInfo } from '../queries/get-tank-batches.query';
 import { Tank } from '../entities/tank.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';

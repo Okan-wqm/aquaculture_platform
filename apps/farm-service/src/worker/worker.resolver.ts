@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { WorkerResponse } from './dto/worker.response';
 import { CreateWorkerInput } from './dto/create-worker.input';
 import { UpdateWorkerInput } from './dto/update-worker.input';
@@ -40,6 +40,7 @@ export class WorkerResolver {
     }));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => WorkerResponse)
   async createWorker(
     @Args('input') input: CreateWorkerInput,
@@ -64,6 +65,7 @@ export class WorkerResolver {
     };
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => WorkerResponse)
   async updateWorker(
     @Args('input') input: UpdateWorkerInput,
@@ -88,6 +90,7 @@ export class WorkerResolver {
     };
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteWorker(
     @Args('id', { type: () => ID }) id: string,

@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { SupplierResponse, PaginatedSuppliersResponse, SupplierTypeResponse } from './dto/supplier.response';
 import { CreateSupplierInput } from './dto/create-supplier.input';
 import { UpdateSupplierInput } from './dto/update-supplier.input';
@@ -35,6 +35,7 @@ export class SupplierResolver {
   /**
    * Create a new supplier
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => SupplierResponse)
   async createSupplier(
     @Args('input') input: CreateSupplierInput,
@@ -49,6 +50,7 @@ export class SupplierResolver {
   /**
    * Update an existing supplier
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => SupplierResponse)
   async updateSupplier(
     @Args('input') input: UpdateSupplierInput,
@@ -63,6 +65,7 @@ export class SupplierResolver {
   /**
    * Delete (soft) a supplier
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteSupplier(
     @Args('id', { type: () => ID }) id: string,

@@ -3,6 +3,11 @@
  *
  * TransferBatchCommand'ı işler ve batch'i bir tank'tan diğerine transfer eder.
  *
+ * SECURITY FIX: All reads moved inside transaction with pessimistic_write locks
+ * to prevent TOCTOU race conditions. Math.max(0, ...) guards added to prevent
+ * negative counts/biomass from concurrent operations. Deprecated
+ * updateTankBatchAfterTransfer method removed.
+ *
  * @module Batch/Handlers
  */
 import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
@@ -18,7 +23,7 @@ import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import { Tank, TankStatus } from '../../tank/entities/tank.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
-import { findTankOrEquipment, TankLookupResult } from '../utils/tank-lookup.util';
+import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-lookup.util';
 
 // Note: TransferResult interface kept for internal tracking but handler returns Batch for GraphQL compatibility
 export interface TransferResult {
@@ -54,83 +59,83 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
   async execute(command: TransferBatchCommand): Promise<Batch> {
     const { tenantId, batchId, payload, transferredBy } = command;
 
-    // Read operations for validation (outside transaction)
-    const batch = await this.batchRepository.findOne({
-      where: { id: batchId, tenantId, isActive: true },
-    });
-
-    if (!batch) {
-      throw new NotFoundException(`Batch ${batchId} bulunamadı`);
-    }
-
-    const sourceLookup = await findTankOrEquipment(
-      this.equipmentRepository,
-      this.tankRepository,
-      this.equipmentTypeRepository,
-      payload.sourceTankId,
-      tenantId,
-    );
-
-    if (!sourceLookup) {
-      throw new NotFoundException(`Kaynak tank ${payload.sourceTankId} bulunamadı`);
-    }
-
-    const sourceTank = sourceLookup.equipment;
-
-    const destLookup = await findTankOrEquipment(
-      this.equipmentRepository,
-      this.tankRepository,
-      this.equipmentTypeRepository,
-      payload.destinationTankId,
-      tenantId,
-    );
-
-    if (!destLookup) {
-      throw new NotFoundException(`Hedef tank ${payload.destinationTankId} bulunamadı`);
-    }
-
-    const destinationTank = destLookup.equipment;
-
     if (payload.sourceTankId === payload.destinationTankId) {
       throw new BadRequestException('Kaynak ve hedef tank aynı olamaz');
     }
 
-    const sourceTankBatch = await this.tankBatchRepository.findOne({
-      where: { tenantId, tankId: payload.sourceTankId },
-    });
-
-    if (!sourceTankBatch) {
-      throw new BadRequestException(`Kaynak tank ${sourceTank.code} boş`);
-    }
-
-    const batchInSource = sourceTankBatch.batchDetails?.find(b => b.batchId === batchId);
-    const availableQuantity = batchInSource?.quantity || (sourceTankBatch.primaryBatchId === batchId ? sourceTankBatch.totalQuantity : 0);
-
-    if (payload.quantity > availableQuantity) {
-      throw new BadRequestException(
-        `Transfer miktarı (${payload.quantity}) kaynak tank'taki batch miktarından (${availableQuantity}) fazla olamaz`
-      );
-    }
-
-    const avgWeightG = payload.avgWeightG ||
-      batchInSource?.avgWeightG ||
-      sourceTankBatch.avgWeightG ||
-      batch.getCurrentAvgWeight();
-
-    const biomassKg = (payload.quantity * avgWeightG) / 1000;
-
-    if (!payload.skipCapacityCheck && !destinationTank.hasCapacityFor(biomassKg)) {
-      throw new BadRequestException(
-        `Hedef tank ${destinationTank.code} kapasitesi yetersiz`
-      );
-    }
-
-    // Start transaction for all write operations
+    // All reads and writes inside a single transaction with pessimistic locks
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
+      // Batch bul with pessimistic lock
+      const batch = await queryRunner.manager.findOne(Batch, {
+        where: { id: batchId, tenantId, isActive: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!batch) {
+        throw new NotFoundException(`Batch ${batchId} bulunamadı`);
+      }
+
+      // Tank lookups via manager (transaction-safe)
+      const sourceLookup = await findTankOrEquipmentWithManager(
+        queryRunner.manager,
+        payload.sourceTankId,
+        tenantId,
+      );
+
+      if (!sourceLookup) {
+        throw new NotFoundException(`Kaynak tank ${payload.sourceTankId} bulunamadı`);
+      }
+
+      const sourceTank = sourceLookup.equipment;
+
+      const destLookup = await findTankOrEquipmentWithManager(
+        queryRunner.manager,
+        payload.destinationTankId,
+        tenantId,
+      );
+
+      if (!destLookup) {
+        throw new NotFoundException(`Hedef tank ${payload.destinationTankId} bulunamadı`);
+      }
+
+      const destinationTank = destLookup.equipment;
+
+      // Source TankBatch with pessimistic lock
+      const sourceTankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: payload.sourceTankId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!sourceTankBatch) {
+        throw new BadRequestException(`Kaynak tank ${sourceTank.code} boş`);
+      }
+
+      const batchInSource = sourceTankBatch.batchDetails?.find(b => b.batchId === batchId);
+      const availableQuantity = batchInSource?.quantity || (sourceTankBatch.primaryBatchId === batchId ? sourceTankBatch.totalQuantity : 0);
+
+      if (payload.quantity > availableQuantity) {
+        throw new BadRequestException(
+          `Transfer miktarı (${payload.quantity}) kaynak tank'taki batch miktarından (${availableQuantity}) fazla olamaz`
+        );
+      }
+
+      const avgWeightG = payload.avgWeightG ||
+        batchInSource?.avgWeightG ||
+        sourceTankBatch.avgWeightG ||
+        batch.getCurrentAvgWeight();
+
+      const biomassKg = (payload.quantity * avgWeightG) / 1000;
+
+      if (!payload.skipCapacityCheck && !destinationTank.hasCapacityFor(biomassKg)) {
+        throw new BadRequestException(
+          `Hedef tank ${destinationTank.code} kapasitesi yetersiz`
+        );
+      }
+
       const transferDate = payload.transferredAt || new Date();
 
       // Source tank pre-operation state
@@ -238,9 +243,9 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       await this.updateTankBatchWithManager(queryRunner.manager, tenantId, payload.sourceTankId, batchId, -payload.quantity, -biomassKg);
       await this.updateTankBatchWithManager(queryRunner.manager, tenantId, payload.destinationTankId, batchId, payload.quantity, biomassKg, batch.batchNumber);
 
-      // 6. Tank/Equipment biomass güncellemeleri
-      const newSourceBiomass = Number(sourceTank.currentBiomass || 0) - biomassKg;
-      const newSourceCount = (sourceTank.currentCount || 0) - payload.quantity;
+      // 6. Tank/Equipment biomass güncellemeleri (Math.max to prevent negatives)
+      const newSourceBiomass = Math.max(0, Number(sourceTank.currentBiomass || 0) - biomassKg);
+      const newSourceCount = Math.max(0, (sourceTank.currentCount || 0) - payload.quantity);
       if (sourceLookup.isFromTanksTable && sourceLookup.originalTank) {
         await queryRunner.manager
           .createQueryBuilder()
@@ -382,65 +387,4 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     }
   }
 
-  /**
-   * @deprecated Use updateTankBatchWithManager for transaction support
-   */
-  private async updateTankBatchAfterTransfer(
-    tenantId: string,
-    tankId: string,
-    batchId: string,
-    quantityDelta: number,
-    biomassDelta: number,
-    batchNumber?: string,
-  ): Promise<void> {
-    let tankBatch = await this.tankBatchRepository.findOne({
-      where: { tenantId, tankId },
-    });
-
-    const equipment = await this.equipmentRepository.findOne({ where: { id: tankId } });
-    const effectiveVolume = equipment?.volume || 0;
-
-    if (!tankBatch && quantityDelta > 0) {
-      // Yeni TankBatch oluştur
-      tankBatch = this.tankBatchRepository.create({
-        tenantId,
-        tankId,
-        primaryBatchId: batchId,
-        primaryBatchNumber: batchNumber,
-        tankCode: equipment?.code,
-        tankName: equipment?.name,
-        totalQuantity: quantityDelta,
-        totalBiomassKg: biomassDelta,
-        avgWeightG: quantityDelta > 0 ? (biomassDelta * 1000) / quantityDelta : 0,
-        densityKgM3: effectiveVolume ? biomassDelta / Number(effectiveVolume) : 0,
-        isMixedBatch: false,
-        isOverCapacity: false,
-      });
-    } else if (tankBatch) {
-      // Ensure numeric operations (database may return decimal columns as strings)
-      tankBatch.totalQuantity = Number(tankBatch.totalQuantity) + quantityDelta;
-      tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + biomassDelta;
-
-      if (tankBatch.totalQuantity > 0) {
-        tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;
-        tankBatch.densityKgM3 = effectiveVolume ? Number(tankBatch.totalBiomassKg) / Number(effectiveVolume) : 0;
-      } else {
-        // Tank boşaldı
-        tankBatch.avgWeightG = 0;
-        tankBatch.densityKgM3 = 0;
-        tankBatch.primaryBatchId = undefined;
-        tankBatch.batchDetails = undefined;
-      }
-
-      // Kapasite kontrolü
-      const specs = equipment?.specifications as { maxDensity?: number } | undefined;
-      const maxDensity = specs?.maxDensity || 30;
-      tankBatch.isOverCapacity = tankBatch.densityKgM3 > maxDensity;
-      tankBatch.capacityUsedPercent = (tankBatch.densityKgM3 / maxDensity) * 100;
-    }
-
-    if (tankBatch) {
-      await this.tankBatchRepository.save(tankBatch);
-    }
-  }
 }

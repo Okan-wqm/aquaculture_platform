@@ -10,7 +10,7 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get-batch-performance.query';
 import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';

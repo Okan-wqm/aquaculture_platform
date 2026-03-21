@@ -8,7 +8,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, In } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetFeedingSummaryQuery, FeedingSummaryResult } from '../queries/get-feeding-summary.query';
 import { FeedingRecord, FishAppetite } from '../entities/feeding-record.entity';
 import { Batch } from '../../batch/entities/batch.entity';

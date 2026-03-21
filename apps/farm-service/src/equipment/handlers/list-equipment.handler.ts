@@ -5,7 +5,8 @@
  * When filtering by categories TANK, POND, or CAGE (or no category filter),
  * it also queries the tanks table and transforms Tank entities to Equipment format.
  */
-import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';

@@ -12,6 +12,7 @@
 import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
 import { Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
+import { Roles, Role } from '@platform/backend-common';
 import {
   MattilsynetApiService,
   SeaLicePayload,
@@ -237,6 +238,7 @@ export class RegulatoryResolver {
   /**
    * Update regulatory settings for current tenant
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => RegulatorySettingsOutput, {
     description: 'Update regulatory settings for the current tenant',
   })
@@ -280,6 +282,7 @@ export class RegulatoryResolver {
   /**
    * Test Maskinporten connection with tenant credentials
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => MaskinportenConnectionTestResult, {
     description: 'Test Maskinporten connection using tenant credentials',
   })
@@ -370,6 +373,7 @@ export class RegulatoryResolver {
    * Submit a Sea Lice report to Mattilsynet
    * POST /api/lakselus/v1/lakselus
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Sea Lice report to Mattilsynet' })
   async submitSeaLiceReport(
     @Args('input') input: SubmitSeaLiceReportInput,
@@ -483,6 +487,7 @@ export class RegulatoryResolver {
    * Submit a Cleaner Fish report to Mattilsynet
    * POST /api/rensefisk/v1/rensefisk
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Cleaner Fish report to Mattilsynet' })
   async submitCleanerFishReport(
     @Args('input') input: SubmitCleanerFishReportInput,
@@ -549,6 +554,7 @@ export class RegulatoryResolver {
    * Submit a Smolt report to Mattilsynet
    * POST /api/settefisk/v1/settefisk
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Smolt report to Mattilsynet' })
   async submitSmoltReport(
     @Args('input') input: SubmitSmoltReportInput,
@@ -597,6 +603,7 @@ export class RegulatoryResolver {
    * Submit a Planned Slaughter report to Mattilsynet
    * POST /api/slakt/v1/planlagt
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Planned Slaughter report to Mattilsynet' })
   async submitPlannedSlaughterReport(
     @Args('input') input: SubmitPlannedSlaughterInput,
@@ -651,6 +658,7 @@ export class RegulatoryResolver {
    * Submit an Executed Slaughter report to Mattilsynet
    * POST /api/slakt/v1/utfort
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ReportSubmissionResult, { description: 'Submit Executed Slaughter report to Mattilsynet' })
   async submitExecutedSlaughterReport(
     @Args('input') input: SubmitExecutedSlaughterInput,

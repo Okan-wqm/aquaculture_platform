@@ -28,6 +28,7 @@ import {
   ID,
   Float,
   Int,
+  Directive,
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
@@ -305,6 +306,7 @@ export interface BreedingInfo {
 // ============================================================================
 
 @ObjectType()
+@Directive('@key(fields: "id")')
 @Entity('species')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'scientificName'], { unique: true })

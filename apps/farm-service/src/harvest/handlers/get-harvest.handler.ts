@@ -8,7 +8,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetHarvestQuery } from '../queries/get-harvest.query';
 import { HarvestRecord } from '../entities/harvest-record.entity';
 

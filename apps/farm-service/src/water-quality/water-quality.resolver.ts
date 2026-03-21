@@ -7,7 +7,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int, Float } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
 import { WaterQualityService } from './water-quality.service';
 import { CreateWaterQualityInput } from './dto/create-water-quality.input';
@@ -148,6 +148,7 @@ export class WaterQualityResolver {
   /**
    * Yeni ölçüm oluşturur
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Mutation(() => WaterQualityMeasurement)
   async createWaterQualityMeasurement(
     @Args('input') input: CreateWaterQualityInput,
@@ -164,6 +165,7 @@ export class WaterQualityResolver {
   /**
    * Ölçümü günceller
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => WaterQualityMeasurement)
   async updateWaterQualityMeasurement(
     @Args('input') input: UpdateWaterQualityInput,
@@ -180,6 +182,7 @@ export class WaterQualityResolver {
   /**
    * Ölçümü siler
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteWaterQualityMeasurement(
     @Args('id', { type: () => ID }) id: string,

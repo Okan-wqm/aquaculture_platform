@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IQueryHandler, QueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { ListPondBatchesQuery } from '../queries/list-batches.query';

@@ -1,6 +1,7 @@
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetEmployeesQuery } from '../queries/get-employees.query';
 import { Employee } from '../entities/employee.entity';
 

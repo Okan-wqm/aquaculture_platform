@@ -8,7 +8,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, In } from 'typeorm';
-import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetTankOperationsQuery } from '../queries/get-tank-operations.query';
 import { Tank } from '../entities/tank.entity';
 import { TankOperation } from '../../batch/entities/tank-operation.entity';

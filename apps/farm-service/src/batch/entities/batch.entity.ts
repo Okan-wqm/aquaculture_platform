@@ -29,6 +29,7 @@ import {
   ID,
   Float,
   Int,
+  Directive,
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
@@ -207,6 +208,7 @@ export interface BatchMortalitySummary {
 // ============================================================================
 
 @ObjectType()
+@Directive('@key(fields: "id")')
 @Entity('batches_v2')
 @Index(['tenantId', 'batchNumber'], { unique: true })
 @Index(['tenantId', 'speciesId'])

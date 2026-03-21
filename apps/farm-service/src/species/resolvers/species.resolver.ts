@@ -15,7 +15,7 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Species } from '../entities/species.entity';
@@ -178,6 +178,7 @@ export class SpeciesResolver {
   /**
    * Create a new species
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => Species)
   async createSpecies(
     @Args('input') input: CreateSpeciesInput,
@@ -193,6 +194,7 @@ export class SpeciesResolver {
   /**
    * Update an existing species
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => Species)
   async updateSpecies(
     @Args('input') input: UpdateSpeciesInput,
@@ -208,6 +210,7 @@ export class SpeciesResolver {
   /**
    * Delete a species (soft delete)
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => DeleteSpeciesResponse)
   async deleteSpecies(
     @Args('id', { type: () => ID }) id: string,

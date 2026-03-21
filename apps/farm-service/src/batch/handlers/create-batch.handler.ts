@@ -87,6 +87,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let savedBatch: Batch;
     try {
       // Batch entity oluştur
       const batch = queryRunner.manager.create(Batch, {
@@ -179,7 +180,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         },
       });
 
-      const savedBatch = await queryRunner.manager.save(Batch, batch);
+      savedBatch = await queryRunner.manager.save(Batch, batch);
 
       // Save health certificates
       if (payload.healthCertificates && payload.healthCertificates.length > 0) {
@@ -336,35 +337,6 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
 
       // Commit transaction
       await queryRunner.commitTransaction();
-
-      // Publish domain event: BatchCreated (after commit, outside transaction)
-      if (this.eventBus) {
-        try {
-          const tankIds = (payload.initialLocations || [])
-            .map((loc) => loc.tankId || loc.pondId)
-            .filter((id): id is string => !!id);
-          const event: BatchCreatedEvent = {
-            eventId: randomUUID(),
-            eventType: 'BatchCreated',
-            tenantId,
-            timestamp: new Date(),
-            batchId: savedBatch.id,
-            tankIds: tankIds.length > 0 ? tankIds : undefined,
-            name: savedBatch.batchNumber,
-            species: species.commonName,
-            quantity: savedBatch.initialQuantity,
-            stockedAt: savedBatch.stockedAt,
-            version: 1,
-          };
-          await this.eventBus.publish(event);
-          this.logger.debug(`Published BatchCreatedEvent for batch ${savedBatch.id}`);
-        } catch (eventError) {
-          // Log but don't fail for event publishing errors
-          this.logger.warn(`Failed to publish BatchCreatedEvent: ${(eventError as Error).message}`);
-        }
-      }
-
-      return savedBatch;
     } catch (error) {
       // Rollback transaction on any error
       await queryRunner.rollbackTransaction();
@@ -373,5 +345,34 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       // Release query runner
       await queryRunner.release();
     }
+
+    // Publish domain event AFTER transaction committed and queryRunner released
+    if (this.eventBus) {
+      try {
+        const tankIds = (payload.initialLocations || [])
+          .map((loc) => loc.tankId || loc.pondId)
+          .filter((id): id is string => !!id);
+        const event: BatchCreatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'BatchCreated',
+          tenantId,
+          timestamp: new Date(),
+          batchId: savedBatch.id,
+          tankIds: tankIds.length > 0 ? tankIds : undefined,
+          name: savedBatch.batchNumber,
+          species: species.commonName,
+          quantity: savedBatch.initialQuantity,
+          stockedAt: savedBatch.stockedAt,
+          version: 1,
+        };
+        await this.eventBus.publish(event);
+        this.logger.debug(`Published BatchCreatedEvent for batch ${savedBatch.id}`);
+      } catch (eventError) {
+        // Log but don't fail for event publishing errors
+        this.logger.warn(`Failed to publish BatchCreatedEvent: ${(eventError as Error).message}`);
+      }
+    }
+
+    return savedBatch;
   }
 }

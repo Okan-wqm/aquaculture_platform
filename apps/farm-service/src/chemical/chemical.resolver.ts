@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { ChemicalResponse, PaginatedChemicalsResponse, ChemicalTypeResponse } from './dto/chemical.response';
 import { CreateChemicalInput } from './dto/create-chemical.input';
 import { UpdateChemicalInput } from './dto/update-chemical.input';
@@ -38,6 +38,7 @@ export class ChemicalResolver {
   /**
    * Create a new chemical
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ChemicalResponse)
   async createChemical(
     @Args('input') input: CreateChemicalInput,
@@ -52,6 +53,7 @@ export class ChemicalResolver {
   /**
    * Update an existing chemical
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ChemicalResponse)
   async updateChemical(
     @Args('input') input: UpdateChemicalInput,
@@ -67,6 +69,7 @@ export class ChemicalResolver {
   /**
    * Delete (soft) a chemical
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteChemical(
     @Args('id', { type: () => ID }) id: string,
@@ -82,6 +85,7 @@ export class ChemicalResolver {
    * Add a document to a chemical
    * Called after file is uploaded to MinIO
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ChemicalResponse)
   async addChemicalDocument(
     @Args('input') input: AddChemicalDocumentInput,
@@ -109,6 +113,7 @@ export class ChemicalResolver {
    * Remove a document from a chemical
    * Should also delete the file from MinIO (handled by caller)
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async removeChemicalDocument(
     @Args('chemicalId', { type: () => ID }) chemicalId: string,

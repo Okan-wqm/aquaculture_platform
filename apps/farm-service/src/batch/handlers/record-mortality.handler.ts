@@ -4,6 +4,10 @@
  * RecordMortalityCommand'ı işler ve mortality kaydı oluşturur.
  * Batch metriklerini (survival rate, retention rate) günceller.
  *
+ * SECURITY FIX: All reads moved inside transaction with pessimistic_write locks
+ * to prevent TOCTOU race conditions. Math.max(0, ...) guards added to prevent
+ * negative counts/biomass from concurrent operations.
+ *
  * @module Batch/Handlers
  */
 import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
@@ -19,7 +23,7 @@ import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
-import { findTankOrEquipment, TankLookupResult } from '../utils/tank-lookup.util';
+import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
@@ -47,48 +51,51 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
   async execute(command: RecordMortalityCommand): Promise<Batch> {
     const { tenantId, batchId, payload, recordedBy } = command;
 
-    // Read operations outside transaction
-    // Batch bul
-    const batch = await this.batchRepository.findOne({
-      where: { id: batchId, tenantId, isActive: true },
-    });
-
-    if (!batch) {
-      throw new NotFoundException(`Batch ${batchId} bulunamadı`);
-    }
-
-    // Tank bul (checks both equipment and tanks tables)
-    const tankLookup = await findTankOrEquipment(
-      this.equipmentRepository,
-      this.tankRepository,
-      this.equipmentTypeRepository,
-      payload.tankId,
-      tenantId,
-    );
-
-    if (!tankLookup) {
-      throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
-    }
-
-    const tank = tankLookup.equipment;
-
-    // Validasyon: mortality mevcut sayıyı aşamaz
-    if (payload.quantity > batch.currentQuantity) {
-      throw new BadRequestException(
-        `Mortality sayısı (${payload.quantity}) mevcut sayıdan (${batch.currentQuantity}) fazla olamaz`
-      );
-    }
-
-    // Biomass hesapla
-    const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
-    const biomassKg = (payload.quantity * avgWeightG) / 1000;
-
-    // Start transaction for all database write operations
+    // All reads and writes inside a single transaction with pessimistic locks
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    // Declare batch outside try block so it's accessible for event publishing and return
+    let batch: Batch;
+
     try {
+      // Batch bul with pessimistic lock (prevents concurrent mortality on same batch)
+      const foundBatch = await queryRunner.manager.findOne(Batch, {
+        where: { id: batchId, tenantId, isActive: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!foundBatch) {
+        throw new NotFoundException(`Batch ${batchId} bulunamadı`);
+      }
+
+      batch = foundBatch;
+
+      // Tank bul (checks both equipment and tanks tables) via manager
+      const tankLookup = await findTankOrEquipmentWithManager(
+        queryRunner.manager,
+        payload.tankId,
+        tenantId,
+      );
+
+      if (!tankLookup) {
+        throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
+      }
+
+      const tank = tankLookup.equipment;
+
+      // Validasyon: mortality mevcut sayıyı aşamaz
+      if (payload.quantity > batch.currentQuantity) {
+        throw new BadRequestException(
+          `Mortality sayısı (${payload.quantity}) mevcut sayıdan (${batch.currentQuantity}) fazla olamaz`
+        );
+      }
+
+      // Biomass hesapla
+      const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
+      const biomassKg = (payload.quantity * avgWeightG) / 1000;
+
       // Mortality record oluştur
       const mortalityRecord = queryRunner.manager.create(MortalityRecord, {
         tenantId,
@@ -108,6 +115,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       // Tank operation kaydı oluştur
       const tankBatch = await queryRunner.manager.findOne(TankBatch, {
         where: { tenantId, tankId: payload.tankId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       const preOperationState = tankBatch ? {
@@ -135,9 +143,9 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
 
       await queryRunner.manager.save(TankOperation, operation);
 
-      // Batch metriklerini güncelle
+      // Batch metriklerini güncelle (Math.max to prevent negative values)
       batch.totalMortality += payload.quantity;
-      batch.currentQuantity -= payload.quantity;
+      batch.currentQuantity = Math.max(0, batch.currentQuantity - payload.quantity);
       batch.mortalitySummary.totalMortality = batch.totalMortality;
       batch.mortalitySummary.mortalityRate = batch.getMortalityRate();
       batch.mortalitySummary.lastMortalityAt = payload.observedAt;
@@ -150,8 +158,9 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       // TankBatch güncelle
       if (tankBatch) {
         // Ensure numeric operations (database may return decimal columns as strings)
-        tankBatch.totalQuantity = Number(tankBatch.totalQuantity) - payload.quantity;
-        tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) - biomassKg;
+        // Math.max(0, ...) prevents negative values from concurrent operations
+        tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) - payload.quantity);
+        tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) - biomassKg);
         tankBatch.lastMortalityAt = payload.observedAt;
         // Update current quantity/biomass denormalized fields
         tankBatch.currentQuantity = tankBatch.totalQuantity;
@@ -166,9 +175,9 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         await queryRunner.manager.save(TankBatch, tankBatch);
       }
 
-      // Tank biomass güncelle (update the correct table)
-      const newBiomass = Number(tank.currentBiomass || 0) - biomassKg;
-      const newCount = (tank.currentCount || 0) - payload.quantity;
+      // Tank biomass güncelle (update the correct table, Math.max to prevent negatives)
+      const newBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
+      const newCount = Math.max(0, (tank.currentCount || 0) - payload.quantity);
       if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
         await queryRunner.manager
           .createQueryBuilder()

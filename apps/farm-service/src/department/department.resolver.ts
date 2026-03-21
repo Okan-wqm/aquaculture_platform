@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { DepartmentResponse, PaginatedDepartmentsResponse } from './dto/department.response';
 import { DepartmentDeletePreviewResponse } from './dto/department-delete-preview.response';
 import { CreateDepartmentInput } from './dto/create-department.input';
@@ -33,6 +33,7 @@ export class DepartmentResolver {
   /**
    * Create a new department
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => DepartmentResponse)
   async createDepartment(
     @Args('input') input: CreateDepartmentInput,
@@ -47,6 +48,7 @@ export class DepartmentResolver {
   /**
    * Update an existing department
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => DepartmentResponse)
   async updateDepartment(
     @Args('input') input: UpdateDepartmentInput,
@@ -76,6 +78,7 @@ export class DepartmentResolver {
    * Delete (soft) a department
    * @param cascade If true, cascade soft delete all related items (equipment, tanks)
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteDepartment(
     @Args('id', { type: () => ID }) id: string,

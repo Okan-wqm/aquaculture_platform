@@ -13,7 +13,7 @@ import {
   SentinelHubToken,
   SentinelHubWmtsConfig,
 } from './entities/sentinel-hub-settings.entity';
-import { CurrentTenant, TenantGuard } from '@platform/backend-common';
+import { CurrentTenant, TenantGuard, Roles, Role } from '@platform/backend-common';
 
 @Resolver(() => SentinelHubSettings)
 @UseGuards(TenantGuard)
@@ -46,6 +46,7 @@ export class SentinelHubResolver {
   /**
    * Save Sentinel Hub settings
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async saveSentinelHubSettings(
     @CurrentTenant() tenantId: string,
@@ -59,6 +60,7 @@ export class SentinelHubResolver {
   /**
    * Delete Sentinel Hub settings
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteSentinelHubSettings(
     @CurrentTenant() tenantId: string,
@@ -105,6 +107,7 @@ export class SentinelHubResolver {
    * Update only the Instance ID for WMTS support
    * Allows updating instanceId without re-entering client credentials
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async updateSentinelHubInstanceId(
     @CurrentTenant() tenantId: string,

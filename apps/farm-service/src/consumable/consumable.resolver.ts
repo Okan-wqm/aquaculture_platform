@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { ConsumableResponse, PaginatedConsumablesResponse } from './dto/consumable.response';
 import { CreateConsumableInput } from './dto/create-consumable.input';
 import { UpdateConsumableInput } from './dto/update-consumable.input';
@@ -26,6 +26,7 @@ export class ConsumableResolver {
     private readonly queryBus: QueryBus,
   ) {}
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ConsumableResponse)
   async createConsumable(
     @Args('input') input: CreateConsumableInput,
@@ -37,6 +38,7 @@ export class ConsumableResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => ConsumableResponse)
   async updateConsumable(
     @Args('input') input: UpdateConsumableInput,
@@ -49,6 +51,7 @@ export class ConsumableResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteConsumable(
     @Args('id', { type: () => ID }) id: string,

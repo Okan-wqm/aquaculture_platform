@@ -7,7 +7,7 @@
  */
 import { Injectable, BadRequestException, NotFoundException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { RecordCleanerMortalityCommand } from '../commands/record-cleaner-mortality.command';
@@ -34,6 +34,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly dataSource: DataSource,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -148,8 +149,6 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       tankBatch.densityKgM3 = totalBiomass / Number(tankVolume);
     }
 
-    await this.tankBatchRepository.save(tankBatch);
-
     // Cleaner batch mortality güncelle
     cleanerBatch.totalMortality += payload.quantity;
     cleanerBatch.mortalitySummary = {
@@ -160,10 +159,8 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       mainCause: payload.reason,
     };
     cleanerBatch.updatedBy = recordedBy;
-    await this.batchRepository.save(cleanerBatch);
 
     // MortalityRecord oluştur
-    // Map MortalityReason to MortalityCause
     const causeMapping: Record<string, MortalityCause> = {
       disease: MortalityCause.DISEASE,
       water_quality: MortalityCause.WATER_QUALITY,
@@ -186,7 +183,6 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       recordedBy,
       notes: payload.notes,
     });
-    await this.mortalityRepository.save(mortalityRecord);
 
     // TankOperation kaydı oluştur
     const operation = this.operationRepository.create({
@@ -217,7 +213,22 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       isDeleted: false,
     });
 
-    await this.operationRepository.save(operation);
+    // All saves in a single transaction for data consistency
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.manager.save(TankBatch, tankBatch);
+      await queryRunner.manager.save(Batch, cleanerBatch);
+      await queryRunner.manager.save(MortalityRecord, mortalityRecord);
+      await queryRunner.manager.save(TankOperation, operation);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
 
     return cleanerBatch;
   }

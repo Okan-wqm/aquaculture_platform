@@ -8,7 +8,7 @@
  */
 import { Injectable, BadRequestException, NotFoundException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { RemoveCleanerFishCommand } from '../commands/remove-cleaner-fish.command';
@@ -32,6 +32,7 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly dataSource: DataSource,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -132,14 +133,11 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
       tankBatch.densityKgM3 = totalBiomass / Number(tankVolume);
     }
 
-    await this.tankBatchRepository.save(tankBatch);
-
     // Cleaner batch'i güncelle (relocation durumunda miktarı geri ekle)
     if (payload.reason === 'relocation') {
       cleanerBatch.currentQuantity += payload.quantity;
     }
     cleanerBatch.updatedBy = removedBy;
-    await this.batchRepository.save(cleanerBatch);
 
     // TankOperation kaydı oluştur
     const removalNotes = payload.notes
@@ -172,7 +170,21 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
       isDeleted: false,
     });
 
-    await this.operationRepository.save(operation);
+    // All saves in a single transaction for data consistency
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.manager.save(TankBatch, tankBatch);
+      await queryRunner.manager.save(Batch, cleanerBatch);
+      await queryRunner.manager.save(TankOperation, operation);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
 
     return cleanerBatch;
   }

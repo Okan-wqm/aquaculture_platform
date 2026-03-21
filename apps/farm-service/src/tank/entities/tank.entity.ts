@@ -33,6 +33,7 @@ import {
   ID,
   Float,
   Int,
+  Directive,
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
@@ -187,6 +188,7 @@ export interface AerationInfo {
 // ============================================================================
 
 @ObjectType()
+@Directive('@key(fields: "id")')
 @Entity('tanks')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'departmentId'])

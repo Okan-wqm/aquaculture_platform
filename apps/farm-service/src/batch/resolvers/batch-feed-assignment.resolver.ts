@@ -8,7 +8,7 @@ import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
 import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import { BatchFeedAssignment, FeedAssignmentEntry } from '../entities/batch-feed-assignment.entity';
 import { Batch } from '../entities/batch.entity';
@@ -73,6 +73,7 @@ export class BatchFeedAssignmentResolver {
    * Assign feeds to a batch with weight ranges
    * Creates new or updates existing assignment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => BatchFeedAssignmentResponse)
   async assignFeedsToBatch(
     @Args('input') input: AssignFeedsToBatchInput,
@@ -153,6 +154,7 @@ export class BatchFeedAssignmentResolver {
   /**
    * Update feed assignment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => BatchFeedAssignmentResponse)
   async updateBatchFeedAssignment(
     @Args('input') input: UpdateBatchFeedAssignmentInput,
@@ -239,6 +241,7 @@ export class BatchFeedAssignmentResolver {
   /**
    * Delete (soft) feed assignment
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteBatchFeedAssignment(
     @Args('id', { type: () => ID }) id: string,

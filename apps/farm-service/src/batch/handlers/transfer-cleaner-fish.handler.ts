@@ -7,7 +7,7 @@
  */
 import { Injectable, BadRequestException, NotFoundException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { TransferCleanerFishCommand } from '../commands/transfer-cleaner-fish.command';
@@ -31,6 +31,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly dataSource: DataSource,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -147,8 +148,6 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
       sourceTankBatch.densityKgM3 = totalBiomass / Number(sourceVolume);
     }
 
-    await this.tankBatchRepository.save(sourceTankBatch);
-
     // --- HEDEF TANK GÜNCELLE ---
 
     // Hedef TankBatch'i bul veya oluştur
@@ -228,8 +227,6 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
       destTankBatch.densityKgM3 = totalBiomass / Number(destVolume);
     }
 
-    await this.tankBatchRepository.save(destTankBatch);
-
     // --- TRANSFER OUT OPERASYONU ---
     const transferOutOp = this.operationRepository.create({
       tenantId,
@@ -260,8 +257,6 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
       isDeleted: false,
     });
 
-    await this.operationRepository.save(transferOutOp);
-
     // --- TRANSFER IN OPERASYONU ---
     const transferInOp = this.operationRepository.create({
       tenantId,
@@ -291,11 +286,26 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
       isDeleted: false,
     });
 
-    await this.operationRepository.save(transferInOp);
-
     // Batch güncelle
     cleanerBatch.updatedBy = transferredBy;
-    await this.batchRepository.save(cleanerBatch);
+
+    // All saves in a single transaction for data consistency
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.manager.save(TankBatch, sourceTankBatch);
+      await queryRunner.manager.save(TankBatch, destTankBatch);
+      await queryRunner.manager.save(TankOperation, transferOutOp);
+      await queryRunner.manager.save(TankOperation, transferInOp);
+      await queryRunner.manager.save(Batch, cleanerBatch);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
 
     return cleanerBatch;
   }

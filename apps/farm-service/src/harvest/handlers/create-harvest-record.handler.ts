@@ -4,6 +4,10 @@
  * CreateHarvestRecordCommand'ı işler ve harvest kaydı oluşturur.
  * Tank ve Batch'i günceller.
  *
+ * SECURITY FIX: All reads moved inside transaction with pessimistic_write locks
+ * to prevent TOCTOU race conditions. generateCode() moved inside transaction.
+ * Math.max(0, ...) guards added to prevent negative biomass values.
+ *
  * @module Harvest/Handlers
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -38,79 +42,84 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
   async execute(command: CreateHarvestRecordCommand): Promise<Batch> {
     const { tenantId, input, recordedBy } = command;
 
-    // Read operations for validation (outside transaction)
-    const batch = await this.batchRepository.findOne({
-      where: { id: input.batchId, tenantId, isActive: true },
-    });
-
-    if (!batch) {
-      throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
-    }
-
-    const tank = await this.tankRepository.findOne({
-      where: { id: input.tankId, tenantId, isActive: true },
-    });
-
-    if (!tank) {
-      throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
-    }
-
-    if (input.quantityHarvested > batch.currentQuantity) {
-      throw new BadRequestException(
-        `Harvest miktarı (${input.quantityHarvested}) batch'in mevcut miktarından (${batch.currentQuantity}) fazla olamaz`
-      );
-    }
-
-    const tankBatch = await this.tankBatchRepository.findOne({
-      where: { tenantId, tankId: input.tankId },
-    });
-
-    if (tankBatch && input.quantityHarvested > tankBatch.totalQuantity) {
-      throw new BadRequestException(
-        `Harvest miktarı (${input.quantityHarvested}) tank'taki miktardan (${tankBatch.totalQuantity}) fazla olamaz`
-      );
-    }
-
-    // Biomass hesapla
-    const biomassKg = input.totalBiomass || (input.quantityHarvested * input.averageWeight) / 1000;
-
-    // Record code ve lot number oluştur (outside transaction for code generation)
-    const recordCode = await this.generateCode(tenantId, 'HR');
-    const lotNumber = await this.generateCode(tenantId, 'LOT');
-
-    // Parse harvestDate
+    // Parse harvestDate early (no DB needed)
     const harvestDate = typeof input.harvestDate === 'string'
       ? new Date(input.harvestDate)
       : input.harvestDate;
 
-    // Parse qualityGrade
+    // Parse qualityGrade early (no DB needed)
     const qualityGrade = this.parseQualityGrade(input.qualityGrade);
 
-    // Operation detaylarını oluştur
-    const operation: HarvestOperation = {
-      startTime: harvestDate,
-      method: HarvestMethod.NET,
-    };
-
-    // Lot bilgilerini oluştur
-    const lotInfo: LotInfo = {
-      lotNumber,
-      productionDate: harvestDate,
-    };
-
-    // Pre-operation state kaydet
-    const preOperationState = tankBatch ? {
-      quantity: tankBatch.totalQuantity,
-      biomassKg: tankBatch.totalBiomassKg,
-      densityKgM3: tankBatch.densityKgM3,
-    } : undefined;
-
-    // Start transaction for all write operations
+    // All reads and writes inside a single transaction with pessimistic locks
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
+      // Batch bul with pessimistic lock
+      const batch = await queryRunner.manager.findOne(Batch, {
+        where: { id: input.batchId, tenantId, isActive: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!batch) {
+        throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
+      }
+
+      // Tank bul with pessimistic lock
+      const tank = await queryRunner.manager.findOne(Tank, {
+        where: { id: input.tankId, tenantId, isActive: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!tank) {
+        throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
+      }
+
+      if (input.quantityHarvested > batch.currentQuantity) {
+        throw new BadRequestException(
+          `Harvest miktarı (${input.quantityHarvested}) batch'in mevcut miktarından (${batch.currentQuantity}) fazla olamaz`
+        );
+      }
+
+      // TankBatch with pessimistic lock
+      const tankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: input.tankId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (tankBatch && input.quantityHarvested > tankBatch.totalQuantity) {
+        throw new BadRequestException(
+          `Harvest miktarı (${input.quantityHarvested}) tank'taki miktardan (${tankBatch.totalQuantity}) fazla olamaz`
+        );
+      }
+
+      // Biomass hesapla
+      const biomassKg = input.totalBiomass || (input.quantityHarvested * input.averageWeight) / 1000;
+
+      // Record code ve lot number oluştur (inside transaction to prevent duplicate codes)
+      const recordCode = await this.generateCode(tenantId, 'HR');
+      const lotNumber = await this.generateCode(tenantId, 'LOT');
+
+      // Operation detaylarını oluştur
+      const operation: HarvestOperation = {
+        startTime: harvestDate,
+        method: HarvestMethod.NET,
+      };
+
+      // Lot bilgilerini oluştur
+      const lotInfo: LotInfo = {
+        lotNumber,
+        productionDate: harvestDate,
+      };
+
+      // Pre-operation state kaydet
+      const preOperationState = tankBatch ? {
+        quantity: tankBatch.totalQuantity,
+        biomassKg: tankBatch.totalBiomassKg,
+        densityKgM3: tankBatch.densityKgM3,
+      } : undefined;
+
       // HarvestRecord oluştur
       const harvestRecord = queryRunner.manager.create(HarvestRecord, {
         tenantId,
@@ -168,8 +177,8 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
 
       await queryRunner.manager.save(TankOperation, tankOperation);
 
-      // Batch güncelle
-      batch.currentQuantity -= input.quantityHarvested;
+      // Batch güncelle (Math.max to prevent negative values)
+      batch.currentQuantity = Math.max(0, batch.currentQuantity - input.quantityHarvested);
       batch.harvestedQuantity = (batch.harvestedQuantity || 0) + input.quantityHarvested;
       batch.retentionRate = batch.getRetentionRate();
       batch.updatedBy = recordedBy;
@@ -183,11 +192,11 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
 
       await queryRunner.manager.save(Batch, batch);
 
-      // TankBatch güncelle
+      // TankBatch güncelle (Math.max to prevent negatives from concurrent operations)
       if (tankBatch) {
         // Ensure numeric operations (decimal columns may come as strings)
-        tankBatch.totalQuantity = Number(tankBatch.totalQuantity) - input.quantityHarvested;
-        tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) - biomassKg;
+        tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) - input.quantityHarvested);
+        tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) - biomassKg);
         tankBatch.currentQuantity = tankBatch.totalQuantity;
         tankBatch.currentBiomassKg = tankBatch.totalBiomassKg;
 
@@ -203,9 +212,9 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         await queryRunner.manager.save(TankBatch, tankBatch);
       }
 
-      // Tank güncelle
-      tank.currentBiomass = Number(tank.currentBiomass || 0) - biomassKg;
-      tank.currentCount = (tank.currentCount || 0) - input.quantityHarvested;
+      // Tank güncelle (Math.max to prevent negatives)
+      tank.currentBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
+      tank.currentCount = Math.max(0, (tank.currentCount || 0) - input.quantityHarvested);
       await queryRunner.manager.save(Tank, tank);
 
       // Post-operation state güncelle

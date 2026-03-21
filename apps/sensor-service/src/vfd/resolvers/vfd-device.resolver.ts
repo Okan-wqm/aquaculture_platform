@@ -46,7 +46,7 @@ export class VfdDeviceResolver {
 
   /**
    * Get all VFD devices with filtering and pagination.
-   * Returns paginated wrapper with { items, total, page, pageSize, totalPages }.
+   * Returns paginated wrapper with { items, total, page, limit, totalPages }.
    */
   @Query(() => PaginatedVfdDeviceListDto, { name: 'vfdDevices' })
   async getVfdDevices(
@@ -54,21 +54,21 @@ export class VfdDeviceResolver {
     @Args('pagination', { type: () => VfdPaginationDto, nullable: true }) pagination: VfdPaginationDto,
     @Tenant() tenantId: string
   ): Promise<PaginatedVfdDeviceListDto> {
-    // Convert page/pageSize from frontend to offset/limit for service
+    // Convert page/limit from frontend to offset/limit for service
     const page = pagination?.offset !== undefined
       ? Math.floor(pagination.offset / (pagination?.limit ?? 20)) + 1
       : 1;
-    const pageSize = pagination?.limit ?? 20;
+    const limit = pagination?.limit ?? 20;
 
     const result = await this.vfdDeviceService.findAll(tenantId, filter, pagination);
 
-    const totalPages = Math.ceil(result.total / pageSize);
+    const totalPages = Math.ceil(result.total / limit);
 
     return {
       items: result.items as any,
       total: result.total,
       page,
-      pageSize,
+      limit,
       totalPages,
     };
   }

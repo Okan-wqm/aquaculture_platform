@@ -218,13 +218,13 @@ export function validateDateRange(
  */
 export function validatePagination(
   page?: number,
-  pageSize?: number,
-): { page: number; pageSize: number; skip: number } {
+  limit?: number,
+): { page: number; limit: number; skip: number } {
   const validPage = Math.max(1, Math.floor(page || 1));
-  const validPageSize = Math.min(100, Math.max(1, Math.floor(pageSize || 20)));
-  const skip = (validPage - 1) * validPageSize;
+  const validLimit = Math.min(100, Math.max(1, Math.floor(limit || 20)));
+  const skip = (validPage - 1) * validLimit;
 
-  return { page: validPage, pageSize: validPageSize, skip };
+  return { page: validPage, limit: validLimit, skip };
 }
 
 /**

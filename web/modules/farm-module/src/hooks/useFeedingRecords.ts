@@ -186,10 +186,6 @@ export interface FeedInventoryFilterInput {
   includeExpiringSoon?: boolean;
 }
 
-export interface PaginationInput {
-  page?: number;
-  limit?: number;
-}
 
 export interface CreateFeedingRecordInput {
   batchId: string;
@@ -285,7 +281,7 @@ export function useFeedingRecord(id: string) {
  */
 export function useFeedingRecordsList(
   filter?: FeedingRecordFilterInput,
-  pagination?: PaginationInput,
+  pagination?: { page?: number; limit?: number },
 ) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -438,7 +434,7 @@ export function useUpdateFeedingRecord() {
  */
 export function useFeedInventoryList(
   filter?: FeedInventoryFilterInput,
-  pagination?: PaginationInput,
+  pagination?: { page?: number; limit?: number },
 ) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 

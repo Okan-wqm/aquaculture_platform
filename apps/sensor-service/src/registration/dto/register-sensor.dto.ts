@@ -341,7 +341,7 @@ export class SensorListType {
   page!: number;
 
   @Field()
-  pageSize!: number;
+  limit!: number;
 
   @Field()
   totalPages!: number;

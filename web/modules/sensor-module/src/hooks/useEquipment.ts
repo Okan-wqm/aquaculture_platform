@@ -71,10 +71,6 @@ export interface EquipmentFilterInput {
   search?: string;
 }
 
-export interface PaginationInput {
-  page?: number;
-  limit?: number;
-}
 
 interface PaginatedEquipmentResponse {
   items: Equipment[];
@@ -88,7 +84,7 @@ interface PaginatedEquipmentResponse {
  */
 export function useEquipmentList(
   filter?: EquipmentFilterInput,
-  pagination?: PaginationInput
+  pagination?: { page?: number; limit?: number }
 ) {
   const { token } = useAuth();
 

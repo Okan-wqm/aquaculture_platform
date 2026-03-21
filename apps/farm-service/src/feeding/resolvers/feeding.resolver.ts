@@ -22,7 +22,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
-import { CommandBus, QueryBus } from '@platform/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -815,7 +815,7 @@ export class FeedingResolver {
     @Args('filter', { nullable: true }) filter?: FeedingRecordFilterInput,
     @Args('pagination', { nullable: true }) pagination?: FeedingPaginationInput,
   ): Promise<FeedingRecordConnection> {
-    return this.queryBus.execute(
+    const result: PaginatedQueryResult<FeedingRecord> = await this.queryBus.execute(
       new GetFeedingRecordsQuery(
         tenantId,
         {
@@ -833,6 +833,11 @@ export class FeedingResolver {
         pagination?.limit ?? 20,
       ),
     );
+    return {
+      items: result.data,
+      total: result.pagination.total,
+      hasMore: result.pagination.hasNextPage,
+    };
   }
 
   /**
@@ -874,7 +879,7 @@ export class FeedingResolver {
     @Args('filter', { nullable: true }) filter?: FeedInventoryFilterInput,
     @Args('pagination', { nullable: true }) pagination?: FeedingPaginationInput,
   ): Promise<FeedInventoryConnection> {
-    return this.queryBus.execute(
+    const result: PaginatedQueryResult<FeedInventory> = await this.queryBus.execute(
       new GetFeedInventoryQuery(
         tenantId,
         {
@@ -889,6 +894,11 @@ export class FeedingResolver {
         pagination?.limit ?? 20,
       ),
     );
+    return {
+      items: result.data,
+      total: result.pagination.total,
+      hasMore: result.pagination.hasNextPage,
+    };
   }
 
   /**

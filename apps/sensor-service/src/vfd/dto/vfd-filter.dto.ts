@@ -289,7 +289,7 @@ export class VfdProtocolFieldDto {
 
 /**
  * Paginated VFD devices response matching frontend expectations.
- * Uses page/pageSize/totalPages pattern (not offset/limit/hasMore).
+ * Uses page/limit/totalPages pattern (standard pagination).
  */
 @ObjectType('PaginatedVfdDeviceList')
 export class PaginatedVfdDeviceListDto {
@@ -303,7 +303,7 @@ export class PaginatedVfdDeviceListDto {
   page!: number;
 
   @Field(() => Int)
-  pageSize!: number;
+  limit!: number;
 
   @Field(() => Int)
   totalPages!: number;

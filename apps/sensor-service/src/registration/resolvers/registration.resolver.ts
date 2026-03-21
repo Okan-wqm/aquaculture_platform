@@ -74,7 +74,7 @@ export class RegistrationResolver {
       items: result.items.map((s) => this.mapSensorToType(s)),
       total: result.total,
       page: result.page,
-      pageSize: result.pageSize,
+      limit: result.limit,
       totalPages: result.totalPages,
     };
   }
@@ -329,7 +329,7 @@ export class RegistrationResolver {
       items: result.items.map((s) => this.mapSensorToType(s)),
       total: result.total,
       page: result.page,
-      pageSize: result.pageSize,
+      limit: result.limit,
       totalPages: result.totalPages,
     };
   }

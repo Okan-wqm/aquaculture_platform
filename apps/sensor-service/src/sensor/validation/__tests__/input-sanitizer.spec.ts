@@ -218,14 +218,14 @@ describe('Input Sanitizer', () => {
     it('should return defaults for undefined input', () => {
       const result = validatePagination();
       expect(result.page).toBe(1);
-      expect(result.pageSize).toBe(20);
+      expect(result.limit).toBe(20);
       expect(result.skip).toBe(0);
     });
 
     it('should calculate skip correctly', () => {
       const result = validatePagination(3, 10);
       expect(result.page).toBe(3);
-      expect(result.pageSize).toBe(10);
+      expect(result.limit).toBe(10);
       expect(result.skip).toBe(20);
     });
 
@@ -234,14 +234,14 @@ describe('Input Sanitizer', () => {
       expect(result.page).toBe(1);
     });
 
-    it('should enforce minimum page size', () => {
+    it('should enforce minimum limit', () => {
       const result = validatePagination(1, 0);
-      expect(result.pageSize).toBe(1);
+      expect(result.limit).toBe(1);
     });
 
-    it('should enforce maximum page size', () => {
+    it('should enforce maximum limit', () => {
       const result = validatePagination(1, 1000);
-      expect(result.pageSize).toBe(100);
+      expect(result.limit).toBe(100);
     });
   });
 

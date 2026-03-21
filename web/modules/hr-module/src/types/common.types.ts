@@ -14,11 +14,8 @@ export interface BaseEntity {
   isDeleted: boolean;
 }
 
-/** Pagination input */
-export interface PaginationInput {
-  limit?: number;
-  offset?: number;
-}
+/** Pagination input — lightweight type alias (no standalone interface needed) */
+export type PaginationInput = { limit?: number; offset?: number };
 
 /** Paginated response wrapper */
 export interface PaginatedResponse<T> {

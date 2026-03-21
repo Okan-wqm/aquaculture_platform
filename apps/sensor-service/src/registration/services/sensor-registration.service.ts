@@ -28,7 +28,7 @@ export interface SensorListResult {
   items: Sensor[];
   total: number;
   page: number;
-  pageSize: number;
+  limit: number;
   totalPages: number;
 }
 
@@ -457,8 +457,8 @@ export class SensorRegistrationService {
     pagination?: PaginationInput,
   ): Promise<SensorListResult> {
     const page = pagination?.page || 1;
-    const pageSize = pagination?.pageSize || 20;
-    const skip = (page - 1) * pageSize;
+    const limit = pagination?.limit || 20;
+    const skip = (page - 1) * limit;
 
     const where: FindOptionsWhere<Sensor> = { tenantId };
 
@@ -483,7 +483,7 @@ export class SensorRegistrationService {
       where,
       relations: ['protocol'],
       skip,
-      take: pageSize,
+      take: limit,
       order: { createdAt: 'DESC' },
     });
 
@@ -491,8 +491,8 @@ export class SensorRegistrationService {
       items,
       total,
       page,
-      pageSize,
-      totalPages: Math.ceil(total / pageSize),
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 
@@ -925,8 +925,8 @@ export class SensorRegistrationService {
     pagination?: PaginationInput,
   ): Promise<SensorListResult> {
     const page = pagination?.page || 1;
-    const pageSize = pagination?.pageSize || 20;
-    const skip = (page - 1) * pageSize;
+    const limit = pagination?.limit || 20;
+    const skip = (page - 1) * limit;
 
     const where: FindOptionsWhere<Sensor> = {
       tenantId,
@@ -952,7 +952,7 @@ export class SensorRegistrationService {
       where,
       relations: ['childSensors', 'protocol'],
       skip,
-      take: pageSize,
+      take: limit,
       order: { createdAt: 'DESC' },
     });
 
@@ -960,8 +960,8 @@ export class SensorRegistrationService {
       items,
       total,
       page,
-      pageSize,
-      totalPages: Math.ceil(total / pageSize),
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 

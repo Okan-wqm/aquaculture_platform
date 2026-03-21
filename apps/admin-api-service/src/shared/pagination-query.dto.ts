@@ -21,5 +21,5 @@ export class PaginationQueryDto {
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC' = 'ASC';
+  sortOrder?: 'ASC' | 'DESC' = 'DESC';
 }

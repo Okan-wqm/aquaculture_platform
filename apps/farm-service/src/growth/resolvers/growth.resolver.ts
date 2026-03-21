@@ -432,7 +432,7 @@ export class GrowthResolver {
     @Args('filter', { nullable: true }) filter?: GrowthMeasurementFilterInput,
     @Args('pagination', { nullable: true }) pagination?: GrowthPaginationInput,
   ): Promise<GrowthMeasurementConnection> {
-    return this.queryBus.execute(
+    const result: PaginatedQueryResult<GrowthMeasurement> = await this.queryBus.execute(
       new GetGrowthMeasurementsQuery(
         tenantId,
         {
@@ -449,6 +449,11 @@ export class GrowthResolver {
         pagination?.limit ?? 20,
       ),
     );
+    return {
+      items: result.data,
+      total: result.pagination.total,
+      hasMore: result.pagination.hasNextPage,
+    };
   }
 
   /**

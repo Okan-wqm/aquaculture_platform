@@ -119,11 +119,6 @@ export interface TankFilterInput {
   search?: string;
 }
 
-export interface PaginationInput {
-  page?: number;
-  pageSize?: number;
-}
-
 interface TanksResponse {
   items: Tank[];
   total: number;
@@ -212,7 +207,7 @@ const EQUIPMENT_WITH_BATCHES_QUERY = `
  * Hook to fetch tanks/ponds/cages with batch metrics
  * Uses Equipment entity with categories filter
  */
-export function useTanksList(filter?: TankFilterInput, pagination?: PaginationInput) {
+export function useTanksList(filter?: TankFilterInput, pagination?: { page?: number; pageSize?: number }) {
   const { token, tenantId } = useAuth();
 
   return useQuery({

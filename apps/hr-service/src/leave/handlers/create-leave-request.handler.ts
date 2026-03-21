@@ -115,6 +115,7 @@ export class CreateLeaveRequestHandler
 
       // Check leave balance INSIDE the transaction to prevent TOCTOU race
       // Use the leave request's start year, not the current year
+      // MEDIUM: Use SELECT FOR UPDATE to prevent concurrent double-spend on same balance row
       const leaveYear = start.getFullYear();
       if (leaveType.isAccrued) {
         const leaveBalance = await queryRunner.manager.findOne(LeaveBalance, {
@@ -125,6 +126,7 @@ export class CreateLeaveRequestHandler
             year: leaveYear,
             isDeleted: false,
           },
+          lock: { mode: 'pessimistic_write' },
         });
 
         if (!leaveBalance) {

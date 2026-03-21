@@ -10,6 +10,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { CqrsModule } from '@nestjs/cqrs';
+import { EventBusModule } from '@platform/event-bus';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
@@ -231,6 +232,15 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
       context: ({ req }: { req: Request }) => ({ req }),
     }),
     CqrsModule.forRoot(),
+    // NATS Event Bus for cross-service event publishing
+    EventBusModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
+        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+      }),
+    }),
     // JWT Module for auth guards (global for all feature modules)
     JwtModule.registerAsync({
       global: true,

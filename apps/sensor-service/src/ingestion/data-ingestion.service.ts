@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto';
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { IEventBus } from '@platform/event-bus';
 import { Repository, DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
@@ -54,6 +55,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    @Optional()
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus | null,
   ) {
     this.mqttAdapter = new MqttAdapter(configService);
   }
@@ -323,6 +327,23 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn('LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.');
         }
         await this.writeLegacyReading(sensor, data);
+      }
+
+      // Publish SensorReading NATS event so alert-engine can evaluate this data path
+      if (this.eventBus && metrics.length > 0) {
+        try {
+          await this.eventBus.publish({
+            eventId: randomUUID(),
+            eventType: 'SensorReading',
+            timestamp: sourceTimestamp,
+            tenantId: sensor.tenantId,
+            sensorId: sensor.id,
+            readings: data.values,
+            version: 1,
+          });
+        } catch (error) {
+          this.logger.warn(`Failed to publish SensorReading event: ${(error as Error).message}`);
+        }
       }
 
       // Debounce lastSeenAt update — flushed in batch every 30 seconds

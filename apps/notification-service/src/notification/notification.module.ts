@@ -18,6 +18,8 @@ import { DeadLetterQueueService } from './services/dead-letter-queue.service';
 
 // Event Handlers
 import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.handler';
+import { AuthEventHandler } from './event-handlers/auth-event.handler';
+import { BillingEventHandler } from './event-handlers/billing-event.handler';
 import { TaskEventHandler } from './event-handlers/task-event.handler';
 
 // Resolvers
@@ -53,6 +55,8 @@ import { NotificationResolver } from './resolvers/notification.resolver';
 
     // Event Handlers
     AlertTriggeredEventHandler,
+    AuthEventHandler,
+    BillingEventHandler,
     TaskEventHandler,
 
     // Resolvers

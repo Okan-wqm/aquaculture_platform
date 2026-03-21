@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 import { RedisService } from '@platform/backend-common';
 import {
   NotificationLog,
@@ -83,6 +84,47 @@ function redactWebhookUrl(urlString: string): string {
     return url.toString();
   } catch {
     return '[invalid-url]';
+  }
+}
+
+// ─── Webhook URL Encryption for Retry ──────────────────────────────────
+// The webhook URL is redacted in logs for security, but retries need the
+// original URL. We encrypt it with AES-256-GCM using a key derived from
+// WEBHOOK_ENCRYPTION_KEY env var (or a fallback for dev). The encrypted
+// blob is stored in metadata.encryptedWebhookUrl and decrypted only during
+// retry. This prevents plaintext URL leakage while enabling retries.
+
+const WEBHOOK_ENCRYPTION_KEY = (() => {
+  const envKey = process.env['WEBHOOK_ENCRYPTION_KEY'];
+  if (envKey && envKey.length >= 32) {
+    return createHash('sha256').update(envKey).digest();
+  }
+  // Deterministic fallback for dev/test — NOT suitable for production
+  return createHash('sha256').update('aquaculture-webhook-dev-key').digest();
+})();
+
+function encryptWebhookUrl(url: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', WEBHOOK_ENCRYPTION_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(url, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  // Format: base64(iv):base64(authTag):base64(ciphertext)
+  return `${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted.toString('base64')}`;
+}
+
+function decryptWebhookUrl(blob: string): string | null {
+  try {
+    const [ivB64, tagB64, ctB64] = blob.split(':');
+    if (!ivB64 || !tagB64 || !ctB64) return null;
+    const iv = Buffer.from(ivB64, 'base64');
+    const authTag = Buffer.from(tagB64, 'base64');
+    const ciphertext = Buffer.from(ctB64, 'base64');
+    const decipher = createDecipheriv('aes-256-gcm', WEBHOOK_ENCRYPTION_KEY, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    return null;
   }
 }
 
@@ -358,8 +400,10 @@ export class NotificationDispatcherService {
       ? redactWebhookUrl(recipient)
       : recipient;
 
-    // Store the full alert data in metadata so retries can reconstruct the send
-    const metadata = {
+    // Store the full alert data in metadata so retries can reconstruct the send.
+    // For webhooks, also store an encrypted copy of the URL so retries can
+    // decrypt it — the log.recipient field is always the redacted URL.
+    const metadata: Record<string, unknown> = {
       alertId: alertData.alertId,
       ruleId: alertData.ruleId,
       severity: alertData.severity,
@@ -372,6 +416,11 @@ export class NotificationDispatcherService {
         timestamp: alertData.timestamp,
       },
     };
+
+    // Encrypt the webhook URL so it can be recovered during retries
+    if (channel === NotificationChannel.WEBHOOK) {
+      metadata['encryptedWebhookUrl'] = encryptWebhookUrl(recipient);
+    }
 
     try {
       let externalId: string;
@@ -680,14 +729,21 @@ export class NotificationDispatcherService {
           case NotificationChannel.PUSH:
             externalId = await this.sendPush(notification.recipient, alertData);
             break;
-          case NotificationChannel.WEBHOOK:
-            // Webhook URL was redacted in storage; cannot retry webhook notifications
-            this.logger.warn(`Cannot retry webhook notification ${notification.id}: URL was redacted`);
-            notification.status = NotificationStatus.FAILED;
-            notification.errorMessage = 'Cannot retry: webhook URL was redacted for security';
-            notification.nextRetryAt = undefined;
-            await this.logRepository.save(notification);
-            continue;
+          case NotificationChannel.WEBHOOK: {
+            // Webhook URL was redacted in log.recipient; decrypt from metadata
+            const encBlob = notification.metadata?.['encryptedWebhookUrl'] as string | undefined;
+            const webhookUrl = encBlob ? decryptWebhookUrl(encBlob) : null;
+            if (!webhookUrl) {
+              this.logger.warn(`Cannot retry webhook notification ${notification.id}: encrypted URL missing or undecryptable`);
+              notification.status = NotificationStatus.FAILED;
+              notification.errorMessage = 'Cannot retry: webhook URL not recoverable';
+              notification.nextRetryAt = undefined;
+              await this.logRepository.save(notification);
+              continue;
+            }
+            externalId = await this.sendWebhook(webhookUrl, alertData);
+            break;
+          }
           default:
             throw new Error(`Unknown channel: ${notification.channel}`);
         }

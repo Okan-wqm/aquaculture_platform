@@ -414,19 +414,32 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     try {
       const payload = JSON.parse(message.toString()) as Record<string, unknown>;
 
+      // SEC-M01: Legacy edge/ topics lack tenant enforcement in the topic path.
+      // Look up the device by deviceCode to resolve its tenantId, then enforce
+      // that the device actually belongs to a known tenant before processing.
+      const legacyDevice = await this.edgeDeviceService.findByCodeOnly(deviceCode);
+      if (!legacyDevice) {
+        this.logger.warn(
+          `[LEGACY TENANT ENFORCEMENT] Device ${deviceCode} not found in any tenant. ` +
+          'Rejecting legacy edge/ message to prevent cross-tenant spoofing.',
+        );
+        return;
+      }
+      const resolvedTenantId = legacyDevice.tenantId;
+
       switch (messageType) {
         case 'heartbeat':
-          await this.handleEdgeHeartbeat(deviceCode, payload as EdgeHeartbeatPayload);
+          await this.handleEdgeHeartbeat(deviceCode, payload as EdgeHeartbeatPayload, resolvedTenantId);
           break;
         case 'birth':
-          await this.handleEdgeBirth(deviceCode, payload as EdgeBirthPayload);
+          await this.handleEdgeBirth(deviceCode, payload as EdgeBirthPayload, resolvedTenantId);
           break;
         case 'death':
-          await this.handleEdgeDeath(deviceCode);
+          await this.handleEdgeDeath(deviceCode, resolvedTenantId);
           break;
         case 'response':
         case 'responses':
-          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload);
+          await this.handleEdgeResponse(deviceCode, payload as EdgeResponsePayload, resolvedTenantId);
           break;
         default:
           this.logger.debug(`Unknown edge device message type: ${messageType}`);
@@ -440,11 +453,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Handle edge device heartbeat message
    * Updates device health metrics in database
    */
-  private async handleEdgeHeartbeat(deviceCode: string, payload: EdgeHeartbeatPayload): Promise<void> {
+  private async handleEdgeHeartbeat(deviceCode: string, payload: EdgeHeartbeatPayload, tenantId?: string): Promise<void> {
     this.logger.debug(`Edge heartbeat from ${deviceCode}: CPU=${payload.cpuUsage}%, Mem=${payload.memoryUsage}%`);
 
     const heartbeat: DeviceHeartbeat = {
       deviceCode,
+      ...(tenantId ? { tenantId } : {}),
       isOnline: payload.isOnline ?? true,
       status: payload.status,
       cpuUsage: payload.cpuUsage,
@@ -1437,12 +1451,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    // Pattern: {farm}/{pool}/{sensor-type}
+    // Pattern: {farm}/{pool}/{sensor-type} — no tenantId extractable
     if (parts.length >= 3) {
-      return {
-        tenantId: 'unknown',
-        location: topic,
-      };
+      this.logger.warn(`Cannot extract tenantId from topic: ${topic}`);
+      return null; // Caller will skip — tenantId is required for multi-tenant isolation
     }
 
     return null;

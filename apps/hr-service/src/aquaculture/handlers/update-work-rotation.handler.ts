@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -55,6 +56,29 @@ export class UpdateWorkRotationHandler implements ICommandHandler<UpdateWorkRota
         throw new BadRequestException('Start date must be before end date');
       }
 
+      // MEDIUM: Check for overlapping rotations when dates are being updated
+      const effectiveStart = updates.startDate ? new Date(updates.startDate) : rotation.startDate;
+      const effectiveEnd = updates.endDate ? new Date(updates.endDate) : rotation.endDate;
+
+      const overlapping = await repo
+        .createQueryBuilder('wr')
+        .where('wr.tenantId = :tenantId', { tenantId })
+        .andWhere('wr.employeeId = :employeeId', { employeeId: rotation.employeeId })
+        .andWhere('wr.id != :id', { id })
+        .andWhere('wr.isDeleted = false')
+        .andWhere('wr.status NOT IN (:...excludeStatuses)', {
+          excludeStatuses: [RotationStatus.CANCELLED, RotationStatus.COMPLETED],
+        })
+        .andWhere('wr.startDate < :endDate', { endDate: effectiveEnd })
+        .andWhere('wr.endDate > :startDate', { startDate: effectiveStart })
+        .getCount();
+
+      if (overlapping > 0) {
+        throw new ConflictException(
+          'Updated rotation dates overlap with an existing active or scheduled rotation',
+        );
+      }
+
       Object.assign(rotation, updates, { updatedBy: userId });
 
       const saved = await repo.save(rotation);
@@ -68,7 +92,11 @@ export class UpdateWorkRotationHandler implements ICommandHandler<UpdateWorkRota
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
 

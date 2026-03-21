@@ -4,6 +4,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { Employee } from './entities/employee.entity';
 import { Payroll } from './entities/payroll.entity';
 import { DepartmentHR } from './entities/department.entity';
+import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
 import { HRResolver } from './hr.resolver';
 
 // Command Handlers
@@ -41,7 +42,7 @@ const QueryHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Employee, Payroll, DepartmentHR]),
+    TypeOrmModule.forFeature([Employee, Payroll, DepartmentHR, AttendanceRecord]),
     CqrsModule,
   ],
   providers: [

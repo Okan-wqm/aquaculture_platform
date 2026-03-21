@@ -150,6 +150,7 @@ async function bootstrap(): Promise<void> {
       'X-Tenant-Id',
       'X-Correlation-Id',
       'X-Request-Id',
+      'X-Requested-With',
     ],
   });
 

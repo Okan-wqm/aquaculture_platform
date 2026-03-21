@@ -9,14 +9,16 @@ import {
 } from 'typeorm';
 
 /**
- * Available module codes in the system
- * Updated: 3 core modules only (Farm, HR, Sensor)
+ * Available module codes in the system.
+ * Must stay in sync with MODULE_SCHEMAS in schema-manager.service.ts.
  */
 export enum ModuleCode {
   FARM = 'farm',
   HR = 'hr',
   SENSOR = 'sensor',
   HYDROPONICS = 'hydroponics',
+  ALERT = 'alert',
+  AI = 'ai',
 }
 
 registerEnumType(ModuleCode, {
@@ -221,6 +223,40 @@ export class Module {
           'growing-beds',
           'climate',
           'harvest',
+          'analytics',
+        ],
+      },
+      {
+        code: ModuleCode.ALERT,
+        name: 'Alert Engine',
+        description:
+          'Real-time alert rules, incident management, escalation policies, and alert history for proactive monitoring',
+        icon: 'bell',
+        color: '#EF4444',
+        defaultRoute: '/alerts/dashboard',
+        sortOrder: 5,
+        features: [
+          'rules',
+          'incidents',
+          'escalation',
+          'history',
+          'notifications',
+        ],
+      },
+      {
+        code: ModuleCode.AI,
+        name: 'AI Analytics',
+        description:
+          'AI-powered analytics: conversational agents, predictive insights, anomaly detection, and intelligent recommendations',
+        icon: 'brain',
+        color: '#A855F7',
+        defaultRoute: '/ai/dashboard',
+        sortOrder: 6,
+        features: [
+          'agents',
+          'predictions',
+          'anomaly-detection',
+          'recommendations',
           'analytics',
         ],
       },

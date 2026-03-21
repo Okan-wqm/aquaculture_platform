@@ -231,4 +231,21 @@ export class WorkRotation {
   @Field({ nullable: true })
   @Column({ nullable: true })
   deletedBy?: string;
+
+  /** Maximum number of check-in history entries to retain (prevents unbounded JSONB growth). */
+  static readonly MAX_CHECKIN_HISTORY = 50;
+
+  /**
+   * Append a check-in entry, evicting the oldest entries when the cap is exceeded.
+   */
+  addCheckIn(entry: CheckInHistoryEntry): void {
+    if (!this.checkInHistory) {
+      this.checkInHistory = [];
+    }
+    this.checkInHistory.push(entry);
+    if (this.checkInHistory.length > WorkRotation.MAX_CHECKIN_HISTORY) {
+      this.checkInHistory = this.checkInHistory.slice(-WorkRotation.MAX_CHECKIN_HISTORY);
+    }
+    this.lastCheckInTime = entry.time;
+  }
 }

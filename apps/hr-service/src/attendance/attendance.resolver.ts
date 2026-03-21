@@ -1,9 +1,12 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
-import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Employee } from '../hr/entities/employee.entity';
 import { Shift, ShiftType } from './entities/shift.entity';
 import { AttendanceRecord, AttendanceStatus, ApprovalStatus } from './entities/attendance-record.entity';
 import { ClockInInput, ClockOutInput, ManualAttendanceInput } from './dto/clock-in-out.input';
@@ -53,6 +56,8 @@ export class AttendanceResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
@@ -71,6 +76,20 @@ export class AttendanceResolver {
       throw new UnauthorizedException('User ID is required - authentication required');
     }
     return userId;
+  }
+
+  /**
+   * Resolve an auth userId to the HR Employee record.
+   * This bridges the namespace gap between auth user UUIDs and HR employee UUIDs.
+   */
+  private async resolveEmployee(userId: string, tenantId: string): Promise<Employee> {
+    const employee = await this.employeeRepository.findOne({
+      where: { userId, tenantId, isDeleted: false },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee record not found for current user');
+    }
+    return employee;
   }
 
   // =====================
@@ -132,10 +151,12 @@ export class AttendanceResolver {
   ): Promise<AttendanceRecord[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+    // Resolve auth userId → HR employeeId for correct attendance lookup
+    const employee = await this.resolveEmployee(userId, tenantId);
     const result = await this.queryBus.execute(
       new GetAttendanceRecordsQuery(
         tenantId,
-        userId,
+        employee.id,
         undefined,
         undefined,
         undefined,
@@ -171,8 +192,10 @@ export class AttendanceResolver {
   ): Promise<AttendanceSummary> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+    // Resolve auth userId → HR employeeId for correct attendance lookup
+    const employee = await this.resolveEmployee(userId, tenantId);
     return this.queryBus.execute(
-      new GetAttendanceSummaryQuery(tenantId, userId, month, year),
+      new GetAttendanceSummaryQuery(tenantId, employee.id, month, year),
     );
   }
 
@@ -266,11 +289,11 @@ export class AttendanceResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
 
-    // SECURITY: Users can only clock in for themselves unless they have elevated role
-    // For self-service, employeeId should match userId or be omitted
-    const employeeId = input.employeeId || userId;
-    if (employeeId !== userId) {
-      // Only managers can clock in others - this should be handled by a separate mutation
+    // SECURITY: Resolve the auth userId to HR employeeId to bridge namespace gap.
+    // Users can only clock in for themselves — if input.employeeId is provided,
+    // verify it matches the resolved employee.
+    const employee = await this.resolveEmployee(userId, tenantId);
+    if (input.employeeId && input.employeeId !== employee.id) {
       throw new ForbiddenException('You can only clock in for yourself');
     }
 
@@ -278,7 +301,7 @@ export class AttendanceResolver {
       new ClockInCommand(
         tenantId,
         userId,
-        employeeId,
+        employee.id,
         input.method,
         input.location,
         input.remarks,
@@ -295,11 +318,9 @@ export class AttendanceResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
 
-    // SECURITY: Users can only clock out for themselves unless they have elevated role
-    // For self-service, employeeId should match userId or be omitted
-    const employeeId = input.employeeId || userId;
-    if (employeeId !== userId) {
-      // Only managers can clock out others - this should be handled by a separate mutation
+    // SECURITY: Resolve the auth userId to HR employeeId to bridge namespace gap.
+    const employee = await this.resolveEmployee(userId, tenantId);
+    if (input.employeeId && input.employeeId !== employee.id) {
       throw new ForbiddenException('You can only clock out for yourself');
     }
 
@@ -307,10 +328,12 @@ export class AttendanceResolver {
       new ClockOutCommand(
         tenantId,
         userId,
-        employeeId,
+        employee.id,
         input.method,
         input.location,
         input.remarks,
+        input.breakStartTime,
+        input.breakEndTime,
       ),
     );
   }

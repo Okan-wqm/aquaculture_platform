@@ -35,6 +35,19 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
 
     // Use transaction with pessimistic lock to prevent race conditions
     return await this.dataSource.transaction(async (manager) => {
+      // Idempotency: if a stripePaymentIntentId is provided, check for an existing payment
+      if (input.stripePaymentIntentId) {
+        const existing = await manager.findOne(Payment, {
+          where: { stripePaymentIntentId: input.stripePaymentIntentId },
+        });
+        if (existing) {
+          this.logger.log(
+            `Idempotent skip: payment with stripePaymentIntentId ${input.stripePaymentIntentId} already recorded as ${existing.id}`,
+          );
+          return existing;
+        }
+      }
+
       // Fetch invoice with pessimistic lock to prevent concurrent modifications
       const invoice = await manager.findOne(Invoice, {
         where: { id: input.invoiceId, tenantId },

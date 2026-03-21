@@ -244,7 +244,7 @@ export class HRResolver {
 
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async approvePayroll(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

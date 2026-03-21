@@ -41,9 +41,10 @@ export class GeoLocationInput {
 
 @InputType()
 export class ClockInInput {
-  @Field()
+  @Field({ nullable: true })
   @IsUUID()
-  employeeId!: string;
+  @IsOptional()
+  employeeId?: string;
 
   @Field(() => ClockMethod, { defaultValue: ClockMethod.WEB })
   @IsEnum(ClockMethod)
@@ -67,9 +68,10 @@ export class ClockInInput {
 
 @InputType()
 export class ClockOutInput {
-  @Field()
+  @Field({ nullable: true })
   @IsUUID()
-  employeeId!: string;
+  @IsOptional()
+  employeeId?: string;
 
   @Field(() => ClockMethod, { defaultValue: ClockMethod.WEB })
   @IsEnum(ClockMethod)
@@ -84,6 +86,16 @@ export class ClockOutInput {
   @IsOptional()
   @MaxLength(200)
   remarks?: string;
+
+  @Field({ nullable: true })
+  @IsDateString()
+  @IsOptional()
+  breakStartTime?: Date;
+
+  @Field({ nullable: true })
+  @IsDateString()
+  @IsOptional()
+  breakEndTime?: Date;
 }
 
 @InputType()

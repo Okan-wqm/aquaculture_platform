@@ -1,9 +1,12 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-import { UnauthorizedException, UseGuards } from '@nestjs/common';
+import { UnauthorizedException, NotFoundException, UseGuards } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Employee } from '../hr/entities/employee.entity';
 
 // Entities
 import { WeeklyPlan, WeeklyPlanStatus } from './entities/weekly-plan.entity';
@@ -75,6 +78,8 @@ export class SchedulingResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
@@ -156,6 +161,41 @@ export class SchedulingResolver {
   ): Promise<SchedulingSettings> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(new GetSchedulingSettingsQuery(tenantId));
+  }
+
+  @Query(() => WeeklyPlanConnection, { name: 'mySchedule' })
+  async getMySchedule(
+    @Context() context: GraphQLContext,
+    @Args('weekStartDate', { nullable: true }) weekStartDate?: string,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 4 }) limit?: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<WeeklyPlan>> {
+    const tenantId = this.getTenantId(context);
+    const userId = this.getUserId(context);
+
+    // Resolve auth userId → HR employeeId
+    const employee = await this.employeeRepository.findOne({
+      where: { userId, tenantId, isDeleted: false },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee record not found for current user');
+    }
+
+    const effectiveLimit = Math.min(Math.max(1, limit ?? 4), 100);
+    const effectivePage = Math.max(1, page ?? 1);
+    const result = await this.queryBus.execute(
+      new GetWeeklyPlansQuery(
+        tenantId,
+        employee.id,
+        undefined,
+        undefined,
+        weekStartDate,
+        WeeklyPlanStatus.PUBLISHED,
+        effectiveLimit,
+        effectivePage,
+      ),
+    );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => OvertimeSummary, { name: 'overtimeSummary' })

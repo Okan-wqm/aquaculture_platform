@@ -1,7 +1,10 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { IEventBus } from '@platform/event-bus';
 import { RedisService } from '@platform/backend-common';
 import {
   EscalationPolicy,
@@ -99,6 +102,7 @@ const REDIS_KEYS = {
   STATE: 'escalation:state:',
   TIMER: 'escalation:timer:',
   ACTIVE: 'escalation:active',
+  LOCK: 'escalation:lock:',
 };
 
 /**
@@ -112,6 +116,8 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
   // Local timer cache - timers must be managed in-process
   private escalationTimers: Map<string, NodeJS.Timeout> = new Map();
   private timerCheckInterval: NodeJS.Timeout | null = null;
+  // Unique instance ID for distributed locking
+  private readonly instanceId = randomUUID();
 
   constructor(
     @InjectRepository(AlertIncident)
@@ -119,6 +125,9 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     private readonly policyService: EscalationPolicyService,
     private readonly eventEmitter: EventEmitter2,
     private readonly redisService: RedisService,
+    @Optional()
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus | null,
   ) {}
 
   async onModuleInit() {
@@ -151,19 +160,28 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       const activeIds = await this.redisService.smembers(REDIS_KEYS.ACTIVE) || [];
 
       for (const incidentId of activeIds) {
-        const state = await this.getEscalationState(incidentId);
-        if (state && !state.isComplete) {
-          const incident = await this.incidentRepository.findOne({
-            where: { id: incidentId },
-          });
+        // Distributed lock: only one replica restores the timer for each incident
+        const lockKey = `${REDIS_KEYS.LOCK}${incidentId}`;
+        const acquired = await this.redisService.setNx(lockKey, this.instanceId, 300);
+        if (!acquired) continue;
 
-          if (incident) {
-            const policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
-            if (policy) {
-              this.setEscalationTimeout(incidentId, policy);
-              this.logger.log(`Restored timer for incident ${incidentId}`);
+        try {
+          const state = await this.getEscalationState(incidentId);
+          if (state && !state.isComplete) {
+            const incident = await this.incidentRepository.findOne({
+              where: { id: incidentId },
+            });
+
+            if (incident) {
+              const policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
+              if (policy) {
+                this.setEscalationTimeout(incidentId, policy);
+                this.logger.log(`Restored timer for incident ${incidentId}`);
+              }
             }
           }
+        } finally {
+          await this.redisService.del(lockKey);
         }
       }
     } catch (error) {
@@ -179,31 +197,41 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       const activeIds = await this.redisService.smembers(REDIS_KEYS.ACTIVE) || [];
 
       for (const incidentId of activeIds) {
-        const state = await this.getEscalationState(incidentId);
-        if (!state || state.isComplete) continue;
+        // Distributed lock: only one replica handles each incident's escalation check
+        const lockKey = `${REDIS_KEYS.LOCK}${incidentId}`;
+        const acquired = await this.redisService.setNx(lockKey, this.instanceId, 300);
+        if (!acquired) continue; // another instance is handling this incident
 
-        // Check if escalation should have happened
-        const timerInfo = await this.redisService.getJson<{ nextEscalationAt: string }>(
-          `${REDIS_KEYS.TIMER}${incidentId}`
-        );
+        try {
+          const state = await this.getEscalationState(incidentId);
+          if (!state || state.isComplete) continue;
 
-        if (timerInfo && new Date(timerInfo.nextEscalationAt) < new Date()) {
-          // Check that the incident has not been acknowledged or resolved since the timer was set
-          const incident = await this.incidentRepository.findOne({ where: { id: incidentId } });
-          if (
-            incident &&
-            incident.status !== IncidentStatus.ACKNOWLEDGED &&
-            incident.status !== IncidentStatus.RESOLVED &&
-            incident.status !== IncidentStatus.CLOSED
-          ) {
-            // Missed escalation - trigger it now
-            this.logger.warn(`Triggering missed escalation for incident ${incidentId}`);
-            await this.escalateToNextLevel(incidentId);
-          } else {
-            this.logger.log(
-              `Skipping missed escalation for incident ${incidentId} — status is ${incident?.status ?? 'not found'}`,
-            );
+          // Check if escalation should have happened
+          const timerInfo = await this.redisService.getJson<{ nextEscalationAt: string }>(
+            `${REDIS_KEYS.TIMER}${incidentId}`
+          );
+
+          if (timerInfo && new Date(timerInfo.nextEscalationAt) < new Date()) {
+            // Check that the incident has not been acknowledged or resolved since the timer was set
+            const incident = await this.incidentRepository.findOne({ where: { id: incidentId } });
+            if (
+              incident &&
+              incident.status !== IncidentStatus.ACKNOWLEDGED &&
+              incident.status !== IncidentStatus.RESOLVED &&
+              incident.status !== IncidentStatus.CLOSED
+            ) {
+              // Missed escalation - trigger it now
+              this.logger.warn(`Triggering missed escalation for incident ${incidentId}`);
+              await this.escalateToNextLevel(incidentId);
+            } else {
+              this.logger.log(
+                `Skipping missed escalation for incident ${incidentId} — status is ${incident?.status ?? 'not found'}`,
+              );
+            }
           }
+        } finally {
+          // Release lock after processing
+          await this.redisService.del(lockKey);
         }
       }
     } catch (error) {
@@ -343,12 +371,27 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       // Update incident
       await this.updateIncidentEscalation(incident, level, policy);
 
-      // Emit event
+      // Emit local event
       this.eventEmitter.emit(ESCALATION_EVENTS.ESCALATED, {
         incidentId: incident.id,
         level,
         action,
       });
+
+      // Publish NATS event so notification-service can react to escalations
+      if (this.eventBus) {
+        await this.eventBus.publish({
+          eventId: randomUUID(),
+          eventType: 'AlertEscalated',
+          timestamp: new Date(),
+          tenantId: incident.tenantId,
+          incidentId: incident.id,
+          level,
+          action,
+          policyId: policy.id,
+          version: 1,
+        });
+      }
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);

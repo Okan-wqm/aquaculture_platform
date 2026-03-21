@@ -4,6 +4,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { WorkArea } from './entities/work-area.entity';
 import { WorkRotation } from './entities/work-rotation.entity';
 import { SafetyTrainingRecord } from './entities/safety-training-record.entity';
+import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
 import { AquacultureResolver } from './aquaculture.resolver';
 import { AquacultureQueryHandlers } from './query-handlers';
 import { AquacultureCommandHandlers } from './handlers';
@@ -15,6 +16,7 @@ import { HRModule } from '../hr/hr.module';
       WorkArea,
       WorkRotation,
       SafetyTrainingRecord,
+      AttendanceRecord,
     ]),
     HRModule,
     CqrsModule,

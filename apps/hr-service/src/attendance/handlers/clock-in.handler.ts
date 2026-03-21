@@ -1,7 +1,7 @@
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Repository, DataSource, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { ClockInCommand } from '../commands/clock-in.command';
 import {
   AttendanceRecord,
@@ -15,6 +15,8 @@ import {
 import { Schedule, ScheduleStatus } from '../entities/schedule.entity';
 import { Shift } from '../entities/shift.entity';
 import { Employee, EmployeeStatus } from '../../hr/entities/employee.entity';
+import { LeaveRequest, LeaveRequestStatus } from '../../leave/entities/leave-request.entity';
+import { WorkArea } from '../../aquaculture/entities/work-area.entity';
 import { EmployeeClockedInEvent } from '../events/attendance.events';
 
 /** Default timezone if none specified */
@@ -40,6 +42,23 @@ function safeParseTime(time: string | undefined): [number, number] {
   return [hours, minutes];
 }
 
+/**
+ * Haversine formula to calculate distance between two GPS points in meters.
+ */
+function haversineDistance(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const R = 6_371_000; // Earth radius in meters
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const h = sinLat * sinLat + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinLng * sinLng;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 @CommandHandler(ClockInCommand)
 export class ClockInHandler implements ICommandHandler<ClockInCommand> {
   private readonly logger = new Logger(ClockInHandler.name);
@@ -51,6 +70,10 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
     private readonly scheduleRepository: Repository<Schedule>,
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
+    @InjectRepository(LeaveRequest)
+    private readonly leaveRequestRepository: Repository<LeaveRequest>,
+    @InjectRepository(WorkArea)
+    private readonly workAreaRepository: Repository<WorkArea>,
     private readonly eventBus: EventBus,
     private readonly dataSource: DataSource,
   ) {}
@@ -90,6 +113,46 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
       throw new BadRequestException(
         `Employee with status '${employee.status}' cannot clock in`,
       );
+    }
+
+    // HIGH-1: Prevent clock-in while on approved leave
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const activeLeave = await this.leaveRequestRepository.findOne({
+      where: {
+        tenantId,
+        employeeId,
+        status: LeaveRequestStatus.APPROVED,
+        startDate: LessThanOrEqual(todayDate),
+        endDate: MoreThanOrEqual(todayDate),
+        isDeleted: false,
+      },
+    });
+    if (activeLeave) {
+      throw new ConflictException(
+        `Cannot clock in while on approved leave (${activeLeave.requestNumber}, ` +
+        `${new Date(activeLeave.startDate).toISOString().slice(0, 10)} - ` +
+        `${new Date(activeLeave.endDate).toISOString().slice(0, 10)})`,
+      );
+    }
+
+    // HIGH-3: GPS geofence validation when workAreaId and location are provided
+    if (workAreaId && location?.latitude != null && location?.longitude != null) {
+      const workArea = await this.workAreaRepository.findOne({
+        where: { id: workAreaId, tenantId, isDeleted: false, isActive: true },
+      });
+      if (workArea?.coordinates?.latitude != null && workArea?.coordinates?.longitude != null) {
+        const geofenceRadius = workArea.geofenceRadiusMeters ?? 500; // default 500m
+        const distance = haversineDistance(
+          { lat: location.latitude, lng: location.longitude },
+          { lat: workArea.coordinates.latitude, lng: workArea.coordinates.longitude },
+        );
+        if (distance > geofenceRadius) {
+          throw new BadRequestException(
+            `Clock-in location is outside work area geofence (${Math.round(distance)}m away, limit: ${geofenceRadius}m)`,
+          );
+        }
+      }
     }
 
     // Determine timezone: use command timezone, employee timezone, or default to UTC

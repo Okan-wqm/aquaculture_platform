@@ -1,7 +1,8 @@
-import { Injectable, ConflictException, Logger } from '@nestjs/common';
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { Injectable, ConflictException, Logger, Inject } from '@nestjs/common';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
+import { IEventBus } from '@platform/event-bus';
 
 import { TenantCreatedEvent } from '@platform/event-contracts';
 
@@ -22,7 +23,8 @@ export class CreateTenantHandler
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
     private readonly provisioningService: TenantProvisioningService,
     private readonly moduleAssignmentService: ModuleAssignmentService,
@@ -123,7 +125,7 @@ export class CreateTenantHandler
         name: savedTenant.name,
         version: 1,
       };
-      this.eventBus.publish(tenantCreatedEvent);
+      await this.eventBus.publish(tenantCreatedEvent);
 
       // SYNCHRONOUS provisioning - schema MUST exist before tenant is usable
       // This ensures tenant data isolation is set up before returning
@@ -135,7 +137,17 @@ export class CreateTenantHandler
       const provisionStartTime = Date.now();
 
       try {
-        // Step 1: Provision tenant (create schema, optionally create admin)
+        // Step 1: Assign modules with pricing BEFORE provisioning.
+        // This is the single, authoritative module assignment point.
+        // createTenantSchema() queries auth.tenant_modules to determine
+        // which module tables to create — so modules must exist first.
+        if (data.moduleIds && data.moduleIds.length > 0) {
+          await this.assignModulesWithPricing(savedTenant, data, createdBy);
+        }
+
+        // Step 2: Provision tenant (create schema, roles, config, optionally create admin)
+        // Note: assignModules is omitted — modules were already assigned above
+        // and createTenantSchema queries auth.tenant_modules directly.
         const provisionResult = await this.provisioningService.provisionTenant(
           savedTenant.id,
           {
@@ -143,7 +155,6 @@ export class CreateTenantHandler
             adminEmail: adminEmail || undefined,
             adminFirstName: data.primaryContact?.name?.split(' ')[0] || 'Admin',
             adminLastName: data.primaryContact?.name?.split(' ').slice(1).join(' ') || 'User',
-            assignModules: data.moduleIds || [],
           },
         );
 
@@ -158,13 +169,8 @@ export class CreateTenantHandler
             this.logger.log(`Admin user created: ${provisionResult.adminUser.email}`);
           }
 
-          // Step 2: Assign modules with pricing if moduleIds provided
-          if (data.moduleIds && data.moduleIds.length > 0) {
-            await this.assignModulesWithPricing(savedTenant, data, createdBy);
-          }
-
-          // Step 3: Create subscription for billing (sync event publish)
-          this.createTenantSubscription(savedTenant, data, createdBy);
+          // Step 3: Create subscription for billing via NATS
+          await this.createTenantSubscription(savedTenant, data, createdBy);
 
         } else {
           // Provisioning failed - tenant remains PENDING
@@ -174,7 +180,7 @@ export class CreateTenantHandler
           );
 
           // Emit failure event for monitoring/alerting
-          this.eventBus.publish({
+          await this.eventBus.publish({
             eventId: crypto.randomUUID(),
             eventType: 'TenantProvisioningFailed',
             timestamp: new Date(),
@@ -287,11 +293,11 @@ export class CreateTenantHandler
   /**
    * Create subscription event for billing service
    */
-  private createTenantSubscription(
+  private async createTenantSubscription(
     tenant: Tenant,
     data: CreateTenantCommand['data'],
     createdBy: string,
-  ): void {
+  ): Promise<void> {
     try {
       // Map tenant tier to plan tier
       const tierMap: Record<string, PlanTier> = {
@@ -301,8 +307,8 @@ export class CreateTenantHandler
       };
       const planTier = tierMap[tenant.tier?.toLowerCase() || 'starter'] || PlanTier.STARTER;
 
-      // Publish subscription requested event for billing service
-      this.eventBus.publish({
+      // Publish subscription requested event for billing service via NATS
+      await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'TenantSubscriptionRequested',
         timestamp: new Date(),

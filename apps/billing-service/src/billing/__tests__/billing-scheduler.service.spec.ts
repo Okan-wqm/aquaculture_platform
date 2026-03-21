@@ -143,10 +143,11 @@ describe('BillingSchedulerService', () => {
   // ==========================================================================
 
   describe('handleTrialExpiry (D09-F02)', () => {
-    it('should transition expired TRIAL subscriptions to ACTIVE', async () => {
+    it('should transition expired TRIAL subscriptions to ACTIVE when payment method exists', async () => {
       const expiredTrial = buildSubscription({
         status: SubscriptionStatus.TRIAL,
-        trialEndDate: PAST, // in the past
+        trialEndDate: PAST,
+        stripeCustomerId: 'cus_123',
       });
       (subRepo.find as jest.Mock).mockResolvedValue([expiredTrial]);
 
@@ -156,11 +157,26 @@ describe('BillingSchedulerService', () => {
       expect(subRepo.save).toHaveBeenCalledWith(expiredTrial);
     });
 
-    it('should update billing period start/end on transition', async () => {
+    it('should transition to PAST_DUE when no payment method (stripeCustomerId) exists', async () => {
+      const expiredTrial = buildSubscription({
+        status: SubscriptionStatus.TRIAL,
+        trialEndDate: PAST,
+        // no stripeCustomerId
+      });
+      (subRepo.find as jest.Mock).mockResolvedValue([expiredTrial]);
+
+      await service.handleTrialExpiry();
+
+      expect(expiredTrial.status).toBe(SubscriptionStatus.PAST_DUE);
+      expect(subRepo.save).toHaveBeenCalledWith(expiredTrial);
+    });
+
+    it('should update billing period start/end on transition to ACTIVE', async () => {
       const expiredTrial = buildSubscription({
         status: SubscriptionStatus.TRIAL,
         trialEndDate: PAST,
         billingCycle: BillingCycle.MONTHLY,
+        stripeCustomerId: 'cus_123',
       });
       (subRepo.find as jest.Mock).mockResolvedValue([expiredTrial]);
 
@@ -170,6 +186,25 @@ describe('BillingSchedulerService', () => {
       expect(expiredTrial.currentPeriodStart).toEqual(now);
       // Monthly = 1 month later
       expect(expiredTrial.currentPeriodEnd.getMonth()).toBe(now.getMonth() + 1);
+    });
+
+    it('should NOT update billing period when transitioning to PAST_DUE', async () => {
+      const originalStart = new Date('2026-02-01');
+      const originalEnd = new Date('2026-03-01');
+      const expiredTrial = buildSubscription({
+        status: SubscriptionStatus.TRIAL,
+        trialEndDate: PAST,
+        currentPeriodStart: originalStart,
+        currentPeriodEnd: originalEnd,
+        // no stripeCustomerId
+      });
+      (subRepo.find as jest.Mock).mockResolvedValue([expiredTrial]);
+
+      await service.handleTrialExpiry();
+
+      expect(expiredTrial.status).toBe(SubscriptionStatus.PAST_DUE);
+      expect(expiredTrial.currentPeriodStart).toEqual(originalStart);
+      expect(expiredTrial.currentPeriodEnd).toEqual(originalEnd);
     });
 
     it('should NOT transition trials whose trialEndDate is in the future', async () => {
@@ -195,8 +230,8 @@ describe('BillingSchedulerService', () => {
     });
 
     it('should process multiple expired trials independently', async () => {
-      const trial1 = buildSubscription({ id: 'sub-001', trialEndDate: PAST });
-      const trial2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', trialEndDate: PAST });
+      const trial1 = buildSubscription({ id: 'sub-001', trialEndDate: PAST, stripeCustomerId: 'cus_1' });
+      const trial2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', trialEndDate: PAST, stripeCustomerId: 'cus_2' });
       (subRepo.find as jest.Mock).mockResolvedValue([trial1, trial2]);
 
       await service.handleTrialExpiry();
@@ -207,8 +242,8 @@ describe('BillingSchedulerService', () => {
     });
 
     it('should continue processing remaining trials if one fails (fault tolerance)', async () => {
-      const trial1 = buildSubscription({ id: 'sub-001', trialEndDate: PAST });
-      const trial2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', trialEndDate: PAST });
+      const trial1 = buildSubscription({ id: 'sub-001', trialEndDate: PAST, stripeCustomerId: 'cus_1' });
+      const trial2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', trialEndDate: PAST, stripeCustomerId: 'cus_2' });
       (subRepo.find as jest.Mock).mockResolvedValue([trial1, trial2]);
 
       // First save fails, second succeeds
@@ -227,6 +262,69 @@ describe('BillingSchedulerService', () => {
       (subRepo.find as jest.Mock).mockResolvedValue([]);
 
       await service.handleTrialExpiry();
+
+      expect(subRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // SUBSCRIPTION EXPIRY (HIGH-3)
+  // ==========================================================================
+
+  describe('handleSubscriptionExpiry (HIGH-3)', () => {
+    it('should expire ACTIVE subscriptions with endDate past the 3-day grace period', async () => {
+      const expiredSub = buildSubscription({
+        status: SubscriptionStatus.ACTIVE,
+        endDate: new Date('2026-03-10T00:00:00Z'), // 4+ days ago (now is March 14)
+      });
+      (subRepo.find as jest.Mock).mockResolvedValue([expiredSub]);
+
+      await service.handleSubscriptionExpiry();
+
+      expect(expiredSub.status).toBe(SubscriptionStatus.EXPIRED);
+      expect(subRepo.save).toHaveBeenCalledWith(expiredSub);
+    });
+
+    it('should NOT expire subscriptions still within the 3-day grace period', async () => {
+      // endDate is March 12, which is only 2 days ago — within grace period
+      (subRepo.find as jest.Mock).mockResolvedValue([]);
+
+      await service.handleSubscriptionExpiry();
+
+      expect(subRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should process multiple expired subscriptions independently', async () => {
+      const sub1 = buildSubscription({ id: 'sub-001', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-01') });
+      const sub2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-05') });
+      (subRepo.find as jest.Mock).mockResolvedValue([sub1, sub2]);
+
+      await service.handleSubscriptionExpiry();
+
+      expect(sub1.status).toBe(SubscriptionStatus.EXPIRED);
+      expect(sub2.status).toBe(SubscriptionStatus.EXPIRED);
+      expect(subRepo.save).toHaveBeenCalledTimes(2);
+    });
+
+    it('should continue processing remaining subscriptions if one fails', async () => {
+      const sub1 = buildSubscription({ id: 'sub-001', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-01') });
+      const sub2 = buildSubscription({ id: 'sub-002', tenantId: 'tenant-002', status: SubscriptionStatus.ACTIVE, endDate: new Date('2026-03-01') });
+      (subRepo.find as jest.Mock).mockResolvedValue([sub1, sub2]);
+
+      (subRepo.save as jest.Mock)
+        .mockRejectedValueOnce(new Error('DB error'))
+        .mockResolvedValueOnce(sub2);
+
+      await service.handleSubscriptionExpiry();
+
+      expect(sub2.status).toBe(SubscriptionStatus.EXPIRED);
+      expect(subRepo.save).toHaveBeenCalledTimes(2);
+    });
+
+    it('should do nothing when no expired subscriptions exist', async () => {
+      (subRepo.find as jest.Mock).mockResolvedValue([]);
+
+      await service.handleSubscriptionExpiry();
 
       expect(subRepo.save).not.toHaveBeenCalled();
     });

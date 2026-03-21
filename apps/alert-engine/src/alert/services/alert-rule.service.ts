@@ -13,6 +13,7 @@ import {
   AlertSeverity,
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { AlertEvaluationService } from './alert-evaluation.service';
 
 /**
  * Create alert rule data
@@ -44,6 +45,7 @@ export class AlertRuleService {
     private readonly ruleRepository: Repository<AlertRule>,
     @InjectRepository(AlertHistory)
     private readonly historyRepository: Repository<AlertHistory>,
+    private readonly evaluationService: AlertEvaluationService,
   ) {}
 
   /**
@@ -73,6 +75,7 @@ export class AlertRuleService {
     try {
       const saved = await this.ruleRepository.save(rule);
       this.logger.log(`Created alert rule ${saved.id}: ${saved.name}`);
+      await this.evaluationService.invalidateRuleCache(data.tenantId);
       return saved;
     } catch (error: unknown) {
       // Handle DB-level unique constraint violation for concurrent creates
@@ -159,7 +162,9 @@ export class AlertRuleService {
       rule.cooldownMinutes = updates.cooldownMinutes;
     }
 
-    return await this.ruleRepository.save(rule);
+    const saved = await this.ruleRepository.save(rule);
+    await this.evaluationService.invalidateRuleCache(tenantId);
+    return saved;
   }
 
   /**
@@ -173,7 +178,9 @@ export class AlertRuleService {
     const rule = await this.getRule(ruleId, tenantId);
     rule.isActive = isActive;
 
-    return await this.ruleRepository.save(rule);
+    const saved = await this.ruleRepository.save(rule);
+    await this.evaluationService.invalidateRuleCache(tenantId);
+    return saved;
   }
 
   /**
@@ -183,6 +190,7 @@ export class AlertRuleService {
     const rule = await this.getRule(ruleId, tenantId);
 
     await this.ruleRepository.remove(rule);
+    await this.evaluationService.invalidateRuleCache(tenantId);
     this.logger.log(`Deleted alert rule ${ruleId}`);
 
     return true;

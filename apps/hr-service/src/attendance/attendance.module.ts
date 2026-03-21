@@ -9,6 +9,8 @@ import { AttendanceResolver } from './attendance.resolver';
 import { AttendanceCommandHandlers } from './handlers';
 import { AttendanceQueryHandlers } from './query-handlers';
 import { Employee } from '../hr/entities/employee.entity';
+import { LeaveRequest } from '../leave/entities/leave-request.entity';
+import { WorkArea } from '../aquaculture/entities/work-area.entity';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { Employee } from '../hr/entities/employee.entity';
       ScheduleEntry,
       AttendanceRecord,
       Employee,
+      LeaveRequest,
+      WorkArea,
     ]),
     CqrsModule,
   ],

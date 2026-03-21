@@ -6,20 +6,33 @@ import {
 } from '../channel-router.service';
 import { NotificationChannel } from '../../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
+import { RedisService } from '@platform/backend-common';
+
+const mockRedisService = {
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue(undefined),
+  del: jest.fn().mockResolvedValue(1),
+  incr: jest.fn().mockResolvedValue(1),
+  expire: jest.fn().mockResolvedValue(true),
+  deletePattern: jest.fn().mockResolvedValue(0),
+};
 
 describe('ChannelRouterService', () => {
   let service: ChannelRouterService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ChannelRouterService],
+      providers: [
+        ChannelRouterService,
+        { provide: RedisService, useValue: mockRedisService },
+      ],
     }).compile();
 
     service = module.get<ChannelRouterService>(ChannelRouterService);
   });
 
-  afterEach(() => {
-    service.resetRateLimits();
+  afterEach(async () => {
+    await service.resetRateLimits();
   });
 
   describe('route', () => {

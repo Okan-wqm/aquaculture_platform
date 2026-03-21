@@ -167,7 +167,7 @@ export class ModuleAssignmentService {
           // Check if already assigned
           const existingResult = await manager.query(
             `SELECT EXISTS(
-              SELECT 1 FROM tenant_modules
+              SELECT 1 FROM auth.tenant_modules
               WHERE "tenantId" = $1 AND "moduleId" = $2 AND "isEnabled" = true
             ) as exists`,
             [tenantId, moduleId],
@@ -179,7 +179,7 @@ export class ModuleAssignmentService {
           if (existing) {
             // Update quantities instead of failing
             await manager.query(
-              `UPDATE tenant_modules
+              `UPDATE auth.tenant_modules
                SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
                    "updatedAt" = NOW(), "assignedBy" = $4
                WHERE "tenantId" = $1 AND "moduleId" = $2`,
@@ -190,7 +190,7 @@ export class ModuleAssignmentService {
           } else {
             // Insert new assignment
             await manager.query(
-              `INSERT INTO tenant_modules (
+              `INSERT INTO auth.tenant_modules (
                 id, "tenantId", "moduleId", "isEnabled", "activatedAt",
                 "assignedBy", configuration, "createdAt", "updatedAt"
               ) VALUES (
@@ -201,7 +201,7 @@ export class ModuleAssignmentService {
                 "isEnabled" = true,
                 "activatedAt" = NOW(),
                 "assignedBy" = $3,
-                configuration = jsonb_set(COALESCE(tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
+                configuration = jsonb_set(COALESCE(auth.tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
                 "updatedAt" = NOW()`,
               [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
             );
@@ -302,7 +302,7 @@ export class ModuleAssignmentService {
 
     await this.dataSource.query(
       `
-      UPDATE tenant_modules
+      UPDATE auth.tenant_modules
       SET "isEnabled" = false,
           "updatedAt" = NOW()
       WHERE "tenantId" = $1 AND "moduleId" = $2
@@ -354,8 +354,8 @@ export class ModuleAssignmentService {
         COALESCE((tm.configuration->>'quantities')::jsonb, '{}')::jsonb as quantities,
         0 as "monthlyPrice",
         COALESCE(tm.configuration, '{}')::jsonb as configuration
-      FROM tenant_modules tm
-      JOIN modules m ON m.id = tm."moduleId"
+      FROM auth.tenant_modules tm
+      JOIN auth.modules m ON m.id = tm."moduleId"
       WHERE tm."tenantId" = $1 AND tm."isEnabled" = true
       ORDER BY m.name ASC
       `,
@@ -386,7 +386,7 @@ export class ModuleAssignmentService {
     const result = await this.dataSource.query(
       `
       SELECT EXISTS(
-        SELECT 1 FROM tenant_modules
+        SELECT 1 FROM auth.tenant_modules
         WHERE "tenantId" = $1 AND "moduleId" = $2 AND "isEnabled" = true
       ) as exists
       `,
@@ -441,7 +441,7 @@ export class ModuleAssignmentService {
     tenantId: string,
   ): Promise<{ id: string; name: string; plan?: string } | null> {
     const result = await this.dataSource.query(
-      `SELECT id, name, plan FROM tenants WHERE id = $1`,
+      `SELECT id, name, plan FROM auth.tenants WHERE id = $1`,
       [tenantId],
     );
     return result[0] || null;
@@ -458,7 +458,7 @@ export class ModuleAssignmentService {
     const results = await this.dataSource.query(
       `
       SELECT id, code, name, description, icon
-      FROM modules
+      FROM auth.modules
       WHERE id IN (${placeholders})
       `,
       moduleIds,
@@ -485,7 +485,7 @@ export class ModuleAssignmentService {
   ): Promise<void> {
     await this.dataSource.query(
       `
-      INSERT INTO tenant_modules (
+      INSERT INTO auth.tenant_modules (
         id, "tenantId", "moduleId", "isEnabled", "activatedAt",
         "assignedBy", configuration, "createdAt", "updatedAt"
       ) VALUES (
@@ -496,7 +496,7 @@ export class ModuleAssignmentService {
         "isEnabled" = true,
         "activatedAt" = NOW(),
         "assignedBy" = $3,
-        configuration = jsonb_set(COALESCE(tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
+        configuration = jsonb_set(COALESCE(auth.tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
         "updatedAt" = NOW()
       `,
       [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
@@ -511,7 +511,7 @@ export class ModuleAssignmentService {
   ): Promise<void> {
     await this.dataSource.query(
       `
-      UPDATE tenant_modules
+      UPDATE auth.tenant_modules
       SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
           "updatedAt" = NOW(),
           "assignedBy" = $4
@@ -568,7 +568,7 @@ export class ModuleAssignmentService {
     try {
       await this.dataSource.query(
         `
-        INSERT INTO audit_logs (
+        INSERT INTO admin.audit_logs (
           id, "tenantId", action, "entityType", "entityId",
           details, "performedBy", "createdAt"
         ) VALUES (

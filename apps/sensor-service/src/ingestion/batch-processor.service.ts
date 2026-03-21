@@ -96,7 +96,23 @@ export class BatchProcessorService implements OnModuleInit, OnModuleDestroy {
     if (this.buffer.length === 0) return;
 
     const batch = this.buffer.splice(0, this.buffer.length);
-    const valid = batch.filter((m) => this.isValidUUID(m.sensorId) && this.isValidUUID(m.channelId) && this.isValidUUID(m.tenantId));
+    const valid: SensorMetricInput[] = [];
+
+    for (const m of batch) {
+      if (!this.isValidUUID(m.sensorId)) {
+        this.logger.warn(`Invalid sensor UUID dropped: ${m.sensorId}`, 'BatchProcessor');
+        continue;
+      }
+      if (!this.isValidUUID(m.channelId)) {
+        this.logger.warn(`Invalid channel UUID dropped: ${m.channelId}`, 'BatchProcessor');
+        continue;
+      }
+      if (!this.isValidUUID(m.tenantId)) {
+        this.logger.warn(`Invalid tenant UUID dropped: ${m.tenantId}`, 'BatchProcessor');
+        continue;
+      }
+      valid.push(m);
+    }
 
     if (valid.length === 0) return;
 

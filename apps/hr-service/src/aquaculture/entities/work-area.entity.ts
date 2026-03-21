@@ -80,6 +80,10 @@ export class WorkArea {
   @Column({ default: false })
   isOffshore!: boolean;
 
+  @Field(() => Int, { nullable: true, description: 'Geofence radius in meters for GPS clock-in validation' })
+  @Column({ type: 'int', nullable: true, default: 500 })
+  geofenceRadiusMeters?: number;
+
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
   maxCapacity?: number; // Max personnel allowed

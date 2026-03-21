@@ -65,9 +65,23 @@ export class BillingSchedulerService {
 
     for (const sub of expiredTrials) {
       try {
+        // MEDIUM fix: Check if tenant has a payment method (Stripe customer) before activating.
+        // If no payment method on file, transition to PAST_DUE instead of ACTIVE
+        // so the tenant is prompted to add payment details.
+        if (!sub.stripeCustomerId) {
+          sub.status = SubscriptionStatus.PAST_DUE;
+          sub.updatedBy = 'system';
+          await this.subscriptionRepo.save(sub);
+          this.logger.warn(
+            `Trial expired: subscription ${sub.id}, tenant ${sub.tenantId} -> PAST_DUE (no payment method on file)`,
+          );
+          continue;
+        }
+
         sub.status = SubscriptionStatus.ACTIVE;
         sub.currentPeriodStart = now;
         sub.currentPeriodEnd = this.calculatePeriodEnd(now, sub.billingCycle);
+        sub.updatedBy = 'system';
         await this.subscriptionRepo.save(sub);
         this.logger.log(
           `Trial expired: subscription ${sub.id}, tenant ${sub.tenantId} -> ACTIVE`,
@@ -76,6 +90,51 @@ export class BillingSchedulerService {
         // Log and continue — don't let one failure block the rest
         this.logger.error(
           `Failed to transition trial subscription ${sub.id} for tenant ${sub.tenantId}: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    }
+  }
+
+  // ─── Subscription Expiry Detection ─────────────────────────────────
+
+  /**
+   * Every hour, find ACTIVE subscriptions whose endDate has passed
+   * and transition them to EXPIRED. A 3-day grace period is applied
+   * so tenants have a short window to renew before losing access.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleSubscriptionExpiry(): Promise<void> {
+    const now = new Date();
+    const gracePeriodMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+    const cutoff = new Date(now.getTime() - gracePeriodMs);
+
+    const expired = await this.subscriptionRepo.find({
+      where: {
+        status: SubscriptionStatus.ACTIVE,
+        endDate: LessThan(cutoff),
+      },
+    });
+
+    if (expired.length === 0) {
+      return;
+    }
+
+    this.logger.log(`Found ${expired.length} expired subscription(s) (past 3-day grace period)`);
+
+    for (const sub of expired) {
+      try {
+        sub.status = SubscriptionStatus.EXPIRED;
+        sub.updatedBy = 'system';
+        await this.subscriptionRepo.save(sub);
+        this.logger.log(
+          `Subscription expired: ${sub.id}, tenant ${sub.tenantId} -> EXPIRED`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to expire subscription ${sub.id} for tenant ${sub.tenantId}: ${
             error instanceof Error ? error.message : 'Unknown error'
           }`,
           error instanceof Error ? error.stack : undefined,

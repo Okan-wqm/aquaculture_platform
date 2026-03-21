@@ -179,7 +179,7 @@ export class TenantProvisioningService {
       // Atomically mark the tenant as being provisioned; if another process already claimed it,
       // rowsAffected will be 0 and we bail out immediately.
       const [, rowsAffected] = await this.dataSource.query(
-        `UPDATE tenants SET status = 'ACTIVE', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
+        `UPDATE auth.tenants SET status = 'ACTIVE', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
         [tenantId, TenantStatus.PENDING],
       );
       if ((rowsAffected as number) === 0) {
@@ -445,10 +445,37 @@ export class TenantProvisioningService {
   private async createTenantSchema(tenant: Tenant): Promise<void> {
     this.logger.log(`Creating schema for tenant ${tenant.id}`);
 
-    // Always create ALL module tables for tenant isolation (regardless of assigned modules)
-    const modulesToCreate = DEFAULT_TENANT_MODULES;
+    // Query assigned modules for this tenant from auth.tenant_modules → auth.modules
+    // Only create tables for modules the tenant has actually been assigned
+    let modulesToCreate: string[];
+    try {
+      const assignedModules: { code: string }[] = await this.dataSource.query(
+        `SELECT m.code FROM auth.tenant_modules tm
+         JOIN auth.modules m ON m.id = tm."moduleId"
+         WHERE tm."tenantId" = $1 AND tm."isEnabled" = true`,
+        [tenant.id],
+      );
+      modulesToCreate = assignedModules.length > 0
+        ? assignedModules.map((m) => m.code)
+        : DEFAULT_TENANT_MODULES;
 
-    // Create tenant schema with all module tables
+      if (assignedModules.length > 0) {
+        this.logger.log(
+          `Creating schema with assigned modules: ${modulesToCreate.join(', ')}`,
+        );
+      } else {
+        this.logger.warn(
+          `No assigned modules found for tenant ${tenant.id}, falling back to all modules`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to query assigned modules for tenant ${tenant.id}, falling back to all modules: ${(error as Error).message}`,
+      );
+      modulesToCreate = DEFAULT_TENANT_MODULES;
+    }
+
+    // Create tenant schema with the determined module tables
     const result = await this.schemaManager.createTenantSchema(tenant.id, modulesToCreate);
 
     if (!result.success) {
@@ -531,7 +558,7 @@ export class TenantProvisioningService {
       try {
         // Check if role already exists for this tenant
         const existingRole = await this.dataSource.query(
-          `SELECT id FROM tenant_roles WHERE "tenantId" = $1 AND code = $2`,
+          `SELECT id FROM auth.tenant_roles WHERE "tenantId" = $1 AND code = $2`,
           [tenant.id, role.code],
         );
 
@@ -545,7 +572,7 @@ export class TenantProvisioningService {
         // Insert the role
         await this.dataSource.query(
           `
-          INSERT INTO tenant_roles (
+          INSERT INTO auth.tenant_roles (
             id, "tenantId", code, name, description, permissions,
             is_default, is_editable, display_order, created_at, updated_at
           ) VALUES (
@@ -589,7 +616,7 @@ export class TenantProvisioningService {
     if (this.tenantRolesTableEnsured) return;
     try {
       await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS tenant_roles (
+        CREATE TABLE IF NOT EXISTS auth.tenant_roles (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           "tenantId" UUID NOT NULL,
           code VARCHAR(50) NOT NULL,
@@ -603,19 +630,19 @@ export class TenantProvisioningService {
           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
           CONSTRAINT uk_tenant_roles_tenant_code UNIQUE ("tenantId", code),
           CONSTRAINT fk_tenant_roles_tenant FOREIGN KEY ("tenantId")
-            REFERENCES tenants(id) ON DELETE CASCADE
+            REFERENCES auth.tenants(id) ON DELETE CASCADE
         )
       `);
 
       // Create indexes for better query performance
       await this.dataSource.query(`
         CREATE INDEX IF NOT EXISTS idx_tenant_roles_tenant_id
-        ON tenant_roles("tenantId")
+        ON auth.tenant_roles("tenantId")
       `);
 
       await this.dataSource.query(`
         CREATE INDEX IF NOT EXISTS idx_tenant_roles_code
-        ON tenant_roles(code)
+        ON auth.tenant_roles(code)
       `);
 
       // Mark as done so subsequent provisioning calls skip these DDL statements
@@ -640,7 +667,7 @@ export class TenantProvisioningService {
       `
       SELECT id, "tenantId", code, name, description, permissions,
              is_default, is_editable, display_order, created_at, updated_at
-      FROM tenant_roles
+      FROM auth.tenant_roles
       WHERE "tenantId" = $1
       ORDER BY display_order ASC
     `,
@@ -688,7 +715,7 @@ export class TenantProvisioningService {
       `
       SELECT id, code, name, description, permissions,
              is_default, is_editable, display_order
-      FROM tenant_roles
+      FROM auth.tenant_roles
       WHERE "tenantId" = $1 AND code = $2
     `,
       [tenantId, roleCode],
@@ -812,7 +839,7 @@ export class TenantProvisioningService {
     try {
       // Check if email already exists
       const existingUser = await this.dataSource.query(
-        `SELECT id FROM users WHERE LOWER(email) = LOWER($1)`,
+        `SELECT id FROM auth.users WHERE LOWER(email) = LOWER($1)`,
         [email],
       );
 
@@ -823,17 +850,20 @@ export class TenantProvisioningService {
         };
       }
 
-      // Generate invitation token
-      const invitationToken = crypto.randomBytes(32).toString('hex');
+      // Generate invitation token — raw token goes to email, SHA-256 hash goes to DB.
+      // This follows the auth-service pattern: if the DB is compromised, the attacker
+      // cannot use the hashed tokens to accept invitations.
+      const rawInvitationToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(rawInvitationToken).digest('hex');
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 
       // Create user in transaction
       const result = await this.dataSource.transaction(async (manager) => {
-        // Create user with invitation token
+        // Create user with hashed invitation token
         const userResult = await manager.query(
           `
-          INSERT INTO users (
+          INSERT INTO auth.users (
             id, email, "firstName", "lastName", role, "tenantId",
             "isActive", "isEmailVerified", "invitationToken", "invitationExpiresAt",
             "createdAt", "updatedAt"
@@ -844,15 +874,15 @@ export class TenantProvisioningService {
           )
           RETURNING id
         `,
-          [email, firstName, lastName, tenantId, invitationToken, expiresAt],
+          [email, firstName, lastName, tenantId, hashedToken, expiresAt],
         );
 
         const userId = userResult[0].id;
 
-        // Create invitation record
+        // Create invitation record with hashed token
         await manager.query(
           `
-          INSERT INTO invitations (
+          INSERT INTO auth.invitations (
             id, token, email, "firstName", "lastName", role, "tenantId",
             status, "expiresAt", "invitedBy", "sendCount", "lastSentAt", "createdAt", "updatedAt"
           ) VALUES (
@@ -860,12 +890,12 @@ export class TenantProvisioningService {
             'PENDING', $6, $7, 1, NOW(), NOW(), NOW()
           )
         `,
-          [invitationToken, email, firstName, lastName, tenantId, expiresAt, userId],
+          [hashedToken, email, firstName, lastName, tenantId, expiresAt, userId],
         );
 
         // Update tenant user count
         await manager.query(
-          `UPDATE tenants SET user_count = 1 WHERE id = $1`,
+          `UPDATE auth.tenants SET user_count = 1 WHERE id = $1`,
           [tenantId],
         );
 
@@ -888,7 +918,7 @@ export class TenantProvisioningService {
       return {
         success: true,
         userId: result.userId,
-        invitationToken,
+        invitationToken: rawInvitationToken, // Raw token for email — DB stores only the hash
       };
     } catch (error) {
       this.logger.error(
@@ -917,7 +947,7 @@ export class TenantProvisioningService {
     try {
       // Build a single query with unnest for safe parameterised bulk insert
       await this.dataSource.query(
-        `INSERT INTO tenant_modules (id, "tenantId", "moduleId", "isEnabled", "activatedAt", "createdAt", "updatedAt")
+        `INSERT INTO auth.tenant_modules (id, "tenantId", "moduleId", "isEnabled", "activatedAt", "createdAt", "updatedAt")
          SELECT gen_random_uuid(), $1, unnest($2::uuid[]), true, NOW(), NOW(), NOW()
          ON CONFLICT ("tenantId", "moduleId") DO NOTHING`,
         [tenantId, moduleIds],

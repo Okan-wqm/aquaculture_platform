@@ -451,6 +451,17 @@ export class EdgeDeviceService implements OnModuleDestroy {
   }
 
   /**
+   * Find device by code only (no tenant filter).
+   * Used by legacy edge/ topic handler to resolve the device's tenantId
+   * for tenant enforcement on topics that lack a tenant prefix.
+   */
+  async findByCodeOnly(deviceCode: string): Promise<EdgeDevice | null> {
+    return await this.deviceRepository.findOne({
+      where: { deviceCode },
+    });
+  }
+
+  /**
    * Find device by MQTT client ID
    */
   async findByMqttClientId(mqttClientId: string): Promise<EdgeDevice | null> {

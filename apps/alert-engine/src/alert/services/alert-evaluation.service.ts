@@ -35,20 +35,13 @@ export interface SensorReadingData {
  * Evaluates sensor readings against alert rules
  * Implements cooldown to prevent alert spam
  */
-/** Short-lived cache entry for applicable rules */
-interface CachedRuleSet {
-  rules: AlertRule[];
-  expiresAt: number;
-}
 
 @Injectable()
 export class AlertEvaluationService {
   private readonly logger = new Logger(AlertEvaluationService.name);
 
-  // PE-16: Short-lived in-process cache for applicable rules so that rapid
-  // sensor readings for the same sensor don't hit the DB every time.
-  private readonly ruleCache = new Map<string, CachedRuleSet>();
-  private static readonly RULE_CACHE_TTL_MS = 30_000; // 30 seconds
+  // Redis-based rule cache TTL in seconds (shared across all instances)
+  private static readonly RULE_CACHE_TTL_S = 30;
 
   constructor(
     @InjectRepository(AlertRule)
@@ -110,9 +103,12 @@ export class AlertEvaluationService {
 
   /**
    * Find all active rules that apply to this sensor reading.
-   * PE-16: Results are cached for RULE_CACHE_TTL_MS per unique
+   * PE-16: Results are cached in Redis for RULE_CACHE_TTL_S per unique
    * (tenantId, sensorId, farmId, pondId) combination to avoid a DB query
    * on every high-frequency sensor reading event.
+   *
+   * Redis-based cache ensures all replicas share the same rule state,
+   * eliminating the 30s propagation delay of per-instance in-memory caches.
    */
   private async findApplicableRules(
     tenantId: string,
@@ -120,10 +116,16 @@ export class AlertEvaluationService {
     farmId?: string,
     pondId?: string,
   ): Promise<AlertRule[]> {
-    const cacheKey = `${tenantId}:${sensorId}:${farmId ?? ''}:${pondId ?? ''}`;
-    const cached = this.ruleCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.rules;
+    const cacheKey = `alert:rules:${tenantId}:${sensorId}:${farmId ?? ''}:${pondId ?? ''}`;
+
+    // Try Redis cache first
+    try {
+      const cached = await this.redisService.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached) as AlertRule[];
+      }
+    } catch (err) {
+      this.logger.debug(`Redis cache read failed for rules, falling back to DB: ${(err as Error).message}`);
     }
 
     const query = this.ruleRepository
@@ -157,12 +159,31 @@ export class AlertEvaluationService {
 
     const rules = await query.getMany();
 
-    this.ruleCache.set(cacheKey, {
-      rules,
-      expiresAt: Date.now() + AlertEvaluationService.RULE_CACHE_TTL_MS,
-    });
+    // Populate Redis cache (best-effort, non-blocking)
+    try {
+      await this.redisService.set(
+        cacheKey,
+        JSON.stringify(rules),
+        AlertEvaluationService.RULE_CACHE_TTL_S,
+      );
+    } catch (err) {
+      this.logger.debug(`Redis cache write failed for rules: ${(err as Error).message}`);
+    }
 
     return rules;
+  }
+
+  /**
+   * Invalidate all cached rules for a tenant.
+   * Must be called after rule create/update/delete operations.
+   */
+  async invalidateRuleCache(tenantId: string): Promise<void> {
+    try {
+      await this.redisService.deletePattern(`alert:rules:${tenantId}:*`);
+      this.logger.debug(`Invalidated rule cache for tenant ${tenantId}`);
+    } catch (err) {
+      this.logger.warn(`Failed to invalidate rule cache for tenant ${tenantId}: ${(err as Error).message}`);
+    }
   }
 
   /**
@@ -527,6 +548,26 @@ export class AlertEvaluationService {
         });
 
         await this.incidentRepository.save(incident);
+
+        // Publish AlertResolved event so downstream services (notification, audit) are notified
+        try {
+          await this.eventBus.publish({
+            eventId: crypto.randomUUID(),
+            eventType: 'AlertResolved',
+            timestamp: new Date(),
+            tenantId: reading.tenantId,
+            incidentId: incident.id,
+            sensorId: reading.sensorId,
+            severity: incident.severity,
+            resolvedBy: 'SYSTEM_AUTO_RESOLVE',
+            reason: 'Sensor readings returned to normal range',
+            version: 1,
+          });
+        } catch (pubErr) {
+          this.logger.warn(
+            `Failed to publish AlertResolved event for incident ${incident.id}: ${(pubErr as Error).message}`,
+          );
+        }
 
         this.logger.log(
           `Auto-resolved incident ${incident.id} (severity: ${incident.severity}) ` +

@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
@@ -141,10 +142,26 @@ const DEFAULT_PRICING: Record<string, {
 };
 
 /**
+ * Maximum number of retry attempts before an event is dead-lettered.
+ */
+const MAX_RETRY_ATTEMPTS = 5;
+
+/**
+ * Base delay between retries (30 seconds). Actual delay = base * 2^retryCount.
+ */
+const RETRY_BASE_DELAY_MS = 30_000;
+
+/**
  * Tenant Subscription Requested Event Handler
  *
  * Listens for TenantSubscriptionRequested events and creates subscriptions
  * for newly created tenants.
+ *
+ * Retry architecture:
+ * - On failure, the event payload is persisted to billing.subscription_provisioning_retries.
+ * - A scheduled cron job (every 2 minutes) picks up due retries with exponential backoff.
+ * - After MAX_RETRY_ATTEMPTS, the event is dead-lettered (status='dead_letter') and a
+ *   SubscriptionProvisioningFailed event is published for admin alerting.
  */
 @Injectable()
 @EventsHandler(TenantSubscriptionRequestedEvent)
@@ -152,6 +169,7 @@ export class TenantSubscriptionRequestedHandler
   implements IEventHandler<TenantSubscriptionRequestedEvent>
 {
   private readonly logger = new Logger(TenantSubscriptionRequestedHandler.name);
+  private retryTableEnsured = false;
 
   constructor(
     private readonly commandBus: CommandBus,
@@ -354,11 +372,10 @@ export class TenantSubscriptionRequestedHandler
         `Failed to create subscription for tenant ${tenantId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      // MED-05: Publish a failure event so admin-api-service or alerting can detect and
-      // remediate the orphaned tenant (a tenant with no subscription has no plan limits).
-      await this.publishProvisioningFailed(tenantId, (error as Error).message, moduleIds, tier);
-      // Don't re-throw — we don't want to fail the entire tenant creation flow.
-      // The subscription can be created manually; the failure event signals the discrepancy.
+      // Persist the failed event for scheduled retry instead of giving up immediately.
+      // This prevents orphaned tenants (tenants with no subscription) when NATS or the
+      // billing DB is temporarily unavailable.
+      await this.persistForRetry(event, (error as Error).message);
     }
   }
 
@@ -454,6 +471,152 @@ export class TenantSubscriptionRequestedHandler
 
   private capitalizeFirst(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+  }
+
+  // ─── Retry Infrastructure ──────────────────────────────────────────
+
+  /**
+   * Ensure the retry table exists. Called once per service-instance lifetime.
+   */
+  private async ensureRetryTable(): Promise<void> {
+    if (this.retryTableEnsured) return;
+    try {
+      await this.dataSource.query(`
+        CREATE TABLE IF NOT EXISTS billing.subscription_provisioning_retries (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id UUID NOT NULL,
+          event_payload JSONB NOT NULL,
+          error_message TEXT,
+          retry_count INT NOT NULL DEFAULT 0,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending',
+          next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await this.dataSource.query(`
+        CREATE INDEX IF NOT EXISTS idx_spr_status_next_retry
+        ON billing.subscription_provisioning_retries (status, next_retry_at)
+        WHERE status = 'pending'
+      `);
+      this.retryTableEnsured = true;
+    } catch (err) {
+      this.logger.warn(`Retry table setup: ${(err as Error).message}`);
+      this.retryTableEnsured = true;
+    }
+  }
+
+  /**
+   * Persist a failed event for scheduled retry with exponential backoff.
+   */
+  private async persistForRetry(
+    event: TenantSubscriptionRequestedEvent,
+    errorMessage: string,
+  ): Promise<void> {
+    const tenantId = event.tenantId || event.payload?.tenantId;
+    try {
+      await this.ensureRetryTable();
+      const nextRetryAt = new Date(Date.now() + RETRY_BASE_DELAY_MS);
+      await this.dataSource.query(
+        `INSERT INTO billing.subscription_provisioning_retries
+           (tenant_id, event_payload, error_message, retry_count, status, next_retry_at)
+         VALUES ($1, $2, $3, 0, 'pending', $4)
+         ON CONFLICT DO NOTHING`,
+        [tenantId, JSON.stringify(event), errorMessage, nextRetryAt],
+      );
+      this.logger.warn(
+        `Queued subscription provisioning retry for tenant ${tenantId} (next retry at ${nextRetryAt.toISOString()})`,
+      );
+    } catch (persistError) {
+      // If even persistence fails, publish the failure event as a last resort
+      this.logger.error(
+        `Failed to persist retry for tenant ${tenantId}: ${(persistError as Error).message}`,
+      );
+      await this.publishProvisioningFailed(tenantId!, errorMessage, undefined, undefined);
+    }
+  }
+
+  /**
+   * Scheduled retry: every 2 minutes, pick up pending retries whose next_retry_at
+   * has elapsed and re-attempt subscription creation. Dead-letters after MAX_RETRY_ATTEMPTS.
+   */
+  @Cron('*/2 * * * *', { name: 'subscription-provisioning-retry' })
+  async processRetryQueue(): Promise<void> {
+    try {
+      await this.ensureRetryTable();
+    } catch {
+      return; // Table not ready yet
+    }
+
+    const now = new Date();
+    // Atomically claim pending retries to prevent concurrent processing
+    const rows: Array<{
+      id: string;
+      tenant_id: string;
+      event_payload: Record<string, unknown>;
+      retry_count: number;
+    }> = await this.dataSource.query(
+      `UPDATE billing.subscription_provisioning_retries
+         SET status = 'processing', updated_at = NOW()
+       WHERE status = 'pending' AND next_retry_at <= $1
+       RETURNING id, tenant_id, event_payload, retry_count`,
+      [now],
+    );
+
+    if (rows.length === 0) return;
+
+    this.logger.log(`Processing ${rows.length} subscription provisioning retry(ies)`);
+
+    for (const row of rows) {
+      try {
+        // Reconstruct the event and re-invoke handle()
+        const event = row.event_payload as unknown as TenantSubscriptionRequestedEvent;
+        await this.handle(event);
+
+        // Success — remove from retry queue
+        await this.dataSource.query(
+          `DELETE FROM billing.subscription_provisioning_retries WHERE id = $1`,
+          [row.id],
+        );
+        this.logger.log(
+          `Subscription provisioning retry succeeded for tenant ${row.tenant_id}`,
+        );
+      } catch (error) {
+        const newRetryCount = row.retry_count + 1;
+
+        if (newRetryCount >= MAX_RETRY_ATTEMPTS) {
+          // Dead-letter: mark as permanently failed
+          await this.dataSource.query(
+            `UPDATE billing.subscription_provisioning_retries
+               SET status = 'dead_letter', retry_count = $2, error_message = $3, updated_at = NOW()
+             WHERE id = $1`,
+            [row.id, newRetryCount, (error as Error).message],
+          );
+          this.logger.error(
+            `Subscription provisioning dead-lettered for tenant ${row.tenant_id} after ${newRetryCount} attempts`,
+          );
+          // Publish failure event so admin-api or alerting can detect the orphaned tenant
+          await this.publishProvisioningFailed(
+            row.tenant_id,
+            `Dead-lettered after ${newRetryCount} retry attempts: ${(error as Error).message}`,
+          );
+        } else {
+          // Exponential backoff: 30s * 2^retryCount
+          const backoffMs = RETRY_BASE_DELAY_MS * Math.pow(2, newRetryCount);
+          const nextRetryAt = new Date(Date.now() + backoffMs);
+          await this.dataSource.query(
+            `UPDATE billing.subscription_provisioning_retries
+               SET status = 'pending', retry_count = $2, error_message = $3,
+                   next_retry_at = $4, updated_at = NOW()
+             WHERE id = $1`,
+            [row.id, newRetryCount, (error as Error).message, nextRetryAt],
+          );
+          this.logger.warn(
+            `Subscription provisioning retry ${newRetryCount}/${MAX_RETRY_ATTEMPTS} failed for tenant ${row.tenant_id}, next retry at ${nextRetryAt.toISOString()}`,
+          );
+        }
+      }
+    }
   }
 
   /**

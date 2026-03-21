@@ -138,6 +138,7 @@ export class Payment {
   failureReason?: string;
 
   @HideField()
+  @Index('IDX_payment_stripe_pi', { unique: true, where: '"stripe_payment_intent_id" IS NOT NULL' })
   @Column({ nullable: true, name: 'stripe_payment_intent_id' })
   stripePaymentIntentId?: string;
 

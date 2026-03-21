@@ -3,10 +3,12 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
+  Inject,
 } from '@nestjs/common';
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner, Not } from 'typeorm';
+import { IEventBus } from '@platform/event-bus';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { UpdateTenantCommand } from '../commands/tenant.commands';
@@ -24,7 +26,8 @@ export class UpdateTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -162,8 +165,8 @@ export class UpdateTenantHandler
           details: { changes },
         });
 
-        // Publish domain event
-        this.eventBus.publish({
+        // Publish domain event via NATS
+        await this.eventBus.publish({
           eventId: crypto.randomUUID(),
           eventType: 'TenantUpdated',
           timestamp: new Date(),

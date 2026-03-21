@@ -3,242 +3,145 @@ import { NotificationChannel } from '../../database/entities/escalation-policy.e
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 
 /**
- * Tests for ChannelRouterService rate limiting functionality
- * Verifies that hourly and daily rate limits work independently
+ * Tests for ChannelRouterService rate limiting functionality.
+ * Rate limiting is now Redis-based (distributed across replicas).
+ * Tests verify the checkRateLimit + recordDelivery pattern via Redis mocks.
  */
-describe('ChannelRouterService Rate Limiting', () => {
+
+const createMockRedisService = () => {
+  const store = new Map<string, string>();
+  return {
+    get: jest.fn(async (key: string) => store.get(key) ?? null),
+    set: jest.fn(async (key: string, value: string, _ttl?: number) => {
+      store.set(key, value);
+    }),
+    del: jest.fn(async (key: string) => {
+      store.delete(key);
+      return 1;
+    }),
+    incr: jest.fn(async (key: string) => {
+      const current = parseInt(store.get(key) || '0', 10);
+      const next = current + 1;
+      store.set(key, String(next));
+      return next;
+    }),
+    expire: jest.fn().mockResolvedValue(true),
+    deletePattern: jest.fn(async (pattern: string) => {
+      const prefix = pattern.replace('*', '');
+      for (const key of store.keys()) {
+        if (key.startsWith(prefix) || key.includes(prefix.replace(':', ''))) {
+          store.delete(key);
+        }
+      }
+      return 0;
+    }),
+    _store: store,
+  } as any;
+};
+
+describe('ChannelRouterService Rate Limiting (Redis-based)', () => {
   let service: ChannelRouterService;
+  let mockRedis: ReturnType<typeof createMockRedisService>;
 
   beforeEach(() => {
-    jest.useFakeTimers();
-    service = new ChannelRouterService();
+    mockRedis = createMockRedisService();
+    service = new ChannelRouterService(mockRedis);
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
-  });
+  describe('checkRateLimit', () => {
+    it('should allow delivery when under limit', async () => {
+      const allowed = await service.checkRateLimit('user-1', NotificationChannel.EMAIL, 10, 100);
+      expect(allowed).toBe(true);
+    });
 
-  const createUserPreferences = (
-    userId: string,
-    maxPerHour: number,
-    maxPerDay: number,
-  ): UserNotificationPreferences => ({
-    userId,
-    enabledChannels: [NotificationChannel.EMAIL, NotificationChannel.SMS],
-    preferredChannel: NotificationChannel.EMAIL,
-    channelConfigs: {
-      [NotificationChannel.EMAIL]: {
-        enabled: true,
-        rateLimit: { maxPerHour, maxPerDay },
-      } as ChannelConfig,
-      [NotificationChannel.SMS]: {
-        enabled: true,
-        rateLimit: { maxPerHour, maxPerDay },
-      } as ChannelConfig,
-    } as Record<NotificationChannel, ChannelConfig>,
-  });
-
-  describe('Hourly Rate Limits', () => {
-    it('should enforce hourly rate limits', () => {
-      const userId = 'user-hourly-test';
-      const prefs = createUserPreferences(userId, 3, 100); // 3 per hour, 100 per day
-      service.setUserPreferences(prefs);
-
-      // First 3 should succeed
-      for (let i = 0; i < 3; i++) {
-        const decision = service.route(userId, AlertSeverity.HIGH);
-        expect(decision.channels).toContain(NotificationChannel.EMAIL);
+    it('should deny delivery when hourly limit exceeded', async () => {
+      // Simulate 10 deliveries via Redis state
+      for (let i = 0; i < 10; i++) {
+        await service.recordDelivery('user-1', NotificationChannel.EMAIL);
       }
 
-      // 4th should be rate limited
-      const decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
+      const allowed = await service.checkRateLimit('user-1', NotificationChannel.EMAIL, 10, 100);
+      expect(allowed).toBe(false);
     });
 
-    it('should reset hourly counter after 1 hour', () => {
-      const userId = 'user-hourly-reset';
-      const prefs = createUserPreferences(userId, 2, 100);
-      service.setUserPreferences(prefs);
-
-      // Exhaust hourly limit
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
-
-      // Should be rate limited
-      let decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
-
-      // Advance time by 61 minutes
-      jest.advanceTimersByTime(61 * 60 * 1000);
-
-      // Should work again
-      decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).toContain(NotificationChannel.EMAIL);
-    });
-  });
-
-  describe('Daily Rate Limits', () => {
-    it('should enforce daily rate limits independently from hourly', () => {
-      const userId = 'user-daily-test';
-      const prefs = createUserPreferences(userId, 100, 5); // 100 per hour, 5 per day
-      service.setUserPreferences(prefs);
-
-      // First 5 should succeed
+    it('should deny delivery when daily limit exceeded', async () => {
       for (let i = 0; i < 5; i++) {
-        const decision = service.route(userId, AlertSeverity.HIGH);
-        expect(decision.channels).toContain(NotificationChannel.EMAIL);
+        await service.recordDelivery('user-1', NotificationChannel.EMAIL);
       }
 
-      // 6th should be rate limited (daily limit)
-      const decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
-    });
-
-    it('should NOT reset daily counter after just 1 hour', () => {
-      const userId = 'user-daily-no-reset';
-      const prefs = createUserPreferences(userId, 100, 3); // 100 per hour, 3 per day
-      service.setUserPreferences(prefs);
-
-      // Exhaust daily limit
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
-
-      // Advance time by 1 hour (this should NOT reset daily counter)
-      jest.advanceTimersByTime(60 * 60 * 1000);
-
-      // Should still be rate limited by daily counter
-      const decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
-    });
-
-    it('should reset daily counter after 24 hours', () => {
-      const userId = 'user-daily-reset';
-      const prefs = createUserPreferences(userId, 100, 3);
-      service.setUserPreferences(prefs);
-
-      // Exhaust daily limit
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
-
-      // Advance time by 25 hours
-      jest.advanceTimersByTime(25 * 60 * 60 * 1000);
-
-      // Should work again after daily reset
-      const decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).toContain(NotificationChannel.EMAIL);
+      const allowed = await service.checkRateLimit('user-1', NotificationChannel.EMAIL, 100, 5);
+      expect(allowed).toBe(false);
     });
   });
 
-  describe('Independent Counter Resets', () => {
-    it('should reset hourly counter while keeping daily counter', () => {
-      const userId = 'user-independent';
-      const prefs = createUserPreferences(userId, 2, 10);
-      service.setUserPreferences(prefs);
+  describe('recordDelivery', () => {
+    it('should increment Redis counters', async () => {
+      await service.recordDelivery('user-1', NotificationChannel.EMAIL);
 
-      // Use 2 notifications (exhaust hourly, 2/10 daily)
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
+      expect(mockRedis.incr).toHaveBeenCalledTimes(2); // hourly + daily
+    });
 
-      // Should be hourly rate limited
-      let decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
+    it('should set TTL on first increment', async () => {
+      await service.recordDelivery('user-1', NotificationChannel.EMAIL);
 
-      // Advance 1 hour (resets hourly, but daily should be at 2)
-      jest.advanceTimersByTime(61 * 60 * 1000);
-
-      // Hourly reset - can send 2 more
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
-
-      // Should be hourly rate limited again
-      decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
-
-      // Advance another hour
-      jest.advanceTimersByTime(61 * 60 * 1000);
-
-      // Can continue until daily limit (10 total)
-      for (let i = 0; i < 6; i++) {
-        service.route(userId, AlertSeverity.HIGH);
-      }
-
-      // Daily limit reached (10 notifications)
-      decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
+      expect(mockRedis.expire).toHaveBeenCalled();
     });
   });
 
   describe('Multiple Users', () => {
-    it('should track rate limits separately per user', () => {
-      const user1 = 'user-1';
-      const user2 = 'user-2';
-      const prefs1 = createUserPreferences(user1, 2, 10);
-      const prefs2 = createUserPreferences(user2, 2, 10);
-      service.setUserPreferences(prefs1);
-      service.setUserPreferences(prefs2);
-
-      // Exhaust user1's hourly limit
-      service.route(user1, AlertSeverity.HIGH);
-      service.route(user1, AlertSeverity.HIGH);
+    it('should track rate limits separately per user via Redis keys', async () => {
+      // Exhaust user1's limit
+      for (let i = 0; i < 5; i++) {
+        await service.recordDelivery('user-1', NotificationChannel.EMAIL);
+      }
 
       // User1 should be rate limited
-      let decision = service.route(user1, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
+      const user1Allowed = await service.checkRateLimit('user-1', NotificationChannel.EMAIL, 5, 100);
+      expect(user1Allowed).toBe(false);
 
       // User2 should NOT be affected
-      decision = service.route(user2, AlertSeverity.HIGH);
-      expect(decision.channels).toContain(NotificationChannel.EMAIL);
+      const user2Allowed = await service.checkRateLimit('user-2', NotificationChannel.EMAIL, 5, 100);
+      expect(user2Allowed).toBe(true);
     });
   });
 
   describe('Reset Rate Limits', () => {
-    it('should reset rate limits for specific user', () => {
-      const userId = 'user-reset';
-      const prefs = createUserPreferences(userId, 2, 10);
-      service.setUserPreferences(prefs);
+    it('should reset rate limits via Redis deletePattern', async () => {
+      await service.recordDelivery('user-1', NotificationChannel.EMAIL);
+      await service.resetRateLimits('user-1');
 
-      // Exhaust hourly limit
-      service.route(userId, AlertSeverity.HIGH);
-      service.route(userId, AlertSeverity.HIGH);
-
-      // Should be rate limited
-      let decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).not.toContain(NotificationChannel.EMAIL);
-
-      // Admin resets rate limits for this user
-      service.resetRateLimits(userId);
-
-      // Should work again
-      decision = service.route(userId, AlertSeverity.HIGH);
-      expect(decision.channels).toContain(NotificationChannel.EMAIL);
+      expect(mockRedis.deletePattern).toHaveBeenCalledWith(
+        expect.stringContaining('user-1'),
+      );
     });
 
-    it('should reset rate limits for all users', () => {
-      const user1 = 'user-reset-1';
-      const user2 = 'user-reset-2';
-      const prefs1 = createUserPreferences(user1, 2, 10);
-      const prefs2 = createUserPreferences(user2, 2, 10);
-      service.setUserPreferences(prefs1);
-      service.setUserPreferences(prefs2);
+    it('should reset all rate limits', async () => {
+      await service.resetRateLimits();
 
-      // Exhaust both users' limits
-      service.route(user1, AlertSeverity.HIGH);
-      service.route(user1, AlertSeverity.HIGH);
-      service.route(user2, AlertSeverity.HIGH);
-      service.route(user2, AlertSeverity.HIGH);
+      expect(mockRedis.deletePattern).toHaveBeenCalledWith('ratelimit:*');
+    });
+  });
 
-      // Both should be rate limited
-      expect(service.route(user1, AlertSeverity.HIGH).channels).not.toContain(NotificationChannel.EMAIL);
-      expect(service.route(user2, AlertSeverity.HIGH).channels).not.toContain(NotificationChannel.EMAIL);
+  describe('route() passes channels through (rate limiting is async)', () => {
+    it('should not filter channels synchronously during route()', () => {
+      const prefs: UserNotificationPreferences = {
+        userId: 'user-1',
+        enabledChannels: [NotificationChannel.EMAIL, NotificationChannel.SMS],
+        preferredChannel: NotificationChannel.EMAIL,
+        channelConfigs: {
+          [NotificationChannel.EMAIL]: {
+            enabled: true,
+            rateLimit: { maxPerHour: 1, maxPerDay: 1 },
+          } as ChannelConfig,
+        } as Record<NotificationChannel, ChannelConfig>,
+      };
 
-      // Reset all
-      service.resetRateLimits();
+      service.setUserPreferences(prefs);
 
-      // Both should work again
-      expect(service.route(user1, AlertSeverity.HIGH).channels).toContain(NotificationChannel.EMAIL);
-      expect(service.route(user2, AlertSeverity.HIGH).channels).toContain(NotificationChannel.EMAIL);
+      // route() should pass channels through; actual rate limiting
+      // happens in checkRateLimit() called before send
+      const decision = service.route('user-1', AlertSeverity.HIGH);
+      expect(decision.channels).toContain(NotificationChannel.EMAIL);
     });
   });
 });

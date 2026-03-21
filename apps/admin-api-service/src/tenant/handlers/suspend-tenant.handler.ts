@@ -3,10 +3,12 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Inject,
 } from '@nestjs/common';
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
+import { IEventBus } from '@platform/event-bus';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -29,7 +31,8 @@ export class SuspendTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -83,7 +86,7 @@ export class SuspendTenantHandler
         },
       });
 
-      this.eventBus.publish({
+      await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'TenantSuspended',
         timestamp: new Date(),
@@ -115,7 +118,8 @@ export class ActivateTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -165,7 +169,7 @@ export class ActivateTenantHandler
         details: { previousStatus },
       });
 
-      this.eventBus.publish({
+      await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'TenantActivated',
         timestamp: new Date(),
@@ -196,7 +200,8 @@ export class DeactivateTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -242,7 +247,7 @@ export class DeactivateTenantHandler
         details: { reason, previousStatus },
       });
 
-      this.eventBus.publish({
+      await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'TenantStatusChanged',
         timestamp: new Date(),
@@ -275,7 +280,8 @@ export class ArchiveTenantHandler
     _tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    @Inject('EVENT_BUS')
+    private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -323,7 +329,7 @@ export class ArchiveTenantHandler
         details: { previousStatus },
       });
 
-      this.eventBus.publish({
+      await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'TenantArchived',
         timestamp: new Date(),

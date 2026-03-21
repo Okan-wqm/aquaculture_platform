@@ -130,7 +130,7 @@ const MUTATIONS: Record<OperationType, string> = {
 };
 
 export function OfflineProvider({ children }: { children: ReactNode }) {
-  const { accessToken, tenantId, user } = useAuth();
+  const { accessToken, tenantId, user, refreshAuth } = useAuth();
   const isOnline = useNetworkStatus();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>([]);
@@ -243,6 +243,20 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     setSyncError(null);
 
     try {
+      // Ensure token is fresh before starting sync to avoid 401s mid-batch
+      if (accessToken) {
+        try {
+          const payload = JSON.parse(atob(accessToken.split('.')[1]));
+          const expiresAt = payload.exp * 1000;
+          if (expiresAt - Date.now() < 60_000) { // less than 60s remaining
+            await refreshAuth();
+          }
+        } catch {
+          // If token parsing fails, attempt refresh as a safety measure
+          await refreshAuth();
+        }
+      }
+
       const result = await syncAllOperations(executeGraphQL);
       await refreshQueue();
 
@@ -261,7 +275,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, executeGraphQL, refreshQueue, pendingCount]);
+  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, accessToken, refreshAuth]);
 
   // Keep ref in sync so the auto-sync effect always calls the latest version
   // without needing syncNow in its dependency array (PERF-04).

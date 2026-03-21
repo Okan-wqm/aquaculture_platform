@@ -176,7 +176,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: join('/tmp', 'schema.graphql'),
+      autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
       buildSchemaOptions: {
         orphanedTypes: [
           ContactInfo,

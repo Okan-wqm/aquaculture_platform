@@ -61,8 +61,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: join('/tmp', 'schema.graphql'),
-      buildSchemaOptions: {},
+      autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
       playground: process.env['NODE_ENV'] !== 'production',
       introspection: process.env['NODE_ENV'] !== 'production',
       installSubscriptionHandlers: false,

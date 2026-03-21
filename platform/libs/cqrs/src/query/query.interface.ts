@@ -102,7 +102,7 @@ export function createPaginatedQueryResult<T>(
   limit: number,
   total: number,
 ): PaginatedQueryResult<T> {
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
   return {
     data,
     pagination: {

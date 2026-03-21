@@ -14,10 +14,16 @@ export interface BaseEntity {
   isDeleted: boolean;
 }
 
-/** Pagination input — lightweight type alias (no standalone interface needed) */
+/**
+ * @deprecated Use `StandardPaginationInput` from '@aquaculture/shared-ui' instead.
+ * This offset-based type will be removed once all HR pages migrate to page-based pagination.
+ */
 export type PaginationInput = { limit?: number; offset?: number };
 
-/** Paginated response wrapper */
+/**
+ * @deprecated Use `StandardPaginatedResult<T>` from '@aquaculture/shared-ui' instead.
+ * This offset-based response does not align with the backend standard (page/totalPages/hasNextPage).
+ */
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;
@@ -25,6 +31,9 @@ export interface PaginatedResponse<T> {
   offset: number;
   hasMore: boolean;
 }
+
+// Re-export standard types for incremental migration
+export type { StandardPaginationInput, StandardPaginatedResult } from '@aquaculture/shared-ui';
 
 /** Date range filter */
 export interface DateRangeFilter {

@@ -147,12 +147,13 @@ export interface TenantLimits {
 
 /**
  * Sayfalama parametreleri
+ * @deprecated Use `StandardPaginationInput` instead. sortOrder should be uppercase 'ASC' | 'DESC'.
  */
 export interface PaginationParams {
   page: number;
   limit: number;
   sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: 'ASC' | 'DESC';
 }
 
 /**

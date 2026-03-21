@@ -439,7 +439,7 @@ export class GrowthResolver {
           batchId: filter?.batchId,
           tankId: filter?.tankId,
           measurementType: filter?.measurementType ? [filter.measurementType] : undefined,
-          performance: filter?.performance as any,
+          performance: filter?.performance as GrowthPerformance[] | undefined,
           fromDate: filter?.startDate,
           toDate: filter?.endDate,
           isVerified: filter?.verifiedOnly,

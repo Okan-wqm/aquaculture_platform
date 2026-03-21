@@ -156,7 +156,8 @@ export class VfdDeviceDto {
 /**
  * Paginated VFD devices response
  *
- * Uses standard pagination response pattern (items, total, hasMore).
+ * @deprecated Use `PaginatedVfdDeviceListDto` instead, which uses the standard
+ * page/totalPages pattern. This legacy DTO will be removed in Phase 3.
  */
 @ObjectType('PaginatedVfdDevices')
 export class PaginatedVfdDevicesDto extends PaginatedResponse(VfdDeviceDto) {}

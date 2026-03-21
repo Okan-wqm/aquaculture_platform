@@ -19,6 +19,7 @@ import {
   IsBoolean,
   IsNotEmpty,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { StandardPaginationInput } from '@platform/backend-common';
 import { Type } from 'class-transformer';
@@ -167,6 +168,7 @@ export class HarvestPaginationInput extends StandardPaginationInput {
   @Field({ nullable: true, defaultValue: 'harvestDate', description: 'Field to sort by' })
   @IsOptional()
   @IsString()
+  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
   sortBy?: string;
 }
 

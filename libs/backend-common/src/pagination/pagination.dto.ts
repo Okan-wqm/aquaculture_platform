@@ -14,7 +14,7 @@
  * @module Pagination
  */
 import { Field, Int, ObjectType, InputType, registerEnumType } from '@nestjs/graphql';
-import { IsOptional, IsInt, Min, Max, IsString, IsEnum, IsIn, Matches } from 'class-validator';
+import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
 
 // ============================================================================

@@ -144,7 +144,7 @@ export class ProcessFilterInput {
   searchTerm?: string;
 }
 
-@InputType()
+@InputType('ProcessPaginationInput')
 export class ProcessPaginationInput extends StandardPaginationInput {}
 
 // ============================================================================

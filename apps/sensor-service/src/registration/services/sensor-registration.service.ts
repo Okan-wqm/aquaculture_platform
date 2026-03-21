@@ -7,6 +7,7 @@ import { Sensor, SensorType, SensorRegistrationStatus, SensorRole } from '../../
 import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
+import { safeSortField, safeSortOrder } from '@platform/backend-common';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
@@ -479,12 +480,16 @@ export class SensorRegistrationService {
       where.name = Like(`%${escaped}%`);
     }
 
+    const SENSOR_SORT_ALLOWLIST = ['createdAt', 'updatedAt', 'name', 'type', 'registrationStatus'] as const;
+    const sortField = safeSortField(pagination?.sortBy, SENSOR_SORT_ALLOWLIST, 'createdAt');
+    const sortDir = safeSortOrder(pagination?.sortOrder);
+
     const [items, total] = await this.sensorRepository.findAndCount({
       where,
       relations: ['protocol'],
       skip,
       take: limit,
-      order: { createdAt: 'DESC' },
+      order: { [sortField]: sortDir },
     });
 
     return {
@@ -948,12 +953,16 @@ export class SensorRegistrationService {
       where.name = Like(`%${escaped}%`);
     }
 
+    const SENSOR_SORT_ALLOWLIST = ['createdAt', 'updatedAt', 'name', 'type', 'registrationStatus'] as const;
+    const sortField = safeSortField(pagination?.sortBy, SENSOR_SORT_ALLOWLIST, 'createdAt');
+    const sortDir = safeSortOrder(pagination?.sortOrder);
+
     const [items, total] = await this.sensorRepository.findAndCount({
       where,
       relations: ['childSensors', 'protocol'],
       skip,
       take: limit,
-      order: { createdAt: 'DESC' },
+      order: { [sortField]: sortDir },
     });
 
     return {

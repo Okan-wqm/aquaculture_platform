@@ -16,6 +16,7 @@ import {
 } from 'class-validator';
 
 import {
+  PlcConnection,
   PlcConnectionStatus,
   PlcSecurityMode,
   PlcAuthMode,
@@ -432,6 +433,9 @@ export class PlcPaginationDto extends StandardPaginationInput {}
  */
 @ObjectType('PaginatedPlcConnections')
 export class PaginatedPlcConnectionsDto {
+  @Field(() => [PlcConnection])
+  items!: PlcConnection[];
+
   @Field(() => Int)
   total!: number;
 

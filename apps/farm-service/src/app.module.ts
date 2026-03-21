@@ -145,7 +145,7 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
       imports: [ConfigModule, GraphQLContextModule],
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
-        autoSchemaFile: join(process.cwd(), 'schema.graphql'),
+        autoSchemaFile: join('/tmp', 'schema.graphql'),
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',

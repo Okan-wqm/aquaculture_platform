@@ -78,7 +78,7 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: join(process.cwd(), 'schema.graphql'),
+      autoSchemaFile: join('/tmp', 'schema.graphql'),
       buildSchemaOptions: {
         orphanedTypes: [
           InvoiceLineItem,

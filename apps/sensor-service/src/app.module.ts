@@ -221,7 +221,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
         return {
-          autoSchemaFile: join(process.cwd(), 'schema.graphql'),
+          autoSchemaFile: join('/tmp', 'schema.graphql'),
           buildSchemaOptions: {
             // VFD entities and their nested types are registered via @ObjectType decorators
             // This ensures proper schema composition in Apollo Federation

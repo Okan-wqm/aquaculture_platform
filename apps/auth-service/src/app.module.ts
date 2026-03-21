@@ -96,7 +96,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         return {
-          autoSchemaFile: join(process.cwd(), 'schema.graphql'),
+          autoSchemaFile: join('/tmp', 'schema.graphql'),
           buildSchemaOptions: {},
           playground: !isProduction,
           // SECURITY: Disable introspection in production to prevent schema discovery

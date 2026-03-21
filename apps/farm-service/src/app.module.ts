@@ -65,8 +65,8 @@ import { EventListenersModule } from './events/event-listeners.module';
 import { TaskModule } from './task/task.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { GraphQLContextFactory } from './common/graphql-context.factory';
+import { GraphQLContextModule } from './common/graphql-context.module';
 import { getTenantSchemaName } from './common/utils/schema-sanitizer';
-import { TankBatch } from './batch/entities/tank-batch.entity';
 
 @Module({
   imports: [
@@ -142,7 +142,7 @@ import { TankBatch } from './batch/entities/tank-batch.entity';
     // GraphQL Federation
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      imports: [ConfigModule, TypeOrmModule.forFeature([TankBatch])],
+      imports: [ConfigModule, GraphQLContextModule],
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
         autoSchemaFile: join(process.cwd(), 'schema.graphql'),
@@ -278,8 +278,6 @@ import { TankBatch } from './batch/entities/tank-batch.entity';
     // DB-level write guards on source schema (defense-in-depth)
     SourceSchemaWriteGuardService,
     WatchdogCronService,
-    // Per-request DataLoader factory for equipment N+1 elimination
-    GraphQLContextFactory,
   ],
 })
 export class AppModule implements NestModule {

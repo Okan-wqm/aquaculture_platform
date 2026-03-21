@@ -167,9 +167,11 @@ export interface UpdateSpeciesInput extends Partial<CreateSpeciesInput> {
 interface PaginatedResponse {
   items: Species[];
   total: number;
-  offset: number;
+  page: number;
   limit: number;
-  hasMore: boolean;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 // GraphQL queries
@@ -200,9 +202,11 @@ const SPECIES_LIST_QUERY = `
         updatedAt
       }
       total
-      offset
+      page
       limit
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

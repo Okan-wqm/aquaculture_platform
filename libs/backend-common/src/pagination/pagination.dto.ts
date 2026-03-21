@@ -7,7 +7,7 @@
  * - Input: StandardPaginationInput (page, limit, sortBy, sortOrder)
  * - Output: StandardPaginatedResponse<T> (items, total, page, limit, totalPages, hasNextPage, hasPreviousPage)
  *
- * Legacy Pattern (offset/limit with hasMore) — @deprecated, Phase 3 removal:
+ * Legacy Pattern (offset/limit with hasMore) — @deprecated Phase 4 complete, remove in Phase 5:
  * - Input: PaginationInput
  * - Output: PaginatedResponse<T>
  *
@@ -39,7 +39,7 @@ registerEnumType(SortOrder, {
 // ============================================================================
 
 /**
- * @deprecated Use `StandardPaginationInput` instead. This offset-based input will be removed in Phase 3.
+ * @deprecated Phase 4 complete — remove in Phase 5. Use `StandardPaginationInput` instead.
  *
  * Pagination input using offset/limit pattern.
  * - offset: Number of items to skip (default: 0)
@@ -80,7 +80,7 @@ export class PaginationInput {
 }
 
 /**
- * @deprecated Use `IStandardPaginatedResult` instead.
+ * @deprecated Phase 4 complete — remove in Phase 5. Use `IStandardPaginatedResult` instead.
  */
 export interface IPaginatedResult<T> {
   items: T[];
@@ -89,7 +89,7 @@ export interface IPaginatedResult<T> {
 }
 
 /**
- * @deprecated Use `StandardPaginatedResponse` instead.
+ * @deprecated Phase 4 complete — remove in Phase 5. Use `StandardPaginatedResponse` instead.
  */
 export function PaginatedResponse<T>(classRef: Type<T>): Type<IPaginatedResult<T>> {
   @ObjectType({ isAbstract: true })
@@ -106,12 +106,12 @@ export function PaginatedResponse<T>(classRef: Type<T>): Type<IPaginatedResult<T
   return PaginatedResponseClass as Type<IPaginatedResult<T>>;
 }
 
-/** @deprecated Use `createStandardPaginatedResult` instead. */
+/** @deprecated Phase 4 complete — remove in Phase 5. Use `createStandardPaginatedResult` instead. */
 export function calculateHasMore(total: number, offset: number, limit: number): boolean {
   return offset + limit < total;
 }
 
-/** @deprecated Use `createStandardPaginatedResult` instead. */
+/** @deprecated Phase 4 complete — remove in Phase 5. Use `createStandardPaginatedResult` instead. */
 export function createPaginatedResult<T>(
   items: T[],
   total: number,

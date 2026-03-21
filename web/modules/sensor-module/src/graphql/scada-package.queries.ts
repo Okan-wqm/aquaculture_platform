@@ -30,9 +30,11 @@ export const GET_SCADA_PACKAGES = `
         ${SCADA_PACKAGE_FIELDS}
       }
       total
-      offset
+      page
       limit
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

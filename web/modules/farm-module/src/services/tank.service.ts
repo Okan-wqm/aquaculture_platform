@@ -84,9 +84,11 @@ export interface Tank {
 export interface TankListResponse {
   items: Tank[];
   total: number;
-  offset: number;
+  page: number;
   limit: number;
-  hasMore: boolean;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 export interface TankFilterInput {
@@ -99,7 +101,7 @@ export interface TankFilterInput {
   status?: string;
   isActive?: boolean;
   hasAvailableCapacity?: boolean;
-  offset?: number;
+  page?: number;
   limit?: number;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
@@ -335,9 +337,11 @@ export async function listTanks(filter?: TankFilterInput): Promise<TankListRespo
   return {
     items: filteredTanks,
     total: equipmentList.total,
-    offset: (equipmentList.page - 1) * equipmentList.limit,
+    page: equipmentList.page,
     limit: equipmentList.limit,
-    hasMore: equipmentList.page < equipmentList.totalPages,
+    totalPages: equipmentList.totalPages,
+    hasNextPage: equipmentList.page < equipmentList.totalPages,
+    hasPreviousPage: equipmentList.page > 1,
   };
 }
 

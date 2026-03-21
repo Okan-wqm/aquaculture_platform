@@ -99,16 +99,16 @@ export class AutomationResolver {
 
   /**
    * List all automation programs with filtering and pagination
+   * @deprecated Use automationProgramsConnection for paginated results
    */
-  @Query(() => [AutomationProgram], { name: 'automationPrograms' })
+  @Query(() => AutomationProgramConnection, { name: 'automationPrograms' })
   async listAutomationPrograms(
     @Tenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: ProgramFilterInput,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-  ): Promise<AutomationProgram[]> {
-    const result = await this.automationService.findAll(tenantId, filter, page, limit);
-    return result.items;
+  ): Promise<AutomationProgramConnection> {
+    return this.automationService.findAll(tenantId, filter, page, limit);
   }
 
   /**
@@ -121,14 +121,7 @@ export class AutomationResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
   ): Promise<AutomationProgramConnection> {
-    const result = await this.automationService.findAll(tenantId, filter, page, limit);
-    return {
-      items: result.items,
-      total: result.total,
-      page: page || 1,
-      limit: limit || 20,
-      hasMore: (page || 1) * (limit || 20) < result.total,
-    };
+    return await this.automationService.findAll(tenantId, filter, page, limit);
   }
 
   /**
@@ -201,14 +194,7 @@ export class AutomationResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
   ): Promise<DeploymentLogConnection> {
-    const result = await this.deploymentLogService.getHistory(tenantId, deviceId, page, limit);
-    return {
-      items: result.items,
-      total: result.total,
-      page: page || 1,
-      limit: limit || 20,
-      hasMore: (page || 1) * (limit || 20) < result.total,
-    };
+    return await this.deploymentLogService.getHistory(tenantId, deviceId, page, limit);
   }
 
   /**

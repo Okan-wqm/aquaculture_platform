@@ -118,7 +118,11 @@ export interface GrowthMeasurement {
 export interface GrowthMeasurementConnection {
   items: GrowthMeasurement[];
   total: number;
-  hasMore: boolean;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 export interface GrowthMeasurementFilter {
@@ -131,7 +135,7 @@ export interface GrowthMeasurementFilter {
 }
 
 export interface GrowthPagination {
-  offset?: number;
+  page?: number;
   limit?: number;
 }
 

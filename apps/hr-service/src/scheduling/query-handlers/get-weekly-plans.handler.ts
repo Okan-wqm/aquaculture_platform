@@ -1,31 +1,9 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetWeeklyPlansQuery } from '../queries/get-weekly-plans.query';
 import { WeeklyPlan } from '../entities/weekly-plan.entity';
 import { Employee } from '../../hr/entities/employee.entity';
-import { ObjectType, Field, Int } from '@nestjs/graphql';
-
-// Maximum limit to prevent performance issues
-const MAX_LIMIT = 100;
-
-@ObjectType()
-export class WeeklyPlanConnection {
-  @Field(() => [WeeklyPlan])
-  items!: WeeklyPlan[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
 
 @QueryHandler(GetWeeklyPlansQuery)
 export class GetWeeklyPlansHandler implements IQueryHandler<GetWeeklyPlansQuery> {
@@ -36,7 +14,7 @@ export class GetWeeklyPlansHandler implements IQueryHandler<GetWeeklyPlansQuery>
     private readonly employeeRepository: Repository<Employee>,
   ) {}
 
-  async execute(query: GetWeeklyPlansQuery): Promise<WeeklyPlanConnection> {
+  async execute(query: GetWeeklyPlansQuery): Promise<PaginatedQueryResult<WeeklyPlan>> {
     const {
       tenantId,
       employeeId,
@@ -44,12 +22,11 @@ export class GetWeeklyPlansHandler implements IQueryHandler<GetWeeklyPlansQuery>
       siteId,
       weekStartDate,
       status,
-      limit: rawLimit,
-      offset,
     } = query;
 
-    // Enforce maximum limit to prevent performance issues
-    const limit = Math.min(rawLimit ?? 20, MAX_LIMIT);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const qb = this.planRepository
       .createQueryBuilder('wp')
@@ -87,12 +64,6 @@ export class GetWeeklyPlansHandler implements IQueryHandler<GetWeeklyPlansQuery>
 
     const [items, total] = await qb.getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit,
-      offset,
-      hasMore: offset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

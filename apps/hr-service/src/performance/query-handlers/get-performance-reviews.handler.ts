@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetPerformanceReviewsQuery } from '../queries/get-performance-reviews.query';
 import { PerformanceReview } from '../entities/performance-review.entity';
-
-export interface PaginatedPerformanceReviews {
-  items: PerformanceReview[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetPerformanceReviewsQuery)
 export class GetPerformanceReviewsHandler implements IQueryHandler<GetPerformanceReviewsQuery> {
@@ -19,11 +11,12 @@ export class GetPerformanceReviewsHandler implements IQueryHandler<GetPerformanc
     private readonly reviewRepository: Repository<PerformanceReview>,
   ) {}
 
-  async execute(query: GetPerformanceReviewsQuery): Promise<PaginatedPerformanceReviews> {
+  async execute(query: GetPerformanceReviewsQuery): Promise<PaginatedQueryResult<PerformanceReview>> {
     const { tenantId, employeeId, status } = query;
 
-    const limit = Math.min(Math.max(query.limit || 20, 1), 100);
-    const offset = Math.max(query.offset || 0, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const qb = this.reviewRepository
       .createQueryBuilder('pr')
@@ -47,12 +40,6 @@ export class GetPerformanceReviewsHandler implements IQueryHandler<GetPerformanc
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit,
-      offset,
-      hasMore: offset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

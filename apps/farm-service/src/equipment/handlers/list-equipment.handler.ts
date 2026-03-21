@@ -5,21 +5,13 @@
  * When filtering by categories TANK, POND, or CAGE (or no category filter),
  * it also queries the tanks table and transforms Tank entities to Equipment format.
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
 import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
 import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
 import { Tank, TankStatus, TankType } from '../../tank/entities/tank.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 /**
  * Categories that can contain tank-like items from the tanks table
@@ -75,7 +67,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     private readonly dataSource: DataSource,
   ) {}
 
-  async execute(query: ListEquipmentQuery): Promise<PaginatedResult<Equipment>> {
+  async execute(query: ListEquipmentQuery): Promise<PaginatedQueryResult<Equipment>> {
     const { tenantId, filter, pagination } = query;
 
     const MAX_LIMIT = 100;
@@ -112,13 +104,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     const startIndex = (page - 1) * limit;
     const paginatedItems = sortedItems.slice(startIndex, startIndex + limit);
 
-    return {
-      items: paginatedItems,
-      total: totalCount,
-      page,
-      limit,
-      totalPages: Math.ceil(totalCount / limit),
-    };
+    return createPaginatedQueryResult(paginatedItems, page, limit, totalCount);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListStockMovementsQuery } from '../queries/list-stock-movements.query';
@@ -57,12 +57,6 @@ export class ListStockMovementsHandler implements IQueryHandler<ListStockMovemen
 
     const [items, total] = await qb.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

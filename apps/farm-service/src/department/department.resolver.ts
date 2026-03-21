@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
 import { DepartmentResponse, PaginatedDepartmentsResponse } from './dto/department.response';
 import { DepartmentDeletePreviewResponse } from './dto/department-delete-preview.response';
 import { CreateDepartmentInput } from './dto/create-department.input';
@@ -114,7 +114,8 @@ export class DepartmentResolver {
       throw new Error('Tenant ID is required');
     }
     const query = new ListDepartmentsQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

@@ -159,13 +159,21 @@ export interface FeedingSummaryResponse {
 export interface FeedingRecordConnection {
   items: FeedingRecord[];
   total: number;
-  hasMore: boolean;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 export interface FeedInventoryConnection {
   items: FeedInventory[];
   total: number;
-  hasMore: boolean;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 // Input types

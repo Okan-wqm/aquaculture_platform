@@ -174,7 +174,7 @@ export function OffshoreRotationsPage() {
   // State
   const [activeTab, setActiveTab] = useState<'schedule' | 'calendar' | 'history'>('schedule');
   const [rotationFilter, setRotationFilter] = useState<RotationType | ''>('');
-  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
+  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   // Data fetching
@@ -297,7 +297,7 @@ export function OffshoreRotationsPage() {
   const handlePageChange = (page: number) => {
     setPagination({
       ...pagination,
-      offset: (page - 1) * (pagination.limit || 20),
+      page,
     });
   };
 
@@ -450,7 +450,7 @@ export function OffshoreRotationsPage() {
             isLoading={loadingRotations}
             emptyMessage="No active rotations found"
             total={activeRotations.length}
-            page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+            page={pagination.page || 1}
             pageSize={pagination.limit || 20}
             onPageChange={handlePageChange}
           />

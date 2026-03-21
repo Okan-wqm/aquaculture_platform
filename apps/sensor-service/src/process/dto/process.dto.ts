@@ -4,7 +4,7 @@ import { IsString, IsOptional, IsEnum, IsUUID, MaxLength } from 'class-validator
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ProcessStatus, ProcessNode, ProcessEdge } from '../entities/process.entity';
-import { StandardPaginationInput } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
 
 // ============================================================================
 // Input DTOs
@@ -215,22 +215,7 @@ export class ProcessResultType {
 }
 
 @ObjectType()
-export class ProcessListType {
-  @Field(() => [ProcessType])
-  items!: ProcessType[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+export class ProcessListType extends StandardPaginatedResponse(ProcessType) {}
 
 @ObjectType()
 export class DeleteProcessResultType {

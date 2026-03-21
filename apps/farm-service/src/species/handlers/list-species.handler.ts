@@ -2,30 +2,22 @@
  * List Species Query Handler
  * @module Species/Handlers
  */
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, ILike } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import { ListSpeciesQuery } from '../queries/list-species.query';
 import { Species } from '../entities/species.entity';
 
-export interface SpeciesListResult {
-  items: Species[];
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
-
 @QueryHandler(ListSpeciesQuery)
 export class ListSpeciesHandler
-  implements IQueryHandler<ListSpeciesQuery, SpeciesListResult>
+  implements IQueryHandler<ListSpeciesQuery, PaginatedQueryResult<Species>>
 {
   constructor(
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
   ) {}
 
-  async execute(query: ListSpeciesQuery): Promise<SpeciesListResult> {
+  async execute(query: ListSpeciesQuery): Promise<PaginatedQueryResult<Species>> {
     const { tenantId, filter } = query;
 
     const offset = filter?.offset ?? 0;
@@ -117,13 +109,8 @@ export class ListSpeciesHandler
 
     // Execute
     const items = await queryBuilder.getMany();
+    const page = Math.floor(offset / limit) + 1;
 
-    return {
-      items,
-      total,
-      offset,
-      limit,
-      hasMore: offset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

@@ -39,9 +39,11 @@ export const GET_UNIFIED_TAGS = `
         ${UNIFIED_TAG_FIELDS}
       }
       total
-      offset
+      page
       limit
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

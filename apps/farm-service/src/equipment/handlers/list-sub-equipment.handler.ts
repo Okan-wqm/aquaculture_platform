@@ -1,19 +1,11 @@
 /**
  * List SubEquipment Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListSubEquipmentQuery } from '../queries/list-sub-equipment.query';
 import { SubEquipment } from '../entities/sub-equipment.entity';
-
-export interface PaginatedSubEquipmentResult {
-  items: SubEquipment[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListSubEquipmentQuery)
 export class ListSubEquipmentHandler implements IQueryHandler<ListSubEquipmentQuery> {
@@ -22,7 +14,7 @@ export class ListSubEquipmentHandler implements IQueryHandler<ListSubEquipmentQu
     private readonly subEquipmentRepository: Repository<SubEquipment>,
   ) {}
 
-  async execute(query: ListSubEquipmentQuery): Promise<PaginatedSubEquipmentResult> {
+  async execute(query: ListSubEquipmentQuery): Promise<PaginatedQueryResult<SubEquipment>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -79,12 +71,6 @@ export class ListSubEquipmentHandler implements IQueryHandler<ListSubEquipmentQu
     // Execute query
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

@@ -16,9 +16,8 @@ export interface BaseEntity {
 
 /**
  * @deprecated Use `StandardPaginationInput` from '@aquaculture/shared-ui' instead.
- * This offset-based type will be removed once all HR pages migrate to page-based pagination.
  */
-export type PaginationInput = { limit?: number; offset?: number };
+export type PaginationInput = { limit?: number; page?: number };
 
 /**
  * @deprecated Use `StandardPaginatedResult<T>` from '@aquaculture/shared-ui' instead.
@@ -27,9 +26,11 @@ export type PaginationInput = { limit?: number; offset?: number };
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;
+  page: number;
   limit: number;
-  offset: number;
-  hasMore: boolean;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 // Re-export standard types for incremental migration

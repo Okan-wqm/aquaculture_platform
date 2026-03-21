@@ -8,8 +8,9 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 
-import { AlarmSeverity, AlarmSource } from '../entities/plc-alarm.entity';
+import { AlarmSeverity, AlarmSource, PlcAlarm } from '../entities/plc-alarm.entity';
 
 /**
  * Filter input for querying PLC alarms
@@ -91,19 +92,7 @@ export class BulkAcknowledgeAlarmsDto {
  * Paginated PLC alarms response
  */
 @ObjectType('PaginatedPlcAlarms')
-export class PaginatedPlcAlarmsDto {
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedPlcAlarmsDto extends StandardPaginatedResponse(PlcAlarm) {}
 
 /**
  * Alarm statistics

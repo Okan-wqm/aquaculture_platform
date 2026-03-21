@@ -15,7 +15,7 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Species } from '../entities/species.entity';
@@ -28,29 +28,13 @@ import { DeleteSpeciesCommand } from '../commands/delete-species.command';
 import { GetSpeciesQuery } from '../queries/get-species.query';
 import { ListSpeciesQuery } from '../queries/list-species.query';
 import { GetSpeciesByCodeQuery } from '../queries/get-species-by-code.query';
-import { SpeciesListResult } from '../handlers/list-species.handler';
 
 // ============================================================================
 // RESPONSE TYPES
 // ============================================================================
 
 @ObjectType()
-export class SpeciesListResponse {
-  @Field(() => [Species])
-  items: Species[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  offset: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class SpeciesListResponse extends StandardPaginatedResponse(Species) {}
 
 @ObjectType()
 export class DeleteSpeciesResponse {
@@ -131,9 +115,10 @@ export class SpeciesResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { type: () => SpeciesFilterInput, nullable: true })
     filter?: SpeciesFilterInput,
-  ): Promise<SpeciesListResult> {
+  ): Promise<IStandardPaginatedResult<Species>> {
     this.logger.debug(`Listing species for tenant: ${tenantId}`);
-    return this.queryBus.execute(new ListSpeciesQuery(tenantId, filter));
+    const result = await this.queryBus.execute<any, PaginatedQueryResult<Species>>(new ListSpeciesQuery(tenantId, filter));
+    return fromCqrsPaginated(result);
   }
 
   /**
@@ -145,8 +130,8 @@ export class SpeciesResolver {
   ): Promise<Species[]> {
     const result = await this.queryBus.execute(
       new ListSpeciesQuery(tenantId, { isActive: true, limit: 100 }),
-    ) as SpeciesListResult;
-    return result.items;
+    ) as PaginatedQueryResult<Species>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**

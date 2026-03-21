@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, fromCqrsPaginated } from '@platform/backend-common';
 import { FeedResponse, PaginatedFeedsResponse, FeedTypeResponse } from './dto/feed.response';
 import { CreateFeedInput } from './dto/create-feed.input';
 import { UpdateFeedInput } from './dto/update-feed.input';
@@ -96,7 +96,8 @@ export class FeedResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedFeedsResponse> {
     const query = new ListFeedsQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

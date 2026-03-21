@@ -7,6 +7,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { join } from 'path';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import {
   TenantContextMiddleware,
@@ -95,10 +96,9 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: {
-          federation: 2,
-        },
+        autoSchemaFile: join(process.cwd(), 'schema.graphql'),
         buildSchemaOptions: {
+          federation: 2,
           orphanedTypes: [IncidentTimelineEvent, AlertCondition],
         },
         playground: configService.get('NODE_ENV') !== 'production',

@@ -18,7 +18,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 import { Task, TaskStatus } from '../entities/task.entity';
 import { TaskService } from '../services/task.service';
 import { CreateTaskInput } from '../dto/create-task.dto';
@@ -41,16 +41,7 @@ interface UserContext {
 // ============================================================================
 
 @ObjectType()
-class TaskListResponse {
-  @Field(() => [Task])
-  items: Task[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+class TaskListResponse extends StandardPaginatedResponse(Task) {}
 
 @ObjectType()
 class TaskStatsResponse {
@@ -102,7 +93,7 @@ export class TaskResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { type: () => TaskFilterInput, nullable: true })
     filter?: TaskFilterInput,
-  ): Promise<TaskListResponse> {
+  ): Promise<IStandardPaginatedResult<Task>> {
     this.logger.debug(`Listing tasks for tenant: ${tenantId}`);
     return this.taskService.findAll(tenantId, filter);
   }

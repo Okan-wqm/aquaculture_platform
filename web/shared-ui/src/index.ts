@@ -67,6 +67,8 @@ export type {
   BreadcrumbItem,
   NotificationType,
   ToastNotification,
+  StandardPaginationInput,
+  StandardPaginatedResult,
 } from './types';
 
 // ============================================================================

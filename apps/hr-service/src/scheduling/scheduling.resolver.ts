@@ -2,7 +2,7 @@ import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } 
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 
 // Entities
@@ -38,7 +38,6 @@ import {
 } from './queries';
 
 // Query result types
-import { WeeklyPlanConnection } from './query-handlers/get-weekly-plans.handler';
 import { TeamWeeklyOverview } from './query-handlers/get-team-weekly-overview.handler';
 import { OvertimeSummary } from './query-handlers/get-overtime-summary.handler';
 import { BulkAssignResult } from './handlers/bulk-assign-shifts.handler';
@@ -55,13 +54,8 @@ interface GraphQLContext {
   };
 }
 
-// Pagination limits to prevent DoS and performance issues
-const PAGINATION_LIMITS = {
-  DEFAULT_LIMIT: 20,
-  MAX_LIMIT: 100,
-  MIN_OFFSET: 0,
-  MAX_OFFSET: 10000,
-} as const;
+@ObjectType()
+class WeeklyPlanConnection extends StandardPaginatedResponse(WeeklyPlan) {}
 
 @ObjectType()
 class BulkAssignResultType {
@@ -101,22 +95,6 @@ export class SchedulingResolver {
     return userId;
   }
 
-  /**
-   * Clamp pagination values to safe limits
-   * Prevents DoS through excessive data requests
-   */
-  private clampPagination(limit?: number, offset?: number): { limit: number; offset: number } {
-    const clampedLimit = Math.min(
-      Math.max(1, limit ?? PAGINATION_LIMITS.DEFAULT_LIMIT),
-      PAGINATION_LIMITS.MAX_LIMIT,
-    );
-    const clampedOffset = Math.min(
-      Math.max(PAGINATION_LIMITS.MIN_OFFSET, offset ?? 0),
-      PAGINATION_LIMITS.MAX_OFFSET,
-    );
-    return { limit: clampedLimit, offset: clampedOffset };
-  }
-
   // =====================
   // Queries
   // =====================
@@ -130,11 +108,12 @@ export class SchedulingResolver {
     @Args('weekStartDate', { nullable: true }) weekStartDate?: string,
     @Args('status', { type: () => WeeklyPlanStatus, nullable: true }) status?: WeeklyPlanStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<WeeklyPlanConnection> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<WeeklyPlan>> {
     const tenantId = this.getTenantId(context);
-    const pagination = this.clampPagination(limit, offset);
-    return this.queryBus.execute(
+    const effectiveLimit = Math.min(Math.max(1, limit ?? 20), 100);
+    const effectivePage = Math.max(1, page ?? 1);
+    const result = await this.queryBus.execute(
       new GetWeeklyPlansQuery(
         tenantId,
         employeeId,
@@ -142,10 +121,11 @@ export class SchedulingResolver {
         siteId,
         weekStartDate,
         status,
-        pagination.limit,
-        pagination.offset,
+        effectiveLimit,
+        effectivePage,
       ),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => WeeklyPlan, { name: 'weeklyPlan' })

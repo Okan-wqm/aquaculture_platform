@@ -30,7 +30,7 @@ import GraphQLJSON from 'graphql-type-json';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser, Roles, Role, RolesGuard } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role, RolesGuard, StandardPaginatedResponse } from '@platform/backend-common';
 
 // DTOs - Import from proper DTO directory
 import {
@@ -140,28 +140,10 @@ export class FeedingProgramFilterInput {
 // ============================================================================
 
 @ObjectType()
-export class FeedingProgramConnection {
-  @Field(() => [FeedingProgram])
-  items: FeedingProgram[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class FeedingProgramConnection extends StandardPaginatedResponse(FeedingProgram) {}
 
 @ObjectType()
-export class DailyFeedingExecutionConnection {
-  @Field(() => [DailyFeedingExecution])
-  items: DailyFeedingExecution[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class DailyFeedingExecutionConnection extends StandardPaginatedResponse(DailyFeedingExecution) {}
 
 // ============================================================================
 // INPUT TYPES FOR MISSING MUTATIONS

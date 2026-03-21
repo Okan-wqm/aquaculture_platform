@@ -39,11 +39,8 @@ export class UnifiedTagResolver {
   ): Promise<UnifiedTagListType> {
     const result = await this.unifiedTagService.listTags(tenantId, filter, pagination);
     return {
+      ...result,
       items: result.items.map((t) => this.mapToType(t)),
-      total: result.total,
-      offset: result.offset,
-      limit: result.limit,
-      hasMore: result.hasMore,
     };
   }
 

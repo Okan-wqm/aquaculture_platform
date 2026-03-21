@@ -1,22 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IQueryHandler, QueryHandler } from '@platform/cqrs';
+import { IQueryHandler, QueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere } from 'typeorm';
 import { ListFarmsQuery } from '../queries/list-farms.query';
 import { Farm } from '../entities/farm.entity';
-
-/**
- * Paginated result interface
- */
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNext: boolean;
-  hasPrevious: boolean;
-}
 
 /**
  * List Farms Query Handler
@@ -25,7 +12,7 @@ export interface PaginatedResult<T> {
 @Injectable()
 @QueryHandler(ListFarmsQuery)
 export class ListFarmsQueryHandler
-  implements IQueryHandler<ListFarmsQuery, PaginatedResult<Farm>>
+  implements IQueryHandler<ListFarmsQuery, PaginatedQueryResult<Farm>>
 {
   private readonly logger = new Logger(ListFarmsQueryHandler.name);
 
@@ -34,7 +21,7 @@ export class ListFarmsQueryHandler
     private readonly farmRepository: Repository<Farm>,
   ) {}
 
-  async execute(query: ListFarmsQuery): Promise<PaginatedResult<Farm>> {
+  async execute(query: ListFarmsQuery): Promise<PaginatedQueryResult<Farm>> {
     this.logger.debug(
       `Listing farms for tenant ${query.tenantId}, page ${query.pagination.page}`,
     );
@@ -69,16 +56,6 @@ export class ListFarmsQueryHandler
       },
     });
 
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages,
-      hasNext: page < totalPages,
-      hasPrevious: page > 1,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
@@ -14,14 +15,6 @@ import {
   ProcessPaginationInput,
 } from '../dto/process.dto';
 import { Process, ProcessStatus } from '../entities/process.entity';
-
-export interface ProcessListResult {
-  items: Process[];
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
 
 @Injectable()
 export class ProcessService {
@@ -136,9 +129,10 @@ export class ProcessService {
     tenantId: string,
     filter?: ProcessFilterInput,
     pagination?: ProcessPaginationInput,
-  ): Promise<ProcessListResult> {
-    const offset = pagination?.offset || 0;
-    const limit = Math.min(pagination?.limit || 20, 100); // Max 100
+  ): Promise<IStandardPaginatedResult<Process>> {
+    const page = pagination?.page || 1;
+    const limit = Math.min(pagination?.limit || 20, 100);
+    const offset = (page - 1) * limit;
 
     const where: FindOptionsWhere<Process> = { tenantId };
 
@@ -177,13 +171,7 @@ export class ProcessService {
       take: limit,
     });
 
-    return {
-      items,
-      total,
-      offset,
-      limit,
-      hasMore: offset + items.length < total,
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

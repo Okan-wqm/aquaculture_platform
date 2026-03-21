@@ -83,12 +83,12 @@ export const organizationKeys = {
 
 export function useEmployees(
   filter?: EmployeeFilterInput,
-  pagination?: { limit?: number; offset?: number }
+  pagination?: { limit?: number; page?: number }
 ) {
   const client = useGraphQLClient();
-  // Merge pagination into filter since backend EmployeeFilterInput includes limit/offset
+  // Merge pagination into filter since backend EmployeeFilterInput includes limit/page
   const mergedFilter = pagination
-    ? { ...filter, limit: pagination.limit, offset: pagination.offset }
+    ? { ...filter, limit: pagination.limit, page: pagination.page }
     : filter;
 
   return useQuery({

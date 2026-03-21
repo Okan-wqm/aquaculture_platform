@@ -829,7 +829,7 @@ export class ProvisioningService {
     eventType?: string,
     page = 1,
     limit = 20,
-  ): Promise<{ items: import('./entities/device-event.entity').DeviceEvent[]; total: number }> {
+  ): Promise<{ items: import('./entities/device-event.entity').DeviceEvent[]; total: number; page: number; limit: number }> {
     return this.deviceEventService.getDeviceEvents(tenantId, deviceId, eventType, page, limit);
   }
 }

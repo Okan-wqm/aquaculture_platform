@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import {
   PlcTelemetry,
@@ -22,15 +23,7 @@ import {
   LatestTelemetrySummaryDto,
 } from '../dto';
 
-/**
- * Result interface for paginated telemetry
- */
-export interface PaginatedPlcTelemetry {
-  items: PlcTelemetry[];
-  total: number;
-  page: number;
-  limit: number;
-}
+export type PaginatedPlcTelemetry = IStandardPaginatedResult<PlcTelemetry>;
 
 /**
  * Time range for queries
@@ -137,6 +130,7 @@ export class PlcTelemetryService {
     tenantId: string,
     filter?: PlcTelemetryFilterDto,
   ): Promise<PaginatedPlcTelemetry> {
+    const page = filter?.page || 1;
     const limit = filter?.limit || 100;
 
     const queryBuilder = this.plcTelemetryRepository
@@ -165,16 +159,14 @@ export class PlcTelemetryService {
       });
     }
 
-    queryBuilder.orderBy('telemetry.timestamp', 'DESC').take(limit);
+    queryBuilder
+      .orderBy('telemetry.timestamp', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
 
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page: 1,
-      limit,
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

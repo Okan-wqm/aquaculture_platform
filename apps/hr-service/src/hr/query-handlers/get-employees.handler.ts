@@ -1,27 +1,17 @@
-import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetEmployeesQuery } from '../queries/get-employees.query';
 import { Employee } from '../entities/employee.entity';
 
-export interface PaginatedEmployees {
-  items: Employee[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
-
-@Injectable()
 @QueryHandler(GetEmployeesQuery)
-export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, PaginatedEmployees> {
+export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, PaginatedQueryResult<Employee>> {
   constructor(
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
   ) {}
 
-  async execute(query: GetEmployeesQuery): Promise<PaginatedEmployees> {
+  async execute(query: GetEmployeesQuery): Promise<PaginatedQueryResult<Employee>> {
     const { tenantId, filter, pagination } = query;
 
     const where: FindOptionsWhere<Employee> = { tenantId, isDeleted: false };
@@ -48,24 +38,17 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
       where.seaWorthy = filter.seaWorthy;
     }
 
-    // Use pagination arg (page-based) with fallback defaults
     const page = pagination?.page ?? 1;
-    const effectiveLimit = Math.min(Math.max(pagination?.limit ?? 20, 1), 100);
-    const effectiveOffset = (page - 1) * effectiveLimit;
+    const limit = Math.min(Math.max(pagination?.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const [items, total] = await this.employeeRepository.findAndCount({
       where,
-      skip: effectiveOffset,
-      take: effectiveLimit,
+      skip: offset,
+      take: limit,
       order: { lastName: 'ASC', firstName: 'ASC' },
     });
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

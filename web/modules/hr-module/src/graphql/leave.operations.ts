@@ -59,8 +59,8 @@ export const GET_LEAVE_REQUESTS = gql`
     $leaveTypeId: ID
     $startDate: String
     $endDate: String
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     leaveRequests(
       employeeId: $employeeId
@@ -68,16 +68,18 @@ export const GET_LEAVE_REQUESTS = gql`
       leaveTypeId: $leaveTypeId
       startDate: $startDate
       endDate: $endDate
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...LeaveRequestFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${LEAVE_REQUEST_FRAGMENT}
@@ -106,15 +108,17 @@ export const GET_MY_LEAVE_REQUESTS = gql`
 `;
 
 export const GET_PENDING_LEAVE_APPROVALS = gql`
-  query GetPendingLeaveApprovals($departmentId: ID, $limit: Int, $offset: Int) {
-    pendingLeaveApprovals(departmentId: $departmentId, limit: $limit, offset: $offset) {
+  query GetPendingLeaveApprovals($departmentId: ID, $page: Int, $limit: Int) {
+    pendingLeaveApprovals(departmentId: $departmentId, page: $page, limit: $limit) {
       items {
         ...LeaveRequestFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${LEAVE_REQUEST_FRAGMENT}

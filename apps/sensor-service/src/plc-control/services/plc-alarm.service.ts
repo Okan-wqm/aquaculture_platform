@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In, IsNull } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import {
   PlcAlarm,
@@ -20,16 +21,7 @@ import {
 } from '../dto';
 import { PlcPaginationDto } from '../dto/plc-connection.dto';
 
-/**
- * Result interface for paginated PLC alarms
- */
-export interface PaginatedPlcAlarms {
-  items: PlcAlarm[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type PaginatedPlcAlarms = IStandardPaginatedResult<PlcAlarm>;
 
 /**
  * PLC Alarm Service
@@ -131,13 +123,7 @@ export class PlcAlarmService {
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

@@ -26,6 +26,7 @@ import {
   ScheduleMetrics,
 } from '../entities/maintenance-schedule.entity';
 import { WorkOrder, WorkOrderType, WorkOrderPriority } from '../entities/work-order.entity';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
 import { CreateMaintenanceScheduleInput } from '../dto/create-maintenance-schedule.dto';
 import {
   UpdateMaintenanceScheduleInput,
@@ -33,7 +34,6 @@ import {
   CompleteMaintenanceInput,
 } from '../dto/update-maintenance-schedule.dto';
 import { MaintenanceScheduleFilterInput } from '../dto/maintenance-schedule-filter.dto';
-import { PaginatedResult } from './work-order.service';
 
 /**
  * Uyarı gerektiren bakım planları
@@ -336,7 +336,7 @@ export class MaintenanceScheduleService {
     limit = 20,
     sortBy = 'nextDueDate',
     sortOrder: 'ASC' | 'DESC' = 'ASC',
-  ): Promise<PaginatedResult<MaintenanceSchedule>> {
+  ): Promise<IStandardPaginatedResult<MaintenanceSchedule>> {
     const query = this.scheduleRepository
       .createQueryBuilder('ms')
       .where('ms.tenantId = :tenantId', { tenantId });
@@ -418,21 +418,9 @@ export class MaintenanceScheduleService {
       .skip((page - 1) * limit)
       .take(limit);
 
-    const data = await query.getMany();
+    const items = await query.getMany();
 
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

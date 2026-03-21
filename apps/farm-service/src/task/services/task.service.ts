@@ -20,6 +20,7 @@ import { listTenantSchemas } from '@platform/backend-common';
 import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
 import { Task, TaskStatus, TaskPriority } from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';
@@ -192,7 +193,7 @@ export class TaskService {
   async findAll(
     tenantId: string,
     filter?: TaskFilterInput,
-  ): Promise<{ items: Task[]; total: number; hasMore: boolean }> {
+  ): Promise<IStandardPaginatedResult<Task>> {
     const limit = filter?.limit || 50;
     const offset = filter?.offset || 0;
 
@@ -238,12 +239,9 @@ export class TaskService {
       .take(limit);
 
     const items = await query.getMany();
+    const page = Math.floor(offset / limit) + 1;
 
-    return {
-      items,
-      total,
-      hasMore: offset + items.length < total,
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

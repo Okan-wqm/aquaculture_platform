@@ -3,6 +3,7 @@
  */
 import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { FeedType, FeedStatus, FloatingType } from '../entities/feed.entity';
 
 // Register enums for GraphQL
@@ -316,19 +317,4 @@ export class FeedResponse {
 }
 
 @ObjectType()
-export class PaginatedFeedsResponse {
-  @Field(() => [FeedResponse])
-  items!: FeedResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedFeedsResponse extends StandardPaginatedResponse(FeedResponse) {}

@@ -8,6 +8,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { join } from 'path';
 import { Request } from 'express';
 import {
   TenantContextMiddleware,
@@ -144,9 +145,7 @@ import { TankBatch } from './batch/entities/tank-batch.entity';
       imports: [ConfigModule, TypeOrmModule.forFeature([TankBatch])],
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
-        autoSchemaFile: {
-          federation: 2,
-        },
+        autoSchemaFile: join(process.cwd(), 'schema.graphql'),
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
@@ -192,6 +191,7 @@ import { TankBatch } from './batch/entities/tank-batch.entity';
           return { req, loaders };
         },
         buildSchemaOptions: {
+          federation: 2,
           orphanedTypes: [],
         },
       }),

@@ -115,7 +115,11 @@ export const GROWTH_MEASUREMENTS_QUERY = `
         actionCount
       }
       total
-      hasMore
+      page
+      limit
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

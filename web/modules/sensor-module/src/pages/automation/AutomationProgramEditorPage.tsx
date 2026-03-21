@@ -805,7 +805,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   const { data: deploymentHistoryData } = useQuery({
     queryKey: ['deploymentHistory', selectedDeviceId],
     queryFn: () =>
-      graphqlFetch<{ deploymentHistory: { items: DeploymentRecord[]; total: number; hasMore: boolean } }>(
+      graphqlFetch<{ deploymentHistory: { items: DeploymentRecord[]; total: number; hasNextPage: boolean; hasPreviousPage: boolean; totalPages: number } }>(
         DEPLOYMENT_HISTORY_QUERY,
         { deviceId: selectedDeviceId, page: 1, limit: 10 },
       ),

@@ -5,7 +5,7 @@
  * - Input: StandardPaginationInput (page, limit, sortBy, sortOrder)
  * - Output: StandardPaginatedResponse<T> (items, total, page, limit, totalPages, hasNextPage, hasPreviousPage)
  *
- * Legacy Pattern (offset/limit with hasMore) — @deprecated, Phase 3 removal:
+ * Legacy Pattern (offset/limit with hasMore) — @deprecated Phase 4 complete, remove in Phase 5:
  * - Input: PaginationInput
  * - Output: PaginatedResponse<T>
  *
@@ -22,7 +22,7 @@ export {
   fromCqrsPaginated,
   safeSortField,
   safeSortOrder,
-  // Legacy (deprecated — Phase 3 removal)
+  // Legacy (deprecated — Phase 4 complete, remove in Phase 5)
   PaginationInput,
   PaginatedResponse,
   IPaginatedResult,

@@ -107,3 +107,6 @@ sens-repo/
 
 vite.config.*.timestamp*NUL
 .worktrees/
+
+# Generated GraphQL schemas
+schema.graphql

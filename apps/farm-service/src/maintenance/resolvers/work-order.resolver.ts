@@ -20,7 +20,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser } from '@platform/backend-common';
+import { Tenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 import {
   WorkOrder,
   WorkOrderStatus,
@@ -28,7 +28,7 @@ import {
   WorkOrderPriority,
   AssetType,
 } from '../entities/work-order.entity';
-import { WorkOrderService, WorkOrderStatistics, PaginatedResult } from '../services/work-order.service';
+import { WorkOrderService, WorkOrderStatistics } from '../services/work-order.service';
 import { CreateWorkOrderInput } from '../dto/create-work-order.dto';
 import {
   UpdateWorkOrderInput,
@@ -75,28 +75,7 @@ interface UserContext {
 // ============================================================================
 
 @ObjectType()
-export class WorkOrderListResponse {
-  @Field(() => [WorkOrder])
-  items: WorkOrder[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  page: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field(() => Int)
-  totalPages: number;
-
-  @Field()
-  hasNextPage: boolean;
-
-  @Field()
-  hasPreviousPage: boolean;
-}
+export class WorkOrderListResponse extends StandardPaginatedResponse(WorkOrder) {}
 
 @ObjectType()
 export class WorkOrderStatisticsResponse {
@@ -201,9 +180,9 @@ export class WorkOrderResolver {
     sortBy?: string,
     @Args('sortOrder', { nullable: true, defaultValue: 'DESC' })
     sortOrder?: 'ASC' | 'DESC',
-  ): Promise<WorkOrderListResponse> {
+  ): Promise<IStandardPaginatedResult<WorkOrder>> {
     this.logger.debug(`Listing work orders for tenant: ${tenantId}`);
-    const result = await this.workOrderService.findAll(
+    return this.workOrderService.findAll(
       tenantId,
       filter,
       page,
@@ -211,16 +190,6 @@ export class WorkOrderResolver {
       sortBy,
       sortOrder,
     );
-
-    return {
-      items: result.data,
-      total: result.pagination.total,
-      page: result.pagination.page,
-      limit: result.pagination.limit,
-      totalPages: result.pagination.totalPages,
-      hasNextPage: result.pagination.hasNextPage,
-      hasPreviousPage: result.pagination.hasPreviousPage,
-    };
   }
 
   @Query(() => [WorkOrder], { name: 'overdueWorkOrders' })

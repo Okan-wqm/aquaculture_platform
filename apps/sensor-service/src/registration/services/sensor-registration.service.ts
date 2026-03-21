@@ -7,7 +7,7 @@ import { Sensor, SensorType, SensorRegistrationStatus, SensorRole } from '../../
 import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
-import { safeSortField, safeSortOrder } from '@platform/backend-common';
+import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,
@@ -25,13 +25,7 @@ export interface RegistrationResult {
   latencyMs?: number;
 }
 
-export interface SensorListResult {
-  items: Sensor[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type SensorListResult = IStandardPaginatedResult<Sensor>;
 
 export interface ParentWithChildrenResult {
   success: boolean;
@@ -492,13 +486,7 @@ export class SensorRegistrationService {
       order: { [sortField]: sortDir },
     });
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**
@@ -965,13 +953,7 @@ export class SensorRegistrationService {
       order: { [sortField]: sortDir },
     });
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

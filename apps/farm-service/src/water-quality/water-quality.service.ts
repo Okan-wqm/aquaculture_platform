@@ -9,6 +9,7 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource } from './entities/water-quality-measurement.entity';
 
 // ============================================================================
@@ -69,13 +70,7 @@ export interface WaterQualityFilters {
   offset?: number;
 }
 
-export interface WaterQualityListResult {
-  items: WaterQualityMeasurement[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
+export type WaterQualityListResult = IStandardPaginatedResult<WaterQualityMeasurement>;
 
 // ============================================================================
 // SERVICE
@@ -198,13 +193,9 @@ export class WaterQualityService {
       relations: ['tank'],
     });
 
-    return {
-      items,
-      total,
-      limit,
-      offset,
-      hasMore: offset + items.length < total,
-    };
+    const page = Math.floor(offset / limit) + 1;
+
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

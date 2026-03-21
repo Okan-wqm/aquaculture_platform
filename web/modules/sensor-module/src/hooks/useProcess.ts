@@ -71,9 +71,11 @@ export interface ProcessFilter {
 export interface ProcessListResult {
   items: Process[];
   total: number;
-  offset: number;
+  page: number;
   limit: number;
-  hasMore: boolean;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 export interface ProcessResult {
@@ -155,9 +157,11 @@ const GET_PROCESSES_QUERY = `
         updatedBy
       }
       total
-      offset
+      page
       limit
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;
@@ -382,7 +386,7 @@ export function useProcess() {
   // List processes with filtering and pagination
   const listProcesses = useCallback(async (
     filter?: ProcessFilter,
-    pagination?: { offset?: number; limit?: number }
+    pagination?: { page?: number; limit?: number }
   ): Promise<ProcessListResult | null> => {
     setLoading(true);
     setError(null);

@@ -9,8 +9,8 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CommandBus, QueryBus } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { Farm } from '../entities/farm.entity';
 import { Pond } from '../entities/pond.entity';
 import { PondBatch } from '../entities/batch.entity';
@@ -26,7 +26,6 @@ import { CreateFarmInput } from '../dto/create-farm.input';
 import { CreatePondInput } from '../dto/create-pond.input';
 import { CreatePondBatchInput } from '../dto/create-batch.input';
 import { HarvestBatchInput } from '../dto/harvest-batch.input';
-import { PaginatedResult } from '../query-handlers/list-farms.handler';
 import { BatchStatus } from '../entities/batch.entity';
 
 /**
@@ -112,7 +111,7 @@ export class FarmResolver {
     search?: string,
   ): Promise<Farm[]> {
     this.logger.debug(`Query: listFarms(tenant=${tenantId})`);
-    const result: PaginatedResult<Farm> = await this.queryBus.execute(
+    const result: PaginatedQueryResult<Farm> = await this.queryBus.execute(
       new ListFarmsQuery(
         tenantId,
         { page, limit },
@@ -120,7 +119,7 @@ export class FarmResolver {
         true,
       ),
     );
-    return result.items;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -155,14 +154,14 @@ export class FarmResolver {
     pondId?: string,
   ): Promise<PondBatch[]> {
     this.logger.debug(`Query: listPondBatches(tenant=${tenantId})`);
-    const result: PaginatedResult<PondBatch> = await this.queryBus.execute(
+    const result: PaginatedQueryResult<PondBatch> = await this.queryBus.execute(
       new ListPondBatchesQuery(
         tenantId,
         { page, limit },
         { status, species, pondId },
       ),
     );
-    return result.items;
+    return fromCqrsPaginated(result).items;
   }
 
   /**

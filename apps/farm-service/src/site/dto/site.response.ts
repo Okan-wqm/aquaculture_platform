@@ -3,6 +3,7 @@
  */
 import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { SiteStatus, SiteType } from '../entities/site.entity';
 
 // Register enums for GraphQL
@@ -116,19 +117,4 @@ export class SiteResponse {
 }
 
 @ObjectType()
-export class PaginatedSitesResponse {
-  @Field(() => [SiteResponse])
-  items!: SiteResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedSitesResponse extends StandardPaginatedResponse(SiteResponse) {}

@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import { AutomationService } from '../../automation/automation.service';
 import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
@@ -19,14 +20,6 @@ import { ProcessPaginationInput } from '../dto/process.dto';
 import { Process } from '../entities/process.entity';
 import { ScadaPackage, ScadaPackageStatus } from '../entities/scada-package.entity';
 import { ScadaDeployLogService } from './scada-deploy-log.service';
-
-export interface ScadaPackageListResult {
-  items: ScadaPackage[];
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
 
 @Injectable()
 export class ScadaPackageService {
@@ -184,9 +177,10 @@ export class ScadaPackageService {
     tenantId: string,
     filter?: ScadaPackageFilterInput,
     pagination?: ProcessPaginationInput,
-  ): Promise<ScadaPackageListResult> {
-    const offset = pagination?.offset || 0;
+  ): Promise<IStandardPaginatedResult<ScadaPackage>> {
+    const page = pagination?.page || 1;
     const limit = Math.min(pagination?.limit || 20, 100);
+    const offset = (page - 1) * limit;
 
     const where: FindOptionsWhere<ScadaPackage> = { tenantId };
     if (filter?.status) where.status = filter.status;
@@ -210,7 +204,7 @@ export class ScadaPackageService {
     });
 
     const sanitizedItems = items.map((item) => this.sanitizePackageData(item));
-    return { items: sanitizedItems, total, offset, limit, hasMore: offset + items.length < total };
+    return createStandardPaginatedResult(sanitizedItems, total, page, limit);
   }
 
   async deleteScadaPackage(id: string, tenantId: string): Promise<boolean> {

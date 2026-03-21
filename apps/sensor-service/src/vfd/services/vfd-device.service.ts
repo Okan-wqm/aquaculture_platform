@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 interface StatusCountResult {
   status: string;
@@ -57,22 +58,13 @@ export interface VfdDeviceFilterInput {
 }
 
 /**
- * Pagination input (standard offset/limit pattern)
+ * Pagination input
  */
 export interface PaginationInput {
-  offset?: number;
+  page?: number;
   limit?: number;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
-}
-
-/**
- * Paginated result (standard hasMore pattern)
- */
-export interface PaginatedVfdDevices {
-  items: VfdDevice[];
-  total: number;
-  hasMore: boolean;
 }
 
 /**
@@ -138,9 +130,10 @@ export class VfdDeviceService {
     tenantId: string,
     filter?: VfdDeviceFilterInput,
     pagination?: PaginationInput
-  ): Promise<PaginatedVfdDevices> {
-    const offset = pagination?.offset ?? 0;
+  ): Promise<IStandardPaginatedResult<VfdDevice>> {
+    const page = pagination?.page ?? 1;
     const limit = pagination?.limit ?? 20;
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.vfdDeviceRepository
       .createQueryBuilder('vfd')
@@ -186,11 +179,7 @@ export class VfdDeviceService {
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      hasMore: offset + limit < total,
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

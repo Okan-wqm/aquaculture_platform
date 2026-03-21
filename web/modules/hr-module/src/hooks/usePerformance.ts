@@ -103,8 +103,8 @@ export function usePerformanceReviews(
       }, unknown>(client, GET_PERFORMANCE_REVIEWS, {
         employeeId: filter?.employeeId,
         status: filter?.status,
+        page: 1,
         limit: 20,
-        offset: 0,
       }),
     select: (data) => data.performanceReviews,
   });
@@ -205,8 +205,8 @@ export function useGoals(filter?: GoalFilterInput) {
         {
           employeeId: filter?.employeeId,
           status: filter?.status,
+          page: 1,
           limit: 20,
-          offset: 0,
         }
       ),
     select: (data) => data.goals,

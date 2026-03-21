@@ -45,7 +45,6 @@ import {
   CreateTenantKeyInput,
   TenantKeyResponse,
   DeviceEventConnection,
-  DeviceEventItem,
 } from './dto/provisioning.dto';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { EdgeDeviceService } from './edge-device.service';
@@ -110,7 +109,7 @@ export class EdgeDeviceResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
   ): Promise<EdgeDeviceConnection> {
-    const result = await this.edgeDeviceService.findAll(tenantId, {
+    return await this.edgeDeviceService.findAll(tenantId, {
       siteId,
       lifecycleState,
       isOnline,
@@ -118,13 +117,6 @@ export class EdgeDeviceResolver {
       page,
       limit,
     });
-
-    return {
-      items: result.items,
-      total: result.total,
-      page: page || 1,
-      limit: limit || 20,
-    };
   }
 
   /**
@@ -348,28 +340,13 @@ export class EdgeDeviceResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
   ): Promise<DeviceEventConnection> {
-    const result = await this.provisioningService.getDeviceEvents(
+    return this.provisioningService.getDeviceEvents(
       tenantId,
       deviceId,
       eventType,
       page,
       limit,
     );
-
-    return {
-      items: result.items.map(e => ({
-        id: e.id,
-        deviceId: e.deviceId,
-        eventType: e.eventType,
-        severity: e.severity,
-        message: e.message,
-        metadata: e.metadata,
-        createdAt: e.createdAt,
-      })),
-      total: result.total,
-      page: page || 1,
-      limit: limit || 20,
-    };
   }
 
   // ==================== I/O Configuration Mutations ====================

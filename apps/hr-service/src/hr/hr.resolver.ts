@@ -1,7 +1,7 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field, Float } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee, EmployeeStatus, Department } from './entities/employee.entity';
@@ -24,45 +24,13 @@ import { GetEmployeesQuery } from './queries/get-employees.query';
 import { GetPayrollsQuery, PayrollFilterInput } from './queries/get-payrolls.query';
 import { GetDepartmentsQuery, GetDepartmentQuery } from './queries/get-departments.query';
 import { GetHRDashboardStatsQuery } from './queries/get-hr-dashboard-stats.query';
-import { PaginatedEmployees } from './query-handlers/get-employees.handler';
-import { PaginatedPayrolls } from './query-handlers/get-payrolls.handler';
 import { HRDashboardStats } from './query-handlers/get-hr-dashboard-stats.handler';
 
 @ObjectType()
-class EmployeeConnection {
-  @Field(() => [Employee])
-  items!: Employee[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class EmployeeConnection extends StandardPaginatedResponse(Employee) {}
 
 @ObjectType()
-class PayrollConnection {
-  @Field(() => [Payroll])
-  items!: Payroll[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class PayrollConnection extends StandardPaginatedResponse(Payroll) {}
 
 // SECURITY: Context only exposes JWT-verified user fields.
 // Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
@@ -121,9 +89,10 @@ export class HRResolver {
     @Args('filter', { nullable: true }) filter: EmployeeFilterInput,
     @Args('pagination', { nullable: true }) pagination: EmployeePaginationInput,
     @Context() context: GraphQLContext,
-  ): Promise<PaginatedEmployees> {
+  ): Promise<IStandardPaginatedResult<Employee>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetEmployeesQuery(tenantId, filter, pagination));
+    const result = await this.queryBus.execute(new GetEmployeesQuery(tenantId, filter, pagination));
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [Employee], { name: 'employeesByDepartment' })
@@ -132,15 +101,14 @@ export class HRResolver {
   async getEmployeesByDepartment(
     @Args('department', { type: () => Department }) department: Department,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
-    const page = Math.floor(offset / limit) + 1;
     const result = await this.queryBus.execute(
       new GetEmployeesQuery(tenantId, { department }, { page, limit }),
     );
-    return result.items;
+    return result.data;
   }
 
   @Query(() => [Employee], { name: 'activeEmployees' })
@@ -148,15 +116,14 @@ export class HRResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   async getActiveEmployees(
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
   ): Promise<Employee[]> {
     const tenantId = this.getTenantId(context);
-    const page = Math.floor(offset / limit) + 1;
     const result = await this.queryBus.execute(
       new GetEmployeesQuery(tenantId, { status: EmployeeStatus.ACTIVE }, { page, limit }),
     );
-    return result.items;
+    return result.data;
   }
 
   // Employee Mutations
@@ -234,14 +201,15 @@ export class HRResolver {
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId: string,
     @Args('status', { type: () => PayrollStatus, nullable: true }) status: PayrollStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
-  ): Promise<PaginatedPayrolls> {
+  ): Promise<IStandardPaginatedResult<Payroll>> {
     const tenantId = this.getTenantId(context);
-    const filter: PayrollFilterInput = { limit, offset };
+    const filter: PayrollFilterInput = { limit, page };
     if (employeeId) filter.employeeId = employeeId;
     if (status) filter.status = status;
-    return this.queryBus.execute(new GetPayrollsQuery(tenantId, filter));
+    const result = await this.queryBus.execute(new GetPayrollsQuery(tenantId, filter));
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [Payroll], { name: 'pendingPayrolls' })
@@ -249,14 +217,14 @@ export class HRResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPendingPayrolls(
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
   ): Promise<Payroll[]> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute(
-      new GetPayrollsQuery(tenantId, { status: PayrollStatus.PENDING_APPROVAL, limit, offset }),
+      new GetPayrollsQuery(tenantId, { status: PayrollStatus.PENDING_APPROVAL, limit, page }),
     );
-    return result.items;
+    return result.data;
   }
 
   // Payroll Mutations

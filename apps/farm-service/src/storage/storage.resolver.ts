@@ -3,8 +3,8 @@
  */
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { CommandBus, QueryBus } from '@platform/cqrs';
+import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
 import { StorageLocationResponse, PaginatedStorageLocationsResponse } from './dto/storage-location.response';
 import { StorageInventoryResponse } from './dto/storage-inventory.response';
 import { StockMovementResponse, PaginatedStockMovementsResponse } from './dto/stock-movement.response';
@@ -153,7 +153,8 @@ export class StorageResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedStorageLocationsResponse> {
     const query = new ListStorageLocationsQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   // === Storage Inventory ===
@@ -197,7 +198,8 @@ export class StorageResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedStockMovementsResponse> {
     const query = new ListStockMovementsQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   // === Overview ===
@@ -224,7 +226,8 @@ export class StorageResolver {
       filter?.page,
       filter?.limit,
     );
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => PurchaseOrderResponse, { nullable: true })

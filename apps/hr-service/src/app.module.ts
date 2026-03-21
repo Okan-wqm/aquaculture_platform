@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD } from '@nestjs/core';
+import { join } from 'path';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
@@ -174,10 +175,9 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: {
-        federation: 2,
-      },
+      autoSchemaFile: join(process.cwd(), 'schema.graphql'),
       buildSchemaOptions: {
+        federation: 2,
         orphanedTypes: [
           ContactInfo,
           Address,

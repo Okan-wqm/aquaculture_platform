@@ -109,7 +109,9 @@ export const DEPLOYMENT_HISTORY_QUERY = `
       total
       page
       limit
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

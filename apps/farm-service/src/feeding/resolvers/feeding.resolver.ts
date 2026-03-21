@@ -26,7 +26,7 @@ import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Roles, Role, CurrentTenant, CurrentUser, StandardPaginationInput } from '@platform/backend-common';
+import { Roles, Role, CurrentTenant, CurrentUser, StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import GraphQLJSON from 'graphql-type-json';
@@ -447,28 +447,10 @@ export class FeedTypeSummary {
 }
 
 @ObjectType()
-export class FeedingRecordConnection {
-  @Field(() => [FeedingRecord])
-  items: FeedingRecord[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class FeedingRecordConnection extends StandardPaginatedResponse(FeedingRecord) {}
 
 @ObjectType()
-export class FeedInventoryConnection {
-  @Field(() => [FeedInventory])
-  items: FeedInventory[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class FeedInventoryConnection extends StandardPaginatedResponse(FeedInventory) {}
 
 // ============================================================================
 // GROWTH SIMULATION TYPES
@@ -814,7 +796,7 @@ export class FeedingResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: FeedingRecordFilterInput,
     @Args('pagination', { nullable: true }) pagination?: FeedingPaginationInput,
-  ): Promise<FeedingRecordConnection> {
+  ): Promise<IStandardPaginatedResult<FeedingRecord>> {
     const result: PaginatedQueryResult<FeedingRecord> = await this.queryBus.execute(
       new GetFeedingRecordsQuery(
         tenantId,
@@ -833,11 +815,7 @@ export class FeedingResolver {
         pagination?.limit ?? 20,
       ),
     );
-    return {
-      items: result.data,
-      total: result.pagination.total,
-      hasMore: result.pagination.hasNextPage,
-    };
+    return fromCqrsPaginated(result);
   }
 
   /**
@@ -878,7 +856,7 @@ export class FeedingResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: FeedInventoryFilterInput,
     @Args('pagination', { nullable: true }) pagination?: FeedingPaginationInput,
-  ): Promise<FeedInventoryConnection> {
+  ): Promise<IStandardPaginatedResult<FeedInventory>> {
     const result: PaginatedQueryResult<FeedInventory> = await this.queryBus.execute(
       new GetFeedInventoryQuery(
         tenantId,
@@ -894,11 +872,7 @@ export class FeedingResolver {
         pagination?.limit ?? 20,
       ),
     );
-    return {
-      items: result.data,
-      total: result.pagination.total,
-      hasMore: result.pagination.hasNextPage,
-    };
+    return fromCqrsPaginated(result);
   }
 
   /**

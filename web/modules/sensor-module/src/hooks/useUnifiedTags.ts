@@ -43,9 +43,11 @@ export interface UnifiedTag {
 export interface UnifiedTagListResult {
   items: UnifiedTag[];
   total: number;
-  offset: number;
+  page: number;
   limit: number;
-  hasMore: boolean;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 export interface TagFilterInput {
@@ -154,7 +156,7 @@ export function useUnifiedTag(id: string | undefined) {
 /** Fetch a paginated list of unified tags with optional filter */
 export function useUnifiedTags(
   filter?: TagFilterInput,
-  pagination?: { offset?: number; limit?: number },
+  pagination?: { page?: number; limit?: number },
 ) {
   const [tags, setTags] = useState<UnifiedTag[]>([]);
   const [total, setTotal] = useState(0);
@@ -168,7 +170,7 @@ export function useUnifiedTags(
   const filterDirection = filter?.direction;
   const filterEquipmentId = filter?.equipmentId;
   const filterEdgeDeviceId = filter?.edgeDeviceId;
-  const paginationOffset = pagination?.offset;
+  const paginationPage = pagination?.page;
   const paginationLimit = pagination?.limit;
 
   const fetchTags = useCallback(async () => {
@@ -188,7 +190,7 @@ export function useUnifiedTags(
             edgeDeviceId: filterEdgeDeviceId,
           },
           pagination: {
-            offset: paginationOffset,
+            page: paginationPage,
             limit: paginationLimit,
           },
         },
@@ -203,7 +205,7 @@ export function useUnifiedTags(
     } finally {
       setLoading(false);
     }
-  }, [filterSearchTerm, filterIoType, filterDataType, filterDirection, filterEquipmentId, filterEdgeDeviceId, paginationOffset, paginationLimit]);
+  }, [filterSearchTerm, filterIoType, filterDataType, filterDirection, filterEquipmentId, filterEdgeDeviceId, paginationPage, paginationLimit]);
 
   useEffect(() => {
     clearTimeout(debounceRef.current);

@@ -6,6 +6,6 @@ export class GetShiftsQuery {
     public readonly isActive?: boolean,
     public readonly shiftType?: ShiftType,
     public readonly limit: number = 20,
-    public readonly offset: number = 0,
+    public readonly page: number = 1,
   ) {}
 }

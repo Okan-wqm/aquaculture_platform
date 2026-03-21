@@ -20,7 +20,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   SparePartService,
@@ -55,28 +55,7 @@ interface UserContext {
 // ============================================================================
 
 @ObjectType()
-export class SparePartListResponse {
-  @Field(() => [SparePart])
-  items: SparePart[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  page: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field(() => Int)
-  totalPages: number;
-
-  @Field()
-  hasNextPage: boolean;
-
-  @Field()
-  hasPreviousPage: boolean;
-}
+export class SparePartListResponse extends StandardPaginatedResponse(SparePart) {}
 
 @ObjectType()
 export class LowStockAlertResponse {
@@ -199,9 +178,9 @@ export class SparePartResolver {
     sortBy?: string,
     @Args('sortOrder', { nullable: true, defaultValue: 'ASC' })
     sortOrder?: 'ASC' | 'DESC',
-  ): Promise<SparePartListResponse> {
+  ): Promise<IStandardPaginatedResult<SparePart>> {
     this.logger.debug(`Listing spare parts for tenant: ${tenantId}`);
-    const result = await this.sparePartService.findAll(
+    return this.sparePartService.findAll(
       tenantId,
       filter,
       page,
@@ -209,16 +188,6 @@ export class SparePartResolver {
       sortBy,
       sortOrder,
     );
-
-    return {
-      items: result.data,
-      total: result.pagination.total,
-      page: result.pagination.page,
-      limit: result.pagination.limit,
-      totalPages: result.pagination.totalPages,
-      hasNextPage: result.pagination.hasNextPage,
-      hasPreviousPage: result.pagination.hasPreviousPage,
-    };
   }
 
   @Query(() => [LowStockAlertResponse], { name: 'lowStockAlerts' })

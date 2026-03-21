@@ -97,7 +97,11 @@ export const FEEDING_RECORDS_QUERY = `
         ${FEEDING_RECORD_FIELDS}
       }
       total
-      hasMore
+      page
+      limit
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;
@@ -169,7 +173,11 @@ export const FEED_INVENTORY_QUERY = `
         ${FEED_INVENTORY_FIELDS}
       }
       total
-      hasMore
+      page
+      limit
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

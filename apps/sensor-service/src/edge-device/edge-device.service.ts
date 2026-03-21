@@ -13,6 +13,7 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
@@ -471,7 +472,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       page?: number;
       limit?: number;
     },
-  ): Promise<{ items: EdgeDevice[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<EdgeDevice>> {
     const page = options?.page || 1;
     const limit = options?.limit || 20;
     const skip = (page - 1) * limit;
@@ -499,7 +500,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       take: limit,
     });
 
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

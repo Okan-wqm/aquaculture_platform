@@ -10,6 +10,6 @@ export class GetAttendanceRecordsQuery {
     public readonly startDate?: string,
     public readonly endDate?: string,
     public readonly limit?: number,
-    public readonly offset?: number,
+    public readonly page?: number,
   ) {}
 }

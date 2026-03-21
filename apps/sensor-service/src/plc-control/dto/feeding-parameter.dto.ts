@@ -15,8 +15,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 
-import { ParameterStatus } from '../entities/feeding-parameter.entity';
+import { FeedingParameter, ParameterStatus } from '../entities/feeding-parameter.entity';
 
 /**
  * PLC Feeding schedule entry input
@@ -306,19 +307,7 @@ export class FeedingParameterFilterDto {
  * Paginated feeding parameters response
  */
 @ObjectType('PaginatedFeedingParameters')
-export class PaginatedFeedingParametersDto {
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedFeedingParametersDto extends StandardPaginatedResponse(FeedingParameter) {}
 
 /**
  * Parameter send result

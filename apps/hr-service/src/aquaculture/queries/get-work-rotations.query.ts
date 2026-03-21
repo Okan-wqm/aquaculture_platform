@@ -9,6 +9,6 @@ export class GetWorkRotationsQuery {
     public readonly startDate?: string,
     public readonly endDate?: string,
     public readonly limit: number = 20,
-    public readonly offset: number = 0,
+    public readonly page: number = 1,
   ) {}
 }

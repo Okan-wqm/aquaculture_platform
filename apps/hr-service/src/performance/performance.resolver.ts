@@ -1,7 +1,7 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field, Float } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Float } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { PerformanceReview } from './entities/performance-review.entity';
@@ -49,8 +49,6 @@ import {
   GetOverdueGoalsQuery,
   GetPerformanceSummaryQuery,
 } from './queries';
-import { PaginatedPerformanceReviews } from './query-handlers/get-performance-reviews.handler';
-import { PaginatedGoals } from './query-handlers/get-goals.handler';
 import { PerformanceSummary } from './query-handlers/get-performance-summary.handler';
 
 // SECURITY: Context only exposes JWT-verified user fields.
@@ -64,40 +62,10 @@ interface GraphQLContext {
 }
 
 @ObjectType()
-class PerformanceReviewConnection {
-  @Field(() => [PerformanceReview])
-  items!: PerformanceReview[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class PerformanceReviewConnection extends StandardPaginatedResponse(PerformanceReview) {}
 
 @ObjectType()
-class GoalConnection {
-  @Field(() => [Goal])
-  items!: Goal[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class GoalConnection extends StandardPaginatedResponse(Goal) {}
 
 @UseGuards(GqlAuthGuard)
 @Resolver(() => PerformanceReview)
@@ -135,12 +103,13 @@ export class PerformanceResolver {
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
     @Args('status', { nullable: true }) status?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedPerformanceReviews> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<PerformanceReview>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetPerformanceReviewsQuery(tenantId, employeeId, status, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetPerformanceReviewsQuery(tenantId, employeeId, status, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => PerformanceReview, { name: 'performanceReview' })
@@ -196,12 +165,13 @@ export class PerformanceResolver {
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
     @Args('status', { nullable: true }) status?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedGoals> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<Goal>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetGoalsQuery(tenantId, employeeId, status, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetGoalsQuery(tenantId, employeeId, status, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => Goal, { name: 'goal' })

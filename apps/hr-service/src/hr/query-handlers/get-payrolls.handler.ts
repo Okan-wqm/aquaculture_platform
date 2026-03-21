@@ -1,27 +1,17 @@
-import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { Repository, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetPayrollsQuery } from '../queries/get-payrolls.query';
 import { Payroll } from '../entities/payroll.entity';
 
-export interface PaginatedPayrolls {
-  items: Payroll[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
-
-@Injectable()
 @QueryHandler(GetPayrollsQuery)
-export class GetPayrollsHandler implements IQueryHandler<GetPayrollsQuery, PaginatedPayrolls> {
+export class GetPayrollsHandler implements IQueryHandler<GetPayrollsQuery, PaginatedQueryResult<Payroll>> {
   constructor(
     @InjectRepository(Payroll)
     private readonly payrollRepository: Repository<Payroll>,
   ) {}
 
-  async execute(query: GetPayrollsQuery): Promise<PaginatedPayrolls> {
+  async execute(query: GetPayrollsQuery): Promise<PaginatedQueryResult<Payroll>> {
     const { tenantId, filter } = query;
 
     const where: FindOptionsWhere<Payroll> = { tenantId };
@@ -43,24 +33,18 @@ export class GetPayrollsHandler implements IQueryHandler<GetPayrollsQuery, Pagin
       where.payPeriodEnd = LessThanOrEqual(filter.endDate);
     }
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(filter?.limit || 20, 1), 100);
-    const effectiveOffset = Math.max(filter?.offset || 0, 0);
+    const page = filter?.page ?? 1;
+    const limit = Math.min(Math.max(filter?.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const [items, total] = await this.payrollRepository.findAndCount({
       where,
       relations: ['employee'],
-      skip: effectiveOffset,
-      take: effectiveLimit,
+      skip: offset,
+      take: limit,
       order: { payPeriodStart: 'DESC' },
     });
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

@@ -16,15 +16,10 @@ import {
   HealthSeverity,
   TreatmentDetails,
 } from '../entities/health-event.entity';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
 import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';
-
-export interface PaginatedHealthEvents {
-  items: HealthEvent[];
-  total: number;
-  hasMore: boolean;
-}
 
 export interface HealthEventStats {
   total: number;
@@ -127,7 +122,7 @@ export class HealthEventService {
   async findAll(
     tenantId: string,
     filter?: HealthEventFilterInput,
-  ): Promise<PaginatedHealthEvents> {
+  ): Promise<IStandardPaginatedResult<HealthEvent>> {
     const query = this.healthEventRepository.createQueryBuilder('he')
       .where('he.tenantId = :tenantId', { tenantId });
 
@@ -150,12 +145,9 @@ export class HealthEventService {
     query.orderBy(`he.${safeSortBy}`, sortDir);
 
     const items = await query.getMany();
+    const page = Math.floor(offset / limit) + 1;
 
-    return {
-      items,
-      total,
-      hasMore: offset + items.length < total,
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

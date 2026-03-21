@@ -48,7 +48,7 @@ export class DeviceEventService {
     eventType?: string,
     page = 1,
     limit = 20,
-  ): Promise<{ items: DeviceEvent[]; total: number }> {
+  ): Promise<{ items: DeviceEvent[]; total: number; page: number; limit: number }> {
     const where: Record<string, unknown> = { tenantId };
     if (deviceId) where.deviceId = deviceId;
     if (eventType) where.eventType = eventType;
@@ -60,6 +60,6 @@ export class DeviceEventService {
       take: limit,
     });
 
-    return { items, total };
+    return { items, total, page, limit };
   }
 }

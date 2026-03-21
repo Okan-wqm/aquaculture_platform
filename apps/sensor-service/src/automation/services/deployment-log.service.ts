@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import { DeploymentLog, DeploymentStatus } from '../entities/deployment-log.entity';
 
@@ -108,7 +109,7 @@ export class DeploymentLogService {
     deviceId?: string,
     page = 1,
     limit = 20,
-  ): Promise<{ items: DeploymentLog[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<DeploymentLog>> {
     const where: Record<string, unknown> = { tenantId };
     if (deviceId) where.deviceId = deviceId;
 
@@ -119,7 +120,7 @@ export class DeploymentLogService {
       take: limit,
     });
 
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

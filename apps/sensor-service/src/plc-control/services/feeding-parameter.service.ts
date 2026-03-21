@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 import * as crypto from 'crypto';
 
 import {
@@ -28,16 +29,7 @@ import { OpcUaAdapter } from '../../protocol/adapters/industrial/opcua.adapter';
 import { ConnectionHandle } from '../../protocol/adapters/base-protocol.adapter';
 import { buildOpcUaConfig } from './opcua-config.builder';
 
-/**
- * Result interface for paginated feeding parameters
- */
-export interface PaginatedFeedingParameters {
-  items: FeedingParameter[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type PaginatedFeedingParameters = IStandardPaginatedResult<FeedingParameter>;
 
 /**
  * Feeding Parameter Service
@@ -168,13 +160,7 @@ export class FeedingParameterService {
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

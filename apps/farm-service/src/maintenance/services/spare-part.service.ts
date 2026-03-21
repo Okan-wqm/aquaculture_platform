@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThanOrEqual, Like, DataSource } from 'typeorm';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   CreateSparePartInput,
@@ -21,7 +22,6 @@ import {
   StockMovementInput,
   SparePartFilterInput,
 } from '../dto/spare-part.dto';
-import { PaginatedResult } from './work-order.service';
 
 /**
  * Stok hareketi kaydı
@@ -263,7 +263,7 @@ export class SparePartService {
     limit = 20,
     sortBy = 'name',
     sortOrder: 'ASC' | 'DESC' = 'ASC',
-  ): Promise<PaginatedResult<SparePart>> {
+  ): Promise<IStandardPaginatedResult<SparePart>> {
     const query = this.sparePartRepository
       .createQueryBuilder('sp')
       .where('sp.tenantId = :tenantId', { tenantId });
@@ -323,21 +323,9 @@ export class SparePartService {
       .skip((page - 1) * limit)
       .take(limit);
 
-    const data = await query.getMany();
+    const items = await query.getMany();
 
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

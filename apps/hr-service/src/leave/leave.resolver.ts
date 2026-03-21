@@ -1,9 +1,9 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee } from '../hr/entities/employee.entity';
@@ -26,9 +26,7 @@ import {
   GetPendingApprovalsQuery,
   GetTeamLeaveCalendarQuery,
 } from './queries';
-import { PaginatedLeaveRequests } from './query-handlers/get-leave-requests.handler';
 import { LeaveCalendarEntry } from './query-handlers/get-team-leave-calendar.handler';
-import { PaginatedPendingApprovals } from './query-handlers/get-pending-approvals.handler';
 
 // SECURITY: Context only exposes JWT-verified user fields.
 // Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
@@ -43,40 +41,10 @@ interface GraphQLContext {
 }
 
 @ObjectType()
-class LeaveRequestConnection {
-  @Field(() => [LeaveRequest])
-  items!: LeaveRequest[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class LeaveRequestConnection extends StandardPaginatedResponse(LeaveRequest) {}
 
 @ObjectType()
-class PendingLeaveApprovalsConnection {
-  @Field(() => [LeaveRequest])
-  items!: LeaveRequest[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class PendingLeaveApprovalsConnection extends StandardPaginatedResponse(LeaveRequest) {}
 
 @UseGuards(GqlAuthGuard)
 @Resolver(() => LeaveRequest)
@@ -193,10 +161,10 @@ export class LeaveResolver {
     @Args('startDate', { nullable: true }) startDate?: string,
     @Args('endDate', { nullable: true }) endDate?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedLeaveRequests> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
+    const result = await this.queryBus.execute(
       new GetLeaveRequestsQuery(
         tenantId,
         employeeId,
@@ -205,9 +173,10 @@ export class LeaveResolver {
         startDate,
         endDate,
         limit,
-        offset,
+        page,
       ),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [LeaveRequest], { name: 'myLeaveRequests' })
@@ -215,7 +184,7 @@ export class LeaveResolver {
     @Context() context: GraphQLContext,
     @Args('status', { type: () => LeaveRequestStatus, nullable: true }) status?: LeaveRequestStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<LeaveRequest[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
@@ -229,10 +198,10 @@ export class LeaveResolver {
         undefined,
         undefined,
         limit,
-        offset,
+        page,
       ),
     );
-    return result.items;
+    return result.data;
   }
 
   @Query(() => PendingLeaveApprovalsConnection, { name: 'pendingLeaveApprovals' })
@@ -242,14 +211,15 @@ export class LeaveResolver {
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedPendingApprovals> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     const employeeId = await this.resolveEmployeeId(userId, tenantId);
-    return this.queryBus.execute(
-      new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [LeaveCalendarEntry], { name: 'teamLeaveCalendar' })

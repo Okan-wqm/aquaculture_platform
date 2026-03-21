@@ -15,7 +15,7 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import {
   SubEquipmentResponse,
   PaginatedSubEquipmentResponse,
@@ -82,7 +82,8 @@ export class SubEquipmentResolver {
     }
     this.logger.debug(`Listing sub-equipment for tenant ${tenantId}`);
     const query = new ListSubEquipmentQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

@@ -1,4 +1,5 @@
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { StorageLocationType } from '../entities/storage-location.entity';
 
 @ObjectType()
@@ -62,19 +63,4 @@ export class StorageLocationResponse {
 }
 
 @ObjectType()
-export class PaginatedStorageLocationsResponse {
-  @Field(() => [StorageLocationResponse])
-  items!: StorageLocationResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedStorageLocationsResponse extends StandardPaginatedResponse(StorageLocationResponse) {}

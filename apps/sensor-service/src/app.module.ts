@@ -6,6 +6,7 @@ import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
+import { join } from 'path';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
@@ -220,10 +221,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
         return {
-          autoSchemaFile: {
-            federation: 2,
-          },
+          autoSchemaFile: join(process.cwd(), 'schema.graphql'),
           buildSchemaOptions: {
+            federation: 2,
             // VFD entities and their nested types are registered via @ObjectType decorators
             // This ensures proper schema composition in Apollo Federation
             orphanedTypes: [],

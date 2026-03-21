@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetShiftsQuery } from '../queries/get-shifts.query';
 import { Shift } from '../entities/shift.entity';
-
-export interface PaginatedShifts {
-  items: Shift[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetShiftsQuery)
 export class GetShiftsHandler implements IQueryHandler<GetShiftsQuery> {
@@ -19,12 +11,12 @@ export class GetShiftsHandler implements IQueryHandler<GetShiftsQuery> {
     private readonly shiftRepository: Repository<Shift>,
   ) {}
 
-  async execute(query: GetShiftsQuery): Promise<PaginatedShifts> {
-    const { tenantId, isActive, shiftType, limit = 20, offset = 0 } = query;
+  async execute(query: GetShiftsQuery): Promise<PaginatedQueryResult<Shift>> {
+    const { tenantId, isActive, shiftType } = query;
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
-    const effectiveOffset = Math.max(offset, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.shiftRepository
       .createQueryBuilder('s')
@@ -42,16 +34,10 @@ export class GetShiftsHandler implements IQueryHandler<GetShiftsQuery> {
     }
 
     const [items, total] = await queryBuilder
-      .skip(effectiveOffset)
-      .take(effectiveLimit)
+      .skip(offset)
+      .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

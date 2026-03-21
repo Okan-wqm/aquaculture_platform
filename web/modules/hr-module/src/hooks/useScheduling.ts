@@ -40,8 +40,8 @@ import type {
 export const schedulingKeys = {
   all: ['scheduling'] as const,
   weeklyPlans: () => [...schedulingKeys.all, 'weeklyPlans'] as const,
-  weeklyPlanList: (filter?: WeeklyPlanFilter, limit?: number, offset?: number) =>
-    [...schedulingKeys.weeklyPlans(), { filter, limit, offset }] as const,
+  weeklyPlanList: (filter?: WeeklyPlanFilter, limit?: number, page?: number) =>
+    [...schedulingKeys.weeklyPlans(), { filter, limit, page }] as const,
   weeklyPlan: (id: string) => [...schedulingKeys.weeklyPlans(), id] as const,
   teamOverview: (weekStartDate: string, departmentId?: string, siteId?: string) =>
     [...schedulingKeys.all, 'teamOverview', weekStartDate, departmentId, siteId] as const,
@@ -57,12 +57,12 @@ export const schedulingKeys = {
 export function useWeeklyPlans(
   filter?: WeeklyPlanFilter,
   limit = 20,
-  offset = 0
+  page = 1
 ) {
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: schedulingKeys.weeklyPlanList(filter, limit, offset),
+    queryKey: schedulingKeys.weeklyPlanList(filter, limit, page),
     queryFn: () =>
       graphqlRequest<{ weeklyPlans: WeeklyPlanConnection }, unknown>(
         client,
@@ -74,7 +74,7 @@ export function useWeeklyPlans(
           weekStartDate: filter?.weekStartDate,
           status: filter?.status,
           limit,
-          offset,
+          page,
         }
       ),
     select: (data) => data.weeklyPlans,

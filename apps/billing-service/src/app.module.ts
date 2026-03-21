@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
+import { join } from 'path';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
@@ -77,10 +78,9 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: {
-        federation: 2,
-      },
+      autoSchemaFile: join(process.cwd(), 'schema.graphql'),
       buildSchemaOptions: {
+        federation: 2,
         orphanedTypes: [
           InvoiceLineItem,
           TaxInfo,

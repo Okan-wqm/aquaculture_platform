@@ -415,7 +415,11 @@ export function useHealthEvents(filter?: HealthEventFilter) {
               ${HEALTH_EVENT_FIELDS}
             }
             total
-            hasMore
+            page
+            limit
+            totalPages
+            hasNextPage
+            hasPreviousPage
           }
         }
       `;
@@ -424,7 +428,11 @@ export function useHealthEvents(filter?: HealthEventFilter) {
         healthEvents: {
           items: HealthEvent[];
           total: number;
-          hasMore: boolean;
+          page: number;
+          limit: number;
+          totalPages: number;
+          hasNextPage: boolean;
+          hasPreviousPage: boolean;
         };
       }>(query, { filter });
 

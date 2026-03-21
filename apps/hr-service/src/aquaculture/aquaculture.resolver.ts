@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { WorkArea, WorkAreaType } from './entities/work-area.entity';
@@ -13,8 +13,6 @@ import {
   GetWorkRotationsQuery,
   GetCurrentlyOffshoreQuery,
 } from './queries';
-import { PaginatedWorkAreas } from './query-handlers/get-work-areas.handler';
-import { PaginatedWorkRotations } from './query-handlers/get-work-rotations.handler';
 
 // DTOs
 import { CreateWorkAreaInput } from './dto/create-work-area.input';
@@ -39,40 +37,10 @@ import {
 } from './commands';
 
 @ObjectType()
-class WorkAreaConnection {
-  @Field(() => [WorkArea])
-  items!: WorkArea[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class WorkAreaConnection extends StandardPaginatedResponse(WorkArea) {}
 
 @ObjectType()
-class WorkRotationConnection {
-  @Field(() => [WorkRotation])
-  items!: WorkRotation[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class WorkRotationConnection extends StandardPaginatedResponse(WorkRotation) {}
 
 // SECURITY: Context only exposes JWT-verified user fields.
 // Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
@@ -122,25 +90,26 @@ export class AquacultureResolver {
     @Args('isOffshore', { nullable: true }) isOffshore?: boolean,
     @Args('isActive', { nullable: true }) isActive?: boolean,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedWorkAreas> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<WorkArea>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetWorkAreasQuery(tenantId, workAreaType, isOffshore, isActive, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetWorkAreasQuery(tenantId, workAreaType, isOffshore, isActive, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [WorkArea], { name: 'offshoreWorkAreas' })
   async getOffshoreWorkAreas(
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
     @Context() context: GraphQLContext,
   ): Promise<WorkArea[]> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute(
-      new GetWorkAreasQuery(tenantId, undefined, true, true, limit, offset),
+      new GetWorkAreasQuery(tenantId, undefined, true, true, limit, page),
     );
-    return result.items;
+    return result.data;
   }
 
   // =====================
@@ -157,12 +126,13 @@ export class AquacultureResolver {
     @Args('startDate', { nullable: true }) startDate?: string,
     @Args('endDate', { nullable: true }) endDate?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedWorkRotations> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<WorkRotation>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetWorkRotationsQuery(tenantId, employeeId, workAreaId, status, startDate, endDate, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetWorkRotationsQuery(tenantId, employeeId, workAreaId, status, startDate, endDate, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [WorkRotation], { name: 'myWorkRotations' })
@@ -170,14 +140,14 @@ export class AquacultureResolver {
     @Context() context: GraphQLContext,
     @Args('status', { type: () => RotationStatus, nullable: true }) status?: RotationStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<WorkRotation[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     const result = await this.queryBus.execute(
-      new GetWorkRotationsQuery(tenantId, userId, undefined, status, undefined, undefined, limit, offset),
+      new GetWorkRotationsQuery(tenantId, userId, undefined, status, undefined, undefined, limit, page),
     );
-    return result.items;
+    return result.data;
   }
 
   @Query(() => [Employee], { name: 'currentlyOffshore' })
@@ -198,7 +168,7 @@ export class AquacultureResolver {
     @Context() context: GraphQLContext,
     @Args('workAreaId', { type: () => ID, nullable: true }) workAreaId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<WorkRotation[]> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute(
@@ -210,10 +180,10 @@ export class AquacultureResolver {
         undefined,
         undefined,
         limit,
-        offset,
+        page,
       ),
     );
-    return result.items;
+    return result.data;
   }
 
   // =====================

@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import { DeviceIoConfig, IoType, IoDataType } from '../../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../../edge-device/entities/edge-device.entity';
@@ -18,14 +19,6 @@ import {
   TagDataType,
   TagDirection,
 } from '../entities/unified-tag.entity';
-
-export interface UnifiedTagListResult {
-  items: UnifiedTag[];
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
 
 @Injectable()
 export class UnifiedTagService {
@@ -98,9 +91,10 @@ export class UnifiedTagService {
     tenantId: string,
     filter?: TagFilterInput,
     pagination?: ProcessPaginationInput,
-  ): Promise<UnifiedTagListResult> {
-    const offset = pagination?.offset || 0;
+  ): Promise<IStandardPaginatedResult<UnifiedTag>> {
+    const page = pagination?.page || 1;
     const limit = Math.min(pagination?.limit || 20, 100);
+    const offset = (page - 1) * limit;
 
     const qb = this.tagRepository
       .createQueryBuilder('tag')
@@ -135,7 +129,7 @@ export class UnifiedTagService {
     qb.orderBy('tag.fqn', 'ASC').skip(offset).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total, offset, limit, hasMore: offset + items.length < total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

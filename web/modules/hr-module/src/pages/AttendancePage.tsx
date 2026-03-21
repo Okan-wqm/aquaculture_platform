@@ -30,7 +30,7 @@ export function AttendancePage() {
 
   const [activeTab, setActiveTab] = useState<'overview' | 'records'>('overview');
   const [filter, setFilter] = useState<AttendanceFilterInput>({});
-  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
+  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -42,11 +42,11 @@ export function AttendancePage() {
 
   const handleFilterChange = (key: keyof AttendanceFilterInput, value: string | undefined) => {
     setFilter((prev) => ({ ...prev, [key]: value || undefined }));
-    setPagination({ ...pagination, offset: 0 });
+    setPagination({ ...pagination, page: 1 });
   };
 
   const handlePageChange = (page: number) => {
-    setPagination({ ...pagination, offset: (page - 1) * (pagination.limit || 20) });
+    setPagination({ ...pagination, page });
   };
 
   const columns: Column<AttendanceRecord>[] = [
@@ -340,7 +340,7 @@ export function AttendancePage() {
               isLoading={loadingRecords}
               emptyMessage="No attendance records found"
               total={records?.total}
-              page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+              page={pagination.page || 1}
               pageSize={pagination.limit || 20}
               onPageChange={handlePageChange}
             />

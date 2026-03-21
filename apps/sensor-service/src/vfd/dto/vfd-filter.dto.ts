@@ -13,7 +13,7 @@ import {
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
-import { StandardPaginationInput, PaginatedResponse } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
 
 /**
  * Filter input for querying VFD devices
@@ -154,13 +154,10 @@ export class VfdDeviceDto {
 }
 
 /**
- * Paginated VFD devices response
- *
- * @deprecated Use `PaginatedVfdDeviceListDto` instead, which uses the standard
- * page/totalPages pattern. This legacy DTO will be removed in Phase 3.
+ * Paginated VFD devices response (standard pagination).
  */
 @ObjectType('PaginatedVfdDevices')
-export class PaginatedVfdDevicesDto extends PaginatedResponse(VfdDeviceDto) {}
+export class PaginatedVfdDevicesDto extends StandardPaginatedResponse(VfdDeviceDto) {}
 
 /**
  * VFD device count by status
@@ -290,25 +287,10 @@ export class VfdProtocolFieldDto {
 
 /**
  * Paginated VFD devices response matching frontend expectations.
- * Uses page/limit/totalPages pattern (standard pagination).
+ * Uses standard pagination with full metadata.
  */
 @ObjectType('PaginatedVfdDeviceList')
-export class PaginatedVfdDeviceListDto {
-  @Field(() => [VfdDeviceDto])
-  items!: VfdDeviceDto[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedVfdDeviceListDto extends StandardPaginatedResponse(VfdDeviceDto) {}
 
 /**
  * VFD Registration Result wrapping device + connection test outcome.

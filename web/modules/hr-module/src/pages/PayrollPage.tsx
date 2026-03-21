@@ -482,7 +482,7 @@ const PayrollPage: React.FC = () => {
 
   // State
   const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');
-  const [filter, setFilter] = useState<PayrollFilterInput>({ limit: 20, offset: 0 });
+  const [filter, setFilter] = useState<PayrollFilterInput>({ limit: 20, page: 1 });
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -490,7 +490,7 @@ const PayrollPage: React.FC = () => {
   // Data fetching
   const { data: allPayrolls, isLoading: loadingAll } = usePayrolls(filter);
   const { data: pendingPayrolls, isLoading: loadingPending } = usePendingPayrolls();
-  const { data: employeesData } = useEmployees(undefined, { limit: 1000, offset: 0 });
+  const { data: employeesData } = useEmployees(undefined, { limit: 1000, page: 1 });
 
   // Mutations
   const createMutation = useCreatePayroll();
@@ -656,7 +656,7 @@ const PayrollPage: React.FC = () => {
   const handlePageChange = (page: number) => {
     setFilter((prev) => ({
       ...prev,
-      offset: (page - 1) * (prev.limit || 20),
+      page,
     }));
   };
 
@@ -665,7 +665,7 @@ const PayrollPage: React.FC = () => {
     setFilter((prev) => ({
       ...prev,
       status: status ? (status as PayrollStatus) : undefined,
-      offset: 0,
+      page: 1,
     }));
   };
 
@@ -853,7 +853,7 @@ const PayrollPage: React.FC = () => {
                   setFilter((prev) => ({
                     ...prev,
                     employeeId: val ? String(val) : undefined,
-                    offset: 0,
+                    page: 1,
                   }))
                 }
                 placeholder="All Employees"
@@ -865,7 +865,7 @@ const PayrollPage: React.FC = () => {
 
           <div className="mt-4 flex justify-end">
             <button
-              onClick={() => setFilter({ limit: 20, offset: 0 })}
+              onClick={() => setFilter({ limit: 20, page: 1 })}
               className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
             >
               Clear all filters
@@ -885,7 +885,7 @@ const PayrollPage: React.FC = () => {
         page={
           activeTab === 'pending'
             ? 1
-            : Math.floor((filter.offset || 0) / (filter.limit || 20)) + 1
+            : filter.page || 1
         }
         pageSize={filter.limit || 20}
         onPageChange={activeTab === 'pending' ? undefined : handlePageChange}

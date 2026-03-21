@@ -188,7 +188,7 @@ export function useAllCertifications(
         employeeId: filter?.employeeId,
         certificationTypeId: filter?.certificationTypeId,
         limit: pagination?.limit,
-        offset: pagination?.offset,
+        page: pagination?.page ?? 1,
       }),
     select: (data) => data.allCertifications,
   });

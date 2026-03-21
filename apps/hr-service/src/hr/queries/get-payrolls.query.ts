@@ -5,7 +5,7 @@ export interface PayrollFilterInput {
   status?: PayrollStatus;
   startDate?: Date;
   endDate?: Date;
-  offset?: number;
+  page?: number;
   limit?: number;
 }
 

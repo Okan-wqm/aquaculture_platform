@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { join } from 'path';
 import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -60,9 +61,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: {
-        federation: 2,
-      },
+      autoSchemaFile: join(process.cwd(), 'schema.graphql'),
+      buildSchemaOptions: { federation: 2 },
       playground: process.env['NODE_ENV'] !== 'production',
       introspection: process.env['NODE_ENV'] !== 'production',
       installSubscriptionHandlers: false,

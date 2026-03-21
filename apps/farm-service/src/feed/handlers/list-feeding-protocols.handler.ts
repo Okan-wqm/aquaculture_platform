@@ -1,19 +1,11 @@
 /**
  * List Feeding Protocols Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListFeedingProtocolsQuery } from '../queries/list-feeding-protocols.query';
 import { FeedingProtocol } from '../entities/feeding-protocol.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListFeedingProtocolsQuery)
 export class ListFeedingProtocolsHandler implements IQueryHandler<ListFeedingProtocolsQuery> {
@@ -22,7 +14,7 @@ export class ListFeedingProtocolsHandler implements IQueryHandler<ListFeedingPro
     private readonly feedingProtocolRepository: Repository<FeedingProtocol>,
   ) {}
 
-  async execute(query: ListFeedingProtocolsQuery): Promise<PaginatedResult<FeedingProtocol>> {
+  async execute(query: ListFeedingProtocolsQuery): Promise<PaginatedQueryResult<FeedingProtocol>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -77,12 +69,6 @@ export class ListFeedingProtocolsHandler implements IQueryHandler<ListFeedingPro
     // Execute query
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

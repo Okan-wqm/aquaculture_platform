@@ -10,6 +10,7 @@ import {
   IsEnum,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 
 /**
  * VFD Parameters Output DTO
@@ -289,19 +290,4 @@ export class VfdLatestReadingsDto {
  * Paginated VFD readings response
  */
 @ObjectType('PaginatedVfdReadings')
-export class PaginatedVfdReadingsDto {
-  @Field(() => [VfdReadingDto])
-  items!: VfdReadingDto[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedVfdReadingsDto extends StandardPaginatedResponse(VfdReadingDto) {}

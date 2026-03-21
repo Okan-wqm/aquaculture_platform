@@ -19,6 +19,7 @@ import {
   CustomerOrder,
   QualityRequirements,
 } from '../entities/harvest-plan.entity';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
@@ -26,12 +27,6 @@ import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
 // ============================================================================
 // INTERFACES
 // ============================================================================
-
-export interface PaginatedHarvestPlans {
-  items: HarvestPlan[];
-  total: number;
-  hasMore: boolean;
-}
 
 export interface HarvestPlanStats {
   total: number;
@@ -365,7 +360,7 @@ export class HarvestPlanService {
   async findAll(
     tenantId: string,
     filter?: HarvestPlanFilterInput,
-  ): Promise<PaginatedHarvestPlans> {
+  ): Promise<IStandardPaginatedResult<HarvestPlan>> {
     const query = this.harvestPlanRepository
       .createQueryBuilder('hp')
       .where('hp.tenantId = :tenantId', { tenantId });
@@ -389,12 +384,9 @@ export class HarvestPlanService {
     query.orderBy(`hp.${safeSortBy}`, sortDir);
 
     const items = await query.getMany();
+    const page = Math.floor(offset / limit) + 1;
 
-    return {
-      items,
-      total,
-      hasMore: offset + items.length < total,
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

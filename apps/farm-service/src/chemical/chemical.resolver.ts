@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, fromCqrsPaginated } from '@platform/backend-common';
 import { ChemicalResponse, PaginatedChemicalsResponse, ChemicalTypeResponse } from './dto/chemical.response';
 import { CreateChemicalInput } from './dto/create-chemical.input';
 import { UpdateChemicalInput } from './dto/update-chemical.input';
@@ -143,7 +143,8 @@ export class ChemicalResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedChemicalsResponse> {
     const query = new ListChemicalsQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

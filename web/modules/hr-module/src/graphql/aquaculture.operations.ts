@@ -19,23 +19,25 @@ export const GET_WORK_AREAS = gql`
     $workAreaType: WorkAreaType
     $isOffshore: Boolean
     $isActive: Boolean
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     workAreas(
       workAreaType: $workAreaType
       isOffshore: $isOffshore
       isActive: $isActive
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...WorkAreaFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${WORK_AREA_FRAGMENT}
@@ -123,8 +125,8 @@ export const GET_WORK_ROTATIONS = gql`
     $status: RotationStatus
     $startDate: String
     $endDate: String
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     workRotations(
       employeeId: $employeeId
@@ -132,16 +134,18 @@ export const GET_WORK_ROTATIONS = gql`
       status: $status
       startDate: $startDate
       endDate: $endDate
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...WorkRotationFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${WORK_ROTATION_FRAGMENT}

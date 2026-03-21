@@ -24,9 +24,11 @@ export const GET_EMPLOYEES = gql`
         ...EmployeeList
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${EMPLOYEE_LIST_FRAGMENT}

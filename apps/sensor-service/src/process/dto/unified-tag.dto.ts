@@ -1,6 +1,7 @@
 import { InputType, ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { IsString, IsOptional, IsEnum, IsUUID, IsNumber, MaxLength, IsObject, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 
 import { TagDirection, TagIoType, TagDataType } from '../entities/unified-tag.entity';
 
@@ -311,22 +312,7 @@ export class UnifiedTagType {
 }
 
 @ObjectType()
-export class UnifiedTagListType {
-  @Field(() => [UnifiedTagType])
-  items!: UnifiedTagType[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+export class UnifiedTagListType extends StandardPaginatedResponse(UnifiedTagType) {}
 
 @ObjectType()
 export class TagDiscoveryResultType {

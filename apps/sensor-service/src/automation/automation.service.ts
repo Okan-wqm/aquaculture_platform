@@ -12,7 +12,7 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
-import { getTenantSchemaName } from '@platform/backend-common';
+import { getTenantSchemaName, createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
@@ -275,7 +275,7 @@ export class AutomationService {
     filter?: ProgramFilterInput,
     page = 1,
     limit = 20,
-  ): Promise<{ items: AutomationProgram[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<AutomationProgram>> {
     return this.withTenantSchema(tenantId, async (manager) => {
       const queryBuilder = manager.createQueryBuilder(AutomationProgram, 'p')
         .where('p.tenantId = :tenantId', { tenantId });
@@ -302,7 +302,7 @@ export class AutomationService {
         .take(limit)
         .getManyAndCount();
 
-      return { items, total };
+      return createStandardPaginatedResult(items, total, page, limit);
     });
   }
 

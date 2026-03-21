@@ -135,24 +135,26 @@ export const GET_ALL_CERTIFICATIONS = gql`
     $category: CertificationCategory
     $employeeId: String
     $certificationTypeId: String
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     allCertifications(
       status: $status
       category: $category
       employeeId: $employeeId
       certificationTypeId: $certificationTypeId
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...EmployeeCertificationFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${EMPLOYEE_CERTIFICATION_FRAGMENT}
@@ -167,23 +169,25 @@ export const GET_TRAINING_COURSES = gql`
     $trainingType: TrainingType
     $isMandatory: Boolean
     $isActive: Boolean
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     trainingCourses(
       trainingType: $trainingType
       isMandatory: $isMandatory
       isActive: $isActive
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...TrainingCourseFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${TRAINING_COURSE_FRAGMENT}
@@ -215,23 +219,25 @@ export const GET_TRAINING_ENROLLMENTS = gql`
     $employeeId: ID
     $trainingCourseId: ID
     $status: EnrollmentStatus
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     trainingEnrollments(
       employeeId: $employeeId
       trainingCourseId: $trainingCourseId
       status: $status
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...TrainingEnrollmentFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${TRAINING_ENROLLMENT_FRAGMENT}

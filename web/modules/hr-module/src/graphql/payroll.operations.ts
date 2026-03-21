@@ -13,22 +13,24 @@ export const GET_PAYROLLS = gql`
   query GetPayrolls(
     $employeeId: ID
     $status: PayrollStatus
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     payrolls(
       employeeId: $employeeId
       status: $status
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...PayrollFields
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${PAYROLL_FRAGMENT}

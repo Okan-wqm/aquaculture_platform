@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetWorkRotationsQuery } from '../queries/get-work-rotations.query';
 import { WorkRotation } from '../entities/work-rotation.entity';
-
-export interface PaginatedWorkRotations {
-  items: WorkRotation[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetWorkRotationsQuery)
 export class GetWorkRotationsHandler implements IQueryHandler<GetWorkRotationsQuery> {
@@ -19,12 +11,12 @@ export class GetWorkRotationsHandler implements IQueryHandler<GetWorkRotationsQu
     private readonly rotationRepository: Repository<WorkRotation>,
   ) {}
 
-  async execute(query: GetWorkRotationsQuery): Promise<PaginatedWorkRotations> {
-    const { tenantId, employeeId, workAreaId, status, startDate, endDate, limit = 20, offset = 0 } = query;
+  async execute(query: GetWorkRotationsQuery): Promise<PaginatedQueryResult<WorkRotation>> {
+    const { tenantId, employeeId, workAreaId, status, startDate, endDate } = query;
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
-    const effectiveOffset = Math.max(offset, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.rotationRepository
       .createQueryBuilder('wr')
@@ -55,16 +47,10 @@ export class GetWorkRotationsHandler implements IQueryHandler<GetWorkRotationsQu
     }
 
     const [items, total] = await queryBuilder
-      .skip(effectiveOffset)
-      .take(effectiveLimit)
+      .skip(offset)
+      .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

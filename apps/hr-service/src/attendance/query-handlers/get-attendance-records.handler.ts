@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetAttendanceRecordsQuery } from '../queries/get-attendance-records.query';
 import { AttendanceRecord } from '../entities/attendance-record.entity';
-
-export interface PaginatedAttendanceRecords {
-  items: AttendanceRecord[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetAttendanceRecordsQuery)
 export class GetAttendanceRecordsHandler implements IQueryHandler<GetAttendanceRecordsQuery> {
@@ -19,7 +11,7 @@ export class GetAttendanceRecordsHandler implements IQueryHandler<GetAttendanceR
     private readonly attendanceRepository: Repository<AttendanceRecord>,
   ) {}
 
-  async execute(query: GetAttendanceRecordsQuery): Promise<PaginatedAttendanceRecords> {
+  async execute(query: GetAttendanceRecordsQuery): Promise<PaginatedQueryResult<AttendanceRecord>> {
     const {
       tenantId,
       employeeId,
@@ -30,9 +22,9 @@ export class GetAttendanceRecordsHandler implements IQueryHandler<GetAttendanceR
       endDate,
     } = query;
 
-    // Enforce pagination limits
-    const limit = Math.min(Math.max(query.limit || 20, 1), 100);
-    const offset = Math.max(query.offset || 0, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.attendanceRepository
       .createQueryBuilder('ar')
@@ -72,12 +64,6 @@ export class GetAttendanceRecordsHandler implements IQueryHandler<GetAttendanceR
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit,
-      offset,
-      hasMore: offset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

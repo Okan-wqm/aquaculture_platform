@@ -64,11 +64,8 @@ export class ProcessResolver {
   ): Promise<ProcessListType> {
     const result = await this.processService.listProcesses(tenantId ?? '', filter, pagination);
     return {
+      ...result,
       items: result.items.map((p) => this.mapToType(p)),
-      total: result.total,
-      offset: result.offset,
-      limit: result.limit,
-      hasMore: result.hasMore,
     };
   }
 
@@ -280,11 +277,8 @@ export class ProcessResolver {
   ): Promise<ScadaPackageListType> {
     const result = await this.scadaPackageService.listScadaPackages(tenantId ?? '', filter, pagination);
     return {
+      ...result,
       items: await Promise.all(result.items.map(p => this.mapScadaPackageToType(p, tenantId))),
-      total: result.total,
-      offset: result.offset,
-      limit: result.limit,
-      hasMore: result.hasMore,
     };
   }
 

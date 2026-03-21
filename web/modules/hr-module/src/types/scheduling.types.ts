@@ -77,9 +77,11 @@ export interface WeeklyPlanEntry {
 export interface WeeklyPlanConnection {
   items: WeeklyPlan[];
   total: number;
+  page: number;
   limit: number;
-  offset: number;
-  hasMore: boolean;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 export interface DayEntry {

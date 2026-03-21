@@ -1,19 +1,11 @@
 /**
  * List Systems Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListSystemsQuery } from '../queries/list-systems.query';
 import { System } from '../entities/system.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListSystemsQuery)
 export class ListSystemsHandler implements IQueryHandler<ListSystemsQuery> {
@@ -22,7 +14,7 @@ export class ListSystemsHandler implements IQueryHandler<ListSystemsQuery> {
     private readonly systemRepository: Repository<System>,
   ) {}
 
-  async execute(query: ListSystemsQuery): Promise<PaginatedResult<System>> {
+  async execute(query: ListSystemsQuery): Promise<PaginatedQueryResult<System>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -89,12 +81,6 @@ export class ListSystemsHandler implements IQueryHandler<ListSystemsQuery> {
     // Execute query
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

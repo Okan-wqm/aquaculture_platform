@@ -1,7 +1,7 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType, Field } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { CertificationType, CertificationCategory } from './entities/certification-type.entity';
@@ -24,63 +24,15 @@ import {
   GetTrainingCoursesQuery,
   GetTrainingEnrollmentsQuery,
 } from './queries';
-import { PaginatedTrainingCourses } from './query-handlers/get-training-courses.handler';
-import { PaginatedTrainingEnrollments } from './query-handlers/get-training-enrollments.handler';
-import { PaginatedEmployeeCertifications } from './query-handlers/get-all-certifications.handler';
 
 @ObjectType()
-class TrainingCourseConnection {
-  @Field(() => [TrainingCourse])
-  items!: TrainingCourse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class TrainingCourseConnection extends StandardPaginatedResponse(TrainingCourse) {}
 
 @ObjectType()
-class EmployeeCertificationConnection {
-  @Field(() => [EmployeeCertification])
-  items!: EmployeeCertification[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class EmployeeCertificationConnection extends StandardPaginatedResponse(EmployeeCertification) {}
 
 @ObjectType()
-class TrainingEnrollmentConnection {
-  @Field(() => [TrainingEnrollment])
-  items!: TrainingEnrollment[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class TrainingEnrollmentConnection extends StandardPaginatedResponse(TrainingEnrollment) {}
 
 // SECURITY: Context only exposes JWT-verified user fields.
 // Do NOT add x-tenant-id or x-user-id headers here — those are attacker-controlled
@@ -196,12 +148,13 @@ export class TrainingResolver {
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
     @Args('certificationTypeId', { type: () => ID, nullable: true }) certificationTypeId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedEmployeeCertifications> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<EmployeeCertification>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetAllCertificationsQuery(tenantId, employeeId, certificationTypeId, status, category, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetAllCertificationsQuery(tenantId, employeeId, certificationTypeId, status, category, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   // =====================
@@ -214,12 +167,13 @@ export class TrainingResolver {
     @Args('isMandatory', { nullable: true }) isMandatory?: boolean,
     @Args('isActive', { nullable: true }) isActive?: boolean,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedTrainingCourses> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<TrainingCourse>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetTrainingCoursesQuery(tenantId, trainingType, isMandatory, isActive, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetTrainingCoursesQuery(tenantId, trainingType, isMandatory, isActive, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   // =====================
@@ -232,12 +186,13 @@ export class TrainingResolver {
     @Args('trainingCourseId', { type: () => ID, nullable: true }) trainingCourseId?: string,
     @Args('status', { type: () => EnrollmentStatus, nullable: true }) status?: EnrollmentStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedTrainingEnrollments> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<TrainingEnrollment>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetTrainingEnrollmentsQuery(tenantId, employeeId, trainingCourseId, status, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetTrainingEnrollmentsQuery(tenantId, employeeId, trainingCourseId, status, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [TrainingEnrollment], { name: 'myTrainingEnrollments' })
@@ -245,14 +200,14 @@ export class TrainingResolver {
     @Context() context: GraphQLContext,
     @Args('status', { type: () => EnrollmentStatus, nullable: true }) status?: EnrollmentStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<TrainingEnrollment[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     const result = await this.queryBus.execute(
-      new GetTrainingEnrollmentsQuery(tenantId, userId, undefined, status, limit, offset),
+      new GetTrainingEnrollmentsQuery(tenantId, userId, undefined, status, limit, page),
     );
-    return result.items;
+    return result.data;
   }
 
   // =====================

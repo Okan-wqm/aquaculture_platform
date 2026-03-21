@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
 import { SystemResponse, PaginatedSystemsResponse } from './dto/system.response';
 import { SystemDeletePreviewResponse } from './dto/system-delete-preview.response';
 import { CreateSystemInput } from './dto/create-system.input';
@@ -116,7 +116,8 @@ export class SystemResolver {
       throw new Error('Tenant ID is required');
     }
     const query = new ListSystemsQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

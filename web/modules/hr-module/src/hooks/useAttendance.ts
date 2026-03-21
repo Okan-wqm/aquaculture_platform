@@ -73,7 +73,7 @@ export function useShifts(filter?: { isActive?: boolean; shiftType?: string }) {
       graphqlRequest<{ shifts: { items: Shift[]; total: number } }, unknown>(
         client,
         GET_SHIFTS,
-        { isActive: filter?.isActive, shiftType: filter?.shiftType, limit: 100, offset: 0 }
+        { isActive: filter?.isActive, shiftType: filter?.shiftType, page: 1, limit: 100 }
       ),
     select: (data) => data.shifts.items,
   });
@@ -118,7 +118,7 @@ export function useAttendanceRecords(
           startDate: filter?.startDate,
           endDate: filter?.endDate,
           limit: pagination?.limit ?? 20,
-          offset: pagination?.offset ?? 0,
+          page: pagination?.page ?? 1,
         }
       ),
     select: (data) => data.attendanceRecords,

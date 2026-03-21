@@ -3,6 +3,7 @@
  */
 import { ObjectType, Field, Int, ID } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { EquipmentStatus } from '../entities/equipment.entity';
 import { EquipmentResponse } from './equipment.response';
 
@@ -115,19 +116,4 @@ export class SubEquipmentResponse {
 }
 
 @ObjectType()
-export class PaginatedSubEquipmentResponse {
-  @Field(() => [SubEquipmentResponse])
-  items: SubEquipmentResponse[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  page: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field(() => Int)
-  totalPages: number;
-}
+export class PaginatedSubEquipmentResponse extends StandardPaginatedResponse(SubEquipmentResponse) {}

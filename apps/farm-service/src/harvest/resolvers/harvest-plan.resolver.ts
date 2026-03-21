@@ -21,7 +21,7 @@ import {
   Parent,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { TenantGuard, Tenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 
 // Entities
 import { HarvestPlan, HarvestPlanStatus } from '../entities/harvest-plan.entity';
@@ -29,7 +29,6 @@ import { HarvestPlan, HarvestPlanStatus } from '../entities/harvest-plan.entity'
 // Service
 import {
   HarvestPlanService,
-  PaginatedHarvestPlans,
   HarvestPlanStats,
 } from '../services/harvest-plan.service';
 
@@ -56,16 +55,7 @@ interface UserContext {
  * Paginated harvest plans response
  */
 @ObjectType()
-export class PaginatedHarvestPlansResponse {
-  @Field(() => [HarvestPlan])
-  items: HarvestPlan[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class PaginatedHarvestPlansResponse extends StandardPaginatedResponse(HarvestPlan) {}
 
 /**
  * Harvest plan statistics response
@@ -174,7 +164,7 @@ export class HarvestPlanResolver {
   async harvestPlans(
     @Tenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: HarvestPlanFilterInput,
-  ): Promise<PaginatedHarvestPlans> {
+  ): Promise<IStandardPaginatedResult<HarvestPlan>> {
     return this.harvestPlanService.findAll(tenantId, filter);
   }
 

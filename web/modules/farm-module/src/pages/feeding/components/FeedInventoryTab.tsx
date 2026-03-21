@@ -325,7 +325,7 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
               </button>
               <button
                 onClick={() => setPage(p => p + 1)}
-                disabled={!data.hasMore}
+                disabled={!data.hasNextPage}
                 className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
                 Next

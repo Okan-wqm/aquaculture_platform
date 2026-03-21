@@ -71,11 +71,8 @@ export class RegistrationResolver {
     this.logger.debug(`Listing sensors for tenant ${effectiveTenantId}`);
     const result = await this.registrationService.listSensors(effectiveTenantId, filter, pagination);
     return {
+      ...result,
       items: result.items.map((s) => this.mapSensorToType(s)),
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      totalPages: result.totalPages,
     };
   }
 
@@ -326,11 +323,8 @@ export class RegistrationResolver {
     this.logger.debug(`Listing parent devices for tenant ${effectiveTenantId}`);
     const result = await this.registrationService.listParentDevices(effectiveTenantId, filter, pagination);
     return {
+      ...result,
       items: result.items.map((s) => this.mapSensorToType(s)),
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      totalPages: result.totalPages,
     };
   }
 

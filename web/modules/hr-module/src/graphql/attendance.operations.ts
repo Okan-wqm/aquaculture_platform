@@ -13,15 +13,17 @@ import {
 // =====================
 
 export const GET_SHIFTS = gql`
-  query GetShifts($isActive: Boolean, $shiftType: ShiftType, $limit: Int, $offset: Int) {
-    shifts(isActive: $isActive, shiftType: $shiftType, limit: $limit, offset: $offset) {
+  query GetShifts($isActive: Boolean, $shiftType: ShiftType, $page: Int, $limit: Int) {
+    shifts(isActive: $isActive, shiftType: $shiftType, page: $page, limit: $limit) {
       items {
         ...ShiftFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${SHIFT_FRAGMENT}
@@ -44,8 +46,8 @@ export const GET_ATTENDANCE_RECORDS = gql`
     $approvalStatus: ApprovalStatus
     $startDate: String
     $endDate: String
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     attendanceRecords(
       employeeId: $employeeId
@@ -54,16 +56,18 @@ export const GET_ATTENDANCE_RECORDS = gql`
       approvalStatus: $approvalStatus
       startDate: $startDate
       endDate: $endDate
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...AttendanceRecordFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${ATTENDANCE_RECORD_FRAGMENT}

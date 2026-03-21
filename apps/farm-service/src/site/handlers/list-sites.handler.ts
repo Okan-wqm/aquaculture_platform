@@ -1,19 +1,11 @@
 /**
  * List Sites Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListSitesQuery } from '../queries/list-sites.query';
 import { Site } from '../entities/site.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListSitesQuery)
 export class ListSitesHandler implements IQueryHandler<ListSitesQuery> {
@@ -22,7 +14,7 @@ export class ListSitesHandler implements IQueryHandler<ListSitesQuery> {
     private readonly siteRepository: Repository<Site>,
   ) {}
 
-  async execute(query: ListSitesQuery): Promise<PaginatedResult<Site>> {
+  async execute(query: ListSitesQuery): Promise<PaginatedQueryResult<Site>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -67,12 +59,6 @@ export class ListSitesHandler implements IQueryHandler<ListSitesQuery> {
     // Execute query
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

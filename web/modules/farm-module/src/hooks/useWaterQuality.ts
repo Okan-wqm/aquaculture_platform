@@ -198,9 +198,11 @@ const GET_WATER_QUALITY_LIST = `
         ${WATER_QUALITY_FRAGMENT}
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;
@@ -301,9 +303,11 @@ export function useWaterQualityList(filters?: WaterQualityFilters) {
         waterQualityMeasurements: {
           items: WaterQualityMeasurement[];
           total: number;
+          page: number;
           limit: number;
-          offset: number;
-          hasMore: boolean;
+          totalPages: number;
+          hasNextPage: boolean;
+          hasPreviousPage: boolean;
         };
       }>(GET_WATER_QUALITY_LIST, { filter: filters });
       return response.waterQualityMeasurements;

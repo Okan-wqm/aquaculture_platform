@@ -1,7 +1,7 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field, Float } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@platform/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Shift, ShiftType } from './entities/shift.entity';
@@ -23,10 +23,7 @@ import {
   GetTodaysAttendanceQuery,
   GetDailyAttendanceOverviewQuery,
 } from './queries';
-import { PaginatedAttendanceRecords } from './query-handlers/get-attendance-records.handler';
 import { AttendanceSummary } from './query-handlers/get-attendance-summary.handler';
-import { PaginatedShifts } from './query-handlers/get-shifts.handler';
-import { PaginatedPendingAttendanceApprovals } from './query-handlers/get-pending-attendance-approvals.handler';
 import { DailyAttendanceOverview } from './query-handlers/get-daily-attendance-overview.handler';
 
 // SECURITY: Context only exposes JWT-verified user fields.
@@ -42,58 +39,13 @@ interface GraphQLContext {
 }
 
 @ObjectType()
-class AttendanceRecordConnection {
-  @Field(() => [AttendanceRecord])
-  items!: AttendanceRecord[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class AttendanceRecordConnection extends StandardPaginatedResponse(AttendanceRecord) {}
 
 @ObjectType()
-class ShiftConnection {
-  @Field(() => [Shift])
-  items!: Shift[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class ShiftConnection extends StandardPaginatedResponse(Shift) {}
 
 @ObjectType()
-class PendingAttendanceApprovalsConnection {
-  @Field(() => [AttendanceRecord])
-  items!: AttendanceRecord[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  offset!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+class PendingAttendanceApprovalsConnection extends StandardPaginatedResponse(AttendanceRecord) {}
 
 @UseGuards(GqlAuthGuard)
 @Resolver(() => AttendanceRecord)
@@ -130,10 +82,11 @@ export class AttendanceResolver {
     @Args('isActive', { nullable: true }) isActive?: boolean,
     @Args('shiftType', { type: () => ShiftType, nullable: true }) shiftType?: ShiftType,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedShifts> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<Shift>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetShiftsQuery(tenantId, isActive, shiftType, limit, offset));
+    const result = await this.queryBus.execute(new GetShiftsQuery(tenantId, isActive, shiftType, limit, page));
+    return fromCqrsPaginated(result);
   }
 
   // =====================
@@ -151,10 +104,10 @@ export class AttendanceResolver {
     @Args('startDate', { nullable: true }) startDate?: string,
     @Args('endDate', { nullable: true }) endDate?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedAttendanceRecords> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
+    const result = await this.queryBus.execute(
       new GetAttendanceRecordsQuery(
         tenantId,
         employeeId,
@@ -164,9 +117,10 @@ export class AttendanceResolver {
         startDate,
         endDate,
         limit,
-        offset,
+        page,
       ),
     );
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => [AttendanceRecord], { name: 'myAttendanceRecords' })
@@ -188,10 +142,10 @@ export class AttendanceResolver {
         startDate,
         endDate,
         limit,
-        0,
+        1,
       ),
     );
-    return result.items;
+    return result.data;
   }
 
   @Query(() => AttendanceSummary, { name: 'attendanceSummary' })
@@ -229,13 +183,14 @@ export class AttendanceResolver {
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
-    @Args('offset', { type: () => Int, nullable: true, defaultValue: 0 }) offset?: number,
-  ): Promise<PaginatedPendingAttendanceApprovals> {
+    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+  ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.queryBus.execute(
-      new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, offset),
+    const result = await this.queryBus.execute(
+      new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, page),
     );
+    return fromCqrsPaginated(result);
   }
 
   // =====================

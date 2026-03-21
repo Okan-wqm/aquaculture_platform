@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetLeaveRequestsQuery } from '../queries/get-leave-requests.query';
 import { LeaveRequest } from '../entities/leave-request.entity';
-
-export interface PaginatedLeaveRequests {
-  items: LeaveRequest[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetLeaveRequestsQuery)
 export class GetLeaveRequestsHandler implements IQueryHandler<GetLeaveRequestsQuery> {
@@ -19,7 +11,7 @@ export class GetLeaveRequestsHandler implements IQueryHandler<GetLeaveRequestsQu
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
   ) {}
 
-  async execute(query: GetLeaveRequestsQuery): Promise<PaginatedLeaveRequests> {
+  async execute(query: GetLeaveRequestsQuery): Promise<PaginatedQueryResult<LeaveRequest>> {
     const {
       tenantId,
       employeeId,
@@ -29,9 +21,9 @@ export class GetLeaveRequestsHandler implements IQueryHandler<GetLeaveRequestsQu
       endDate,
     } = query;
 
-    // Enforce pagination limits
-    const limit = Math.min(Math.max(query.limit || 20, 1), 100);
-    const offset = Math.max(query.offset || 0, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.leaveRequestRepository
       .createQueryBuilder('lr')
@@ -66,12 +58,6 @@ export class GetLeaveRequestsHandler implements IQueryHandler<GetLeaveRequestsQu
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit,
-      offset,
-      hasMore: offset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

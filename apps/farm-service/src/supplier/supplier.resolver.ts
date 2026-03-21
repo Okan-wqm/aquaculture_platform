@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, fromCqrsPaginated } from '@platform/backend-common';
 import { SupplierResponse, PaginatedSuppliersResponse, SupplierTypeResponse } from './dto/supplier.response';
 import { CreateSupplierInput } from './dto/create-supplier.input';
 import { UpdateSupplierInput } from './dto/update-supplier.input';
@@ -96,7 +96,8 @@ export class SupplierResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedSuppliersResponse> {
     const query = new ListSuppliersQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

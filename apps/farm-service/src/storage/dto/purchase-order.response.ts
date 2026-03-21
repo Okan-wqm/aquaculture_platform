@@ -1,4 +1,5 @@
 import { ObjectType, Field, Float, Int, ID } from '@nestjs/graphql';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { PurchaseOrderCategory, PurchaseOrderStatus } from '../entities/purchase-order.entity';
 
 @ObjectType()
@@ -83,19 +84,4 @@ export class PurchaseOrderResponse {
 }
 
 @ObjectType()
-export class PaginatedPurchaseOrdersResponse {
-  @Field(() => [PurchaseOrderResponse])
-  items!: PurchaseOrderResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedPurchaseOrdersResponse extends StandardPaginatedResponse(PurchaseOrderResponse) {}

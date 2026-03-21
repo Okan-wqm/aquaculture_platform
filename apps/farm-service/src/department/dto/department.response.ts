@@ -3,6 +3,7 @@
  */
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { DepartmentType, DepartmentStatus } from '../entities/department.entity';
 import { SiteResponse } from '../../site/dto/site.response';
 
@@ -73,19 +74,4 @@ export class DepartmentResponse {
 }
 
 @ObjectType()
-export class PaginatedDepartmentsResponse {
-  @Field(() => [DepartmentResponse])
-  items!: DepartmentResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedDepartmentsResponse extends StandardPaginatedResponse(DepartmentResponse) {}

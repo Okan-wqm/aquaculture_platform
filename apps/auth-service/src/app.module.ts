@@ -7,6 +7,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { join } from 'path';
 import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard } from '@platform/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
@@ -95,9 +96,8 @@ import { TenantModule } from './modules/tenant/tenant.module';
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         return {
-          autoSchemaFile: {
-            federation: 2,
-          },
+          autoSchemaFile: join(process.cwd(), 'schema.graphql'),
+          buildSchemaOptions: { federation: 2 },
           playground: !isProduction,
           // SECURITY: Disable introspection in production to prevent schema discovery
           introspection: !isProduction,

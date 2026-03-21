@@ -40,22 +40,8 @@ import {
   UsedMaterialInput,
   LaborRecordInput,
 } from '../dto/update-work-order.dto';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
 import { WorkOrderFilterInput } from '../dto/work-order-filter.dto';
-
-/**
- * Paginated result interface
- */
-export interface PaginatedResult<T> {
-  data: T[];
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-  };
-}
 
 /**
  * WorkOrder statistics
@@ -300,7 +286,7 @@ export class WorkOrderService {
     limit = 20,
     sortBy = 'createdAt',
     sortOrder: 'ASC' | 'DESC' = 'DESC',
-  ): Promise<PaginatedResult<WorkOrder>> {
+  ): Promise<IStandardPaginatedResult<WorkOrder>> {
     const query = this.workOrderRepository
       .createQueryBuilder('wo')
       .where('wo.tenantId = :tenantId', { tenantId });
@@ -399,21 +385,9 @@ export class WorkOrderService {
       .skip((page - 1) * limit)
       .take(limit);
 
-    const data = await query.getMany();
+    const items = await query.getMany();
 
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

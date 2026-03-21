@@ -1,20 +1,12 @@
 /**
  * List Chemicals Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListChemicalsQuery } from '../queries/list-chemicals.query';
 import { Chemical } from '../entities/chemical.entity';
 import { ChemicalSite } from '../entities/chemical-site.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListChemicalsQuery)
 export class ListChemicalsHandler implements IQueryHandler<ListChemicalsQuery> {
@@ -23,7 +15,7 @@ export class ListChemicalsHandler implements IQueryHandler<ListChemicalsQuery> {
     private readonly chemicalRepository: Repository<Chemical>,
   ) {}
 
-  async execute(query: ListChemicalsQuery): Promise<PaginatedResult<Chemical>> {
+  async execute(query: ListChemicalsQuery): Promise<PaginatedQueryResult<Chemical>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -83,12 +75,6 @@ export class ListChemicalsHandler implements IQueryHandler<ListChemicalsQuery> {
     // Execute query
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

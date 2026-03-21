@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { createHash } from 'crypto';
+import { join } from 'path';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -105,9 +106,8 @@ const complexityCache = new Map<string, number>();
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
-          autoSchemaFile: {
-            federation: 2,
-          },
+          autoSchemaFile: join(process.cwd(), 'schema.graphql'),
+          buildSchemaOptions: { federation: 2 },
           validationRules: [depthLimit(10)],
           plugins: [
             {

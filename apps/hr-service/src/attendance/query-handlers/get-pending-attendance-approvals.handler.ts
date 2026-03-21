@@ -1,17 +1,9 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetPendingAttendanceApprovalsQuery } from '../queries/get-pending-attendance-approvals.query';
 import { AttendanceRecord, ApprovalStatus } from '../entities/attendance-record.entity';
 import { Employee } from '../../hr/entities/employee.entity';
-
-export interface PaginatedPendingAttendanceApprovals {
-  items: AttendanceRecord[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetPendingAttendanceApprovalsQuery)
 export class GetPendingAttendanceApprovalsHandler
@@ -24,12 +16,12 @@ export class GetPendingAttendanceApprovalsHandler
     private readonly employeeRepository: Repository<Employee>,
   ) {}
 
-  async execute(query: GetPendingAttendanceApprovalsQuery): Promise<PaginatedPendingAttendanceApprovals> {
-    const { tenantId, approverId, departmentId, limit = 20, offset = 0 } = query;
+  async execute(query: GetPendingAttendanceApprovalsQuery): Promise<PaginatedQueryResult<AttendanceRecord>> {
+    const { tenantId, approverId, departmentId } = query;
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
-    const effectiveOffset = Math.max(offset, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     // Only look up the approver's department when the caller has NOT supplied an explicit
     // departmentId — avoids a wasted round-trip on every call where departmentId is known.
@@ -40,7 +32,7 @@ export class GetPendingAttendanceApprovalsHandler
         select: ['id', 'departmentHrId'],
       });
       if (!approver) {
-        return { items: [], total: 0, limit: effectiveLimit, offset: effectiveOffset, hasMore: false };
+        return createPaginatedQueryResult([], page, limit, 0);
       }
       effectiveDepartmentId = approver.departmentHrId;
     }
@@ -63,16 +55,10 @@ export class GetPendingAttendanceApprovalsHandler
     }
 
     const [items, total] = await queryBuilder
-      .skip(effectiveOffset)
-      .take(effectiveLimit)
+      .skip(offset)
+      .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

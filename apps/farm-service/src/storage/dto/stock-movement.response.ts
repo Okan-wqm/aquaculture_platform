@@ -1,4 +1,5 @@
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { MovementType } from '../entities/stock-movement.entity';
 
 @ObjectType()
@@ -82,19 +83,4 @@ export class StockMovementResponse {
 }
 
 @ObjectType()
-export class PaginatedStockMovementsResponse {
-  @Field(() => [StockMovementResponse])
-  items!: StockMovementResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedStockMovementsResponse extends StandardPaginatedResponse(StockMovementResponse) {}

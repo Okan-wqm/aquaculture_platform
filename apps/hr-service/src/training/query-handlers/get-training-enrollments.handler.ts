@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetTrainingEnrollmentsQuery } from '../queries/get-training-enrollments.query';
 import { TrainingEnrollment } from '../entities/training-enrollment.entity';
-
-export interface PaginatedTrainingEnrollments {
-  items: TrainingEnrollment[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetTrainingEnrollmentsQuery)
 export class GetTrainingEnrollmentsHandler
@@ -21,12 +13,12 @@ export class GetTrainingEnrollmentsHandler
     private readonly enrollmentRepository: Repository<TrainingEnrollment>,
   ) {}
 
-  async execute(query: GetTrainingEnrollmentsQuery): Promise<PaginatedTrainingEnrollments> {
-    const { tenantId, employeeId, trainingCourseId, status, limit = 20, offset = 0 } = query;
+  async execute(query: GetTrainingEnrollmentsQuery): Promise<PaginatedQueryResult<TrainingEnrollment>> {
+    const { tenantId, employeeId, trainingCourseId, status } = query;
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
-    const effectiveOffset = Math.max(offset, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.enrollmentRepository
       .createQueryBuilder('te')
@@ -49,16 +41,10 @@ export class GetTrainingEnrollmentsHandler
     }
 
     const [items, total] = await queryBuilder
-      .skip(effectiveOffset)
-      .take(effectiveLimit)
+      .skip(offset)
+      .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

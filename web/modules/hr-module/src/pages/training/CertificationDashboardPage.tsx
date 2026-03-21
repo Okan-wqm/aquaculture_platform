@@ -230,7 +230,7 @@ export function CertificationDashboardPage() {
   const [categoryFilter, setCategoryFilter] = useState<CertificationCategory | ''>('');
   const [statusFilter, setStatusFilter] = useState<CertificationStatus | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
+  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
 
   // Data fetching
   const { data: certTypes, isLoading: loadingTypes } = useCertificationTypes(
@@ -397,7 +397,7 @@ export function CertificationDashboardPage() {
   const handlePageChange = (page: number) => {
     setPagination({
       ...pagination,
-      offset: (page - 1) * (pagination.limit || 20),
+      page,
     });
   };
 
@@ -652,7 +652,7 @@ export function CertificationDashboardPage() {
             isLoading={loadingCerts}
             emptyMessage="No certifications found"
             total={certTotal}
-            page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+            page={pagination.page || 1}
             pageSize={pagination.limit || 20}
             onPageChange={handlePageChange}
           />

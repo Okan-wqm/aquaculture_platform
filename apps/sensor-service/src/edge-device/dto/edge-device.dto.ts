@@ -8,6 +8,7 @@ import {
 } from '@nestjs/graphql';
 import { IsUUID, IsBoolean, IsOptional, IsString, IsHexadecimal, Length, IsEnum, Matches, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 
 import {
   DeviceIoConfig,
@@ -228,19 +229,7 @@ export class UpdateIoConfigInput {
  * Edge device connection (paginated list)
  */
 @ObjectType()
-export class EdgeDeviceConnection {
-  @Field(() => [EdgeDevice])
-  items!: EdgeDevice[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-}
+export class EdgeDeviceConnection extends StandardPaginatedResponse(EdgeDevice) {}
 
 /**
  * State count for statistics

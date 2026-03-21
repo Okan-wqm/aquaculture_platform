@@ -24,7 +24,7 @@ import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginationInput } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -347,16 +347,7 @@ export class BiomassEstimateResponse {
 
 // Types that reference other types - must come after their dependencies
 @ObjectType()
-export class GrowthMeasurementConnection {
-  @Field(() => [GrowthMeasurement])
-  items: GrowthMeasurement[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class GrowthMeasurementConnection extends StandardPaginatedResponse(GrowthMeasurement) {}
 
 @ObjectType()
 export class GrowthAnalysisResponse {
@@ -431,7 +422,7 @@ export class GrowthResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: GrowthMeasurementFilterInput,
     @Args('pagination', { nullable: true }) pagination?: GrowthPaginationInput,
-  ): Promise<GrowthMeasurementConnection> {
+  ): Promise<IStandardPaginatedResult<GrowthMeasurement>> {
     const result: PaginatedQueryResult<GrowthMeasurement> = await this.queryBus.execute(
       new GetGrowthMeasurementsQuery(
         tenantId,
@@ -449,11 +440,7 @@ export class GrowthResolver {
         pagination?.limit ?? 20,
       ),
     );
-    return {
-      items: result.data,
-      total: result.pagination.total,
-      hasMore: result.pagination.hasNextPage,
-    };
+    return fromCqrsPaginated(result);
   }
 
   /**
@@ -501,7 +488,7 @@ export class GrowthResolver {
         'DESC',
       ),
     ) as PaginatedQueryResult<GrowthMeasurement>;
-    return result.data;
+    return fromCqrsPaginated(result).items;
   }
 
   // ==========================================================================

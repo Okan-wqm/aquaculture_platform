@@ -9,6 +9,9 @@ import {
   Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { StandardPaginatedResponse } from '@platform/backend-common';
+
+import { PlcTelemetry } from '../entities/plc-telemetry.entity';
 
 /**
  * Filter input for querying PLC telemetry
@@ -36,6 +39,13 @@ export class PlcTelemetryFilterDto {
   @IsDate()
   @Type(() => Date)
   toDate?: Date;
+
+  @Field(() => Int, { nullable: true, defaultValue: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  page?: number;
 
   @Field(() => Int, { nullable: true, defaultValue: 100 })
   @IsOptional()
@@ -65,16 +75,7 @@ export class TelemetryTimeRangeDto {
  * Paginated PLC telemetry response
  */
 @ObjectType('PaginatedPlcTelemetry')
-export class PaginatedPlcTelemetryDto {
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-}
+export class PaginatedPlcTelemetryDto extends StandardPaginatedResponse(PlcTelemetry) {}
 
 /**
  * Statistics for a sensor value

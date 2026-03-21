@@ -9,6 +9,6 @@ export class GetWeeklyPlansQuery {
     public readonly weekStartDate?: string,
     public readonly status?: WeeklyPlanStatus,
     public readonly limit: number = 20,
-    public readonly offset: number = 0,
+    public readonly page: number = 1,
   ) {}
 }

@@ -2,6 +2,7 @@
  * Chemical Response Types for GraphQL
  */
 import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { ChemicalType, ChemicalStatus } from '../entities/chemical.entity';
 
 // Register enums for GraphQL
@@ -247,19 +248,4 @@ export class ChemicalResponse {
 }
 
 @ObjectType()
-export class PaginatedChemicalsResponse {
-  @Field(() => [ChemicalResponse])
-  items!: ChemicalResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedChemicalsResponse extends StandardPaginatedResponse(ChemicalResponse) {}

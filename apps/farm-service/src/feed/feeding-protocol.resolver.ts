@@ -9,7 +9,7 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import {
   FeedingProtocolResponse,
   PaginatedFeedingProtocolsResponse,
@@ -64,7 +64,8 @@ export class FeedingProtocolResolver {
   ): Promise<PaginatedFeedingProtocolsResponse> {
     this.logger.debug(`Listing feeding protocols for tenant ${tenantId}`);
     const query = new ListFeedingProtocolsQuery(tenantId, filter, pagination);
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

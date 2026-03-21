@@ -2,30 +2,22 @@
  * List Tanks Query Handler
  * @module Tank/Handlers
  */
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, MoreThan, LessThan, Between } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ListTanksQuery } from '../queries/list-tanks.query';
 import { Tank } from '../entities/tank.entity';
 
-export interface TankListResult {
-  items: Tank[];
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
-
 @QueryHandler(ListTanksQuery)
 export class ListTanksHandler
-  implements IQueryHandler<ListTanksQuery, TankListResult>
+  implements IQueryHandler<ListTanksQuery, PaginatedQueryResult<Tank>>
 {
   constructor(
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
   ) {}
 
-  async execute(query: ListTanksQuery): Promise<TankListResult> {
+  async execute(query: ListTanksQuery): Promise<PaginatedQueryResult<Tank>> {
     const { tenantId, filter } = query;
 
     const offset = filter?.offset ?? 0;
@@ -135,13 +127,8 @@ export class ListTanksHandler
 
     // PERF(F1-006): Single query for both count and data instead of two separate round-trips
     const [items, total] = await queryBuilder.getManyAndCount();
+    const page = Math.floor(offset / limit) + 1;
 
-    return {
-      items,
-      total,
-      offset,
-      limit,
-      hasMore: offset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

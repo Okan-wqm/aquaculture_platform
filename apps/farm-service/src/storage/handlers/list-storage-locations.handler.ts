@@ -1,4 +1,4 @@
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListStorageLocationsQuery } from '../queries/list-storage-locations.query';
@@ -51,12 +51,6 @@ export class ListStorageLocationsHandler implements IQueryHandler<ListStorageLoc
 
     const [items, total] = await qb.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

@@ -44,7 +44,7 @@ export function usePayrolls(filter?: PayrollFilterInput) {
           employeeId: filter?.employeeId,
           status: filter?.status,
           limit: filter?.limit ?? 20,
-          offset: filter?.offset ?? 0,
+          page: filter?.page ?? 1,
         }
       ),
     select: (data) => data.payrolls,

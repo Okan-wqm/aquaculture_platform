@@ -78,8 +78,8 @@ export const GET_WEEKLY_PLANS = gql`
     $siteId: ID
     $weekStartDate: String
     $status: WeeklyPlanStatus
+    $page: Int
     $limit: Int
-    $offset: Int
   ) {
     weeklyPlans(
       employeeId: $employeeId
@@ -87,16 +87,18 @@ export const GET_WEEKLY_PLANS = gql`
       siteId: $siteId
       weekStartDate: $weekStartDate
       status: $status
+      page: $page
       limit: $limit
-      offset: $offset
     ) {
       items {
         ...WeeklyPlanFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${WEEKLY_PLAN_FRAGMENT}

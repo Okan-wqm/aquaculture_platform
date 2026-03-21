@@ -573,7 +573,7 @@ export const GrowthTab: React.FC = () => {
                 <p className="text-sm text-gray-500">
                   Toplam {measurementsData.total} olcum
                 </p>
-                {measurementsData.hasMore && (
+                {measurementsData.hasNextPage && (
                   <p className="text-sm text-gray-500">
                     Daha fazla olcum mevcut
                   </p>

@@ -8,11 +8,11 @@
  */
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
 import { HealthEvent } from '../entities/health-event.entity';
-import { HealthEventService, PaginatedHealthEvents, HealthEventStats } from '../services/health-event.service';
+import { HealthEventService, HealthEventStats } from '../services/health-event.service';
 import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';
@@ -23,16 +23,7 @@ import { TreatmentDetailsInput } from '../dto/create-health-event.input';
 // ============================================================================
 
 @ObjectType()
-export class PaginatedHealthEventsResponse {
-  @Field(() => [HealthEvent])
-  items: HealthEvent[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class PaginatedHealthEventsResponse extends StandardPaginatedResponse(HealthEvent) {}
 
 @ObjectType()
 export class HealthEventStatsResponse {
@@ -94,7 +85,7 @@ export class HealthEventResolver {
   async healthEvents(
     @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: HealthEventFilterInput,
-  ): Promise<PaginatedHealthEvents> {
+  ): Promise<IStandardPaginatedResult<HealthEvent>> {
     return this.healthEventService.findAll(tenantId, filter);
   }
 

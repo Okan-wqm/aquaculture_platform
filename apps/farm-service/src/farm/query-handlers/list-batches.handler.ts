@@ -1,10 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IQueryHandler, QueryHandler } from '@platform/cqrs';
+import { IQueryHandler, QueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { ListPondBatchesQuery } from '../queries/list-batches.query';
 import { PondBatch } from '../entities/batch.entity';
-import { PaginatedResult } from './list-farms.handler';
 
 /**
  * List Pond Batches Query Handler
@@ -14,7 +13,7 @@ import { PaginatedResult } from './list-farms.handler';
 @Injectable()
 @QueryHandler(ListPondBatchesQuery)
 export class ListPondBatchesHandler
-  implements IQueryHandler<ListPondBatchesQuery, PaginatedResult<PondBatch>>
+  implements IQueryHandler<ListPondBatchesQuery, PaginatedQueryResult<PondBatch>>
 {
   private readonly logger = new Logger(ListPondBatchesHandler.name);
 
@@ -23,7 +22,7 @@ export class ListPondBatchesHandler
     private readonly batchRepository: Repository<PondBatch>,
   ) {}
 
-  async execute(query: ListPondBatchesQuery): Promise<PaginatedResult<PondBatch>> {
+  async execute(query: ListPondBatchesQuery): Promise<PaginatedQueryResult<PondBatch>> {
     this.logger.debug(
       `Listing batches for tenant ${query.tenantId}, page ${query.pagination.page}`,
     );
@@ -59,16 +58,6 @@ export class ListPondBatchesHandler
       },
     });
 
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages,
-      hasNext: page < totalPages,
-      hasPrevious: page > 1,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

@@ -14,15 +14,17 @@ import {
 // =====================
 
 export const GET_PERFORMANCE_REVIEWS = gql`
-  query GetPerformanceReviews($employeeId: ID, $status: String, $limit: Int, $offset: Int) {
-    performanceReviews(employeeId: $employeeId, status: $status, limit: $limit, offset: $offset) {
+  query GetPerformanceReviews($employeeId: ID, $status: String, $page: Int, $limit: Int) {
+    performanceReviews(employeeId: $employeeId, status: $status, page: $page, limit: $limit) {
       items {
         ...PerformanceReviewFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${PERFORMANCE_REVIEW_FRAGMENT}
@@ -130,15 +132,17 @@ export const GET_REVIEW_CYCLE_STATUS = gql`
 // =====================
 
 export const GET_GOALS = gql`
-  query GetGoals($employeeId: ID, $status: String, $limit: Int, $offset: Int) {
-    goals(employeeId: $employeeId, status: $status, limit: $limit, offset: $offset) {
+  query GetGoals($employeeId: ID, $status: String, $page: Int, $limit: Int) {
+    goals(employeeId: $employeeId, status: $status, page: $page, limit: $limit) {
       items {
         ...GoalFull
       }
       total
+      page
       limit
-      offset
-      hasMore
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
   ${GOAL_FRAGMENT}

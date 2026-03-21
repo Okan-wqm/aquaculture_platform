@@ -19,6 +19,7 @@ import {
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-scalars';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 
 // GraphQL registerEnumType sends enum KEYS ('MANUAL', 'ST', 'RUST_ENGINE')
 // but TypeScript enum values are lowercase ('manual', 'st', 'rust_engine').
@@ -1018,22 +1019,7 @@ export class ProgramStats {
 }
 
 @ObjectType()
-export class AutomationProgramConnection {
-  @Field(() => [AutomationProgram])
-  items!: AutomationProgram[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+export class AutomationProgramConnection extends StandardPaginatedResponse(AutomationProgram) {}
 
 // ============================================
 // Deployment Types (v2.1 - IEC 61131-3 Edge Deployment)
@@ -1114,22 +1100,7 @@ export class DeploymentStatusOutput {
 // ============================================
 
 @ObjectType()
-export class DeploymentLogConnection {
-  @Field(() => [DeploymentLog])
-  items!: DeploymentLog[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field()
-  hasMore!: boolean;
-}
+export class DeploymentLogConnection extends StandardPaginatedResponse(DeploymentLog) {}
 
 // ============================================
 // ST Validation Types

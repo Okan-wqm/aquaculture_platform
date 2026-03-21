@@ -19,7 +19,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser } from '@platform/backend-common';
+import { Tenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 import {
   MaintenanceSchedule,
   MaintenanceScheduleStatus,
@@ -71,28 +71,7 @@ interface UserContext {
 // ============================================================================
 
 @ObjectType()
-export class MaintenanceScheduleListResponse {
-  @Field(() => [MaintenanceSchedule])
-  items: MaintenanceSchedule[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  page: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field(() => Int)
-  totalPages: number;
-
-  @Field()
-  hasNextPage: boolean;
-
-  @Field()
-  hasPreviousPage: boolean;
-}
+export class MaintenanceScheduleListResponse extends StandardPaginatedResponse(MaintenanceSchedule) {}
 
 @ObjectType()
 export class ScheduleAlertResponse {
@@ -190,9 +169,9 @@ export class MaintenanceScheduleResolver {
     sortBy?: string,
     @Args('sortOrder', { nullable: true, defaultValue: 'ASC' })
     sortOrder?: 'ASC' | 'DESC',
-  ): Promise<MaintenanceScheduleListResponse> {
+  ): Promise<IStandardPaginatedResult<MaintenanceSchedule>> {
     this.logger.debug(`Listing maintenance schedules for tenant: ${tenantId}`);
-    const result = await this.maintenanceScheduleService.findAll(
+    return this.maintenanceScheduleService.findAll(
       tenantId,
       filter,
       page,
@@ -200,16 +179,6 @@ export class MaintenanceScheduleResolver {
       sortBy,
       sortOrder,
     );
-
-    return {
-      items: result.data,
-      total: result.pagination.total,
-      page: result.pagination.page,
-      limit: result.pagination.limit,
-      totalPages: result.pagination.totalPages,
-      hasNextPage: result.pagination.hasNextPage,
-      hasPreviousPage: result.pagination.hasPreviousPage,
-    };
   }
 
   @Query(() => [MaintenanceSchedule], { name: 'upcomingMaintenanceSchedules' })

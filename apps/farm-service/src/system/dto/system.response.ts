@@ -2,6 +2,7 @@
  * System Response Types for GraphQL
  */
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { SystemType, SystemStatus } from '../entities/system.entity';
 import { SiteResponse } from '../../site/dto/site.response';
 import { DepartmentResponse } from '../../department/dto/department.response';
@@ -76,19 +77,4 @@ export class SystemResponse {
 }
 
 @ObjectType()
-export class PaginatedSystemsResponse {
-  @Field(() => [SystemResponse])
-  items: SystemResponse[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  page: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field(() => Int)
-  totalPages: number;
-}
+export class PaginatedSystemsResponse extends StandardPaginatedResponse(SystemResponse) {}

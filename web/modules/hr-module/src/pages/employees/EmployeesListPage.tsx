@@ -34,7 +34,7 @@ export function EmployeesListPage() {
 
   // State
   const [filter, setFilter] = useState<EmployeeFilterInput>({});
-  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
+  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
   const [searchQuery, setSearchQuery] = useState('');
   // PERF-006: defer the search value so rapid keystrokes are coalesced before
   // a new network request fires.  useDeferredValue yields the previous value
@@ -213,7 +213,7 @@ export function EmployeesListPage() {
   const handlePageChange = (page: number) => {
     setPagination({
       ...pagination,
-      offset: (page - 1) * (pagination.limit || 20),
+      page,
     });
   };
 
@@ -223,7 +223,7 @@ export function EmployeesListPage() {
       ...prev,
       [key]: value || undefined,
     }));
-    setPagination({ ...pagination, offset: 0 });
+    setPagination({ ...pagination, page: 1 });
   };
 
   return (
@@ -413,7 +413,7 @@ export function EmployeesListPage() {
         isLoading={isLoading}
         emptyMessage="No employees found"
         total={employees?.total}
-        page={Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+        page={pagination.page || 1}
         pageSize={pagination.limit || 20}
         onPageChange={handlePageChange}
         sortBy={sortBy}

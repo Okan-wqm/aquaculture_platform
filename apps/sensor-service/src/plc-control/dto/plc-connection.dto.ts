@@ -21,7 +21,7 @@ import {
   PlcSecurityMode,
   PlcAuthMode,
 } from '../entities/plc-connection.entity';
-import { StandardPaginationInput } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
 
 /**
  * Input DTO for creating a new PLC connection
@@ -432,22 +432,7 @@ export class PlcPaginationDto extends StandardPaginationInput {}
  * Paginated PLC connections response
  */
 @ObjectType('PaginatedPlcConnections')
-export class PaginatedPlcConnectionsDto {
-  @Field(() => [PlcConnection])
-  items!: PlcConnection[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedPlcConnectionsDto extends StandardPaginatedResponse(PlcConnection) {}
 
 /**
  * PLC connection count by status

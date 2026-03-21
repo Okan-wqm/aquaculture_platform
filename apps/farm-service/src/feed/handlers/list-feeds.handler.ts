@@ -1,21 +1,13 @@
 /**
  * List Feeds Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListFeedsQuery } from '../queries/list-feeds.query';
 import { Feed } from '../entities/feed.entity';
 import { FeedSite } from '../entities/feed-site.entity';
 import { FeedTypeSpecies } from '../entities/feed-type-species.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListFeedsQuery)
 export class ListFeedsHandler implements IQueryHandler<ListFeedsQuery> {
@@ -24,7 +16,7 @@ export class ListFeedsHandler implements IQueryHandler<ListFeedsQuery> {
     private readonly feedRepository: Repository<Feed>,
   ) {}
 
-  async execute(query: ListFeedsQuery): Promise<PaginatedResult<Feed>> {
+  async execute(query: ListFeedsQuery): Promise<PaginatedQueryResult<Feed>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -114,12 +106,6 @@ export class ListFeedsHandler implements IQueryHandler<ListFeedsQuery> {
     // Execute query
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

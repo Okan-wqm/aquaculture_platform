@@ -4,7 +4,7 @@ import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNot
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
-import { StandardPaginationInput } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
 
 import { CreateDataChannelInput, DataChannelType } from './data-channel.dto';
 
@@ -330,22 +330,7 @@ export class ConnectionTestResultType {
 }
 
 @ObjectType()
-export class SensorListType {
-  @Field(() => [RegisteredSensorType])
-  items!: RegisteredSensorType[];
-
-  @Field()
-  total!: number;
-
-  @Field()
-  page!: number;
-
-  @Field()
-  limit!: number;
-
-  @Field()
-  totalPages!: number;
-}
+export class SensorListType extends StandardPaginatedResponse(RegisteredSensorType) {}
 
 // Filter and pagination inputs
 @InputType()

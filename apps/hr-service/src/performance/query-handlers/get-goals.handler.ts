@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetGoalsQuery } from '../queries/get-goals.query';
 import { Goal } from '../entities/goal.entity';
-
-export interface PaginatedGoals {
-  items: Goal[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetGoalsQuery)
 export class GetGoalsHandler implements IQueryHandler<GetGoalsQuery> {
@@ -19,11 +11,12 @@ export class GetGoalsHandler implements IQueryHandler<GetGoalsQuery> {
     private readonly goalRepository: Repository<Goal>,
   ) {}
 
-  async execute(query: GetGoalsQuery): Promise<PaginatedGoals> {
+  async execute(query: GetGoalsQuery): Promise<PaginatedQueryResult<Goal>> {
     const { tenantId, employeeId, status } = query;
 
-    const limit = Math.min(Math.max(query.limit || 20, 1), 100);
-    const offset = Math.max(query.offset || 0, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const qb = this.goalRepository
       .createQueryBuilder('g')
@@ -46,12 +39,6 @@ export class GetGoalsHandler implements IQueryHandler<GetGoalsQuery> {
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit,
-      offset,
-      hasMore: offset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

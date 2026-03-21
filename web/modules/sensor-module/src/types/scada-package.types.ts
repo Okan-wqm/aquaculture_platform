@@ -124,7 +124,9 @@ export interface ScadaPackageFilter {
 export interface ScadaPackageListResult {
   items: ScadaPackage[];
   total: number;
-  offset: number;
+  page: number;
   limit: number;
-  hasMore: boolean;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }

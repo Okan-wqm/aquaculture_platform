@@ -125,7 +125,7 @@ export interface PayrollFilterInput {
   employeeId?: string;
   status?: PayrollStatus;
   limit?: number;
-  offset?: number;
+  page?: number;
 }
 
 // =====================

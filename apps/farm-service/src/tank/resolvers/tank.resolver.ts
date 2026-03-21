@@ -18,8 +18,8 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CommandBus, QueryBus } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
 import { Tank } from '../entities/tank.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -33,29 +33,13 @@ import { UpdateTankStatusCommand } from '../commands/update-tank-status.command'
 import { DeleteTankCommand } from '../commands/delete-tank.command';
 import { GetTankQuery } from '../queries/get-tank.query';
 import { ListTanksQuery } from '../queries/list-tanks.query';
-import { TankListResult } from '../handlers/list-tanks.handler';
 
 // ============================================================================
 // RESPONSE TYPES
 // ============================================================================
 
 @ObjectType()
-export class TankListResponse {
-  @Field(() => [Tank])
-  items: Tank[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  offset: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class TankListResponse extends StandardPaginatedResponse(Tank) {}
 
 @ObjectType()
 export class DeleteTankResponse {
@@ -210,9 +194,10 @@ export class TankResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { type: () => TankFilterInput, nullable: true })
     filter?: TankFilterInput,
-  ): Promise<TankListResult> {
+  ): Promise<IStandardPaginatedResult<Tank>> {
     this.logger.debug(`Listing tanks for tenant: ${tenantId}`);
-    return this.queryBus.execute(new ListTanksQuery(tenantId, filter));
+    const result = await this.queryBus.execute<any, PaginatedQueryResult<Tank>>(new ListTanksQuery(tenantId, filter));
+    return fromCqrsPaginated(result);
   }
 
   /**
@@ -223,10 +208,10 @@ export class TankResolver {
     @Args('departmentId', { type: () => ID }) departmentId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<Tank[]> {
-    const result: TankListResult = await this.queryBus.execute(
+    const result: PaginatedQueryResult<Tank> = await this.queryBus.execute(
       new ListTanksQuery(tenantId, { departmentId, isActive: true, limit: 100 }),
     );
-    return result.items;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -237,7 +222,7 @@ export class TankResolver {
     @CurrentTenant() tenantId: string,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
   ): Promise<Tank[]> {
-    const result: TankListResult = await this.queryBus.execute(
+    const result: PaginatedQueryResult<Tank> = await this.queryBus.execute(
       new ListTanksQuery(tenantId, {
         departmentId,
         hasAvailableCapacity: true,
@@ -245,7 +230,7 @@ export class TankResolver {
         limit: 100,
       }),
     );
-    return result.items;
+    return fromCqrsPaginated(result).items;
   }
 
   // -------------------------------------------------------------------------

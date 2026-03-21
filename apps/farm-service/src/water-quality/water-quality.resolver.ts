@@ -7,7 +7,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int, Float } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
 import { WaterQualityService } from './water-quality.service';
 import { CreateWaterQualityInput } from './dto/create-water-quality.input';
@@ -19,22 +19,7 @@ import { WaterQualityFilterInput } from './dto/water-quality-filter.input';
 // ============================================================================
 
 @ObjectType()
-export class WaterQualityListResponse {
-  @Field(() => [WaterQualityMeasurement])
-  items: WaterQualityMeasurement[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field(() => Int)
-  offset: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class WaterQualityListResponse extends StandardPaginatedResponse(WaterQualityMeasurement) {}
 
 @ObjectType()
 export class WaterQualityStatistics {
@@ -101,7 +86,7 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { type: () => WaterQualityFilterInput, nullable: true })
     filter?: WaterQualityFilterInput,
-  ): Promise<WaterQualityListResponse> {
+  ): Promise<IStandardPaginatedResult<WaterQualityMeasurement>> {
     this.logger.debug(`Listing water quality measurements for tenant: ${tenantId}`);
     return this.waterQualityService.findAll(tenantId, filter);
   }

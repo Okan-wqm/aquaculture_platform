@@ -1,19 +1,11 @@
 /**
  * List Departments Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListDepartmentsQuery } from '../queries/list-departments.query';
 import { Department } from '../entities/department.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListDepartmentsQuery)
 export class ListDepartmentsHandler implements IQueryHandler<ListDepartmentsQuery> {
@@ -22,7 +14,7 @@ export class ListDepartmentsHandler implements IQueryHandler<ListDepartmentsQuer
     private readonly departmentRepository: Repository<Department>,
   ) {}
 
-  async execute(query: ListDepartmentsQuery): Promise<PaginatedResult<Department>> {
+  async execute(query: ListDepartmentsQuery): Promise<PaginatedQueryResult<Department>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -74,12 +66,6 @@ export class ListDepartmentsHandler implements IQueryHandler<ListDepartmentsQuer
     // Execute query
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

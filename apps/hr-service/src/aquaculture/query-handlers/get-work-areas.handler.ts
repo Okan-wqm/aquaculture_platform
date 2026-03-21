@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetWorkAreasQuery } from '../queries/get-work-areas.query';
 import { WorkArea } from '../entities/work-area.entity';
-
-export interface PaginatedWorkAreas {
-  items: WorkArea[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetWorkAreasQuery)
 export class GetWorkAreasHandler implements IQueryHandler<GetWorkAreasQuery> {
@@ -19,12 +11,12 @@ export class GetWorkAreasHandler implements IQueryHandler<GetWorkAreasQuery> {
     private readonly workAreaRepository: Repository<WorkArea>,
   ) {}
 
-  async execute(query: GetWorkAreasQuery): Promise<PaginatedWorkAreas> {
-    const { tenantId, workAreaType, isOffshore, isActive, limit = 20, offset = 0 } = query;
+  async execute(query: GetWorkAreasQuery): Promise<PaginatedQueryResult<WorkArea>> {
+    const { tenantId, workAreaType, isOffshore, isActive } = query;
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
-    const effectiveOffset = Math.max(offset, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.workAreaRepository
       .createQueryBuilder('wa')
@@ -46,16 +38,10 @@ export class GetWorkAreasHandler implements IQueryHandler<GetWorkAreasQuery> {
     }
 
     const [items, total] = await queryBuilder
-      .skip(effectiveOffset)
-      .take(effectiveLimit)
+      .skip(offset)
+      .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

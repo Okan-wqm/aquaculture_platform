@@ -93,7 +93,11 @@ export const HARVEST_PLANS_QUERY = `
         ${HARVEST_PLAN_FIELDS}
       }
       total
-      hasMore
+      page
+      limit
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

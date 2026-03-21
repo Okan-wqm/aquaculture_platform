@@ -185,7 +185,11 @@ export interface HarvestPlanStats {
 interface PaginatedHarvestPlans {
   items: HarvestPlan[];
   total: number;
-  hasMore: boolean;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 // ============================================================================

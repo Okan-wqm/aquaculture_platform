@@ -883,7 +883,7 @@ export const HealthEventsPage: React.FC = () => {
             <div className="text-sm text-gray-500">
               Showing {filteredItems.length} of {data.total} events
             </div>
-            {data.hasMore && (
+            {data.hasNextPage && (
               <Button
                 variant="secondary"
                 size="sm"

@@ -130,7 +130,7 @@ export function CrewAssignmentsPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'assignments' | 'work-areas'>('overview');
   const [personnelFilter, setPersonnelFilter] = useState<PersonnelCategory | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
+  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
 
   // Data fetching
   const { data: employees, isLoading: loadingEmployees } = useEmployees(
@@ -229,14 +229,15 @@ export function CrewAssignmentsPage() {
   const handlePageChange = (page: number) => {
     setPagination({
       ...pagination,
-      offset: (page - 1) * (pagination.limit || 20),
+      page,
     });
   };
 
   // BUG-008: crewAssignments is a flat array; DataTable doesn't slice internally,
   // so paginate client-side by slicing the array ourselves.
   const pageSize = pagination.limit || 20;
-  const currentOffset = pagination.offset || 0;
+  const currentPage = pagination.page || 1;
+  const currentOffset = (currentPage - 1) * pageSize;
   const pagedAssignments = useMemo(
     () => (crewAssignments || []).slice(currentOffset, currentOffset + pageSize),
     [crewAssignments, currentOffset, pageSize]

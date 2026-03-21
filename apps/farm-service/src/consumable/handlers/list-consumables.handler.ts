@@ -1,16 +1,8 @@
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListConsumablesQuery } from '../queries/list-consumables.query';
 import { Consumable } from '../entities/consumable.entity';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 @QueryHandler(ListConsumablesQuery)
 export class ListConsumablesHandler implements IQueryHandler<ListConsumablesQuery> {
@@ -19,7 +11,7 @@ export class ListConsumablesHandler implements IQueryHandler<ListConsumablesQuer
     private readonly consumableRepository: Repository<Consumable>,
   ) {}
 
-  async execute(query: ListConsumablesQuery): Promise<PaginatedResult<Consumable>> {
+  async execute(query: ListConsumablesQuery): Promise<PaginatedQueryResult<Consumable>> {
     const { tenantId, filter, pagination } = query;
 
     const page = pagination?.page || 1;
@@ -63,12 +55,6 @@ export class ListConsumablesHandler implements IQueryHandler<ListConsumablesQuer
 
     const [items, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

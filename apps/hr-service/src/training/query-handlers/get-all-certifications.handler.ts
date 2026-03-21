@@ -1,16 +1,8 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler, PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetAllCertificationsQuery } from '../queries/get-all-certifications.query';
 import { EmployeeCertification } from '../entities/employee-certification.entity';
-
-export interface PaginatedEmployeeCertifications {
-  items: EmployeeCertification[];
-  total: number;
-  limit: number;
-  offset: number;
-  hasMore: boolean;
-}
 
 @QueryHandler(GetAllCertificationsQuery)
 export class GetAllCertificationsHandler
@@ -21,12 +13,12 @@ export class GetAllCertificationsHandler
     private readonly certificationRepository: Repository<EmployeeCertification>,
   ) {}
 
-  async execute(query: GetAllCertificationsQuery): Promise<PaginatedEmployeeCertifications> {
-    const { tenantId, employeeId, certificationTypeId, status, category, limit = 20, offset = 0 } = query;
+  async execute(query: GetAllCertificationsQuery): Promise<PaginatedQueryResult<EmployeeCertification>> {
+    const { tenantId, employeeId, certificationTypeId, status, category } = query;
 
-    // Enforce pagination limits
-    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
-    const effectiveOffset = Math.max(offset, 0);
+    const page = query.page ?? 1;
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const offset = (page - 1) * limit;
 
     const queryBuilder = this.certificationRepository
       .createQueryBuilder('ec')
@@ -54,16 +46,10 @@ export class GetAllCertificationsHandler
     queryBuilder.orderBy('ec.expiryDate', 'ASC', 'NULLS LAST');
 
     const [items, total] = await queryBuilder
-      .skip(effectiveOffset)
-      .take(effectiveLimit)
+      .skip(offset)
+      .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      limit: effectiveLimit,
-      offset: effectiveOffset,
-      hasMore: effectiveOffset + items.length < total,
-    };
+    return createPaginatedQueryResult(items, page, limit, total);
   }
 }

@@ -20,8 +20,8 @@ import {
   Parent,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@platform/cqrs';
-import { TenantGuard, Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { TenantGuard, Tenant, CurrentUser, Roles, Role, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
 
 // Entities
 import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
@@ -64,22 +64,7 @@ interface UserContext {
  * Paginated harvest records response
  */
 @ObjectType()
-export class PaginatedHarvestsResponse {
-  @Field(() => [HarvestRecord])
-  items: HarvestRecord[];
-
-  @Field(() => Int)
-  total: number;
-
-  @Field(() => Int)
-  page: number;
-
-  @Field(() => Int)
-  limit: number;
-
-  @Field()
-  hasMore: boolean;
-}
+export class PaginatedHarvestsResponse extends StandardPaginatedResponse(HarvestRecord) {}
 
 /**
  * Status statistics item
@@ -230,7 +215,7 @@ export class HarvestResolver {
     @Tenant() tenantId: string,
     @Args('filter', { type: () => HarvestFilterInput, nullable: true }) filter?: HarvestFilterInput,
     @Args('pagination', { type: () => HarvestPaginationInput, nullable: true }) pagination?: HarvestPaginationInput,
-  ): Promise<PaginatedHarvestsResponse> {
+  ): Promise<IStandardPaginatedResult<HarvestRecord>> {
     this.logger.log(`Listing harvests for tenant ${tenantId}`);
 
     const query = new ListHarvestsQuery(
@@ -268,7 +253,8 @@ export class HarvestResolver {
       } : undefined,
     );
 
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute<any, PaginatedQueryResult<HarvestRecord>>(query);
+    return fromCqrsPaginated(result);
   }
 
   /**
@@ -293,7 +279,7 @@ export class HarvestResolver {
     @Tenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('pagination', { type: () => HarvestPaginationInput, nullable: true }) pagination?: HarvestPaginationInput,
-  ): Promise<PaginatedHarvestsResponse> {
+  ): Promise<IStandardPaginatedResult<HarvestRecord>> {
     this.logger.log(`Listing harvests for batch ${batchId} in tenant ${tenantId}`);
 
     const query = new ListHarvestsQuery(
@@ -307,7 +293,8 @@ export class HarvestResolver {
       } : { sortBy: 'harvestDate', sortOrder: 'DESC' },
     );
 
-    return this.queryBus.execute(query);
+    const result = await this.queryBus.execute<any, PaginatedQueryResult<HarvestRecord>>(query);
+    return fromCqrsPaginated(result);
   }
 
   /**

@@ -3,6 +3,7 @@
  */
 import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { FeedType } from '../entities/feed.entity';
 
 /**
@@ -201,19 +202,4 @@ export class FeedingProtocolResponse {
  * Paginated Feeding Protocols Response
  */
 @ObjectType()
-export class PaginatedFeedingProtocolsResponse {
-  @Field(() => [FeedingProtocolResponse])
-  items!: FeedingProtocolResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedFeedingProtocolsResponse extends StandardPaginatedResponse(FeedingProtocolResponse) {}

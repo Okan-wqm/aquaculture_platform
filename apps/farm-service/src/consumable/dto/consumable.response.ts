@@ -2,6 +2,7 @@
  * Consumable Response Types for GraphQL
  */
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
+import { StandardPaginatedResponse } from '@platform/backend-common';
 import { ConsumableCategory, ConsumableStatus } from '../entities/consumable.entity';
 
 @ObjectType()
@@ -84,19 +85,4 @@ export class ConsumableResponse {
 }
 
 @ObjectType()
-export class PaginatedConsumablesResponse {
-  @Field(() => [ConsumableResponse])
-  items!: ConsumableResponse[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class PaginatedConsumablesResponse extends StandardPaginatedResponse(ConsumableResponse) {}

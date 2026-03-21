@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
 
 import {
   PlcConnection,
@@ -23,16 +24,7 @@ import {
 import { OpcUaAdapter } from '../../protocol/adapters/industrial/opcua.adapter';
 import { buildOpcUaConfig } from './opcua-config.builder';
 
-/**
- * Result interface for paginated PLC connections
- */
-export interface PaginatedPlcConnections {
-  items: PlcConnection[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type PaginatedPlcConnections = IStandardPaginatedResult<PlcConnection>;
 
 /**
  * Status count result interface
@@ -162,13 +154,7 @@ export class PlcConnectionService {
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

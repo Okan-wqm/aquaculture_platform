@@ -21,19 +21,23 @@ import {
   UpdatePlcConnectionDto,
   PlcConnectionFilterDto,
   PlcPaginationDto,
+  PaginatedPlcConnectionsDto,
   PlcConnectionTestResultDto,
   PlcConnectionCountByStatusDto,
   CreateFeedingParameterDto,
   UpdateFeedingParameterDto,
   FeedingParameterFilterDto,
+  PaginatedFeedingParametersDto,
   ParameterSendResultDto,
   PlcAlarmFilterDto,
+  PaginatedPlcAlarmsDto,
   AcknowledgeAlarmDto,
   BulkAcknowledgeAlarmsDto,
   PlcAlarmStatsDto,
   AlarmCountBySeverityDto,
   AlarmCountBySourceDto,
   PlcTelemetryFilterDto,
+  PaginatedPlcTelemetryDto,
   PlcTelemetryStatsDto,
   FeedingStatsDto,
   ActuatorUsageStatsDto,
@@ -97,16 +101,15 @@ export class PlcControlResolver {
   /**
    * List all PLC connections with filtering and pagination
    */
-  @Query(() => [PlcConnection], { name: 'plcConnections' })
+  @Query(() => PaginatedPlcConnectionsDto, { name: 'plcConnections' })
   async listPlcConnections(
     @Tenant() tenantId: string,
     @Args('filter', { type: () => PlcConnectionFilterDto, nullable: true })
     filter?: PlcConnectionFilterDto,
     @Args('pagination', { type: () => PlcPaginationDto, nullable: true })
     pagination?: PlcPaginationDto,
-  ): Promise<PlcConnection[]> {
-    const result = await this.plcConnectionService.findAll(tenantId, filter, pagination);
-    return result.items;
+  ): Promise<PaginatedPlcConnectionsDto> {
+    return this.plcConnectionService.findAll(tenantId, filter, pagination);
   }
 
   /**
@@ -367,16 +370,15 @@ export class PlcControlResolver {
   /**
    * List all feeding parameters with filtering and pagination
    */
-  @Query(() => [FeedingParameter], { name: 'feedingParameters' })
+  @Query(() => PaginatedFeedingParametersDto, { name: 'feedingParameters' })
   async listFeedingParameters(
     @Tenant() tenantId: string,
     @Args('filter', { type: () => FeedingParameterFilterDto, nullable: true })
     filter?: FeedingParameterFilterDto,
     @Args('pagination', { type: () => PlcPaginationDto, nullable: true })
     pagination?: PlcPaginationDto,
-  ): Promise<FeedingParameter[]> {
-    const result = await this.feedingParameterService.findAll(tenantId, filter, pagination);
-    return result.items;
+  ): Promise<PaginatedFeedingParametersDto> {
+    return this.feedingParameterService.findAll(tenantId, filter, pagination);
   }
 
   /**
@@ -515,16 +517,15 @@ export class PlcControlResolver {
   /**
    * List all alarms with filtering and pagination
    */
-  @Query(() => [PlcAlarm], { name: 'plcAlarms' })
+  @Query(() => PaginatedPlcAlarmsDto, { name: 'plcAlarms' })
   async listPlcAlarms(
     @Tenant() tenantId: string,
     @Args('filter', { type: () => PlcAlarmFilterDto, nullable: true })
     filter?: PlcAlarmFilterDto,
     @Args('pagination', { type: () => PlcPaginationDto, nullable: true })
     pagination?: PlcPaginationDto,
-  ): Promise<PlcAlarm[]> {
-    const result = await this.plcAlarmService.findAll(tenantId, filter, pagination);
-    return result.items;
+  ): Promise<PaginatedPlcAlarmsDto> {
+    return this.plcAlarmService.findAll(tenantId, filter, pagination);
   }
 
   /**
@@ -750,14 +751,13 @@ export class PlcControlResolver {
   /**
    * Get telemetry data with filtering
    */
-  @Query(() => [PlcTelemetry], { name: 'plcTelemetry' })
+  @Query(() => PaginatedPlcTelemetryDto, { name: 'plcTelemetry' })
   async getPlcTelemetry(
     @Tenant() tenantId: string,
     @Args('filter', { type: () => PlcTelemetryFilterDto, nullable: true })
     filter?: PlcTelemetryFilterDto,
-  ): Promise<PlcTelemetry[]> {
-    const result = await this.plcTelemetryService.findAll(tenantId, filter);
-    return result.items;
+  ): Promise<PaginatedPlcTelemetryDto> {
+    return this.plcTelemetryService.findAll(tenantId, filter);
   }
 
   /**

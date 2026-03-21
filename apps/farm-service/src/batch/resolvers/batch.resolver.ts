@@ -25,7 +25,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsDate, IsEnum } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 
 /**
@@ -681,16 +681,7 @@ export class BatchResolver {
       new ListBatchesQuery(tenantId, filter, page, limit, sortBy, sortOrder),
     );
 
-    // Transform PaginatedQueryResult to BatchListResponse format
-    return {
-      items: result.data || [],
-      total: result.pagination?.total ?? 0,
-      page: result.pagination?.page ?? page ?? 1,
-      limit: result.pagination?.limit ?? limit ?? 20,
-      totalPages: result.pagination?.totalPages ?? 0,
-      hasNextPage: result.pagination?.hasNextPage ?? false,
-      hasPreviousPage: result.pagination?.hasPreviousPage ?? false,
-    };
+    return fromCqrsPaginated(result);
   }
 
   @Query(() => BatchPerformanceResponse, { name: 'batchPerformance' })

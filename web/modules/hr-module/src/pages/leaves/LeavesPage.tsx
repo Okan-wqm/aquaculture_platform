@@ -37,7 +37,7 @@ export function LeavesPage() {
   // State
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'mine'>('all');
   const [filter, setFilter] = useState<LeaveRequestFilterInput>({});
-  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, offset: 0 });
+  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   // BUG-010 / SEC-006: replace prompt() with controlled input state
@@ -189,13 +189,13 @@ export function LeavesPage() {
       ...prev,
       [key]: value || undefined,
     }));
-    setPagination({ ...pagination, offset: 0 });
+    setPagination({ ...pagination, page: 1 });
   };
 
-  const handlePageChange = (page: number) => {
+  const handlePageChange = (newPage: number) => {
     setPagination({
       ...pagination,
-      offset: (page - 1) * (pagination.limit || 20),
+      page: newPage,
     });
   };
 
@@ -418,7 +418,7 @@ export function LeavesPage() {
           isLoading={isLoading}
           emptyMessage="No leave requests found"
           total={activeTab === 'pending' ? undefined : allRequests?.total}
-          page={activeTab === 'pending' ? 1 : Math.floor((pagination.offset || 0) / (pagination.limit || 20)) + 1}
+          page={activeTab === 'pending' ? 1 : (pagination.page || 1)}
           pageSize={pagination.limit || 20}
           onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
         />

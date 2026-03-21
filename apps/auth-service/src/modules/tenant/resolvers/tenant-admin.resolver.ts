@@ -6,7 +6,6 @@ import {
   AssignUserToModuleInput,
   AssignmentResult,
   UserModuleInfo,
-  MyTenantInfo,
   TenantTableInfo,
   TableDataResult,
   GetTableDataInput,
@@ -28,15 +27,6 @@ export class TenantAdminResolver {
   // =========================================================
 
   /**
-   * Get current user's tenant info
-   */
-  @Query(() => MyTenantInfo)
-  @TenantAdminOrHigher()
-  async myTenant(@CurrentUser('sub') userId: string): Promise<MyTenantInfo> {
-    return this.tenantAdminService.getMyTenant(userId);
-  }
-
-  /**
    * Get modules accessible by current user
    * TENANT_ADMIN: All tenant modules
    * MODULE_MANAGER/USER: Only assigned modules
@@ -56,15 +46,6 @@ export class TenantAdminResolver {
     @Args('moduleId', { type: () => ID }) moduleId: string,
   ): Promise<User[]> {
     return this.tenantAdminService.getModuleUsers(userId, moduleId);
-  }
-
-  /**
-   * Get all users in tenant
-   */
-  @Query(() => [User])
-  @TenantAdminOrHigher()
-  async tenantUsers(@CurrentUser('sub') userId: string): Promise<User[]> {
-    return this.tenantAdminService.getTenantUsers(userId);
   }
 
   /**

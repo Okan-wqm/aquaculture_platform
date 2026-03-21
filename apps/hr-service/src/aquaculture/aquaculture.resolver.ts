@@ -12,7 +12,9 @@ import {
   GetWorkAreasQuery,
   GetWorkRotationsQuery,
   GetCurrentlyOffshoreQuery,
+  GetCrewAssignmentsQuery,
 } from './queries';
+import { CrewAssignment } from './dto/crew-assignment.dto';
 
 // DTOs
 import { CreateWorkAreaInput } from './dto/create-work-area.input';
@@ -184,6 +186,19 @@ export class AquacultureResolver {
       ),
     );
     return result.data;
+  }
+
+  // =====================
+  // Crew Assignment Queries
+  // =====================
+  @Query(() => [CrewAssignment], { name: 'crewAssignments' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async getCrewAssignments(
+    @Context() context: GraphQLContext,
+  ): Promise<CrewAssignment[]> {
+    const tenantId = this.getTenantId(context);
+    return this.queryBus.execute(new GetCrewAssignmentsQuery(tenantId));
   }
 
   // =====================

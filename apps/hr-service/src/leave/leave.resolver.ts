@@ -215,7 +215,12 @@ export class LeaveResolver {
   ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    const employeeId = await this.resolveEmployeeId(userId, tenantId);
+    // Admin users may not have an employee record — resolve optionally
+    const employee = await this.employeeRepository.findOne({
+      where: { userId, tenantId, isDeleted: false },
+      select: ['id'],
+    });
+    const employeeId = employee?.id ?? null;
     const result = await this.queryBus.execute(
       new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, page),
     );

@@ -2176,14 +2176,20 @@ export class EdgeDeviceService implements OnModuleDestroy {
     try {
       // Use Node.js https module for better compatibility across environments
       const https = await import('https');
+      const githubToken = process.env.GITHUB_TOKEN;
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'aquaculture-platform-sensor-service',
+      };
+      if (githubToken) {
+        headers['Authorization'] = `token ${githubToken}`;
+      }
+
       const body = await new Promise<string>((resolve, reject) => {
         const req = https.get(
           url,
           {
-            headers: {
-              Accept: 'application/vnd.github.v3+json',
-              'User-Agent': 'aquaculture-platform-sensor-service',
-            },
+            headers,
           },
           (res) => {
             if (res.statusCode !== 200) {
@@ -2227,7 +2233,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
       if (this.firmwareVersionsCache) {
         return this.firmwareVersionsCache.data;
       }
-      throw new BadRequestException(`Failed to fetch firmware versions: ${(error as Error).message}`);
+      // Return empty array instead of throwing — avoids blocking UI when API is unreachable
+      return [];
     }
   }
 

@@ -36,10 +36,10 @@ import { TenantBillingResponse } from './dto/tenant-billing-response.dto';
  * Defines which roles can perform various billing actions
  */
 enum BillingRole {
-  SUPER_ADMIN = 'super_admin',
-  TENANT_ADMIN = 'tenant_admin',
-  BILLING_ADMIN = 'billing_admin',
-  FINANCE_MANAGER = 'finance_manager',
+  SUPER_ADMIN = 'SUPER_ADMIN',
+  TENANT_ADMIN = 'TENANT_ADMIN',
+  BILLING_ADMIN = 'BILLING_ADMIN',
+  FINANCE_MANAGER = 'FINANCE_MANAGER',
 }
 
 /** Roles allowed to create/modify subscriptions */

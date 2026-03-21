@@ -98,7 +98,6 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       useFactory: (configService: ConfigService) => ({
         autoSchemaFile: join(process.cwd(), 'schema.graphql'),
         buildSchemaOptions: {
-          federation: 2,
           orphanedTypes: [IncidentTimelineEvent, AlertCondition],
         },
         playground: configService.get('NODE_ENV') !== 'production',

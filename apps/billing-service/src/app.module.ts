@@ -80,7 +80,6 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
       driver: ApolloFederationDriver,
       autoSchemaFile: join(process.cwd(), 'schema.graphql'),
       buildSchemaOptions: {
-        federation: 2,
         orphanedTypes: [
           InvoiceLineItem,
           TaxInfo,

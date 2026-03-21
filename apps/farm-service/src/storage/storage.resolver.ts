@@ -3,7 +3,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@platform/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
 import { StorageLocationResponse, PaginatedStorageLocationsResponse } from './dto/storage-location.response';
 import { StorageInventoryResponse } from './dto/storage-inventory.response';
@@ -153,7 +153,7 @@ export class StorageResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedStorageLocationsResponse> {
     const query = new ListStorageLocationsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute<ListStorageLocationsQuery, PaginatedQueryResult<StorageLocationResponse>>(query);
     return fromCqrsPaginated(result);
   }
 
@@ -198,7 +198,7 @@ export class StorageResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedStockMovementsResponse> {
     const query = new ListStockMovementsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute<ListStockMovementsQuery, PaginatedQueryResult<StockMovementResponse>>(query);
     return fromCqrsPaginated(result);
   }
 
@@ -226,7 +226,7 @@ export class StorageResolver {
       filter?.page,
       filter?.limit,
     );
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute<ListPurchaseOrdersQuery, PaginatedQueryResult<PurchaseOrderResponse>>(query);
     return fromCqrsPaginated(result);
   }
 

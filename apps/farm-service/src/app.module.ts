@@ -191,7 +191,6 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
           return { req, loaders };
         },
         buildSchemaOptions: {
-          federation: 2,
           orphanedTypes: [],
         },
       }),

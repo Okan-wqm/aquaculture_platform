@@ -223,7 +223,6 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         return {
           autoSchemaFile: join(process.cwd(), 'schema.graphql'),
           buildSchemaOptions: {
-            federation: 2,
             // VFD entities and their nested types are registered via @ObjectType decorators
             // This ensures proper schema composition in Apollo Federation
             orphanedTypes: [],

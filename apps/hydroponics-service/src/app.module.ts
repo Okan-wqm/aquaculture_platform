@@ -107,7 +107,7 @@ const complexityCache = new Map<string, number>();
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
           autoSchemaFile: join(process.cwd(), 'schema.graphql'),
-          buildSchemaOptions: { federation: 2 },
+          buildSchemaOptions: {},
           validationRules: [depthLimit(10)],
           plugins: [
             {

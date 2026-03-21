@@ -178,7 +178,6 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
       driver: ApolloFederationDriver,
       autoSchemaFile: join(process.cwd(), 'schema.graphql'),
       buildSchemaOptions: {
-        federation: 2,
         orphanedTypes: [
           ContactInfo,
           Address,

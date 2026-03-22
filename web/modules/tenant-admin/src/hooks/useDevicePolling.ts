@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { graphqlRequest } from '../services/tenant-api.service';
 
 interface EdgeDevice {
@@ -85,75 +85,36 @@ const EDGE_DEVICE_QUERY = `
   }
 `;
 
+async function fetchDeviceData(deviceId: string): Promise<EdgeDevice | null> {
+  const result = await graphqlRequest<{ edgeDevice: EdgeDevice | null }>(
+    EDGE_DEVICE_QUERY,
+    { id: deviceId },
+  );
+  return result.edgeDevice ?? null;
+}
+
 /**
  * Hook for polling edge device data at regular intervals.
  *
- * PERF-003: Uses isInitialLoad ref so the loading spinner only shows on the
- * first fetch, not on every subsequent poll tick, avoiding full re-renders
- * of the component tree every 5 seconds.
+ * Uses TanStack Query's refetchInterval instead of manual setInterval.
+ * PERF-003: TanStack Query handles initial vs. background fetches natively --
+ * isLoading is true only for the first fetch, isFetching is true for refetches.
  */
 export function useDevicePolling(deviceId: string, intervalMs = 5000) {
-  const [device, setDevice] = useState<EdgeDevice | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isInitialLoad = useRef(true);
+  const query = useQuery({
+    queryKey: ['edgeDevice', deviceId],
+    queryFn: () => fetchDeviceData(deviceId),
+    enabled: !!deviceId,
+    refetchInterval: intervalMs,
+    refetchIntervalInBackground: false,
+  });
 
-  const fetchDevice = useCallback(async () => {
-    if (!deviceId) return;
-
-    // Only show full loading state on the initial load (PERF-003)
-    if (isInitialLoad.current) {
-      setLoading(true);
-    }
-
-    try {
-      const result = await graphqlRequest<{ edgeDevice: EdgeDevice | null }>(
-        EDGE_DEVICE_QUERY,
-        { id: deviceId },
-      );
-      setDevice(result.edgeDevice || null);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch device');
-    } finally {
-      if (isInitialLoad.current) {
-        setLoading(false);
-        isInitialLoad.current = false;
-      }
-    }
-  }, [deviceId]);
-
-  // Initial fetch
-  useEffect(() => {
-    isInitialLoad.current = true;
-    fetchDevice();
-  }, [fetchDevice]);
-
-  // Polling
-  useEffect(() => {
-    if (!deviceId) return;
-
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-
-    intervalRef.current = setInterval(fetchDevice, intervalMs);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [fetchDevice, intervalMs]);
-
-  const refetch = useCallback(() => {
-    // Manual refetch always shows loading indicator
-    isInitialLoad.current = true;
-    fetchDevice();
-  }, [fetchDevice]);
-
-  return { device, loading, error, refetch };
+  return {
+    device: query.data ?? null,
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+    refetch: query.refetch,
+  };
 }
 
 export type { EdgeDevice };

@@ -1,3 +1,2 @@
-export { TenantAdminLayout } from './TenantAdminLayout';
-export { TenantAdminSidebar } from './TenantAdminSidebar';
-export { TenantAdminHeader } from './TenantAdminHeader';
+export { ErrorBoundary, PageErrorBoundary, ErrorFallback } from './ErrorBoundary';
+export { DeleteConfirmModal } from './common/DeleteConfirmModal';

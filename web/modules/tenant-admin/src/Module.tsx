@@ -14,6 +14,9 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthContext } from '@aquaculture/shared-ui';
 
+// Error Boundary
+import { PageErrorBoundary } from './components/ErrorBoundary';
+
 // Pages
 import TenantDashboard from './pages/TenantDashboard';
 import TenantUsers from './pages/TenantUsers';
@@ -85,36 +88,36 @@ const TenantAdminModule: React.FC = () => {
     <RequireTenantAdmin>
       <Routes>
         {/* Dashboard - default route */}
-        <Route index element={<TenantDashboard />} />
+        <Route index element={<PageErrorBoundary pageName="Dashboard"><TenantDashboard /></PageErrorBoundary>} />
 
         {/* User Management */}
-        <Route path="users" element={<TenantUsers />} />
+        <Route path="users" element={<PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary>} />
 
         {/* Module Management */}
-        <Route path="modules" element={<TenantModules />} />
+        <Route path="modules" element={<PageErrorBoundary pageName="Modules"><TenantModules /></PageErrorBoundary>} />
 
         {/* Communication */}
-        <Route path="messages" element={<TenantMessagesPage />} />
-        <Route path="support" element={<TenantSupportPage />} />
-        <Route path="announcements" element={<TenantAnnouncementsPage />} />
+        <Route path="messages" element={<PageErrorBoundary pageName="Messages"><TenantMessagesPage /></PageErrorBoundary>} />
+        <Route path="support" element={<PageErrorBoundary pageName="Support"><TenantSupportPage /></PageErrorBoundary>} />
+        <Route path="announcements" element={<PageErrorBoundary pageName="Announcements"><TenantAnnouncementsPage /></PageErrorBoundary>} />
 
         {/* Tenant Settings */}
-        <Route path="settings" element={<TenantSettings />} />
+        <Route path="settings" element={<PageErrorBoundary pageName="Settings"><TenantSettings /></PageErrorBoundary>} />
 
         {/* Edge Devices */}
-        <Route path="devices" element={<EdgeDevicesPage />} />
-        <Route path="devices/:deviceId" element={<EdgeDeviceDetailPage />} />
+        <Route path="devices" element={<PageErrorBoundary pageName="Edge Devices"><EdgeDevicesPage /></PageErrorBoundary>} />
+        <Route path="devices/:deviceId" element={<PageErrorBoundary pageName="Device Detail"><EdgeDeviceDetailPage /></PageErrorBoundary>} />
 
         {/* Database View */}
-        <Route path="database" element={<TenantDatabase />} />
+        <Route path="database" element={<PageErrorBoundary pageName="Database"><TenantDatabase /></PageErrorBoundary>} />
 
         {/* Roles & Permissions */}
-        <Route path="roles" element={<TenantRolesPage />} />
+        <Route path="roles" element={<PageErrorBoundary pageName="Roles"><TenantRolesPage /></PageErrorBoundary>} />
 
         {/* Wave 4 Enterprise Pages */}
-        <Route path="audit-log" element={<TenantAuditLogPage />} />
-        <Route path="billing" element={<TenantBillingPage />} />
-        <Route path="activity" element={<TenantActivityPage />} />
+        <Route path="audit-log" element={<PageErrorBoundary pageName="Audit Log"><TenantAuditLogPage /></PageErrorBoundary>} />
+        <Route path="billing" element={<PageErrorBoundary pageName="Billing"><TenantBillingPage /></PageErrorBoundary>} />
+        <Route path="activity" element={<PageErrorBoundary pageName="Activity"><TenantActivityPage /></PageErrorBoundary>} />
 
         {/* Catch-all redirect to dashboard */}
         <Route path="*" element={<Navigate to="/tenant" replace />} />

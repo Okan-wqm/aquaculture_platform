@@ -21,6 +21,7 @@ import {
 import { graphqlRequest } from '../services/tenant-api.service';
 import { useDevicePolling } from '../hooks/useDevicePolling';
 import { logError } from '../utils/error-handling';
+import { formatDateTime } from '../utils/date-utils';
 import { useAuthContext } from '@aquaculture/shared-ui';
 
 const executeGraphQL = graphqlRequest;
@@ -382,7 +383,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 ['Agent Version', device.agentVersion || '-'],
                 ['Firmware', device.firmwareVersion || '-'],
                 ['Uptime', device.uptimeSeconds ? `${Math.floor(device.uptimeSeconds / 3600)}h ${Math.floor((device.uptimeSeconds % 3600) / 60)}m` : '-'],
-                ['Last Seen', device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('tr-TR') : 'Never'],
+                ['Last Seen', device.lastSeenAt ? formatDateTime(device.lastSeenAt) : 'Never'],
                 ['Connection Quality', device.connectionQuality != null ? `${device.connectionQuality}%` : '-'],
               ].map(([label, value]) => (
                 <div key={label}>
@@ -477,7 +478,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                     <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
                       <span>{event.eventType.replace(/_/g, ' ')}</span>
                       <span>·</span>
-                      <span>{new Date(event.createdAt).toLocaleString('tr-TR')}</span>
+                      <span>{formatDateTime(event.createdAt)}</span>
                     </div>
                   </div>
                 </div>

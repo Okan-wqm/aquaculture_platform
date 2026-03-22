@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Copy, Check, Key, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { graphqlRequest } from '../../services/tenant-api.service';
 import { logError } from '../../utils/error-handling';
+import { formatDate } from '../../utils/date-utils';
 
 interface InstallerKeyModalProps {
   onClose: () => void;
@@ -321,7 +322,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               {result.expiresAt && (
                 <div className="p-3 bg-gray-50 rounded-lg col-span-2">
                   <span className="text-gray-500 block text-xs">Ge\u00E7erlilik</span>
-                  <span className="font-medium">{new Date(result.expiresAt).toLocaleDateString('tr-TR')}</span>
+                  <span className="font-medium">{formatDate(result.expiresAt)}</span>
                 </div>
               )}
             </div>

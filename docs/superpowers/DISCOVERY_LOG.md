@@ -1,71 +1,68 @@
-# Discovery Log — Auth Service Tenant Module
+# Discovery Log
 
-Scan date: 2026-03-22
-Scanned by: Agent 2 (Auth Security Architect)
-Scope: `apps/auth-service/src/modules/tenant/`
+Findings discovered during code review by Agent 3 (Admin API Architect).
 
-## Fixed (CRIT/HIGH) — in this PR
+## 2026-03-22 — Cross-Schema Write Audit (admin-api-service)
 
-### CRIT-001: deleteTenantUser did NOT revoke refresh tokens
-- **File**: `services/tenant-user-management.service.ts` (deleteTenantUser)
-- **Impact**: After soft-deleting a user, their refresh tokens remained valid.
-  An attacker could use a stolen refresh token to continue obtaining access tokens.
-- **Fix**: Created `UserLifecycleService.deleteUser()` that revokes ALL refresh
-  tokens as part of the deletion flow. `deleteTenantUser` now delegates to it.
+### Context
+Grepped for `INSERT INTO auth.`, `UPDATE auth.`, `DELETE FROM auth.`, and `CREATE TABLE ... auth.` across all admin-api-service source files.
 
-### HIGH-002: MobileSettingsResolver entirely unguarded
-- **File**: `resolvers/mobile-settings.resolver.ts`
-- **Impact**: Any authenticated user could view/modify other users' mobile
-  settings, including admin-level bulk operations.
-- **Fix**: Added `@TenantAdminOrHigher()` to admin methods,
-  `@Roles(Role.MODULE_USER, ...)` to `getMyMobileSettings`.
+### HIGH: Direct INSERT INTO auth.* tables from admin-api-service
 
-### HIGH-003: myModules query unguarded
-- **File**: `resolvers/tenant-admin.resolver.ts`
-- **Impact**: Any authenticated request could list module assignments.
-- **Fix**: Added `@Roles(Role.MODULE_USER, Role.MODULE_MANAGER, Role.TENANT_ADMIN, Role.SUPER_ADMIN)`.
+These cross-schema writes violate single-writer ownership. The auth-service should own all writes to auth.* tables; admin-api should delegate via NATS commands.
 
-### HIGH-004: updateTenantSettings missing TenantUpdatedEvent
-- **File**: `services/tenant.service.ts` (updateTenantSettings)
-- **Impact**: When a TENANT_ADMIN updated settings, no `TenantUpdatedEvent` was
-  published, causing downstream services to miss tenant configuration changes.
-- **Fix**: Consolidated into `update()` with role-based field filtering.
-  TenantUpdatedEvent is now published for ALL update paths.
+| File | Line | Table | Notes |
+|------|------|-------|-------|
+| `src/tenant/services/tenant-provisioning.service.ts` | 650 | `auth.tenant_roles` | INSERT role during provisioning. TODO(NATS-MIGRATION) marker added. |
+| `src/tenant/services/tenant-provisioning.service.ts` | 941 | `auth.users` | INSERT admin user during provisioning. TODO(NATS-MIGRATION) marker added. |
+| `src/tenant/services/tenant-provisioning.service.ts` | 960 | `auth.invitations` | INSERT invitation during provisioning. TODO(NATS-MIGRATION) marker added. |
+| `src/tenant/services/tenant-provisioning.service.ts` | 1025 | `auth.tenant_modules` | INSERT modules during provisioning. TODO(NATS-MIGRATION) marker added. |
+| `src/users/services/user-provisioning.service.ts` | 107 | `auth.users` | INSERT user during user provisioning |
+| `src/users/services/user-provisioning.service.ts` | 127 | `auth.invitations` | INSERT invitation |
+| `src/users/services/user-provisioning.service.ts` | 301 | `auth.users` | INSERT user (bulk path) |
+| `src/users/services/user-provisioning.service.ts` | 329 | `auth.invitations` | INSERT invitation (bulk path) |
+| `src/users/services/user-provisioning.service.ts` | 362 | `auth.user_module_assignments` | INSERT module assignment |
+| `src/users/users.service.ts` | 412 | `auth.users` | INSERT user (direct service) |
+| `src/modules/modules.service.ts` | 323 | `auth.modules` | INSERT module definition |
+| `src/modules/modules.service.ts` | 599, 624 | `auth.tenant_modules` | INSERT module assignment |
+| `src/modules/tenant-management/services/module-assignment.service.ts` | 193, 488 | `auth.tenant_modules` | INSERT module assignment |
 
-### HIGH-005: TenantService.update() used unfiltered Object.assign
-- **File**: `services/tenant.service.ts` (update)
-- **Impact**: If a TENANT_ADMIN managed to call `update()` directly (bypassing the
-  resolver's routing), they could modify `status`, `plan`, `maxUsers`.
-- **Fix**: `update()` now accepts caller role and applies field allowlist for
-  non-SUPER_ADMIN callers.
+### HIGH: Direct UPDATE auth.* tables from admin-api-service
 
-## Logged (MED/LOW) — for future work
+| File | Line | Table | Notes |
+|------|------|-------|-------|
+| `src/auth/password-reset.controller.ts` | 83, 177 | `auth.users` | UPDATE password reset token |
+| `src/auth/password-reset.controller.ts` | 185 | `auth.refresh_tokens` | UPDATE refresh tokens |
+| `src/billing/services/subscription-core.service.ts` | 519 | `auth.tenants` | UPDATE tenant plan/limits |
+| `src/billing/services/subscription-plan-change.service.ts` | 123 | `auth.tenants` | UPDATE tenant on plan change |
+| `src/tenant/services/tenant-provisioning.service.ts` | 164, 332, 973 | `auth.tenants` | UPDATE tenant status/user_count |
+| `src/users/services/user-provisioning.service.ts` | 142, 379 | `auth.tenants` | UPDATE tenant user_count |
+| `src/users/users.service.ts` | 483, 525, 578 | `auth.users` | UPDATE user fields |
+| `src/modules/tenant-management/services/module-assignment.service.ts` | 182, 305, 514 | `auth.tenant_modules` | UPDATE module assignment |
+| `src/modules/modules.service.ts` | 403 | `auth.modules` | UPDATE module definition |
 
-### MED-001: MobileSettingsService.getByUserId queries by userId only, not tenantId
-- **File**: `services/mobile-settings.service.ts` line 20
-- **Issue**: `findOne({ where: { userId } })` does not include `tenantId` in the
-  lookup. If a TENANT_ADMIN knows another tenant's userId, they could read
-  cross-tenant mobile settings.
-- **Recommendation**: Change to `findOne({ where: { userId, tenantId } })`.
+### HIGH: Direct DELETE FROM auth.* tables from admin-api-service
 
-### MED-002: TenantService.updateTenantSettings still exists as dead code
-- **File**: `services/tenant.service.ts` (updateTenantSettings)
-- **Issue**: The method is no longer called from the resolver (consolidated into
-  `update()`), but the code remains. It could be accidentally re-used without
-  proper event publishing.
-- **Recommendation**: Deprecate or remove; ensure any remaining callers use
-  `update(id, input, role)` instead.
+| File | Line | Table | Notes |
+|------|------|-------|-------|
+| `src/tenant/services/tenant-provisioning.service.ts` | 197, 245, 306, 312 | various auth.* | Compensation DELETEs (saga rollback) |
+| `src/users/users.service.ts` | 554 | `auth.refresh_tokens` | DELETE refresh tokens on user deactivation |
+| `src/modules/modules.service.ts` | 443, 710 | `auth.modules`, `auth.tenant_modules` | DELETE module/assignment |
 
-### LOW-001: BulkUpdateMobileSettingsInput.userIds missing @IsUUID validation
-- **File**: `dto/mobile-settings.dto.ts` line 48-49
-- **Issue**: `userIds` is typed as `string[]` with `@Field(() => [ID])` but lacks
-  `@IsUUID('4', { each: true })` class-validator decorator. Malformed UUIDs could
-  reach the service layer.
-- **Recommendation**: Add `@IsUUID('4', { each: true })` to the `userIds` field.
+### HIGH: Direct DDL on auth schema
 
-### LOW-002: MobileSettingsService.bulkUpdate processes users sequentially
-- **File**: `services/mobile-settings.service.ts` (bulkUpdate)
-- **Issue**: Uses a `for` loop calling `update()` one user at a time. For large
-  tenant user bases this is O(n) database round-trips.
-- **Recommendation**: Use a batch UPDATE query or Promise.all with concurrency
-  limiting.
+| File | Line | Table | Notes |
+|------|------|-------|-------|
+| `src/tenant/services/tenant-provisioning.service.ts` | 694 | `auth.tenant_roles` | CREATE TABLE IF NOT EXISTS — should be a migration |
+
+### MED: TenantStatus enum in analytics/entities/external/tenant.entity.ts
+
+The analytics service has its own `TenantStatus` enum at `src/analytics/entities/external/tenant.entity.ts` with only 4 values (ACTIVE, SUSPENDED, PENDING, CANCELLED). This is separate from the main tenant entity's enum which now has 6 values. The analytics enum may need updating to include DEACTIVATED and ARCHIVED for accurate reporting.
+
+### MED: Raw SQL analytics queries use hardcoded status strings
+
+`src/analytics/services/analytics.service.ts` line 179 uses `'CANCELLED'` and `'SUSPENDED'` as hardcoded string literals in raw SQL. If the canonical status values change, these queries would silently produce wrong results.
+
+### LOW: Password reset controller directly modifies auth.users
+
+`src/auth/password-reset.controller.ts` performs direct UPDATEs to `auth.users` for password reset tokens. This should ideally be routed through auth-service via NATS.

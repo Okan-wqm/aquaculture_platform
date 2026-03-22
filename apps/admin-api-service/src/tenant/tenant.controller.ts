@@ -147,9 +147,13 @@ export class TenantController {
   }
 
   @Get('slug/:slug')
-  @ApiOperation({ summary: 'Get tenant by slug' })
-  async getTenantBySlug(@Param('slug') slug: string): Promise<Tenant> {
-    return this.queryBus.execute(new GetTenantBySlugQuery(slug));
+  @ApiOperation({ summary: 'Get tenant by slug (status redacted from response)' })
+  async getTenantBySlug(@Param('slug') slug: string): Promise<Omit<Tenant, 'status'>> {
+    const tenant: Tenant = await this.queryBus.execute(new GetTenantBySlugQuery(slug));
+    // SEC: Remove internal status from slug-based lookups to prevent
+    // information leakage about tenant lifecycle state.
+    const { status: _status, ...publicTenant } = tenant;
+    return publicTenant;
   }
 
   // ============================================================================

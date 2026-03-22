@@ -619,7 +619,7 @@ describe('TenantProvisioningService', () => {
       expect(result.status).toBe('deactivated');
     });
 
-    it('ARCHIVED tenant için "deactivated" status döner (ARCHIVED maps to same value as DEACTIVATED)', async () => {
+    it('ARCHIVED tenant için "archived" status döner', async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.ARCHIVED });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -628,8 +628,7 @@ describe('TenantProvisioningService', () => {
       const result = await service.getProvisioningStatus(tenant.id);
 
       // Assert
-      // ARCHIVED = 'CANCELLED' = DEACTIVATED, so switch matches DEACTIVATED first
-      expect(result.status).toBe('deactivated');
+      expect(result.status).toBe('archived');
     });
 
     it('olmayan tenant için "not_found" status döner', async () => {

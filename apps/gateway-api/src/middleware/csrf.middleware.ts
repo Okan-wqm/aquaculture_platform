@@ -18,12 +18,28 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CSRF_COOKIE_NAME = 'csrf-token';
 const CSRF_HEADER_NAME = 'x-csrf-token';
 
+/**
+ * Paths exempt from CSRF double-submit validation.
+ *
+ * GraphQL: Already protected against CSRF by requiring Content-Type: application/json
+ * (browsers cannot send JSON via form submissions or link navigations) and the
+ * X-Requested-With custom header from the frontend adds defense-in-depth.
+ *
+ * Health: Internal liveness/readiness probes — no user session involved.
+ */
+const CSRF_EXEMPT_PATHS = new Set(['/', '/graphql', '/health', '/health/live', '/health/ready']);
+
 @Injectable()
 export class CsrfMiddleware implements NestMiddleware {
   private readonly logger = new Logger(CsrfMiddleware.name);
 
   use(req: Request, res: Response, next: NextFunction): void {
     const method = req.method.toUpperCase();
+
+    // Skip CSRF validation for exempt paths (GraphQL, health checks)
+    if (CSRF_EXEMPT_PATHS.has(req.path)) {
+      return next();
+    }
 
     if (SAFE_METHODS.has(method)) {
       // Set (or refresh) the CSRF token cookie on safe requests

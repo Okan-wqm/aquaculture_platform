@@ -9,7 +9,15 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
-import { TenantCreatedEvent, TenantUpdatedEvent, UserInvitedEvent } from '@platform/event-contracts';
+import {
+  TenantCreatedEvent,
+  TenantUpdatedEvent,
+  TenantSuspendedEvent,
+  TenantActivatedEvent,
+  TenantStatusChangedEvent,
+  TenantModulesAssignedEvent,
+  UserInvitedEvent,
+} from '@platform/event-contracts';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
@@ -339,70 +347,28 @@ export class TenantService {
     });
   }
 
-  async update(id: string, input: UpdateTenantInput, callerRole?: Role): Promise<Tenant> {
+  async update(id: string, input: UpdateTenantInput): Promise<Tenant> {
     const tenant = await this.findById(id);
 
-    // SECURITY: Role-based field filtering (SEC-AUTH-016)
-    // SUPER_ADMIN: all fields
-    // TENANT_ADMIN: allowlist only (name, description, logoUrl, contactEmail, contactPhone, address, settings)
-    if (callerRole && callerRole !== Role.SUPER_ADMIN) {
-      const allowedFields: (keyof UpdateTenantInput)[] = [
-        'name',
-        'description',
-        'logoUrl',
-        'contactEmail',
-        'contactPhone',
-        'address',
-        'settings',
-      ];
-
-      // Prevent updating restricted fields
-      if (input.status || input.plan || input.maxUsers) {
-        throw new ForbiddenException('Cannot update status, plan, or maxUsers. Contact support.');
+    // Update max users if plan changes
+    if (input.plan && input.plan !== tenant.plan) {
+      if (!input.maxUsers) {
+        input.maxUsers = this.getDefaultMaxUsers(input.plan);
       }
-
-      // Explicit field mapping for TENANT_ADMIN (no Object.assign)
-      if (input.name !== undefined) tenant.name = input.name;
-      if (input.description !== undefined) tenant.description = input.description;
-      if (input.logoUrl !== undefined) tenant.logoUrl = input.logoUrl;
-      if (input.contactEmail !== undefined) tenant.contactEmail = input.contactEmail;
-      if (input.contactPhone !== undefined) tenant.contactPhone = input.contactPhone;
-      if (input.address !== undefined) tenant.address = input.address;
-      if (input.settings !== undefined) tenant.settings = input.settings;
-    } else {
-      // SUPER_ADMIN: all fields allowed via explicit mapping (no Object.assign)
-      // Update max users if plan changes
-      if (input.plan && input.plan !== tenant.plan) {
-        if (!input.maxUsers) {
-          input.maxUsers = this.getDefaultMaxUsers(input.plan);
-        }
-      }
-
-      if (input.name !== undefined) tenant.name = input.name;
-      if (input.description !== undefined) tenant.description = input.description;
-      if (input.logoUrl !== undefined) tenant.logoUrl = input.logoUrl;
-      if (input.contactEmail !== undefined) tenant.contactEmail = input.contactEmail;
-      if (input.contactPhone !== undefined) tenant.contactPhone = input.contactPhone;
-      if (input.address !== undefined) tenant.address = input.address;
-      if (input.taxId !== undefined) tenant.taxId = input.taxId;
-      if (input.status !== undefined) tenant.status = input.status;
-      if (input.plan !== undefined) tenant.plan = input.plan;
-      if (input.maxUsers !== undefined) tenant.maxUsers = input.maxUsers;
-      if (input.customDomain !== undefined) tenant.customDomain = input.customDomain;
-      if (input.settings !== undefined) tenant.settings = input.settings;
     }
 
+    Object.assign(tenant, input);
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant updated: ${saved.name} (${saved.id})`);
 
-    // Publish TenantUpdatedEvent for ALL update paths
+    // Publish event
     const event: TenantUpdatedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantUpdated',
       timestamp: new Date(),
       tenantId: saved.id,
-      name: saved.name,
+      name: input.name,
       version: 1,
     };
 
@@ -413,30 +379,93 @@ export class TenantService {
 
   async activate(id: string): Promise<Tenant> {
     const tenant = await this.findById(id);
+    const previousStatus = tenant.status;
     tenant.status = TenantStatus.ACTIVE;
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant activated: ${saved.name} (${saved.id})`);
 
+    // Publish TenantActivatedEvent
+    const activatedEvent: TenantActivatedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantActivated',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      version: 1,
+    };
+    await this.eventBus.publish(activatedEvent);
+
+    // Publish TenantStatusChangedEvent for generic status-change consumers
+    const statusChangedEvent: TenantStatusChangedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantStatusChanged',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      previousStatus,
+      newStatus: TenantStatus.ACTIVE,
+      version: 1,
+    };
+    await this.eventBus.publish(statusChangedEvent);
+
     return saved;
   }
 
-  async suspend(id: string): Promise<Tenant> {
+  async suspend(id: string, reason?: string): Promise<Tenant> {
     const tenant = await this.findById(id);
+    const previousStatus = tenant.status;
     tenant.status = TenantStatus.SUSPENDED;
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant suspended: ${saved.name} (${saved.id})`);
 
+    // Publish TenantSuspendedEvent
+    const suspendedEvent: TenantSuspendedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantSuspended',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      reason,
+      version: 1,
+    };
+    await this.eventBus.publish(suspendedEvent);
+
+    // Publish TenantStatusChangedEvent for generic status-change consumers
+    const statusChangedEvent: TenantStatusChangedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantStatusChanged',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      previousStatus,
+      newStatus: TenantStatus.SUSPENDED,
+      reason,
+      version: 1,
+    };
+    await this.eventBus.publish(statusChangedEvent);
+
     return saved;
   }
 
-  async cancel(id: string): Promise<Tenant> {
+  async cancel(id: string, reason?: string): Promise<Tenant> {
     const tenant = await this.findById(id);
+    const previousStatus = tenant.status;
     tenant.status = TenantStatus.CANCELLED;
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant cancelled: ${saved.name} (${saved.id})`);
+
+    // Publish TenantStatusChangedEvent — no specific CancelledEvent needed,
+    // generic status change is sufficient for this transition
+    const statusChangedEvent: TenantStatusChangedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantStatusChanged',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      previousStatus,
+      newStatus: TenantStatus.CANCELLED,
+      reason,
+      version: 1,
+    };
+    await this.eventBus.publish(statusChangedEvent);
 
     return saved;
   }
@@ -480,6 +509,19 @@ export class TenantService {
     });
 
     this.logger.log(`Assigned ${saved.length} modules to tenant ${tenant.name}`);
+
+    // Publish TenantModulesAssignedEvent
+    const modulesAssignedEvent: TenantModulesAssignedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantModulesAssigned',
+      timestamp: new Date(),
+      tenantId: tenant.id,
+      moduleIds: modules.map(mod => mod.id),
+      moduleCodes: input.moduleCodes,
+      assignedBy: tenant.createdBy ?? 'system',
+      version: 1,
+    };
+    await this.eventBus.publish(modulesAssignedEvent);
 
     return saved;
   }
@@ -943,7 +985,55 @@ export class TenantService {
     return saved;
   }
 
-  // NOTE: updateTenantSettings() has been removed.
-  // Role-based field filtering is now handled inside update() which accepts a callerRole parameter.
-  // SUPER_ADMIN: all fields | TENANT_ADMIN: allowlist only (name, description, logoUrl, contactEmail, contactPhone, address, settings)
+  /**
+   * Update tenant settings (limited fields for TENANT_ADMIN)
+   */
+  async updateTenantSettings(
+    tenantId: string,
+    input: UpdateTenantInput,
+  ): Promise<Tenant> {
+    const tenant = await this.findById(tenantId);
+
+    // Tenant admins can only update these fields
+    const allowedFields: (keyof UpdateTenantInput)[] = [
+      'name',
+      'description',
+      'logoUrl',
+      'contactEmail',
+      'contactPhone',
+      'address',
+      'settings',
+    ];
+
+    // Filter to allowed fields only
+    const updates: Partial<Tenant> = {};
+    for (const field of allowedFields) {
+      if (input[field] !== undefined) {
+        (updates as Record<string, unknown>)[field] = input[field];
+      }
+    }
+
+    // Prevent updating restricted fields
+    if (input.status || input.plan || input.maxUsers) {
+      throw new ForbiddenException('Cannot update status, plan, or maxUsers. Contact support.');
+    }
+
+    Object.assign(tenant, updates);
+    const saved = await this.tenantRepository.save(tenant);
+
+    this.logger.log(`Tenant settings updated by tenant admin: ${saved.name} (${saved.id})`);
+
+    // Publish TenantUpdatedEvent for consistency — settings changes are tenant updates
+    const event: TenantUpdatedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantUpdated',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      name: input.name,
+      version: 1,
+    };
+    await this.eventBus.publish(event);
+
+    return saved;
+  }
 }

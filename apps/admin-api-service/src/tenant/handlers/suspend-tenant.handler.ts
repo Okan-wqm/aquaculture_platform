@@ -9,6 +9,12 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { IEventBus } from '@platform/event-bus';
+import {
+  TenantSuspendedEvent,
+  TenantActivatedEvent,
+  TenantArchivedEvent,
+  TenantStatusChangedEvent,
+} from '@platform/event-contracts';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -86,7 +92,7 @@ export class SuspendTenantHandler
         },
       });
 
-      await this.eventBus.publish({
+      const suspendedEvent: TenantSuspendedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantSuspended',
         timestamp: new Date(),
@@ -94,7 +100,21 @@ export class SuspendTenantHandler
         reason: data.reason,
         suspendedBy,
         version: 1,
-      });
+      };
+      await this.eventBus.publish(suspendedEvent);
+
+      // Publish TenantStatusChangedEvent for generic status-change consumers
+      const statusChangedEvent: TenantStatusChangedEvent = {
+        eventId: crypto.randomUUID(),
+        eventType: 'TenantStatusChanged',
+        timestamp: new Date(),
+        tenantId,
+        previousStatus,
+        newStatus: TenantStatus.SUSPENDED,
+        reason: data.reason,
+        version: 1,
+      };
+      await this.eventBus.publish(statusChangedEvent);
 
       return savedTenant;
     } catch (error) {
@@ -169,14 +189,27 @@ export class ActivateTenantHandler
         details: { previousStatus },
       });
 
-      await this.eventBus.publish({
+      const activatedEvent: TenantActivatedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantActivated',
         timestamp: new Date(),
         tenantId,
         activatedBy,
         version: 1,
-      });
+      };
+      await this.eventBus.publish(activatedEvent);
+
+      // Publish TenantStatusChangedEvent for generic status-change consumers
+      const statusChangedEvent: TenantStatusChangedEvent = {
+        eventId: crypto.randomUUID(),
+        eventType: 'TenantStatusChanged',
+        timestamp: new Date(),
+        tenantId,
+        previousStatus,
+        newStatus: TenantStatus.ACTIVE,
+        version: 1,
+      };
+      await this.eventBus.publish(statusChangedEvent);
 
       return savedTenant;
     } catch (error) {
@@ -247,16 +280,17 @@ export class DeactivateTenantHandler
         details: { reason, previousStatus },
       });
 
-      await this.eventBus.publish({
+      const statusChangedEvent: TenantStatusChangedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantStatusChanged',
         timestamp: new Date(),
         tenantId,
         previousStatus,
-        newStatus: 'deactivated',
+        newStatus: TenantStatus.DEACTIVATED,
         reason,
         version: 1,
-      });
+      };
+      await this.eventBus.publish(statusChangedEvent);
 
       return savedTenant;
     } catch (error) {
@@ -329,14 +363,27 @@ export class ArchiveTenantHandler
         details: { previousStatus },
       });
 
-      await this.eventBus.publish({
+      const archivedEvent: TenantArchivedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantArchived',
         timestamp: new Date(),
         tenantId,
         archivedBy,
         version: 1,
-      });
+      };
+      await this.eventBus.publish(archivedEvent);
+
+      // Publish TenantStatusChangedEvent for generic status-change consumers
+      const statusChangedEvent: TenantStatusChangedEvent = {
+        eventId: crypto.randomUUID(),
+        eventType: 'TenantStatusChanged',
+        timestamp: new Date(),
+        tenantId,
+        previousStatus,
+        newStatus: TenantStatus.ARCHIVED,
+        version: 1,
+      };
+      await this.eventBus.publish(statusChangedEvent);
 
       return savedTenant;
     } catch (error) {

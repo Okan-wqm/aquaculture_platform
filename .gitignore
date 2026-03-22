@@ -110,3 +110,4 @@ vite.config.*.timestamp*NUL
 
 # Generated GraphQL schemas
 schema.graphql
+.claude/worktrees/

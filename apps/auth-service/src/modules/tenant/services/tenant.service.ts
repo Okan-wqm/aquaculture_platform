@@ -361,17 +361,16 @@ export class TenantService {
         throw new ForbiddenException('Cannot update status, plan, or maxUsers. Contact support.');
       }
 
-      // Filter to allowed fields only
-      const filteredUpdates: Partial<Tenant> = {};
-      for (const field of allowedFields) {
-        if (input[field] !== undefined) {
-          (filteredUpdates as Record<string, unknown>)[field] = input[field];
-        }
-      }
-
-      Object.assign(tenant, filteredUpdates);
+      // Explicit field mapping for TENANT_ADMIN (no Object.assign)
+      if (input.name !== undefined) tenant.name = input.name;
+      if (input.description !== undefined) tenant.description = input.description;
+      if (input.logoUrl !== undefined) tenant.logoUrl = input.logoUrl;
+      if (input.contactEmail !== undefined) tenant.contactEmail = input.contactEmail;
+      if (input.contactPhone !== undefined) tenant.contactPhone = input.contactPhone;
+      if (input.address !== undefined) tenant.address = input.address;
+      if (input.settings !== undefined) tenant.settings = input.settings;
     } else {
-      // SUPER_ADMIN: all fields allowed
+      // SUPER_ADMIN: all fields allowed via explicit mapping (no Object.assign)
       // Update max users if plan changes
       if (input.plan && input.plan !== tenant.plan) {
         if (!input.maxUsers) {
@@ -379,7 +378,18 @@ export class TenantService {
         }
       }
 
-      Object.assign(tenant, input);
+      if (input.name !== undefined) tenant.name = input.name;
+      if (input.description !== undefined) tenant.description = input.description;
+      if (input.logoUrl !== undefined) tenant.logoUrl = input.logoUrl;
+      if (input.contactEmail !== undefined) tenant.contactEmail = input.contactEmail;
+      if (input.contactPhone !== undefined) tenant.contactPhone = input.contactPhone;
+      if (input.address !== undefined) tenant.address = input.address;
+      if (input.taxId !== undefined) tenant.taxId = input.taxId;
+      if (input.status !== undefined) tenant.status = input.status;
+      if (input.plan !== undefined) tenant.plan = input.plan;
+      if (input.maxUsers !== undefined) tenant.maxUsers = input.maxUsers;
+      if (input.customDomain !== undefined) tenant.customDomain = input.customDomain;
+      if (input.settings !== undefined) tenant.settings = input.settings;
     }
 
     const saved = await this.tenantRepository.save(tenant);
@@ -933,44 +943,7 @@ export class TenantService {
     return saved;
   }
 
-  /**
-   * Update tenant settings (limited fields for TENANT_ADMIN)
-   */
-  async updateTenantSettings(
-    tenantId: string,
-    input: UpdateTenantInput,
-  ): Promise<Tenant> {
-    const tenant = await this.findById(tenantId);
-
-    // Tenant admins can only update these fields
-    const allowedFields: (keyof UpdateTenantInput)[] = [
-      'name',
-      'description',
-      'logoUrl',
-      'contactEmail',
-      'contactPhone',
-      'address',
-      'settings',
-    ];
-
-    // Filter to allowed fields only
-    const updates: Partial<Tenant> = {};
-    for (const field of allowedFields) {
-      if (input[field] !== undefined) {
-        (updates as Record<string, unknown>)[field] = input[field];
-      }
-    }
-
-    // Prevent updating restricted fields
-    if (input.status || input.plan || input.maxUsers) {
-      throw new ForbiddenException('Cannot update status, plan, or maxUsers. Contact support.');
-    }
-
-    Object.assign(tenant, updates);
-    const saved = await this.tenantRepository.save(tenant);
-
-    this.logger.log(`Tenant settings updated by tenant admin: ${saved.name} (${saved.id})`);
-
-    return saved;
-  }
+  // NOTE: updateTenantSettings() has been removed.
+  // Role-based field filtering is now handled inside update() which accepts a callerRole parameter.
+  // SUPER_ADMIN: all fields | TENANT_ADMIN: allowlist only (name, description, logoUrl, contactEmail, contactPhone, address, settings)
 }

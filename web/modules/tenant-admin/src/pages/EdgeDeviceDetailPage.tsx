@@ -31,8 +31,6 @@ import { useDevicePolling } from '../hooks/useDevicePolling';
 import { logError } from '../utils/error-handling';
 import { useAuthContext } from '@aquaculture/shared-ui';
 
-const executeGraphQL = graphqlRequest;
-
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
 
 /**
@@ -173,7 +171,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const runAction = async (name: string, mutation: string, variables: Record<string, unknown>) => {
     setActionLoading(name);
     try {
-      await executeGraphQL(mutation, variables);
+      await graphqlRequest(mutation, variables);
       refetch();
     } catch (err) {
       logError(`EdgeDeviceDetail.${name}`, err);
@@ -193,7 +191,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const loadEvents = async () => {
     if (!deviceId) return;
     try {
-      const data = await executeGraphQL<{
+      const data = await graphqlRequest<{
         deviceEvents: { items: Array<{ id: string; eventType: string; severity: string; message: string; createdAt: string }> };
       }>(DEVICE_EVENTS_QUERY, { deviceId, page: 1, limit: 50 });
       setEvents(data.deviceEvents.items);

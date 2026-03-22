@@ -53,8 +53,6 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
   const [showExisting, setShowExisting] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(false);
 
-  const executeGraphQL = graphqlRequest;
-
   const handleCreate = async () => {
     setLoading(true);
     setError(null);
@@ -66,7 +64,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
       if (autoApprove) input.autoApprove = true;
       if (expiresInDays) input.expiresInDays = parseInt(expiresInDays, 10);
 
-      const data = await executeGraphQL<{ createTenantProvisioningKey: TenantKeyResponse }>(
+      const data = await graphqlRequest<{ createTenantProvisioningKey: TenantKeyResponse }>(
         CREATE_PROVISIONING_KEY_MUTATION,
         { input },
       );
@@ -96,7 +94,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
   const loadExistingKeys = async () => {
     setLoadingKeys(true);
     try {
-      const data = await executeGraphQL<{ tenantProvisioningKeys: TenantProvisioningKey[] }>(LIST_PROVISIONING_KEYS_QUERY);
+      const data = await graphqlRequest<{ tenantProvisioningKeys: TenantProvisioningKey[] }>(LIST_PROVISIONING_KEYS_QUERY);
       setExistingKeys(data.tenantProvisioningKeys || []);
       setShowExisting(true);
     } catch (err) {
@@ -108,7 +106,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
 
   const handleRevoke = async (keyId: string) => {
     try {
-      await executeGraphQL(REVOKE_PROVISIONING_KEY_MUTATION, { keyId });
+      await graphqlRequest(REVOKE_PROVISIONING_KEY_MUTATION, { keyId });
       setExistingKeys(prev => prev.map(k => k.id === keyId ? { ...k, isActive: false } : k));
     } catch (err) {
       logError('InstallerKeyModal.handleRevoke', err);

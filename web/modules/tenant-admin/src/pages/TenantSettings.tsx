@@ -26,8 +26,6 @@ import {
 } from '../graphql';
 import { logError } from '../utils/error-handling';
 
-const executeGraphQL = graphqlRequest;
-
 /**
  * Settings section type
  */
@@ -223,7 +221,7 @@ const TenantSettings: React.FC = () => {
   useEffect(() => {
     if (activeSection === 'notifications') {
       setNotifLoading(true);
-      executeGraphQL<{ getMyNotificationPreferences: typeof notifPrefs }>(
+      graphqlRequest<{ getMyNotificationPreferences: typeof notifPrefs }>(
         GET_NOTIFICATION_PREFERENCES_QUERY,
       )
         .then((data) => {
@@ -257,7 +255,7 @@ const TenantSettings: React.FC = () => {
     setNotifSaving(true);
     setSaveError(null);
     try {
-      await executeGraphQL(UPDATE_NOTIFICATION_PREFERENCES_MUTATION, {
+      await graphqlRequest(UPDATE_NOTIFICATION_PREFERENCES_MUTATION, {
         input: {
           emailEnabled: notifPrefs.emailEnabled,
           smsEnabled: notifPrefs.smsEnabled,
@@ -305,8 +303,8 @@ const TenantSettings: React.FC = () => {
     try {
       // Load users and mobile settings in parallel
       const [usersData, settingsData] = await Promise.all([
-        executeGraphQL<{ tenantUsers: TenantUser[] }>(TENANT_USERS_QUERY),
-        executeGraphQL<{ getMobileUsersSettings: MobileUserSettingsData[] }>(GET_MOBILE_USERS_SETTINGS_QUERY),
+        graphqlRequest<{ tenantUsers: TenantUser[] }>(TENANT_USERS_QUERY),
+        graphqlRequest<{ getMobileUsersSettings: MobileUserSettingsData[] }>(GET_MOBILE_USERS_SETTINGS_QUERY),
       ]);
 
       setMobileUsers(usersData.tenantUsers || []);
@@ -383,7 +381,7 @@ const TenantSettings: React.FC = () => {
       await Promise.all(
         Array.from(dirtyUserIds).map((userId) => {
           const settings = getUserSettings(userId);
-          return executeGraphQL(UPDATE_MOBILE_USER_SETTINGS_MUTATION, {
+          return graphqlRequest(UPDATE_MOBILE_USER_SETTINGS_MUTATION, {
             input: {
               userId,
               isMobileEnabled: settings.isMobileEnabled,

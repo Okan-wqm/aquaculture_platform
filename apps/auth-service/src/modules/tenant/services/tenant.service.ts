@@ -9,7 +9,15 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
-import { TenantCreatedEvent, TenantUpdatedEvent, UserInvitedEvent } from '@platform/event-contracts';
+import {
+  TenantCreatedEvent,
+  TenantUpdatedEvent,
+  TenantSuspendedEvent,
+  TenantActivatedEvent,
+  TenantStatusChangedEvent,
+  TenantModulesAssignedEvent,
+  UserInvitedEvent,
+} from '@platform/event-contracts';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
@@ -371,30 +379,93 @@ export class TenantService {
 
   async activate(id: string): Promise<Tenant> {
     const tenant = await this.findById(id);
+    const previousStatus = tenant.status;
     tenant.status = TenantStatus.ACTIVE;
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant activated: ${saved.name} (${saved.id})`);
 
+    // Publish TenantActivatedEvent
+    const activatedEvent: TenantActivatedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantActivated',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      version: 1,
+    };
+    await this.eventBus.publish(activatedEvent);
+
+    // Publish TenantStatusChangedEvent for generic status-change consumers
+    const statusChangedEvent: TenantStatusChangedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantStatusChanged',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      previousStatus,
+      newStatus: TenantStatus.ACTIVE,
+      version: 1,
+    };
+    await this.eventBus.publish(statusChangedEvent);
+
     return saved;
   }
 
-  async suspend(id: string): Promise<Tenant> {
+  async suspend(id: string, reason?: string): Promise<Tenant> {
     const tenant = await this.findById(id);
+    const previousStatus = tenant.status;
     tenant.status = TenantStatus.SUSPENDED;
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant suspended: ${saved.name} (${saved.id})`);
 
+    // Publish TenantSuspendedEvent
+    const suspendedEvent: TenantSuspendedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantSuspended',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      reason,
+      version: 1,
+    };
+    await this.eventBus.publish(suspendedEvent);
+
+    // Publish TenantStatusChangedEvent for generic status-change consumers
+    const statusChangedEvent: TenantStatusChangedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantStatusChanged',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      previousStatus,
+      newStatus: TenantStatus.SUSPENDED,
+      reason,
+      version: 1,
+    };
+    await this.eventBus.publish(statusChangedEvent);
+
     return saved;
   }
 
-  async cancel(id: string): Promise<Tenant> {
+  async cancel(id: string, reason?: string): Promise<Tenant> {
     const tenant = await this.findById(id);
+    const previousStatus = tenant.status;
     tenant.status = TenantStatus.CANCELLED;
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant cancelled: ${saved.name} (${saved.id})`);
+
+    // Publish TenantStatusChangedEvent — no specific CancelledEvent needed,
+    // generic status change is sufficient for this transition
+    const statusChangedEvent: TenantStatusChangedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantStatusChanged',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      previousStatus,
+      newStatus: TenantStatus.CANCELLED,
+      reason,
+      version: 1,
+    };
+    await this.eventBus.publish(statusChangedEvent);
 
     return saved;
   }
@@ -438,6 +509,19 @@ export class TenantService {
     });
 
     this.logger.log(`Assigned ${saved.length} modules to tenant ${tenant.name}`);
+
+    // Publish TenantModulesAssignedEvent
+    const modulesAssignedEvent: TenantModulesAssignedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantModulesAssigned',
+      timestamp: new Date(),
+      tenantId: tenant.id,
+      moduleIds: modules.map(mod => mod.id),
+      moduleCodes: input.moduleCodes,
+      assignedBy: tenant.createdBy ?? 'system',
+      version: 1,
+    };
+    await this.eventBus.publish(modulesAssignedEvent);
 
     return saved;
   }
@@ -938,6 +1022,17 @@ export class TenantService {
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant settings updated by tenant admin: ${saved.name} (${saved.id})`);
+
+    // Publish TenantUpdatedEvent for consistency — settings changes are tenant updates
+    const event: TenantUpdatedEvent = {
+      eventId: crypto.randomUUID(),
+      eventType: 'TenantUpdated',
+      timestamp: new Date(),
+      tenantId: saved.id,
+      name: input.name,
+      version: 1,
+    };
+    await this.eventBus.publish(event);
 
     return saved;
   }

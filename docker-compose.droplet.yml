@@ -215,6 +215,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
     ports:
       - "127.0.0.1:3000:3000"

@@ -16,6 +16,7 @@ import {
 
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { EDGE_DEVICES_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 interface EdgeDeviceListItem {
@@ -40,37 +41,6 @@ interface DeviceStats {
   offline: number;
   byState: Array<{ state: string; count: number }>;
 }
-
-const EDGE_DEVICES_QUERY = `
-  query EdgeDevices($lifecycleState: DeviceLifecycleState, $isOnline: Boolean, $search: String, $page: Int, $limit: Int) {
-    edgeDevices(lifecycleState: $lifecycleState, isOnline: $isOnline, search: $search, page: $page, limit: $limit) {
-      items {
-        id
-        deviceCode
-        deviceName
-        deviceModel
-        lifecycleState
-        isOnline
-        lastSeenAt
-        cpuUsage
-        memoryUsage
-        agentVersion
-        ipAddress
-        sensorCount
-        programCount
-      }
-      total
-      page
-      limit
-    }
-    edgeDeviceStats {
-      total
-      online
-      offline
-      byState { state count }
-    }
-  }
-`;
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',

@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { MY_MODULES_QUERY, TENANT_USERS_QUERY, MY_SUBSCRIPTION_QUERY } from '../graphql';
 import { useTenantStats } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 
@@ -185,55 +186,6 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
     </span>
   );
 };
-
-const MY_MODULES_QUERY = `
-  query MyModules {
-    myModules {
-      id
-      moduleId
-      name
-      description
-      icon
-      color
-      isEnabled
-      defaultRoute
-    }
-  }
-`;
-
-const TENANT_USERS_QUERY = `
-  query TenantUsers {
-    tenantUsers {
-      id
-      email
-      firstName
-      lastName
-      role
-      isActive
-      lastLoginAt
-      createdAt
-    }
-  }
-`;
-
-const MY_SUBSCRIPTION_QUERY = `
-  query MySubscription {
-    subscription {
-      id
-      status
-      planTier
-      planName
-      billingCycle
-      currentPeriodStart
-      currentPeriodEnd
-      trialEndDate
-      pricing {
-        basePrice
-        currency
-      }
-    }
-  }
-`;
 
 /**
  * TenantDashboard Page

@@ -26,6 +26,7 @@ import {
   Shield,
 } from 'lucide-react';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { MY_MODULES_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 /**
@@ -238,22 +239,6 @@ export const TenantAdminSidebar: React.FC<TenantAdminSidebarProps> = ({
   useEffect(() => {
     loadModules();
   }, []);
-
-  const MY_MODULES_QUERY = `
-    query MyModules {
-      myModules {
-        id
-        moduleId
-        code
-        name
-        description
-        icon
-        color
-        isEnabled
-        defaultRoute
-      }
-    }
-  `;
 
   const loadModules = async () => {
     setLoadingModules(true);

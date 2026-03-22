@@ -3,22 +3,14 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
-  ForbiddenException,
-  Inject,
-  BadRequestException,
-  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService, Role } from '@platform/backend-common';
-import { IEventBus } from '@platform/event-bus';
-import { UserInvitedEvent } from '@platform/event-contracts';
+import { SchemaManagerService } from '@platform/backend-common';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../entities/tenant.entity';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -84,15 +76,11 @@ export class TenantUserManagementService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    @InjectRepository(Tenant)
-    private readonly tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
-    @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
-    @Inject(forwardRef(() => UserLifecycleService))
     private readonly userLifecycleService: UserLifecycleService,
   ) {}
 
@@ -645,41 +633,6 @@ export class TenantUserManagementService {
       assignedAt: new Date(),
       assignedBy,
     };
-  }
-
-  /**
-   * Send invitation email to new user
-   */
-  private async sendInvitationEmail(
-    tenant: Tenant,
-    user: User,
-    invitationToken: string,
-  ): Promise<void> {
-    const baseUrl = process.env['APP_URL'];
-    if (!baseUrl) {
-      throw new Error('APP_URL environment variable is not configured');
-    }
-    const actionUrl = `${baseUrl}/accept-invitation/${invitationToken}`;
-
-    const event: UserInvitedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'UserInvited',
-      timestamp: new Date(),
-      tenantId: tenant.id,
-      userId: user.id,
-      email: user.email,
-      firstName: user.firstName || undefined,
-      lastName: user.lastName || undefined,
-      role: user.role,
-      tenantName: tenant.name,
-      invitedBy: user.invitedBy || undefined,
-      credentialType: 'reset_token',
-      actionUrl,
-      version: 1,
-    };
-
-    await this.eventBus.publish(event);
-    this.logger.log(`Published UserInvitedEvent for ${user.email}`);
   }
 
   /**

@@ -13,6 +13,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, useCallback } from 'react';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { TENANT_ACTIVITY_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -55,43 +56,6 @@ export interface TenantActivityData {
 }
 
 export type ActivityPeriod = '7d' | '30d';
-
-// ============================================================================
-// GraphQL Query
-// ============================================================================
-
-const TENANT_ACTIVITY_QUERY = `
-  query TenantActivity($period: String) {
-    tenantActivity(period: $period) {
-      recentLogins {
-        id
-        userId
-        email
-        firstName
-        lastName
-        loginAt
-        ipAddress
-        userAgent
-        deviceType
-        success
-      }
-      activeSessions
-      userActivitySummaries {
-        userId
-        email
-        firstName
-        lastName
-        totalActions
-        lastActiveAt
-        loginCount
-      }
-      dailyActiveUsers {
-        date
-        count
-      }
-    }
-  }
-`;
 
 // ============================================================================
 // Query Keys

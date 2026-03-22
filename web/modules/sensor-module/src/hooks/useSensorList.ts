@@ -50,20 +50,20 @@ export interface SensorFilter {
 
 export interface Pagination {
   page: number;
-  pageSize: number;
+  limit: number;
 }
 
 export interface SensorListResult {
   items: RegisteredSensor[];
   total: number;
   page: number;
-  pageSize: number;
+  limit: number;
   totalPages: number;
 }
 
 // GraphQL Query - Uses the sensors query from registration.resolver.ts
 // Returns SensorListType with pagination input object
-// SCHEMA-CONTRACT: Sensor-service uses SensorPaginationInput (page/pageSize)
+// SCHEMA-CONTRACT: Sensor-service uses SensorPaginationInput (page/limit)
 const GET_SENSORS_QUERY = `
   query GetSensors($pagination: SensorPaginationInput) {
     sensors(pagination: $pagination) {
@@ -98,7 +98,7 @@ const GET_SENSORS_QUERY = `
       }
       total
       page
-      pageSize
+      limit
       totalPages
     }
   }
@@ -117,7 +117,7 @@ export function useSensorList(filter?: SensorFilter, pagination?: Pagination) {
     try {
       // BUG-020: include filter in variables so server-side filtering is actually applied
       const result = await graphqlFetch<{ sensors: SensorListResult }>(GET_SENSORS_QUERY, {
-        // Note: Only pass 'page' because federation schema doesn't have 'pageSize' (conflict with farm-service)
+        // Note: Only pass 'page' because federation schema doesn't have 'limit' (conflict with farm-service)
         ...(filter ? { filter } : {}),
         pagination: {
           page: pagination?.page || 1,

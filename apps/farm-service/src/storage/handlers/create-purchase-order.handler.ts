@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger } from '@nestjs/common';
@@ -7,7 +7,7 @@ import { PurchaseOrder, PurchaseOrderStatus } from '../entities/purchase-order.e
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
 
 @CommandHandler(CreatePurchaseOrderCommand)
-export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchaseOrderCommand> {
+export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchaseOrderCommand, PurchaseOrder> {
   private readonly logger = new Logger(CreatePurchaseOrderHandler.name);
 
   constructor(

@@ -1,7 +1,7 @@
 /**
  * Delete Site Command
  */
-import { ICommand } from '@nestjs/cqrs';
+import { ICommand } from '@platform/cqrs';
 
 export class DeleteSiteCommand implements ICommand {
   constructor(

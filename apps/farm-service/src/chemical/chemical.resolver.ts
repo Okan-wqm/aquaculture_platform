@@ -3,7 +3,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
@@ -148,7 +148,7 @@ export class ChemicalResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedChemicalsResponse> {
     const query = new ListChemicalsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<ChemicalResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -161,8 +161,8 @@ export class ChemicalResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<ChemicalResponse[]> {
     const query = new ListChemicalsQuery(tenantId, { type, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<ChemicalResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -173,8 +173,8 @@ export class ChemicalResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<ChemicalResponse[]> {
     const query = new ListChemicalsQuery(tenantId, { type: ChemicalType.TREATMENT, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<ChemicalResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -185,8 +185,8 @@ export class ChemicalResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<ChemicalResponse[]> {
     const query = new ListChemicalsQuery(tenantId, { type: ChemicalType.DISINFECTANT, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<ChemicalResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**

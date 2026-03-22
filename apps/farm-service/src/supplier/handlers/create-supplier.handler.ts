@@ -1,7 +1,7 @@
 /**
  * Create Supplier Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial } from 'typeorm';
 import { ConflictException, Logger } from '@nestjs/common';
@@ -9,7 +9,7 @@ import { CreateSupplierCommand } from '../commands/create-supplier.command';
 import { Supplier, SupplierStatus, SupplierAddress } from '../entities/supplier.entity';
 
 @CommandHandler(CreateSupplierCommand)
-export class CreateSupplierHandler implements ICommandHandler<CreateSupplierCommand> {
+export class CreateSupplierHandler implements ICommandHandler<CreateSupplierCommand, Supplier> {
   private readonly logger = new Logger(CreateSupplierHandler.name);
 
   constructor(

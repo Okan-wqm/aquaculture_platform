@@ -1,7 +1,7 @@
 /**
  * Create Feeding Protocol Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -15,7 +15,7 @@ import {
 import { Feed } from '../entities/feed.entity';
 
 @CommandHandler(CreateFeedingProtocolCommand)
-export class CreateFeedingProtocolHandler implements ICommandHandler<CreateFeedingProtocolCommand> {
+export class CreateFeedingProtocolHandler implements ICommandHandler<CreateFeedingProtocolCommand, FeedingProtocol> {
   private readonly logger = new Logger(CreateFeedingProtocolHandler.name);
 
   constructor(

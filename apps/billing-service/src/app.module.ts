@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -10,7 +10,7 @@ import {
 } from '@nestjs/apollo';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -152,4 +152,13 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Middleware execution order:
+    // 1. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
+    // 2. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    consumer
+      .apply(UserContextMiddleware, TenantContextMiddleware)
+      .forRoutes('*');
+  }
+}

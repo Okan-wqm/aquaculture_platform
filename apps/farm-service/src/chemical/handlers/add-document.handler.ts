@@ -2,7 +2,7 @@
  * Add Chemical Document Handler
  * Adds a document reference to a chemical's documents JSONB array
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger, ConflictException } from '@nestjs/common';
@@ -10,7 +10,7 @@ import { AddDocumentCommand } from '../commands/add-document.command';
 import { Chemical, ChemicalDocument } from '../entities/chemical.entity';
 
 @CommandHandler(AddDocumentCommand)
-export class AddDocumentHandler implements ICommandHandler<AddDocumentCommand> {
+export class AddDocumentHandler implements ICommandHandler<AddDocumentCommand, Chemical> {
   private readonly logger = new Logger(AddDocumentHandler.name);
 
   constructor(

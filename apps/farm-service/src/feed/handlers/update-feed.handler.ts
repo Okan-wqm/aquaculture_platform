@@ -1,7 +1,7 @@
 /**
  * Update Feed Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
@@ -10,7 +10,7 @@ import { Feed } from '../entities/feed.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
 
 @CommandHandler(UpdateFeedCommand)
-export class UpdateFeedHandler implements ICommandHandler<UpdateFeedCommand> {
+export class UpdateFeedHandler implements ICommandHandler<UpdateFeedCommand, Feed> {
   private readonly logger = new Logger(UpdateFeedHandler.name);
 
   constructor(

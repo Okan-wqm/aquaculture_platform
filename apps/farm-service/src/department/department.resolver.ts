@@ -3,7 +3,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { DepartmentResponse, PaginatedDepartmentsResponse } from './dto/department.response';
 import { DepartmentDeletePreviewResponse } from './dto/department-delete-preview.response';
@@ -117,7 +117,7 @@ export class DepartmentResolver {
       throw new Error('Tenant ID is required');
     }
     const query = new ListDepartmentsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<DepartmentResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -131,9 +131,10 @@ export class DepartmentResolver {
   ): Promise<DepartmentResponse[]> {
     this.logger.debug(`departmentsBySite: tenant=${tenantId}, siteId=${siteId}`);
     const query = new ListDepartmentsQuery(tenantId, { siteId }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    this.logger.debug(`departmentsBySite: found ${result.items.length} departments for site ${siteId}`);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<DepartmentResponse>;
+    const paginated = fromCqrsPaginated(result);
+    this.logger.debug(`departmentsBySite: found ${paginated.items.length} departments for site ${siteId}`);
+    return paginated.items;
   }
 
   /**

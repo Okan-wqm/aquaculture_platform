@@ -2,7 +2,7 @@
  * Create Site Command
  * Uses DTOs for input types
  */
-import { ICommand } from '@nestjs/cqrs';
+import { ICommand } from '@platform/cqrs';
 import { CreateSiteInput as CreateSiteInputDto } from '../dto/create-site.input';
 
 export class CreateSiteCommand implements ICommand {

@@ -1,7 +1,7 @@
 /**
  * Delete Feeding Protocol Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Logger, NotFoundException } from '@nestjs/common';
@@ -9,7 +9,7 @@ import { DeleteFeedingProtocolCommand } from '../commands/delete-feeding-protoco
 import { FeedingProtocol } from '../entities/feeding-protocol.entity';
 
 @CommandHandler(DeleteFeedingProtocolCommand)
-export class DeleteFeedingProtocolHandler implements ICommandHandler<DeleteFeedingProtocolCommand> {
+export class DeleteFeedingProtocolHandler implements ICommandHandler<DeleteFeedingProtocolCommand, boolean> {
   private readonly logger = new Logger(DeleteFeedingProtocolHandler.name);
 
   constructor(

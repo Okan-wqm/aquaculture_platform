@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
@@ -6,7 +6,7 @@ import { DeleteConsumableCommand } from '../commands/delete-consumable.command';
 import { Consumable } from '../entities/consumable.entity';
 
 @CommandHandler(DeleteConsumableCommand)
-export class DeleteConsumableHandler implements ICommandHandler<DeleteConsumableCommand> {
+export class DeleteConsumableHandler implements ICommandHandler<DeleteConsumableCommand, boolean> {
   private readonly logger = new Logger(DeleteConsumableHandler.name);
 
   constructor(

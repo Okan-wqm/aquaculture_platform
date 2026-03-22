@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, Logger } from '@nestjs/common';
@@ -6,7 +6,7 @@ import { UpdateStorageLocationCommand } from '../commands/update-storage-locatio
 import { StorageLocation } from '../entities/storage-location.entity';
 
 @CommandHandler(UpdateStorageLocationCommand)
-export class UpdateStorageLocationHandler implements ICommandHandler<UpdateStorageLocationCommand> {
+export class UpdateStorageLocationHandler implements ICommandHandler<UpdateStorageLocationCommand, StorageLocation> {
   private readonly logger = new Logger(UpdateStorageLocationHandler.name);
 
   constructor(

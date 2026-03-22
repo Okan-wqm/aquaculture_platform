@@ -8,7 +8,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetGrowthMeasurementsQuery } from '../queries/get-growth-measurements.query';
 import { GrowthMeasurement } from '../entities/growth-measurement.entity';

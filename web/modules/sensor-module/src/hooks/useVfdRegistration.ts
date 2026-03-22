@@ -77,7 +77,7 @@ const GET_VFD_DEVICES_QUERY = `
       }
       total
       page
-      pageSize
+      limit
       totalPages
     }
   }
@@ -198,7 +198,7 @@ const DEACTIVATE_VFD_MUTATION = `
 // Pagination interface
 interface Pagination {
   page: number;
-  pageSize: number;
+  limit: number;
 }
 
 /**
@@ -240,7 +240,7 @@ export function useVfdDevices(filter?: VfdFilter, pagination?: Pagination) {
   const [devices, setDevices] = useState<VfdDevice[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [limit, setLimit] = useState(20);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -255,7 +255,7 @@ export function useVfdDevices(filter?: VfdFilter, pagination?: Pagination) {
           items: VfdDevice[];
           total: number;
           page: number;
-          pageSize: number;
+          limit: number;
           totalPages: number;
         };
       }>(GET_VFD_DEVICES_QUERY, { filter, pagination });
@@ -263,7 +263,7 @@ export function useVfdDevices(filter?: VfdFilter, pagination?: Pagination) {
       setDevices(data.vfdDevices.items);
       setTotal(data.vfdDevices.total);
       setPage(data.vfdDevices.page);
-      setPageSize(data.vfdDevices.pageSize);
+      setLimit(data.vfdDevices.limit);
       setTotalPages(data.vfdDevices.totalPages);
     } catch (err) {
       setError(err as Error);
@@ -276,7 +276,7 @@ export function useVfdDevices(filter?: VfdFilter, pagination?: Pagination) {
     devices,
     total,
     page,
-    pageSize,
+    limit,
     totalPages,
     loading,
     error,

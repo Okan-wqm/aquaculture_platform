@@ -2,7 +2,7 @@
  * Get System Delete Preview Handler
  * Gathers all items that will be affected by system deletion
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';

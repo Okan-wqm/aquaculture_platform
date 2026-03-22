@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
@@ -7,7 +7,7 @@ import { Consumable } from '../entities/consumable.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
 
 @CommandHandler(UpdateConsumableCommand)
-export class UpdateConsumableHandler implements ICommandHandler<UpdateConsumableCommand> {
+export class UpdateConsumableHandler implements ICommandHandler<UpdateConsumableCommand, Consumable> {
   private readonly logger = new Logger(UpdateConsumableHandler.name);
 
   constructor(

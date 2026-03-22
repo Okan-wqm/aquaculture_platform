@@ -2,7 +2,7 @@
  * Get Site Delete Preview Handler
  * Gathers all items that will be affected by site deletion
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';

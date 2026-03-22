@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ConflictException, Logger } from '@nestjs/common';
@@ -6,7 +6,7 @@ import { CreateWorkerCommand } from '../commands/create-worker.command';
 import { Worker } from '../entities/worker.entity';
 
 @CommandHandler(CreateWorkerCommand)
-export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand> {
+export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand, Worker> {
   private readonly logger = new Logger(CreateWorkerHandler.name);
 
   constructor(

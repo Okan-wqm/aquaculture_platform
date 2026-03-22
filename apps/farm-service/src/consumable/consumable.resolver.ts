@@ -3,7 +3,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { ConsumableResponse, PaginatedConsumablesResponse } from './dto/consumable.response';
 import { CreateConsumableInput } from './dto/create-consumable.input';
@@ -79,7 +79,7 @@ export class ConsumableResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedConsumablesResponse> {
     const query = new ListConsumablesQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<ConsumableResponse>;
     return fromCqrsPaginated(result);
   }
 }

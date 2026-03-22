@@ -8,7 +8,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetHarvestStatisticsQuery } from '../queries/get-harvest-statistics.query';
 import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
 

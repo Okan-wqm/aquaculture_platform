@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -10,7 +10,7 @@ import { StockMovement, MovementType } from '../entities/stock-movement.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
 
 @CommandHandler(ReceiveDeliveryCommand)
-export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCommand> {
+export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCommand, PurchaseOrder> {
   private readonly logger = new Logger(ReceiveDeliveryHandler.name);
 
   constructor(

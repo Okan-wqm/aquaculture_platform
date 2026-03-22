@@ -3,7 +3,7 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@nestjs/cqrs';
+import { CqrsModule } from '@platform/cqrs';
 
 // Entity
 import { Site } from './entities/site.entity';

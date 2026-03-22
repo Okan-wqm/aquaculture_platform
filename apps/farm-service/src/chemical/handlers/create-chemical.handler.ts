@@ -1,7 +1,7 @@
 /**
  * Create Chemical Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -12,7 +12,7 @@ import { Supplier } from '../../supplier/entities/supplier.entity';
 import { Site } from '../../site/entities/site.entity';
 
 @CommandHandler(CreateChemicalCommand)
-export class CreateChemicalHandler implements ICommandHandler<CreateChemicalCommand> {
+export class CreateChemicalHandler implements ICommandHandler<CreateChemicalCommand, Chemical> {
   private readonly logger = new Logger(CreateChemicalHandler.name);
 
   constructor(

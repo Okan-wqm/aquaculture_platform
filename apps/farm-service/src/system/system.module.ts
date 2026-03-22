@@ -4,7 +4,7 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@nestjs/cqrs';
+import { CqrsModule } from '@platform/cqrs';
 import { System } from './entities/system.entity';
 import { SubSystem } from './entities/sub-system.entity';
 import { Site } from '../site/entities/site.entity';

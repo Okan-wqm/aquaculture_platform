@@ -2,7 +2,7 @@
  * Remove Chemical Document Handler
  * Removes a document reference from a chemical's documents JSONB array
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
@@ -10,7 +10,7 @@ import { RemoveDocumentCommand } from '../commands/remove-document.command';
 import { Chemical, ChemicalDocument } from '../entities/chemical.entity';
 
 @CommandHandler(RemoveDocumentCommand)
-export class RemoveDocumentHandler implements ICommandHandler<RemoveDocumentCommand> {
+export class RemoveDocumentHandler implements ICommandHandler<RemoveDocumentCommand, boolean> {
   private readonly logger = new Logger(RemoveDocumentHandler.name);
 
   constructor(

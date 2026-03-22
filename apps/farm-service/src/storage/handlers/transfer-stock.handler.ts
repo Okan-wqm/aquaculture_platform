@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
@@ -11,7 +11,7 @@ import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 
 @CommandHandler(TransferStockCommand)
-export class TransferStockHandler implements ICommandHandler<TransferStockCommand> {
+export class TransferStockHandler implements ICommandHandler<TransferStockCommand, StockMovement> {
   private readonly logger = new Logger(TransferStockHandler.name);
 
   constructor(

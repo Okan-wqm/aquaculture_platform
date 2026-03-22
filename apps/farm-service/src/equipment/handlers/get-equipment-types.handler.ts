@@ -5,7 +5,7 @@
  * Results are cached in-process with a 1-hour TTL to avoid redundant DB queries.
  * Direct ID lookup supported to avoid full-table-scan + JS filter pattern.
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetEquipmentTypesQuery } from '../queries/get-equipment-types.query';

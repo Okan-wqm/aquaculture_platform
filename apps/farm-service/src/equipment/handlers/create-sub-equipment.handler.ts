@@ -1,7 +1,7 @@
 /**
  * Create SubEquipment Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
@@ -11,7 +11,7 @@ import { SubEquipmentType } from '../entities/sub-equipment-type.entity';
 import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 
 @CommandHandler(CreateSubEquipmentCommand)
-export class CreateSubEquipmentHandler implements ICommandHandler<CreateSubEquipmentCommand> {
+export class CreateSubEquipmentHandler implements ICommandHandler<CreateSubEquipmentCommand, SubEquipment> {
   private readonly logger = new Logger(CreateSubEquipmentHandler.name);
 
   constructor(

@@ -224,6 +224,7 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
       }
       // Create a fresh barrier for subsequent waitForReady() calls
       this.readyPromise = this.createBarrier();
+      this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
     }
   }
 
@@ -240,6 +241,7 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
     this.state = 'INITIALIZING';
     this.refreshRetryCount = 0;
     this.readyPromise = this.createBarrier();
+    this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
   }
 
   // --------------------------------------------------------------------------
@@ -338,6 +340,9 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
 
     // Create a fresh barrier so new requests wait during refresh
     this.readyPromise = this.createBarrier();
+    // Prevent unhandled rejection if silentRefresh() fails —
+    // waitForReady() callers handle the rejection themselves.
+    this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
 
     try {
       const { silentRefresh, getAccessToken } = await import('./api-client');

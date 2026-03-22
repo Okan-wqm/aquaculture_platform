@@ -2,7 +2,7 @@
  * Get Department Delete Preview Query
  * Returns a preview of what will be deleted when a department is soft deleted
  */
-import { IQuery } from '@nestjs/cqrs';
+import { IQuery } from '@platform/cqrs';
 
 export class GetDepartmentDeletePreviewQuery implements IQuery {
   constructor(

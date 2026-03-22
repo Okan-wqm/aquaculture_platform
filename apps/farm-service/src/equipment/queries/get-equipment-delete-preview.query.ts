@@ -2,7 +2,7 @@
  * Get Equipment Delete Preview Query
  * Returns a preview of what will be deleted when an equipment is soft deleted
  */
-import { IQuery } from '@nestjs/cqrs';
+import { IQuery } from '@platform/cqrs';
 
 export class GetEquipmentDeletePreviewQuery implements IQuery {
   constructor(

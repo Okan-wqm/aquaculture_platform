@@ -522,7 +522,7 @@ export interface VfdDeviceList {
   items: VfdDevice[];
   total: number;
   page: number;
-  pageSize: number;
+  limit: number;
   totalPages: number;
 }
 

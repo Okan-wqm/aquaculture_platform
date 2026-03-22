@@ -14,7 +14,7 @@ import {
   Parent,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import {
   SubEquipmentResponse,
@@ -82,7 +82,7 @@ export class SubEquipmentResolver {
     }
     this.logger.debug(`Listing sub-equipment for tenant ${tenantId}`);
     const query = new ListSubEquipmentQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SubEquipmentResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -102,8 +102,8 @@ export class SubEquipmentResolver {
       isActive: includeInactive ? undefined : true,
     };
     const query = new ListSubEquipmentQuery(tenantId, filter, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SubEquipmentResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -117,7 +117,7 @@ export class SubEquipmentResolver {
   ): Promise<SubEquipmentTypeResponse[]> {
     this.logger.debug('Getting sub-equipment types');
     const query = new GetSubEquipmentTypesQuery(filter);
-    return this.queryBus.execute(query);
+    return this.queryBus.execute(query) as Promise<SubEquipmentTypeResponse[]>;
   }
 
   /**
@@ -133,7 +133,7 @@ export class SubEquipmentResolver {
       compatibleWithEquipmentType: equipmentTypeCode,
       isActive: true,
     });
-    return this.queryBus.execute(query);
+    return this.queryBus.execute(query) as Promise<SubEquipmentTypeResponse[]>;
   }
 
   /**
@@ -145,7 +145,7 @@ export class SubEquipmentResolver {
     @Args('id', { type: () => ID }) id: string,
   ): Promise<SubEquipmentTypeResponse | null> {
     const query = new GetSubEquipmentTypesQuery({ isActive: true });
-    const types = await this.queryBus.execute(query);
+    const types = await this.queryBus.execute(query) as SubEquipmentTypeResponse[];
     return types.find((t: SubEquipmentTypeResponse) => t.id === id) || null;
   }
 

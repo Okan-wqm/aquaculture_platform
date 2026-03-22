@@ -1,6 +1,6 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 import { WorkerResponse } from './dto/worker.response';
 import { CreateWorkerInput } from './dto/create-worker.input';
@@ -24,7 +24,7 @@ export class WorkerResolver {
   async workers(
     @CurrentTenant() tenantId: string,
   ): Promise<WorkerResponse[]> {
-    const workers = await this.queryBus.execute(new ListWorkersQuery(tenantId));
+    const workers = await this.queryBus.execute(new ListWorkersQuery(tenantId)) as Array<Record<string, unknown>>;
     return workers.map((w: any) => ({
       id: w.id,
       employeeNumber: w.employeeNumber,
@@ -49,7 +49,7 @@ export class WorkerResolver {
   ): Promise<WorkerResponse> {
     this.logger.log(`Creating worker for tenant ${tenantId}`);
     const command = new CreateWorkerCommand(input, tenantId, user.sub);
-    const worker = await this.commandBus.execute(command);
+    const worker = await this.commandBus.execute(command) as any;
     return {
       id: worker.id,
       employeeNumber: worker.employeeNumber,
@@ -74,7 +74,7 @@ export class WorkerResolver {
   ): Promise<WorkerResponse> {
     this.logger.log(`Updating worker ${input.id} for tenant ${tenantId}`);
     const command = new UpdateWorkerCommand(input, tenantId, user.sub);
-    const worker = await this.commandBus.execute(command);
+    const worker = await this.commandBus.execute(command) as any;
     return {
       id: worker.id,
       employeeNumber: worker.employeeNumber,

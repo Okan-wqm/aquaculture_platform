@@ -3,7 +3,7 @@
  */
 import { randomUUID } from 'crypto';
 
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
@@ -20,7 +20,7 @@ import { Tank, TankType, TankMaterial, TankStatus, WaterType } from '../../tank/
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 
 @CommandHandler(CreateEquipmentCommand)
-export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCommand> {
+export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCommand, Equipment> {
   private readonly logger = new Logger(CreateEquipmentHandler.name);
 
   constructor(

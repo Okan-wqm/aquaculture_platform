@@ -1,7 +1,7 @@
 /**
  * Delete Chemical Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
@@ -9,7 +9,7 @@ import { DeleteChemicalCommand } from '../commands/delete-chemical.command';
 import { Chemical } from '../entities/chemical.entity';
 
 @CommandHandler(DeleteChemicalCommand)
-export class DeleteChemicalHandler implements ICommandHandler<DeleteChemicalCommand> {
+export class DeleteChemicalHandler implements ICommandHandler<DeleteChemicalCommand, boolean> {
   private readonly logger = new Logger(DeleteChemicalHandler.name);
 
   constructor(

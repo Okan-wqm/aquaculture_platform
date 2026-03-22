@@ -1,7 +1,7 @@
 /**
  * Delete Supplier Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
@@ -9,7 +9,7 @@ import { DeleteSupplierCommand } from '../commands/delete-supplier.command';
 import { Supplier } from '../entities/supplier.entity';
 
 @CommandHandler(DeleteSupplierCommand)
-export class DeleteSupplierHandler implements ICommandHandler<DeleteSupplierCommand> {
+export class DeleteSupplierHandler implements ICommandHandler<DeleteSupplierCommand, boolean> {
   private readonly logger = new Logger(DeleteSupplierHandler.name);
 
   constructor(

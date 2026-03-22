@@ -2,7 +2,7 @@
  * Update Site Command
  * Uses DTOs for input types
  */
-import { ICommand } from '@nestjs/cqrs';
+import { ICommand } from '@platform/cqrs';
 import { UpdateSiteInput as UpdateSiteInputDto } from '../dto/update-site.input';
 
 export class UpdateSiteCommand implements ICommand {

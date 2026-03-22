@@ -3,7 +3,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
@@ -99,7 +99,7 @@ export class SupplierResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedSuppliersResponse> {
     const query = new ListSuppliersQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -112,8 +112,8 @@ export class SupplierResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SupplierResponse[]> {
     const query = new ListSuppliersQuery(tenantId, { type, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -124,8 +124,8 @@ export class SupplierResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SupplierResponse[]> {
     const query = new ListSuppliersQuery(tenantId, { type: SupplierType.EQUIPMENT, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -136,8 +136,8 @@ export class SupplierResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SupplierResponse[]> {
     const query = new ListSuppliersQuery(tenantId, { type: SupplierType.FEED, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -148,8 +148,8 @@ export class SupplierResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SupplierResponse[]> {
     const query = new ListSuppliersQuery(tenantId, { type: SupplierType.CHEMICAL, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SupplierResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**

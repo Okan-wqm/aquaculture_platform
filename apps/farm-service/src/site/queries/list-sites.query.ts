@@ -1,7 +1,7 @@
 /**
  * List Sites Query
  */
-import { IQuery } from '@nestjs/cqrs';
+import { IQuery } from '@platform/cqrs';
 import { SiteStatus } from '../entities/site.entity';
 
 export interface ListSitesFilter {

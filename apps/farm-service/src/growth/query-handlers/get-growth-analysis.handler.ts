@@ -10,7 +10,7 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetGrowthAnalysisQuery, GrowthAnalysisResult } from '../queries/get-growth-analysis.query';
 import { GrowthMeasurement, GrowthPerformance } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';

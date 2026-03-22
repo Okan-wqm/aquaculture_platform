@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -7,7 +7,7 @@ import { StorageLocation } from '../entities/storage-location.entity';
 import { Site } from '../../site/entities/site.entity';
 
 @CommandHandler(CreateStorageLocationCommand)
-export class CreateStorageLocationHandler implements ICommandHandler<CreateStorageLocationCommand> {
+export class CreateStorageLocationHandler implements ICommandHandler<CreateStorageLocationCommand, StorageLocation> {
   private readonly logger = new Logger(CreateStorageLocationHandler.name);
 
   constructor(

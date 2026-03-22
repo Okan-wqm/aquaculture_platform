@@ -3,7 +3,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent, Context } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
@@ -133,7 +133,7 @@ export class EquipmentResolver {
       throw new Error('Tenant ID is required');
     }
     const query = new ListEquipmentQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<EquipmentResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -146,8 +146,8 @@ export class EquipmentResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<EquipmentResponse[]> {
     const query = new ListEquipmentQuery(tenantId, { departmentId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<EquipmentResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -159,7 +159,7 @@ export class EquipmentResolver {
     @Args('filter', { type: () => EquipmentTypeFilterInput, nullable: true }) filter?: EquipmentTypeFilterInput,
   ): Promise<EquipmentTypeResponse[]> {
     const query = new GetEquipmentTypesQuery(filter);
-    return this.queryBus.execute(query);
+    return this.queryBus.execute(query) as Promise<EquipmentTypeResponse[]>;
   }
 
   /**
@@ -172,7 +172,7 @@ export class EquipmentResolver {
     @Args('id', { type: () => ID }) id: string,
   ): Promise<EquipmentTypeResponse | null> {
     const query = new GetEquipmentTypesQuery({ isActive: true, id });
-    const types = await this.queryBus.execute(query);
+    const types = await this.queryBus.execute(query) as EquipmentTypeResponse[];
     return types[0] || null;
   }
 

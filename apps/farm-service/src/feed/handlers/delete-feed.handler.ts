@@ -1,7 +1,7 @@
 /**
  * Delete Feed Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
@@ -9,7 +9,7 @@ import { DeleteFeedCommand } from '../commands/delete-feed.command';
 import { Feed } from '../entities/feed.entity';
 
 @CommandHandler(DeleteFeedCommand)
-export class DeleteFeedHandler implements ICommandHandler<DeleteFeedCommand> {
+export class DeleteFeedHandler implements ICommandHandler<DeleteFeedCommand, boolean> {
   private readonly logger = new Logger(DeleteFeedHandler.name);
 
   constructor(

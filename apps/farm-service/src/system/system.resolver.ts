@@ -3,7 +3,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { SystemResponse, PaginatedSystemsResponse } from './dto/system.response';
 import { SystemDeletePreviewResponse } from './dto/system-delete-preview.response';
@@ -116,7 +116,7 @@ export class SystemResolver {
       throw new Error('Tenant ID is required');
     }
     const query = new ListSystemsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -129,8 +129,8 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SystemResponse[]> {
     const query = new ListSystemsQuery(tenantId, { siteId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -142,8 +142,8 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SystemResponse[]> {
     const query = new ListSystemsQuery(tenantId, { departmentId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -155,8 +155,8 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SystemResponse[]> {
     const query = new ListSystemsQuery(tenantId, { parentSystemId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -171,8 +171,8 @@ export class SystemResolver {
       throw new Error('Tenant ID is required');
     }
     const query = new ListSystemsQuery(tenantId, { siteId, rootOnly: true, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -240,8 +240,8 @@ export class SystemResolver {
 
     try {
       const query = new ListSystemsQuery(system.tenantId, { parentSystemId: system.id, isActive: true }, { limit: 1000 });
-      const result = await this.queryBus.execute(query);
-      return result.items;
+      const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+      return fromCqrsPaginated(result).items;
     } catch (error: unknown) {
       this.logger.debug(`Error resolving childSystemsField for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
       return [];

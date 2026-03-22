@@ -8,7 +8,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import {
   FeedingProtocolResponse,
@@ -64,7 +64,7 @@ export class FeedingProtocolResolver {
   ): Promise<PaginatedFeedingProtocolsResponse> {
     this.logger.debug(`Listing feeding protocols for tenant ${tenantId}`);
     const query = new ListFeedingProtocolsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedingProtocolResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -82,8 +82,8 @@ export class FeedingProtocolResolver {
       { species, isActive: true },
       { limit: 100 },
     );
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedingProtocolResponse>;
+    return fromCqrsPaginated(result).items;
   }
 
   /**
@@ -101,8 +101,8 @@ export class FeedingProtocolResolver {
       { species, stage: stage as any, isDefault: true, isActive: true },
       { limit: 1 },
     );
-    const result = await this.queryBus.execute(query);
-    return result.items[0] || null;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedingProtocolResponse>;
+    return fromCqrsPaginated(result).items[0] || null;
   }
 
   // ==========================================================================

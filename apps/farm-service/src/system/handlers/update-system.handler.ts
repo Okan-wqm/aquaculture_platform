@@ -3,7 +3,7 @@
  */
 import { randomUUID } from 'crypto';
 
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
@@ -13,7 +13,7 @@ import { UpdateSystemCommand } from '../commands/update-system.command';
 import { System } from '../entities/system.entity';
 
 @CommandHandler(UpdateSystemCommand)
-export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand> {
+export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand, System> {
   private readonly logger = new Logger(UpdateSystemHandler.name);
 
   constructor(

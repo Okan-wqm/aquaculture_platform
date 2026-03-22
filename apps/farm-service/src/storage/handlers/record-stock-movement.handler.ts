@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
@@ -12,7 +12,7 @@ import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
 
 @CommandHandler(RecordStockMovementCommand)
-export class RecordStockMovementHandler implements ICommandHandler<RecordStockMovementCommand> {
+export class RecordStockMovementHandler implements ICommandHandler<RecordStockMovementCommand, StockMovement> {
   private readonly logger = new Logger(RecordStockMovementHandler.name);
 
   constructor(

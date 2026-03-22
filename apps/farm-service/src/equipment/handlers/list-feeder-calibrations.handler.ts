@@ -1,7 +1,7 @@
 /**
  * List Feeder Calibrations Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListFeederCalibrationsQuery } from '../queries/list-feeder-calibrations.query';

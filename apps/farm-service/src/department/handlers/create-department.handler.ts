@@ -3,7 +3,7 @@
  */
 import { randomUUID } from 'crypto';
 
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
@@ -14,7 +14,7 @@ import { Department, DepartmentStatus } from '../entities/department.entity';
 import { Site } from '../../site/entities/site.entity';
 
 @CommandHandler(CreateDepartmentCommand)
-export class CreateDepartmentHandler implements ICommandHandler<CreateDepartmentCommand> {
+export class CreateDepartmentHandler implements ICommandHandler<CreateDepartmentCommand, Department> {
   private readonly logger = new Logger(CreateDepartmentHandler.name);
 
   constructor(

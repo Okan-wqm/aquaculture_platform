@@ -104,9 +104,10 @@ export class SensorResolver {
   }
 
   /**
-   * List all sensors for the tenant
+   * List all sensors for the tenant (raw array, no pagination wrapper).
+   * Legacy query — frontend uses the paginated 'sensors' query from RegistrationResolver.
    */
-  @Query(() => [Sensor], { name: 'sensors' })
+  @Query(() => [Sensor], { name: 'sensorRawList' })
   async listSensors(
     @Tenant() tenantId: string,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 })

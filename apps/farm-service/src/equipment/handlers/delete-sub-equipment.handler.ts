@@ -1,7 +1,7 @@
 /**
  * Delete SubEquipment Command Handler
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
@@ -10,7 +10,7 @@ import { SubEquipment } from '../entities/sub-equipment.entity';
 import { Equipment } from '../entities/equipment.entity';
 
 @CommandHandler(DeleteSubEquipmentCommand)
-export class DeleteSubEquipmentHandler implements ICommandHandler<DeleteSubEquipmentCommand> {
+export class DeleteSubEquipmentHandler implements ICommandHandler<DeleteSubEquipmentCommand, boolean> {
   private readonly logger = new Logger(DeleteSubEquipmentHandler.name);
 
   constructor(

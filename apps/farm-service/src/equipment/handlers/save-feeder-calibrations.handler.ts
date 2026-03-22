@@ -3,7 +3,7 @@
  * Upsert strategy: delete existing calibrations for the equipment, then insert new ones.
  * Uses a transaction to ensure atomicity (no data loss on partial failure).
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger } from '@nestjs/common';
@@ -11,7 +11,7 @@ import { SaveFeederCalibrationsCommand } from '../commands/save-feeder-calibrati
 import { FeederCalibration } from '../entities/feeder-calibration.entity';
 
 @CommandHandler(SaveFeederCalibrationsCommand)
-export class SaveFeederCalibrationsHandler implements ICommandHandler<SaveFeederCalibrationsCommand> {
+export class SaveFeederCalibrationsHandler implements ICommandHandler<SaveFeederCalibrationsCommand, FeederCalibration[]> {
   private readonly logger = new Logger(SaveFeederCalibrationsHandler.name);
 
   constructor(

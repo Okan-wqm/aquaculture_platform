@@ -170,7 +170,7 @@ export const GET_SENSORS = gql`
       }
       total
       page
-      pageSize
+      limit
       totalPages
     }
   }

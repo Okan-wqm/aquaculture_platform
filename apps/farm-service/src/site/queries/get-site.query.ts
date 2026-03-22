@@ -1,7 +1,7 @@
 /**
  * Get Site Query
  */
-import { IQuery } from '@nestjs/cqrs';
+import { IQuery } from '@platform/cqrs';
 
 export class GetSiteQuery implements IQuery {
   constructor(

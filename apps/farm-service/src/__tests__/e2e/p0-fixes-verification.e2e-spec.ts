@@ -166,7 +166,7 @@ describe('Fix 6: CQRS Import Standardization', () => {
     for (const file of tsFiles) {
       if (file.includes('node_modules') || file.includes('__tests__')) continue;
       const content = fs.readFileSync(file, 'utf-8');
-      if (content.includes("from '@nestjs/cqrs'")) {
+      if (content.includes("from '@platform/cqrs'")) {
         violations.push(file.replace(SRC_ROOT + '/', ''));
       }
     }

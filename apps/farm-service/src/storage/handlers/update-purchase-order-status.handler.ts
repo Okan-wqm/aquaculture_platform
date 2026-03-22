@@ -1,4 +1,4 @@
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -14,7 +14,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 };
 
 @CommandHandler(UpdatePurchaseOrderStatusCommand)
-export class UpdatePurchaseOrderStatusHandler implements ICommandHandler<UpdatePurchaseOrderStatusCommand> {
+export class UpdatePurchaseOrderStatusHandler implements ICommandHandler<UpdatePurchaseOrderStatusCommand, PurchaseOrder> {
   private readonly logger = new Logger(UpdatePurchaseOrderStatusHandler.name);
 
   constructor(

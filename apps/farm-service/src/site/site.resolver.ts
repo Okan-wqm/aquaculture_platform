@@ -2,7 +2,7 @@
  * Site GraphQL Resolver
  */
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards, Logger } from '@nestjs/common';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { SiteResponse, PaginatedSitesResponse } from './dto/site.response';
@@ -113,7 +113,7 @@ export class SiteResolver {
       throw new Error('Tenant ID is required');
     }
     const query = new ListSitesQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query);
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SiteResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -125,7 +125,7 @@ export class SiteResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SiteResponse[]> {
     const query = new ListSitesQuery(tenantId, { isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query);
-    return result.items;
+    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SiteResponse>;
+    return fromCqrsPaginated(result).items;
   }
 }

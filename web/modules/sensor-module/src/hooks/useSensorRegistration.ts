@@ -84,7 +84,7 @@ const GET_SENSORS_QUERY = `
       }
       total
       page
-      pageSize
+      limit
       totalPages
     }
   }
@@ -272,7 +272,7 @@ export function useSensors(filter?: SensorFilter, pagination?: Pagination) {
   const [sensors, setSensors] = useState<RegisteredSensor[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [limit, setLimit] = useState(20);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -282,14 +282,14 @@ export function useSensors(filter?: SensorFilter, pagination?: Pagination) {
     setError(null);
 
     try {
-      const data = await graphqlFetch<{ sensors: { items: RegisteredSensor[]; total: number; page: number; pageSize: number; totalPages: number } }>(
+      const data = await graphqlFetch<{ sensors: { items: RegisteredSensor[]; total: number; page: number; limit: number; totalPages: number } }>(
         GET_SENSORS_QUERY,
         { filter, pagination }
       );
       setSensors(data.sensors.items);
       setTotal(data.sensors.total);
       setPage(data.sensors.page);
-      setPageSize(data.sensors.pageSize);
+      setLimit(data.sensors.limit);
       setTotalPages(data.sensors.totalPages);
     } catch (err) {
       setError(err as Error);
@@ -302,7 +302,7 @@ export function useSensors(filter?: SensorFilter, pagination?: Pagination) {
     sensors,
     total,
     page,
-    pageSize,
+    limit,
     totalPages,
     loading,
     error,

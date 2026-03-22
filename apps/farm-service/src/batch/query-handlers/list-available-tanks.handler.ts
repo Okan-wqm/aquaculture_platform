@@ -11,7 +11,7 @@
  */
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { ListAvailableTanksQuery, AvailableTank } from '../queries/list-available-tanks.query';
 
 /** UUID v4 format validation */

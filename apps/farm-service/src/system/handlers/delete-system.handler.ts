@@ -4,7 +4,7 @@
  */
 import { randomUUID } from 'crypto';
 
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
@@ -16,7 +16,7 @@ import { Equipment } from '../../equipment/entities/equipment.entity';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 
 @CommandHandler(DeleteSystemCommand)
-export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand> {
+export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand, boolean> {
   private readonly logger = new Logger(DeleteSystemHandler.name);
 
   constructor(

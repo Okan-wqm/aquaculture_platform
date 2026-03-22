@@ -162,18 +162,13 @@ export function clearSession(): void {
 }
 
 /**
- * Restore session via silent refresh (httpOnly cookie sends refresh token automatically).
- * Call this on app startup instead of reading tokens from localStorage.
- * Returns true if session was restored successfully.
+ * Core refresh logic shared by silentRefresh() and handleUnauthorized().
+ * Returns true if refresh succeeded, false otherwise.
+ * ARCH-AUTH-002: Both proactive refresh (via tokenLifecycle) and reactive refresh
+ * (via 401 handler) use this function through the shared tokenRefreshPromise lock,
+ * preventing concurrent refresh calls that would revoke each other's tokens.
  */
-export async function silentRefresh(): Promise<boolean> {
-  // Load tenant_id from localStorage (not sensitive)
-  try {
-    tenantId = localStorage.getItem('tenant_id');
-  } catch (e) {
-    // Ignore
-  }
-
+async function performTokenRefresh(): Promise<boolean> {
   try {
     const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
     const response = await fetch(graphqlUrl, {
@@ -205,6 +200,57 @@ export async function silentRefresh(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Restore session via silent refresh (httpOnly cookie sends refresh token automatically).
+ * Call this on app startup instead of reading tokens from localStorage.
+ * Returns true if session was restored successfully.
+ *
+ * ARCH-AUTH-002: Uses the shared tokenRefreshPromise lock to prevent concurrent
+ * refresh mutations when both proactive refresh and 401 retry fire at the same time.
+ */
+export async function silentRefresh(): Promise<boolean> {
+  // Load tenant_id from localStorage (not sensitive)
+  try {
+    tenantId = localStorage.getItem('tenant_id');
+  } catch (e) {
+    // Ignore
+  }
+
+  // If a refresh is already in progress (e.g. from handleUnauthorized), join it
+  if (tokenRefreshPromise) {
+    try {
+      await tokenRefreshPromise;
+      // The other refresh succeeded and called setTokens() — check if we got a token
+      return getAccessToken() !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  // Take the lock so concurrent handleUnauthorized() calls wait on us
+  let resolve: () => void;
+  let reject: (err: Error) => void;
+  tokenRefreshPromise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  try {
+    const success = await performTokenRefresh();
+    if (success) {
+      resolve!();
+    } else {
+      reject!(new Error('Silent refresh failed'));
+    }
+    return success;
+  } catch {
+    reject!(new Error('Silent refresh failed'));
+    return false;
+  } finally {
+    tokenRefreshPromise = null;
   }
 }
 
@@ -450,43 +496,16 @@ class GraphQLClient {
   }
 
   /**
-   * Refresh access token via httpOnly cookie.
-   * The refresh token cookie is sent automatically by the browser.
-   * ARCH-AUTH-001: Also restores tenantId from refresh response to prevent
-   * "Tenant ID is required" errors after 401 retry.
+   * Refresh access token via shared performTokenRefresh().
+   * ARCH-AUTH-002: Delegates to the shared refresh function so that
+   * proactive refresh (via tokenLifecycle) and reactive refresh (via 401)
+   * never fire concurrent refresh mutations.
    */
   private async refreshAccessToken(): Promise<void> {
-    try {
-      const response = await fetch(this.config.graphqlUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id email role tenantId } } }`,
-        }),
-      });
-
-      if (!response.ok) {
-        clearSession();
-        throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
-      }
-
-      const result = await response.json();
-      if (result.errors || !result.data?.refreshToken?.accessToken) {
-        clearSession();
-        throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
-      }
-
-      setTokens(result.data.refreshToken.accessToken);
-
-      // Restore tenant ID from refresh response
-      const refreshedTenantId = result.data.refreshToken.user?.tenantId;
-      if (refreshedTenantId) {
-        setTenantId(refreshedTenantId);
-      }
-    } catch (error) {
+    const success = await performTokenRefresh();
+    if (!success) {
       clearSession();
-      throw error;
+      throw new GraphQLClientError('Token refresh failed', 'REFRESH_FAILED');
     }
   }
 
@@ -662,44 +681,16 @@ class RestClient {
   }
 
   /**
-   * Refresh access token via httpOnly cookie.
-   * The refresh token cookie is sent automatically by the browser.
-   * ARCH-AUTH-001: Also restores tenantId from refresh response to prevent
-   * "Tenant ID is required" errors after 401 retry.
+   * Refresh access token via shared performTokenRefresh().
+   * ARCH-AUTH-002: Delegates to the shared refresh function so that
+   * proactive refresh (via tokenLifecycle) and reactive refresh (via 401)
+   * never fire concurrent refresh mutations.
    */
   private async refreshAccessToken(): Promise<void> {
-    try {
-      const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
-      const response = await fetch(graphqlUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id email role tenantId } } }`,
-        }),
-      });
-
-      if (!response.ok) {
-        clearSession();
-        throw new RestClientError('Token refresh failed', response.status);
-      }
-
-      const result = await response.json();
-      if (result.errors || !result.data?.refreshToken?.accessToken) {
-        clearSession();
-        throw new RestClientError('Token refresh failed', 401);
-      }
-
-      setTokens(result.data.refreshToken.accessToken);
-
-      // Restore tenant ID from refresh response
-      const refreshedTenantId = result.data.refreshToken.user?.tenantId;
-      if (refreshedTenantId) {
-        setTenantId(refreshedTenantId);
-      }
-    } catch (error) {
+    const success = await performTokenRefresh();
+    if (!success) {
       clearSession();
-      throw error;
+      throw new RestClientError('Token refresh failed', 401);
     }
   }
 

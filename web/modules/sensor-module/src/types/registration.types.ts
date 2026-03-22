@@ -265,7 +265,7 @@ export interface SensorList {
   items: RegisteredSensor[];
   total: number;
   page: number;
-  pageSize: number;
+  limit: number;
   totalPages: number;
 }
 
@@ -281,7 +281,7 @@ export interface SensorFilter {
 
 export interface Pagination {
   page: number;
-  pageSize: number;
+  limit: number;
 }
 
 // Stats types

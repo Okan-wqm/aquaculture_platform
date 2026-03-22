@@ -9,7 +9,7 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource } from './entities/water-quality-measurement.entity';
 
 // ============================================================================

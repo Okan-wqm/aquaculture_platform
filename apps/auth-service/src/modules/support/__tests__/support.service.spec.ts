@@ -8,7 +8,7 @@
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Role } from '@platform/backend-common';
+import { Role } from '@aquaculture/backend-common';
 import { Repository } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';

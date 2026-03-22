@@ -26,7 +26,7 @@ export interface UserPayload {
  * with the additional `tenantContext` field populated by TenantContextMiddleware.
  *
  * NOTE: The base `TenantRequest` type is exported from the canonical location
- * `@platform/backend-common` (via `types/tenant-request.interface.ts`).
+ * `@aquaculture/backend-common` (via `types/tenant-request.interface.ts`).
  * This extended interface is local to the middleware module and does not conflict.
  */
 export interface TenantRequest extends CanonicalTenantRequest {

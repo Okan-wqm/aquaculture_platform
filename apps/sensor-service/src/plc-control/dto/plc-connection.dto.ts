@@ -21,7 +21,7 @@ import {
   PlcSecurityMode,
   PlcAuthMode,
 } from '../entities/plc-connection.entity';
-import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 /**
  * Input DTO for creating a new PLC connection

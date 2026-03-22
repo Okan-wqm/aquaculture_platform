@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { TenantAdminOrHigher, CurrentUser } from '@platform/backend-common';
+import { TenantAdminOrHigher, CurrentUser } from '@aquaculture/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';
 import {

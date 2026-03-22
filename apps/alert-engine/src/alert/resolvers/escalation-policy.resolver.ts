@@ -6,7 +6,7 @@ import {
   ID,
 } from '@nestjs/graphql';
 import { Logger } from '@nestjs/common';
-import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 import { EscalationPolicy, SuppressionWindow } from '../../database/entities/escalation-policy.entity';
 import { EscalationPolicyService } from '../../escalation/escalation-policy.service';
 import {

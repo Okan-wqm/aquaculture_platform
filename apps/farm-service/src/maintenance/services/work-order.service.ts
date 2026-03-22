@@ -40,7 +40,7 @@ import {
   UsedMaterialInput,
   LaborRecordInput,
 } from '../dto/update-work-order.dto';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { WorkOrderFilterInput } from '../dto/work-order-filter.dto';
 
 /**

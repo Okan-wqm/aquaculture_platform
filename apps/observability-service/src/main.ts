@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
-import { StructuredLoggerService } from '@platform/backend-common';
+import { StructuredLoggerService } from '@aquaculture/backend-common';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import type { Request, Response, NextFunction } from 'express';

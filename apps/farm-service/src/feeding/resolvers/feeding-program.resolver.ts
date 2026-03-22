@@ -30,7 +30,7 @@ import GraphQLJSON from 'graphql-type-json';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser, Roles, Role, RolesGuard, StandardPaginatedResponse } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role, RolesGuard, StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 // DTOs - Import from proper DTO directory
 import {

@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/commo
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 import {
   NotificationLog,
   NotificationStatus,

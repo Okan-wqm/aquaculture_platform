@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { SystemResponse, PaginatedSystemsResponse } from './dto/system.response';
 import { SystemDeletePreviewResponse } from './dto/system-delete-preview.response';
 import { CreateSystemInput } from './dto/create-system.input';

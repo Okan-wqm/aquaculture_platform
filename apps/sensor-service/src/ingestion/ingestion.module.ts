@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { RedisModule } from '@platform/backend-common';
+import { RedisModule } from '@aquaculture/backend-common';
 
 import { AutomationModule } from '../automation/automation.module';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';

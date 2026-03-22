@@ -1,5 +1,5 @@
 import { ObjectType, Field, Int } from '@nestjs/graphql';
-import { Role } from '@platform/backend-common';
+import { Role } from '@aquaculture/backend-common';
 
 import { User } from '../entities/user.entity';
 

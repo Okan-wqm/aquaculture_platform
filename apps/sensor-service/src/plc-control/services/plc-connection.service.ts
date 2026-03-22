@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
 
 import {
   PlcConnection,

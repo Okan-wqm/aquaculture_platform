@@ -2,7 +2,7 @@ import * as crypto from 'crypto';
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@platform/backend-common';
+import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common';
 import { Repository, DataSource } from 'typeorm';
 
 import {

@@ -1,4 +1,4 @@
-import { Cacheable, CacheInvalidate, CacheInvalidatePattern } from '@platform/backend-common';
+import { Cacheable, CacheInvalidate, CacheInvalidatePattern } from '@aquaculture/backend-common';
 
 // =============================================================================
 // Test Service with Cacheable Decorator

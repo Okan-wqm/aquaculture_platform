@@ -1,6 +1,6 @@
 import { UseGuards, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
-import { Roles, Role, TenantGuard, Tenant } from '@platform/backend-common';
+import { Roles, Role, TenantGuard, Tenant } from '@aquaculture/backend-common';
 
 import {
   VfdDeviceFilterDto,

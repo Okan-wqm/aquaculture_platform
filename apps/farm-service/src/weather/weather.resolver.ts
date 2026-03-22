@@ -5,7 +5,7 @@ import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, Between } from 'typeorm';
-import { TenantGuard, CurrentTenant, Roles, Role } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, Roles, Role } from '@aquaculture/backend-common';
 import { WeatherObservation, WeatherDataType } from './entities/weather-observation.entity';
 import { MarineObservation } from './entities/marine-observation.entity';
 import { WeatherSettings } from './entities/weather-settings.entity';

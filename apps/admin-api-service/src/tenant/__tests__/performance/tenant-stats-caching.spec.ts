@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 
 import { Tenant, TenantStatus, TenantPlan } from '../../entities/tenant.entity';
 import { GetTenantStatsHandler } from '../../query-handlers/tenant-query.handlers';

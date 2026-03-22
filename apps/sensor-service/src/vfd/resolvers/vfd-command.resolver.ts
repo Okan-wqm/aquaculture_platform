@@ -1,6 +1,6 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Float, ObjectType, Field } from '@nestjs/graphql';
-import { Roles, Role, TenantGuard, Tenant } from '@platform/backend-common';
+import { Roles, Role, TenantGuard, Tenant } from '@aquaculture/backend-common';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VFD_BRAND_COMMANDS } from '../brand-configs';

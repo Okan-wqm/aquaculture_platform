@@ -9,7 +9,7 @@ import {
   ResolveReference,
 } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 import { Repository } from 'typeorm';
 
 import { SensorReading } from '../../database/entities/sensor-reading.entity';

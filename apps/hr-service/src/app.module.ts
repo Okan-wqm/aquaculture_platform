@@ -27,7 +27,7 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
 import { HRModule } from './hr/hr.module';

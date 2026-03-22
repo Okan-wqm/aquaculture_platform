@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
 
 import {
   PlcTelemetry,

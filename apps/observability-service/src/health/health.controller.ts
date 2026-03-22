@@ -1,6 +1,6 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { StandardHealthController } from '@platform/backend-common';
+import { StandardHealthController } from '@aquaculture/backend-common';
 import { DataSource } from 'typeorm';
 
 import { Public } from '../guards/internal-api.guard';

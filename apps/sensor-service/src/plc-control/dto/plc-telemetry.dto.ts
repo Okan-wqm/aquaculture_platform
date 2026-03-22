@@ -9,7 +9,7 @@ import {
   Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 import { PlcTelemetry } from '../entities/plc-telemetry.entity';
 

@@ -17,7 +17,7 @@ import {
   TimingSafeService,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';

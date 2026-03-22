@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
 import { TenantStatsDto, TenantUsageDto } from '../dto/tenant.dto';

@@ -16,7 +16,7 @@ import {
 } from '../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../escalation/escalation-manager.service';
 import { IEventBus } from '@platform/event-bus';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 
 /**
  * Sensor reading data structure

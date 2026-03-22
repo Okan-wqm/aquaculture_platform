@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role } from '@platform/backend-common';
+import { Role } from '@aquaculture/backend-common';
 import { Repository } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';

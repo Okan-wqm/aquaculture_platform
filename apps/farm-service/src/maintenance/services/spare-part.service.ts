@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThanOrEqual, Like, DataSource } from 'typeorm';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   CreateSparePartInput,

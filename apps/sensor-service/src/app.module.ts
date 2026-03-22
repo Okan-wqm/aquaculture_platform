@@ -19,7 +19,7 @@ import {
   TenantGuard,
   RolesGuard,
   SourceSchemaBootstrapService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 import { GraphQLError } from 'graphql';
@@ -50,7 +50,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@platform/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 import { Process } from './process/entities/process.entity';

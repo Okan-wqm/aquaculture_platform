@@ -1,7 +1,7 @@
 import { InputType, Field } from '@nestjs/graphql';
 import { IsOptional, IsEnum, IsUUID, IsBoolean } from 'class-validator';
 import { EmployeeStatus, EmploymentType, Department, PersonnelCategory } from '../entities/employee.entity';
-import { StandardPaginationInput } from '@platform/backend-common';
+import { StandardPaginationInput } from '@aquaculture/backend-common';
 
 @InputType()
 export class EmployeeFilterInput {

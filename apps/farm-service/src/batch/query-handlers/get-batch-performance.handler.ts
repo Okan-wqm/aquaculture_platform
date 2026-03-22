@@ -15,7 +15,7 @@ import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get
 import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 
 @Injectable()
 @QueryHandler(GetBatchPerformanceQuery)

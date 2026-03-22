@@ -9,7 +9,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger } from '@nestjs/common';
 import { IsOptional, IsString, IsUUID, IsEnum, MaxLength } from 'class-validator';
-import { Tenant, Roles, Role } from '@platform/backend-common';
+import { Tenant, Roles, Role } from '@aquaculture/backend-common';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { DeviceGroup, DeviceGroupType } from '../entities/device-group.entity';

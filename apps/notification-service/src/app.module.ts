@@ -14,7 +14,7 @@ import {
   UserContextMiddleware,
   TenantContextMiddleware,
   RedisModule,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';

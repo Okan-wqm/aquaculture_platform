@@ -13,7 +13,7 @@ import {
   SuperAdminOnly,
   SkipTenantGuard,
   ConsentType,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 import {
   RecordConsentInput,
   RecordBulkConsentInput,

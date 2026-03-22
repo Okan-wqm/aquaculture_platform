@@ -28,7 +28,7 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 import { HydroponicsSetupModule } from './setup/setup.module';

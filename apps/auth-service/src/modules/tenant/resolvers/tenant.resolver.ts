@@ -1,6 +1,6 @@
 import { ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@platform/backend-common';
+import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';
 import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';

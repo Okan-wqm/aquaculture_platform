@@ -18,7 +18,7 @@ import {
   RolesGuard,
   UserContextMiddleware,
   SourceSchemaBootstrapService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 
 /**
  * Extended request interface for GraphQL context
@@ -29,7 +29,7 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@platform/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';

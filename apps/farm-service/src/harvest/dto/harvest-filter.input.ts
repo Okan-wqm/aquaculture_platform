@@ -21,7 +21,7 @@ import {
   MaxLength,
   Matches,
 } from 'class-validator';
-import { StandardPaginationInput } from '@platform/backend-common';
+import { StandardPaginationInput } from '@aquaculture/backend-common';
 import { Type } from 'class-transformer';
 import { HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';

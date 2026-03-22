@@ -3,7 +3,7 @@
  */
 import { ObjectType, Field, Int, ID } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 import { EquipmentStatus } from '../entities/equipment.entity';
 import { EquipmentResponse } from './equipment.response';
 

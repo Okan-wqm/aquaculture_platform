@@ -9,7 +9,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Public, SkipTenantGuard } from '@platform/backend-common';
+import { Public, SkipTenantGuard } from '@aquaculture/backend-common';
 import { MqttAuthService } from './mqtt-auth.service';
 
 /**

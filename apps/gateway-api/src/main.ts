@@ -1,7 +1,7 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { initTelemetry, StructuredLoggerService } from '@platform/backend-common';
+import { initTelemetry, StructuredLoggerService } from '@aquaculture/backend-common';
 import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';

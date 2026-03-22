@@ -16,7 +16,7 @@ import {
   HealthSeverity,
   TreatmentDetails,
 } from '../entities/health-event.entity';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';

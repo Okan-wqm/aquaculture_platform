@@ -6,7 +6,7 @@ import {
   UpdateEvent,
   RemoveEvent,
 } from 'typeorm';
-import { getRequestContext } from '@platform/backend-common';
+import { getRequestContext } from '@aquaculture/backend-common';
 import { isAuditable } from './auditable.decorator';
 
 /**

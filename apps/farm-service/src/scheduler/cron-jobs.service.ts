@@ -16,7 +16,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
-import { listTenantSchemas } from '@platform/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
@@ -163,7 +163,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     return config;
   }
 
-  // getTenantSchemas replaced by listTenantSchemas from @platform/backend-common
+  // getTenantSchemas replaced by listTenantSchemas from @aquaculture/backend-common
 
   /**
    * Load tenant configurations for cron jobs

@@ -1,5 +1,5 @@
 import { ObjectType, Field, ID, HideField, registerEnumType, Directive } from '@nestjs/graphql';
-import { Role } from '@platform/backend-common';
+import { Role } from '@aquaculture/backend-common';
 import * as bcrypt from 'bcryptjs';
 import {
   Entity,

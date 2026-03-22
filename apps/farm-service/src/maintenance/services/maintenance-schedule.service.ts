@@ -26,7 +26,7 @@ import {
   ScheduleMetrics,
 } from '../entities/maintenance-schedule.entity';
 import { WorkOrder, WorkOrderType, WorkOrderPriority } from '../entities/work-order.entity';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@platform/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { CreateMaintenanceScheduleInput } from '../dto/create-maintenance-schedule.dto';
 import {
   UpdateMaintenanceScheduleInput,

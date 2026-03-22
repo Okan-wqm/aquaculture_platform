@@ -10,7 +10,7 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { Farm } from '../entities/farm.entity';
 import { Pond } from '../entities/pond.entity';
 import { PondBatch } from '../entities/batch.entity';

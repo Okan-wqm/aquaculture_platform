@@ -13,7 +13,7 @@ import {
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
-import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 /**
  * Filter input for querying VFD devices
@@ -63,7 +63,7 @@ export class VfdDeviceFilterDto {
 /**
  * Pagination input for VFD queries
  *
- * Uses standard offset/limit pattern from @platform/backend-common.
+ * Uses standard offset/limit pattern from @aquaculture/backend-common.
  * Extends PaginationInput with VFD-specific sortBy validation.
  */
 @InputType('VfdPaginationInput')

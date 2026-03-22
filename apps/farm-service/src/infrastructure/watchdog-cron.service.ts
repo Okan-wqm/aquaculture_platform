@@ -8,7 +8,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
-import { WatchdogRunner, WatchdogReport } from '@platform/backend-common';
+import { WatchdogRunner, WatchdogReport } from '@aquaculture/backend-common';
 
 @Injectable()
 export class WatchdogCronService implements OnModuleInit {

@@ -24,7 +24,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as crypto from 'crypto';
-import { requestContextStorage, RequestContext, listTenantSchemas } from '@platform/backend-common';
+import { requestContextStorage, RequestContext, listTenantSchemas } from '@aquaculture/backend-common';
 import { FeedingProgram, FeedingProgramStatus } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { DailyFeedingExecution, ExecutionStatus } from '../entities/daily-feeding-execution.entity';
@@ -257,7 +257,7 @@ export class FeedingCronService {
   // TENANT SCHEMA DISCOVERY
   // ==========================================================================
 
-  // getTenantSchemas replaced by listTenantSchemas from @platform/backend-common
+  // getTenantSchemas replaced by listTenantSchemas from @aquaculture/backend-common
 
   // ==========================================================================
   // DAILY PLAN GENERATION (06:00)

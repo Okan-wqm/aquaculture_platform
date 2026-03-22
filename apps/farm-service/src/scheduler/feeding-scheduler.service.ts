@@ -22,7 +22,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In, DataSource, QueryRunner } from 'typeorm';
-import { listTenantSchemas } from '@platform/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -301,7 +301,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     return config;
   }
 
-  // getTenantSchemas replaced by listTenantSchemas from @platform/backend-common
+  // getTenantSchemas replaced by listTenantSchemas from @aquaculture/backend-common
 
   // -------------------------------------------------------------------------
   // CORE METHODS (User requested)

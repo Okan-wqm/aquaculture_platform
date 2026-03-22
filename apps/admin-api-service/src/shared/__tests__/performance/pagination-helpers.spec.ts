@@ -2,7 +2,7 @@ import {
   calculateHasMore,
   createPaginatedResult,
   IPaginatedResult,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 
 describe('Pagination Helpers', () => {
   // ---------------------------------------------------------------------------

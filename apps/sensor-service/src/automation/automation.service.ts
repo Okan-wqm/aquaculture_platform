@@ -12,7 +12,7 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
-import { getTenantSchemaName, createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
+import { getTenantSchemaName, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
@@ -92,7 +92,7 @@ export class AutomationService {
   // ============================================
   // Tenant Schema Helper
   // ============================================
-  // getTenantSchemaName imported from @platform/backend-common
+  // getTenantSchemaName imported from @aquaculture/backend-common
 
   /**
    * Execute a callback with a dedicated QueryRunner whose search_path is set

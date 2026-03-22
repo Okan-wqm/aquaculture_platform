@@ -3,12 +3,13 @@
   "compilerOptions": {
     "outDir": "../dist/e2e",
     "types": ["jest", "node"],
+    "module": "commonjs",
+    "target": "ES2021",
     "strict": true,
     "noImplicitAny": true,
     "esModuleInterop": true,
-    "moduleResolution": "node",
-    "target": "ES2021",
-    "module": "commonjs"
+    "resolveJsonModule": true,
+    "moduleResolution": "node"
   },
   "include": [
     "helpers/**/*.ts",

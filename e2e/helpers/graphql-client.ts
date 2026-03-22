@@ -1,148 +1,135 @@
 /**
- * GraphQL Test Client
+ * GraphQL Client Helper for E2E Integration Tests
  *
- * Sends GraphQL queries and mutations to the gateway API.
- * Handles JWT authentication and response typing.
+ * Sends GraphQL queries/mutations to the gateway (localhost:4000/graphql)
+ * and returns typed responses. Handles authentication via Bearer tokens.
  */
+
+const GATEWAY_URL = process.env['GATEWAY_URL'] || 'http://localhost:4000/graphql';
 
 export interface GraphQLResponse<T = Record<string, unknown>> {
   data: T | null;
   errors?: Array<{
     message: string;
-    locations?: Array<{ line: number; column: number }>;
+    extensions?: {
+      code?: string;
+      originalError?: {
+        statusCode?: number;
+        message?: string;
+      };
+    };
     path?: string[];
-    extensions?: Record<string, unknown>;
   }>;
 }
 
 export interface GraphQLRequestOptions {
-  query: string;
-  variables?: Record<string, unknown>;
-  operationName?: string;
+  token?: string;
+  tenantId?: string;
+  cookies?: string;
 }
 
-export class GraphQLTestClient {
-  private readonly baseUrl: string;
-  private authToken: string | null = null;
+/**
+ * Execute a GraphQL query/mutation against the gateway.
+ */
+export async function graphqlRequest<T = Record<string, unknown>>(
+  query: string,
+  variables: Record<string, unknown> = {},
+  options: GraphQLRequestOptions = {},
+): Promise<GraphQLResponse<T>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
 
-  constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl ?? process.env['GATEWAY_URL'] ?? 'http://localhost:4000';
+  if (options.token) {
+    headers['Authorization'] = `Bearer ${options.token}`;
   }
 
-  /**
-   * Set the authorization token for subsequent requests
-   */
-  setToken(token: string): void {
-    this.authToken = token;
+  if (options.tenantId) {
+    headers['x-tenant-id'] = options.tenantId;
   }
 
-  /**
-   * Clear the authorization token
-   */
-  clearToken(): void {
-    this.authToken = null;
+  if (options.cookies) {
+    headers['Cookie'] = options.cookies;
   }
 
-  /**
-   * Execute a GraphQL query or mutation
-   */
-  async execute<T = Record<string, unknown>>(
-    options: GraphQLRequestOptions,
-  ): Promise<GraphQLResponse<T>> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+  const response = await fetch(GATEWAY_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ query, variables }),
+  });
 
-    if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`;
-    }
+  const json = (await response.json()) as GraphQLResponse<T>;
+  return json;
+}
 
-    const response = await fetch(`${this.baseUrl}/graphql`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        query: options.query,
-        variables: options.variables ?? {},
-        operationName: options.operationName,
-      }),
-    });
+/**
+ * Execute a GraphQL mutation and assert no errors.
+ */
+export async function graphqlMutation<T = Record<string, unknown>>(
+  mutation: string,
+  variables: Record<string, unknown> = {},
+  options: GraphQLRequestOptions = {},
+): Promise<T> {
+  const result = await graphqlRequest<T>(mutation, variables, options);
+  if (result.errors && result.errors.length > 0) {
+    const errorMessages = result.errors.map((e) => e.message).join('; ');
+    throw new Error(`GraphQL mutation failed: ${errorMessages}`);
+  }
+  if (!result.data) {
+    throw new Error('GraphQL mutation returned null data');
+  }
+  return result.data;
+}
 
-    if (!response.ok) {
-      throw new Error(
-        `GraphQL request failed with status ${response.status}: ${await response.text()}`,
+/**
+ * Execute a GraphQL query and assert no errors.
+ */
+export async function graphqlQuery<T = Record<string, unknown>>(
+  query: string,
+  variables: Record<string, unknown> = {},
+  options: GraphQLRequestOptions = {},
+): Promise<T> {
+  const result = await graphqlRequest<T>(query, variables, options);
+  if (result.errors && result.errors.length > 0) {
+    const errorMessages = result.errors.map((e) => e.message).join('; ');
+    throw new Error(`GraphQL query failed: ${errorMessages}`);
+  }
+  if (!result.data) {
+    throw new Error('GraphQL query returned null data');
+  }
+  return result.data;
+}
+
+/**
+ * Check if a GraphQL response contains an error with a specific code or message pattern.
+ */
+export function hasGraphQLError(
+  response: GraphQLResponse,
+  pattern: string | RegExp,
+): boolean {
+  if (!response.errors) return false;
+  return response.errors.some((error) => {
+    if (typeof pattern === 'string') {
+      return (
+        error.message.includes(pattern) ||
+        error.extensions?.code === pattern ||
+        error.extensions?.originalError?.message?.includes(pattern) === true
       );
     }
+    return (
+      pattern.test(error.message) ||
+      (error.extensions?.originalError?.message
+        ? pattern.test(error.extensions.originalError.message)
+        : false)
+    );
+  });
+}
 
-    const json = (await response.json()) as GraphQLResponse<T>;
-    return json;
-  }
-
-  /**
-   * Execute a query and assert no errors
-   */
-  async query<T = Record<string, unknown>>(
-    queryStr: string,
-    variables?: Record<string, unknown>,
-  ): Promise<T> {
-    const result = await this.execute<T>({ query: queryStr, variables });
-
-    if (result.errors && result.errors.length > 0) {
-      const errorMessages = result.errors.map((e) => e.message).join('; ');
-      throw new Error(`GraphQL query errors: ${errorMessages}`);
-    }
-
-    if (!result.data) {
-      throw new Error('GraphQL query returned no data');
-    }
-
-    return result.data;
-  }
-
-  /**
-   * Execute a mutation and assert no errors
-   */
-  async mutate<T = Record<string, unknown>>(
-    mutation: string,
-    variables?: Record<string, unknown>,
-  ): Promise<T> {
-    return this.query<T>(mutation, variables);
-  }
-
-  /**
-   * Make a REST API call (for endpoints that are not GraphQL)
-   */
-  async rest<T = unknown>(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH',
-    path: string,
-    body?: Record<string, unknown>,
-  ): Promise<{ status: number; data: T }> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-
-    if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`;
-    }
-
-    const fetchOptions: RequestInit = {
-      method,
-      headers,
-    };
-
-    if (body && method !== 'GET') {
-      fetchOptions.body = JSON.stringify(body);
-    }
-
-    const response = await fetch(`${this.baseUrl}${path}`, fetchOptions);
-
-    let data: T;
-    const contentType = response.headers.get('content-type');
-    if (contentType?.includes('application/json')) {
-      data = (await response.json()) as T;
-    } else {
-      data = (await response.text()) as unknown as T;
-    }
-
-    return { status: response.status, data };
-  }
+/**
+ * Extract the HTTP status code from a GraphQL error response.
+ */
+export function getGraphQLErrorStatus(response: GraphQLResponse): number | undefined {
+  if (!response.errors || response.errors.length === 0) return undefined;
+  const firstError = response.errors[0];
+  return firstError?.extensions?.originalError?.statusCode;
 }

@@ -1,15 +1,16 @@
 import type { Config } from 'jest';
 
 const config: Config = {
-  displayName: 'e2e-workflow',
+  displayName: 'e2e-integration',
   testEnvironment: 'node',
   transform: {
-    '^.+\\.ts$': 'ts-jest',
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }],
   },
-  testMatch: ['<rootDir>/tests/**/*.spec.ts'],
+  testMatch: ['<rootDir>/tests/integration/**/*.spec.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  testTimeout: 30000,
-  verbose: true,
+  testTimeout: 60000,
+  // Run integration tests serially -- they share DB state
+  maxWorkers: 1,
 };
 
 export default config;

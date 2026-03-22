@@ -1,115 +1,246 @@
-import { Client, QueryResult } from 'pg';
+/**
+ * Database Helper for E2E Integration Tests
+ *
+ * Provides direct PostgreSQL access for test assertions.
+ * Uses the pg library to query the database directly,
+ * bypassing GraphQL/API layer for verification.
+ */
+
+import { Pool, PoolConfig } from 'pg';
+
+const DEFAULT_DB_CONFIG: PoolConfig = {
+  host: process.env['DB_HOST'] || 'localhost',
+  port: parseInt(process.env['DB_PORT'] || '5432', 10),
+  user: process.env['DB_USER'] || 'aquaculture',
+  password: process.env['DB_PASSWORD'] || 'aquaculture',
+  database: process.env['DB_NAME'] || 'aquaculture',
+  max: 5,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+};
+
+let pool: Pool | null = null;
 
 /**
- * Test Database Helper
- *
- * Direct database access for backend verification in E2E tests.
- * Bypasses GraphQL to verify actual database state.
+ * Get or create the database connection pool.
  */
-export class TestDatabase {
-  private client: Client | null = null;
-
-  constructor(
-    private readonly connectionConfig?: {
-      host?: string;
-      port?: number;
-      database?: string;
-      user?: string;
-      password?: string;
-    },
-  ) {}
-
-  /**
-   * Connect to the database
-   */
-  async connect(): Promise<void> {
-    this.client = new Client({
-      host: this.connectionConfig?.host ?? process.env['DB_HOST'] ?? 'localhost',
-      port: this.connectionConfig?.port ?? Number(process.env['DB_PORT'] ?? 5432),
-      database: this.connectionConfig?.database ?? process.env['DB_NAME'] ?? 'aquaculture',
-      user: this.connectionConfig?.user ?? process.env['DB_USER'] ?? 'aquaculture',
-      password: this.connectionConfig?.password ?? process.env['DB_PASSWORD'] ?? 'aquaculture',
-    });
-
-    await this.client.connect();
+export function getPool(): Pool {
+  if (!pool) {
+    pool = new Pool(DEFAULT_DB_CONFIG);
   }
+  return pool;
+}
 
-  /**
-   * Execute a query with parameters
-   */
-  async query<T extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-  ): Promise<QueryResult<T>> {
-    if (!this.client) {
-      throw new Error('Database not connected. Call connect() first.');
-    }
-    return this.client.query<T>(sql, params);
+/**
+ * Close the database connection pool.
+ */
+export async function closePool(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = null;
   }
+}
 
-  /**
-   * Find a single row by query
-   */
-  async findOne<T extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-  ): Promise<T | null> {
-    const result = await this.query<T>(sql, params);
-    return result.rows[0] ?? null;
-  }
+/**
+ * Execute a parameterized SQL query.
+ */
+export async function query<T = Record<string, unknown>>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<T[]> {
+  const result = await getPool().query(sql, params);
+  return result.rows as T[];
+}
 
-  /**
-   * Find multiple rows
-   */
-  async findMany<T extends Record<string, unknown> = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-  ): Promise<T[]> {
-    const result = await this.query<T>(sql, params);
-    return result.rows;
-  }
+/**
+ * Execute a query and return the first row, or null if no rows.
+ */
+export async function queryOne<T = Record<string, unknown>>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<T | null> {
+  const rows = await query<T>(sql, params);
+  return rows[0] || null;
+}
 
-  /**
-   * Check if a user exists and get their active status
-   */
-  async getUserStatus(userId: string): Promise<{ isActive: boolean; email: string } | null> {
-    const row = await this.findOne<{ isActive: boolean; email: string }>(
-      'SELECT "isActive", email FROM auth.users WHERE id = $1',
+// ============================================================
+// Auth Schema Helpers
+// ============================================================
+
+export interface DbUser {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: string;
+  tenantId: string | null;
+  isActive: boolean;
+  isEmailVerified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Find a user in auth.users by ID.
+ */
+export async function findUserById(userId: string): Promise<DbUser | null> {
+  return queryOne<DbUser>(
+    `SELECT id, email, "firstName", "lastName", role, "tenantId", "isActive", "isEmailVerified", "createdAt", "updatedAt"
+     FROM auth.users WHERE id = $1`,
+    [userId],
+  );
+}
+
+/**
+ * Find a user in auth.users by email.
+ */
+export async function findUserByEmail(email: string): Promise<DbUser | null> {
+  return queryOne<DbUser>(
+    `SELECT id, email, "firstName", "lastName", role, "tenantId", "isActive", "isEmailVerified", "createdAt", "updatedAt"
+     FROM auth.users WHERE email = $1`,
+    [email],
+  );
+}
+
+/**
+ * Delete a user from auth.users by ID (hard delete for test cleanup).
+ */
+export async function deleteUserById(userId: string): Promise<void> {
+  // Delete related records first
+  await query('DELETE FROM auth.refresh_tokens WHERE "userId" = $1', [userId]);
+  await query('DELETE FROM auth.user_module_assignments WHERE "userId" = $1', [userId]);
+  await query('DELETE FROM auth.users WHERE id = $1', [userId]);
+}
+
+// ============================================================
+// Tenant Schema Helpers
+// ============================================================
+
+export interface DbTenant {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  plan: string;
+  maxUsers: number;
+  createdAt: Date;
+}
+
+/**
+ * Find a tenant by ID.
+ */
+export async function findTenantById(tenantId: string): Promise<DbTenant | null> {
+  return queryOne<DbTenant>(
+    `SELECT id, name, slug, status, plan, "maxUsers", "createdAt"
+     FROM auth.tenants WHERE id = $1`,
+    [tenantId],
+  );
+}
+
+/**
+ * Check if a tenant PostgreSQL schema exists.
+ */
+export async function tenantSchemaExists(tenantId: string): Promise<boolean> {
+  const schemaName = getTenantSchemaName(tenantId);
+  const result = await queryOne<{ exists: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1 FROM information_schema.schemata WHERE schema_name = $1
+     ) as exists`,
+    [schemaName],
+  );
+  return result?.exists === true;
+}
+
+/**
+ * Get tables in a tenant schema.
+ */
+export async function getTenantSchemaTables(tenantId: string): Promise<string[]> {
+  const schemaName = getTenantSchemaName(tenantId);
+  const rows = await query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = $1
+     ORDER BY table_name`,
+    [schemaName],
+  );
+  return rows.map((r) => r.table_name);
+}
+
+/**
+ * Delete a tenant and its schema (for test cleanup).
+ */
+export async function deleteTenant(tenantId: string): Promise<void> {
+  const schemaName = getTenantSchemaName(tenantId);
+
+  // Drop tenant schema
+  await query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+
+  // Delete related records
+  await query('DELETE FROM auth.tenant_modules WHERE "tenantId" = $1', [tenantId]);
+  await query('DELETE FROM auth.users WHERE "tenantId" = $1', [tenantId]);
+  await query('DELETE FROM auth.tenants WHERE id = $1', [tenantId]);
+}
+
+// ============================================================
+// Tenant Role Assignment Helpers
+// ============================================================
+
+export interface DbUserRoleAssignment {
+  id: string;
+  user_id: string;
+  role_id: string;
+  is_active: boolean;
+  assigned_at: Date;
+}
+
+/**
+ * Find user role assignments in a tenant schema.
+ */
+export async function findUserRoleAssignment(
+  tenantId: string,
+  userId: string,
+): Promise<DbUserRoleAssignment | null> {
+  const schemaName = getTenantSchemaName(tenantId);
+  try {
+    return await queryOne<DbUserRoleAssignment>(
+      `SELECT id, user_id, role_id, is_active, assigned_at
+       FROM "${schemaName}"."user_role_assignments"
+       WHERE user_id = $1 AND is_active = true`,
       [userId],
     );
-    return row;
+  } catch {
+    return null;
   }
+}
 
-  /**
-   * Get a tenant by ID
-   */
-  async getTenant(tenantId: string): Promise<Record<string, unknown> | null> {
-    return this.findOne(
-      'SELECT * FROM auth.tenants WHERE id = $1',
-      [tenantId],
+/**
+ * Get tenant role permissions from a tenant schema.
+ */
+export async function getTenantRolePermissions(
+  tenantId: string,
+  roleId: string,
+): Promise<{ resource_permissions: string[] } | null> {
+  const schemaName = getTenantSchemaName(tenantId);
+  try {
+    return await queryOne<{ resource_permissions: string[] }>(
+      `SELECT resource_permissions
+       FROM "${schemaName}"."tenant_role_permissions"
+       WHERE role_id = $1`,
+      [roleId],
     );
+  } catch {
+    return null;
   }
+}
 
-  /**
-   * Get audit logs for a tenant
-   */
-  async getAuditLogs(
-    tenantId: string,
-    limit = 10,
-  ): Promise<Array<Record<string, unknown>>> {
-    return this.findMany(
-      'SELECT * FROM auth.audit_logs WHERE "tenantId" = $1 ORDER BY "createdAt" DESC LIMIT $2',
-      [tenantId, limit],
-    );
-  }
+// ============================================================
+// Utility Functions
+// ============================================================
 
-  /**
-   * Disconnect from the database
-   */
-  async disconnect(): Promise<void> {
-    if (this.client) {
-      await this.client.end();
-      this.client = null;
-    }
-  }
+/**
+ * Derive tenant schema name from tenant ID.
+ * Mirrors getTenantSchemaName from @platform/backend-common.
+ */
+export function getTenantSchemaName(tenantId: string): string {
+  const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
+  return `tenant_${cleanId}`;
 }

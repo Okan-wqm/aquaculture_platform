@@ -73,8 +73,6 @@ export class AlertCondition {
 @ObjectType()
 @Entity('alert_rules')
 @Index(['tenantId', 'isActive'])
-@Index(['farmId'])
-@Index(['pondId'])
 @Index(['name', 'tenantId'], { unique: true })
 export class AlertRule {
   @Field(() => ID)

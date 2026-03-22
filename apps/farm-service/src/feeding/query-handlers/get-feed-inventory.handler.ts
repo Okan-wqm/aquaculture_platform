@@ -8,7 +8,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetFeedInventoryQuery } from '../queries/get-feed-inventory.query';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';

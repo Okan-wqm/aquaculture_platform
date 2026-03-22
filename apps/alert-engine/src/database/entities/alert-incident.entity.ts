@@ -84,10 +84,8 @@ export class IncidentTimelineEvent {
 @ObjectType()
 @Entity('alert_incidents')
 @Index(['tenantId', 'status'])
-@Index(['ruleId'])
 @Index(['severity'])
 @Index(['createdAt'])
-@Index(['assignedTo'])
 export class AlertIncident {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

@@ -550,18 +550,20 @@ export class TenantSubscriptionRequestedHandler
 
     const now = new Date();
     // Atomically claim pending retries to prevent concurrent processing
-    const rows: Array<{
-      id: string;
-      tenant_id: string;
-      event_payload: Record<string, unknown>;
-      retry_count: number;
-    }> = await this.dataSource.query(
+    // TypeORM's dataSource.query() wraps UPDATE results as [rows[], affectedCount]
+    const result = await this.dataSource.query(
       `UPDATE billing.subscription_provisioning_retries
          SET status = 'processing', updated_at = NOW()
        WHERE status = 'pending' AND next_retry_at <= $1
        RETURNING id, tenant_id, event_payload, retry_count`,
       [now],
     );
+    const rows: Array<{
+      id: string;
+      tenant_id: string;
+      event_payload: Record<string, unknown>;
+      retry_count: number;
+    }> = Array.isArray(result?.[0]) ? result[0] : Array.isArray(result) ? result : [];
 
     if (rows.length === 0) return;
 
@@ -569,6 +571,12 @@ export class TenantSubscriptionRequestedHandler
 
     for (const row of rows) {
       try {
+        // Guard: skip malformed rows (missing required fields)
+        if (!row.id || !row.event_payload || typeof row.retry_count !== 'number') {
+          this.logger.warn(`Skipping malformed retry row: ${JSON.stringify({ id: row.id, hasPayload: !!row.event_payload })}`);
+          continue;
+        }
+
         // Reconstruct the event and re-invoke handle()
         const event = row.event_payload as unknown as TenantSubscriptionRequestedEvent;
         await this.handle(event);
@@ -582,37 +590,43 @@ export class TenantSubscriptionRequestedHandler
           `Subscription provisioning retry succeeded for tenant ${row.tenant_id}`,
         );
       } catch (error) {
-        const newRetryCount = row.retry_count + 1;
+        const newRetryCount = (row.retry_count ?? 0) + 1;
 
-        if (newRetryCount >= MAX_RETRY_ATTEMPTS) {
-          // Dead-letter: mark as permanently failed
-          await this.dataSource.query(
-            `UPDATE billing.subscription_provisioning_retries
-               SET status = 'dead_letter', retry_count = $2, error_message = $3, updated_at = NOW()
-             WHERE id = $1`,
-            [row.id, newRetryCount, (error as Error).message],
-          );
+        try {
+          if (newRetryCount >= MAX_RETRY_ATTEMPTS) {
+            // Dead-letter: mark as permanently failed
+            await this.dataSource.query(
+              `UPDATE billing.subscription_provisioning_retries
+                 SET status = 'dead_letter', retry_count = $2, error_message = $3, updated_at = NOW()
+               WHERE id = $1`,
+              [row.id, newRetryCount, (error as Error).message],
+            );
+            this.logger.error(
+              `Subscription provisioning dead-lettered for tenant ${row.tenant_id} after ${newRetryCount} attempts`,
+            );
+            // Publish failure event so admin-api or alerting can detect the orphaned tenant
+            await this.publishProvisioningFailed(
+              row.tenant_id,
+              `Dead-lettered after ${newRetryCount} retry attempts: ${(error as Error).message}`,
+            );
+          } else {
+            // Exponential backoff: 30s * 2^retryCount
+            const backoffMs = RETRY_BASE_DELAY_MS * Math.pow(2, newRetryCount);
+            const nextRetryAt = new Date(Date.now() + backoffMs);
+            await this.dataSource.query(
+              `UPDATE billing.subscription_provisioning_retries
+                 SET status = 'pending', retry_count = $2, error_message = $3,
+                     next_retry_at = $4, updated_at = NOW()
+               WHERE id = $1`,
+              [row.id, newRetryCount, (error as Error).message, nextRetryAt],
+            );
+            this.logger.warn(
+              `Subscription provisioning retry ${newRetryCount}/${MAX_RETRY_ATTEMPTS} failed for tenant ${row.tenant_id}, next retry at ${nextRetryAt.toISOString()}`,
+            );
+          }
+        } catch (updateError) {
           this.logger.error(
-            `Subscription provisioning dead-lettered for tenant ${row.tenant_id} after ${newRetryCount} attempts`,
-          );
-          // Publish failure event so admin-api or alerting can detect the orphaned tenant
-          await this.publishProvisioningFailed(
-            row.tenant_id,
-            `Dead-lettered after ${newRetryCount} retry attempts: ${(error as Error).message}`,
-          );
-        } else {
-          // Exponential backoff: 30s * 2^retryCount
-          const backoffMs = RETRY_BASE_DELAY_MS * Math.pow(2, newRetryCount);
-          const nextRetryAt = new Date(Date.now() + backoffMs);
-          await this.dataSource.query(
-            `UPDATE billing.subscription_provisioning_retries
-               SET status = 'pending', retry_count = $2, error_message = $3,
-                   next_retry_at = $4, updated_at = NOW()
-             WHERE id = $1`,
-            [row.id, newRetryCount, (error as Error).message, nextRetryAt],
-          );
-          this.logger.warn(
-            `Subscription provisioning retry ${newRetryCount}/${MAX_RETRY_ATTEMPTS} failed for tenant ${row.tenant_id}, next retry at ${nextRetryAt.toISOString()}`,
+            `Failed to update retry status for row ${row.id}: ${(updateError as Error).message}`,
           );
         }
       }

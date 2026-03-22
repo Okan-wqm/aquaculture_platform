@@ -20,6 +20,7 @@ import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantRoleService } from './services/tenant-role.service';
 import { TenantUserManagementService } from './services/tenant-user-management.service';
 import { TenantService } from './services/tenant.service';
+import { UserLifecycleService } from './services/user-lifecycle.service';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { TenantService } from './services/tenant.service';
     TenantAdminService,
     TenantRoleService,
     TenantUserManagementService,
+    UserLifecycleService,
     MobileSettingsService,
     TenantResolver,
     TenantAdminResolver,
@@ -46,7 +48,7 @@ import { TenantService } from './services/tenant.service';
     MobileSettingsResolver,
     SchemaManagerService,
   ],
-  exports: [TenantService, TenantAdminService, TenantRoleService, TypeOrmModule],
+  exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, TypeOrmModule],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class TenantModule {}

@@ -339,28 +339,60 @@ export class TenantService {
     });
   }
 
-  async update(id: string, input: UpdateTenantInput): Promise<Tenant> {
+  async update(id: string, input: UpdateTenantInput, callerRole?: Role): Promise<Tenant> {
     const tenant = await this.findById(id);
 
-    // Update max users if plan changes
-    if (input.plan && input.plan !== tenant.plan) {
-      if (!input.maxUsers) {
-        input.maxUsers = this.getDefaultMaxUsers(input.plan);
+    // SECURITY: Role-based field filtering (SEC-AUTH-016)
+    // SUPER_ADMIN: all fields
+    // TENANT_ADMIN: allowlist only (name, description, logoUrl, contactEmail, contactPhone, address, settings)
+    if (callerRole && callerRole !== Role.SUPER_ADMIN) {
+      const allowedFields: (keyof UpdateTenantInput)[] = [
+        'name',
+        'description',
+        'logoUrl',
+        'contactEmail',
+        'contactPhone',
+        'address',
+        'settings',
+      ];
+
+      // Prevent updating restricted fields
+      if (input.status || input.plan || input.maxUsers) {
+        throw new ForbiddenException('Cannot update status, plan, or maxUsers. Contact support.');
       }
+
+      // Filter to allowed fields only
+      const filteredUpdates: Partial<Tenant> = {};
+      for (const field of allowedFields) {
+        if (input[field] !== undefined) {
+          (filteredUpdates as Record<string, unknown>)[field] = input[field];
+        }
+      }
+
+      Object.assign(tenant, filteredUpdates);
+    } else {
+      // SUPER_ADMIN: all fields allowed
+      // Update max users if plan changes
+      if (input.plan && input.plan !== tenant.plan) {
+        if (!input.maxUsers) {
+          input.maxUsers = this.getDefaultMaxUsers(input.plan);
+        }
+      }
+
+      Object.assign(tenant, input);
     }
 
-    Object.assign(tenant, input);
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant updated: ${saved.name} (${saved.id})`);
 
-    // Publish event
+    // Publish TenantUpdatedEvent for ALL update paths
     const event: TenantUpdatedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantUpdated',
       timestamp: new Date(),
       tenantId: saved.id,
-      name: input.name,
+      name: saved.name,
       version: 1,
     };
 

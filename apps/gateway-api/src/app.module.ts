@@ -29,7 +29,10 @@ import { StorageModule, StorageConfig } from '@platform/storage';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard, JwtPayload } from './guards/auth.guard';
 import { JwtMiddleware } from './middleware/jwt.middleware';
+import { StripInternalHeadersMiddleware } from './middleware/strip-internal-headers.middleware';
+import { CsrfMiddleware } from './middleware/csrf.middleware';
 import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
+import { MutationRateLimitGuard } from './guards/mutation-rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
 import {
   TOKEN_BLACKLIST_STORE,
@@ -321,10 +324,8 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'config',
                 url: configService.get('CONFIG_SERVICE_URL', 'http://localhost:3007/graphql'),
               },
-              {
-                name: 'notification',
-                url: configService.get('NOTIFICATION_SERVICE_URL', 'http://notification-service:3000/graphql'),
-              },
+              // NOTE: notification-service removed — it is event-driven only (no GraphQL endpoint).
+              // Including it causes federation composition to fail at startup.
             ],
             pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
           }),
@@ -510,6 +511,11 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       provide: APP_GUARD,
       useClass: RateLimitGuard,
     },
+    // GraphQL mutation rate limiting guard
+    {
+      provide: APP_GUARD,
+      useClass: MutationRateLimitGuard,
+    },
     // Redis-based rate limit store for distributed deployments
     // Enabled via RATE_LIMIT_USE_REDIS=true environment variable
     {
@@ -545,13 +551,17 @@ export class AppModule implements NestModule {
         // Order matters:
         // 1. Record request metrics (before everything else for accurate duration)
         // 2. Set correlation id for tracing
-        // 3. Decode JWT and set req.user (needed for willSendRequest to forward headers)
-        // 4. Hydrate user from x-user-payload header (for inter-service calls)
-        // 5. Set tenant context
-        // 6. Log request
+        // 3. SECURITY: Strip spoofable internal headers from external requests
+        // 4. SECURITY: CSRF double-submit cookie validation
+        // 5. Decode JWT and set req.user (needed for willSendRequest to forward headers)
+        // 6. Hydrate user from x-user-payload header (for inter-service calls)
+        // 7. Set tenant context
+        // 8. Log request
         MetricsMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware,
+        StripInternalHeadersMiddleware,
+        CsrfMiddleware,
         JwtMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,

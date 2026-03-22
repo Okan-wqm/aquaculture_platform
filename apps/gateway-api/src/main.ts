@@ -15,6 +15,22 @@ initTelemetry('gateway-api');
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('GatewayAPI');
+
+  // SECURITY: In production, INTERNAL_SERVICE_SECRET is required for authenticating
+  // inter-service requests. Without it, any external client could forge internal
+  // service headers (x-service-identity, x-service-signature) and bypass auth.
+  if (
+    process.env['NODE_ENV'] === 'production' &&
+    !process.env['INTERNAL_SERVICE_SECRET']
+  ) {
+    throw new Error(
+      'FATAL: INTERNAL_SERVICE_SECRET must be set in production. ' +
+      'Without it, inter-service authentication is disabled and attackers can ' +
+      'spoof internal service headers to bypass authorization. ' +
+      'Generate a strong secret: openssl rand -base64 48',
+    );
+  }
+
   const app = await NestFactory.create(AppModule, {
     // SECURITY: Disable raw body parsing - we configure it ourselves with limits
     rawBody: false,
@@ -151,6 +167,7 @@ async function bootstrap(): Promise<void> {
       'X-Correlation-Id',
       'X-Request-Id',
       'X-Requested-With',
+      'X-CSRF-Token',
     ],
   });
 

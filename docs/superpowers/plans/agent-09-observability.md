@@ -40,9 +40,9 @@ const responseBody = {
 };
 ```
 
-- [ ] **Step 3: Apply same fix to gateway exception filters**
-Read and fix: `apps/gateway-api/src/filters/global-exception.filter.ts`
-Read and fix: `apps/gateway-api/src/filters/http-exception.filter.ts`
+- [ ] **Step 3: NOTE — gateway exception filters are owned by Agent 4**
+Do NOT modify `apps/gateway-api/src/filters/`. Instead, log this as a coordination item for Agent 4 to handle.
+Agent 4 should remove tenantId from gateway filters as part of their security hardening scope.
 
 - [ ] **Step 4: Commit**
 ```bash

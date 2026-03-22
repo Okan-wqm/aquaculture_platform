@@ -2,11 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add class-validator DTOs to all unvalidated endpoints, replace Object.assign with role-based field mapper, fix tableData schema bypass, add bulk operation limits.
+**Goal:** Add class-validator DTOs to all unvalidated endpoints in admin-api-service. Note: `Object.assign` replacement, `tableData` fix, and bulk operation rate limits are in auth-service files (Agent 2's scope) — those tasks are delegated to Agent 2 or handled via coordination.
 
 **Tech Stack:** NestJS, class-validator, class-transformer, TypeORM
 
-**Owned files:** All DTOs and controllers in `apps/admin-api-service/`
+**Owned files:** DTOs and controllers in `apps/admin-api-service/` ONLY. Auth-service files are owned by Agent 2.
+
+**IMPORTANT — Scope correction (post-review):**
+- `tableData` fix (HIGH-9) → lives in auth-service, delegate to Agent 2
+- `bulkAssignUserRole` / `bulkUpdateMobileSettings` rate limits → auth-service resolvers, delegate to Agent 2
+- `Object.assign` replacement → auth-service tenant.service.ts, already handled by Agent 2 Task 5
 
 ---
 

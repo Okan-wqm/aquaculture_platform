@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
 import { EquipmentResponse, PaginatedEquipmentResponse, EquipmentTypeResponse, EquipmentSystemResponse, EquipmentBatchMetrics } from './dto/equipment.response';

@@ -7,7 +7,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int, Float } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
 import { WaterQualityService } from './water-quality.service';
 import { CreateWaterQualityInput } from './dto/create-water-quality.input';

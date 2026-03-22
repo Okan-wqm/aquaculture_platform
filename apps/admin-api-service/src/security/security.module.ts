@@ -42,7 +42,7 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
+    ScheduleModule,
     TypeOrmModule.forFeature([
       // Activity & Audit
       ActivityLog,

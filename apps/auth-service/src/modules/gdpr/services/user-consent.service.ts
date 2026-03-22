@@ -12,7 +12,7 @@ import {
   ConsentRecord,
   ConsentStatus,
   Role,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';
 import {

@@ -2,7 +2,7 @@ import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { UseGuards, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Roles, Role, TenantGuard, CurrentTenant } from '@platform/backend-common';
+import { Roles, Role, TenantGuard, CurrentTenant } from '@aquaculture/backend-common';
 import { HydroponicsStatusResponse } from '../dto/hydroponics-status.response';
 import { HydroponicsConfig } from '../entities/hydroponics-config.entity';
 import { CreateHydroponicsConfigInput } from '../dto/create-hydroponics-config.input';

@@ -9,7 +9,6 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 
 // Modules
 import { MaintenanceModule } from '../maintenance/maintenance.module';
@@ -29,19 +28,8 @@ import { FeedingSchedulerService } from './feeding-scheduler.service';
 
 @Module({
   imports: [
-    // NestJS Schedule module for cron jobs
-    ScheduleModule.forRoot(),
-    // Event Emitter for async event handling
-    EventEmitterModule.forRoot({
-      // Use wildcards for event patterns
-      wildcard: true,
-      // Delimiter for namespaced events
-      delimiter: '.',
-      // Don't throw on error
-      ignoreErrors: false,
-      // Max listeners per event
-      maxListeners: 10,
-    }),
+    // NestJS Schedule module — forRoot() is in AppModule, plain import here
+    ScheduleModule,
     // Import MaintenanceModule to access MaintenanceScheduleService and SparePartService
     MaintenanceModule,
     // TypeORM repositories

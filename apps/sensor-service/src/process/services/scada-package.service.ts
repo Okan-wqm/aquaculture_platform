@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
 
 import { AutomationService } from '../../automation/automation.service';
 import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';

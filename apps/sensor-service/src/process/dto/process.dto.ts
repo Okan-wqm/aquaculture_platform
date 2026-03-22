@@ -4,7 +4,7 @@ import { IsString, IsOptional, IsEnum, IsUUID, MaxLength } from 'class-validator
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ProcessStatus, ProcessNode, ProcessEdge } from '../entities/process.entity';
-import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 // ============================================================================
 // Input DTOs

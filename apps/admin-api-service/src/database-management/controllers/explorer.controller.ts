@@ -31,7 +31,7 @@ import { DataSource } from 'typeorm';
 
 // Fix: H8 -- per-route throttle for sensitive database operations
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common';
-import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@platform/backend-common';
+import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 // ============================================================================

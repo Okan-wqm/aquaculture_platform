@@ -9,7 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { IS_PUBLIC_KEY, ITokenBlacklist, TOKEN_BLACKLIST } from '@platform/backend-common';
+import { IS_PUBLIC_KEY, ITokenBlacklist, TOKEN_BLACKLIST } from '@aquaculture/backend-common';
 import { Request } from 'express';
 
 import { JwtPayload } from '../services/token.service';

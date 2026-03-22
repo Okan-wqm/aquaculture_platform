@@ -25,7 +25,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsDate, IsEnum } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 
 /**

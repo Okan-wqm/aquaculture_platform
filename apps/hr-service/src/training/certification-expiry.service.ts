@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DataSource, EntityManager, Not, In, LessThan } from 'typeorm';
-import { listTenantSchemas } from '@platform/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common';
 import { EmployeeCertification, CertificationStatus } from './entities/employee-certification.entity';
 import { CertificationType, CertificationRequirement } from './entities/certification-type.entity';
 import { Employee } from '../hr/entities/employee.entity';
@@ -25,7 +25,7 @@ export class CertificationExpiryService {
   ) {}
 
   // ---------------------------------------------------------------------------
-  // Tenant schema discovery — uses listTenantSchemas from @platform/backend-common
+  // Tenant schema discovery — uses listTenantSchemas from @aquaculture/backend-common
   // ---------------------------------------------------------------------------
 
   /**

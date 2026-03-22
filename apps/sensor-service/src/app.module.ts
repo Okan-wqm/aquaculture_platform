@@ -8,6 +8,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import {
@@ -19,7 +20,7 @@ import {
   TenantGuard,
   RolesGuard,
   SourceSchemaBootstrapService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 import { GraphQLError } from 'graphql';
@@ -50,7 +51,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@platform/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 import { Process } from './process/entities/process.entity';
@@ -295,6 +296,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),
+
+    // Event Emitter — single forRoot() for the entire service
+    EventEmitterModule.forRoot(),
 
     // Enterprise infrastructure (@Global modules - must be before feature modules)
     CredentialVaultModule,

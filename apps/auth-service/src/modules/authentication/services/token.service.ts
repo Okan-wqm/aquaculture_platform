@@ -10,7 +10,7 @@ import {
   Role,
   ISessionManager,
   SESSION_MANAGER,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { RefreshToken } from '../entities/refresh-token.entity';

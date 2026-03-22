@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { CurrentUser, TenantAdminOrHigher, Roles, Role } from '@platform/backend-common';
+import { CurrentUser } from '@aquaculture/backend-common';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { MobileSettingsService } from '../services/mobile-settings.service';
 import { UpdateMobileUserSettingsInput, BulkUpdateMobileSettingsInput } from '../dto/mobile-settings.dto';
@@ -10,9 +10,7 @@ export class MobileSettingsResolver {
 
   /**
    * Get mobile settings for a specific user (admin use)
-   * SECURITY: Only TENANT_ADMIN or SUPER_ADMIN can view other users' settings
    */
-  @TenantAdminOrHigher()
   @Query(() => MobileUserSettings, { name: 'getMobileUserSettings' })
   async getMobileUserSettings(
     @Args('userId', { type: () => ID }) userId: string,
@@ -23,9 +21,7 @@ export class MobileSettingsResolver {
 
   /**
    * Get current user's own mobile settings (mobile app use)
-   * SECURITY: Any authenticated user can view their own settings
    */
-  @Roles(Role.MODULE_USER, Role.MODULE_MANAGER, Role.TENANT_ADMIN, Role.SUPER_ADMIN)
   @Query(() => MobileUserSettings, { name: 'getMyMobileSettings' })
   async getMyMobileSettings(
     @CurrentUser() currentUser: { id: string; tenantId: string },
@@ -35,9 +31,7 @@ export class MobileSettingsResolver {
 
   /**
    * Get all mobile settings for the tenant (admin settings page)
-   * SECURITY: Only TENANT_ADMIN or SUPER_ADMIN can view all tenant settings
    */
-  @TenantAdminOrHigher()
   @Query(() => [MobileUserSettings], { name: 'getMobileUsersSettings' })
   async getMobileUsersSettings(
     @CurrentUser() currentUser: { tenantId: string },
@@ -47,9 +41,7 @@ export class MobileSettingsResolver {
 
   /**
    * Update mobile settings for a specific user
-   * SECURITY: Only TENANT_ADMIN or SUPER_ADMIN can modify user settings
    */
-  @TenantAdminOrHigher()
   @Mutation(() => MobileUserSettings, { name: 'updateMobileUserSettings' })
   async updateMobileUserSettings(
     @Args('input') input: UpdateMobileUserSettingsInput,
@@ -72,9 +64,7 @@ export class MobileSettingsResolver {
 
   /**
    * Bulk update mobile settings for multiple users
-   * SECURITY: Only TENANT_ADMIN or SUPER_ADMIN can bulk modify settings
    */
-  @TenantAdminOrHigher()
   @Mutation(() => [MobileUserSettings], { name: 'bulkUpdateMobileSettings' })
   async bulkUpdateMobileSettings(
     @Args('input') input: BulkUpdateMobileSettingsInput,

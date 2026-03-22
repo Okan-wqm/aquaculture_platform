@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 import {
   AcknowledgmentTrackerService,
   AckStatus,

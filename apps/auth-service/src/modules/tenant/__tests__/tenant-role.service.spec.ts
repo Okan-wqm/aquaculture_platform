@@ -8,7 +8,7 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, QueryRunner } from 'typeorm';
-import { SchemaManagerService } from '@platform/backend-common';
+import { SchemaManagerService } from '@aquaculture/backend-common';
 
 import { TenantRoleService } from '../services/tenant-role.service';
 

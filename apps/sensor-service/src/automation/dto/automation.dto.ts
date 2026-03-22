@@ -19,7 +19,7 @@ import {
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-scalars';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 // GraphQL registerEnumType sends enum KEYS ('MANUAL', 'ST', 'RUST_ENGINE')
 // but TypeScript enum values are lowercase ('manual', 'st', 'rust_engine').

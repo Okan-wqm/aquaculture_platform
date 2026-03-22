@@ -4,7 +4,7 @@ import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNot
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
-import { StandardPaginationInput, StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 import { CreateDataChannelInput, DataChannelType } from './data-channel.dto';
 
@@ -392,7 +392,7 @@ export class SensorFilterInput {
   search?: string;
 }
 
-// ARCH-NOTE: Renamed to avoid GraphQL schema collision with @platform/backend-common PaginationInput.
+// ARCH-NOTE: Renamed to avoid GraphQL schema collision with @aquaculture/backend-common PaginationInput.
 // Now extends StandardPaginationInput (page/limit + sortBy/sortOrder).
 @InputType('SensorPaginationInput')
 export class PaginationInput extends StandardPaginationInput {}

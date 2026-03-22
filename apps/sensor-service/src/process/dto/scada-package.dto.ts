@@ -1,7 +1,7 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
 import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsObject, IsArray } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 import { ScadaPackageStatus } from '../entities/scada-package.entity';
 

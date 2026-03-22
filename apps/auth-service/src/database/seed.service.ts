@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role } from '@platform/backend-common';
+import { Role } from '@aquaculture/backend-common';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 

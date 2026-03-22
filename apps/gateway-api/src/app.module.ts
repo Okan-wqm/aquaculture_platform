@@ -23,7 +23,7 @@ import {
   MetricsMiddleware,
   RedisModule,
   RedisService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';

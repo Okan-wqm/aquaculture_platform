@@ -10,6 +10,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
@@ -26,7 +27,7 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
 import { HRModule } from './hr/hr.module';
@@ -231,6 +232,8 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
       context: ({ req }: { req: Request }) => ({ req }),
     }),
     CqrsModule.forRoot(),
+    // Schedule module — single forRoot() for the entire service
+    ScheduleModule.forRoot(),
     // NATS Event Bus for cross-service event publishing
     EventBusModule.forRootAsync({
       imports: [ConfigModule],

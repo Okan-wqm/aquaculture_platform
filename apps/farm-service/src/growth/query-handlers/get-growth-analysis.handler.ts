@@ -15,7 +15,7 @@ import { GetGrowthAnalysisQuery, GrowthAnalysisResult } from '../queries/get-gro
 import { GrowthMeasurement, GrowthPerformance } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 
 @Injectable()
 @QueryHandler(GetGrowthAnalysisQuery)

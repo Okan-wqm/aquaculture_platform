@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { RedisService } from '@platform/backend-common';
+import { RedisService } from '@aquaculture/backend-common';
 import {
   EscalationManagerService,
   EscalationState,

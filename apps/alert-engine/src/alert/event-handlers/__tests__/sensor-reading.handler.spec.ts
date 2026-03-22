@@ -30,7 +30,7 @@ const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 const mockRun = jest.fn().mockImplementation((_ctx: any, fn: () => any) => fn());
 
-jest.mock('@platform/backend-common', () => ({
+jest.mock('@aquaculture/backend-common', () => ({
   requestContextStorage: { run: mockRun },
   getRequestContext: jest.fn().mockReturnValue({}),
   isValidUUID: (id: string) => UUID_V4_RE.test(id),

@@ -1,5 +1,5 @@
 import { Resolver, Query } from '@nestjs/graphql';
-import { Public, SkipTenantGuard } from '@platform/backend-common';
+import { Public, SkipTenantGuard } from '@aquaculture/backend-common';
 
 @Resolver()
 @Public()

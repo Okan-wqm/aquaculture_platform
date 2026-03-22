@@ -2,7 +2,7 @@ import { Controller, Get, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import { Public } from '@platform/backend-common';
+import { Public } from '@aquaculture/backend-common';
 
 /**
  * JWKS (JSON Web Key Set) Controller

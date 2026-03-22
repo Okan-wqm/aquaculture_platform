@@ -12,7 +12,7 @@
 import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
 import { Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@platform/backend-common';
+import { Roles, Role } from '@aquaculture/backend-common';
 import {
   MattilsynetApiService,
   SeaLicePayload,

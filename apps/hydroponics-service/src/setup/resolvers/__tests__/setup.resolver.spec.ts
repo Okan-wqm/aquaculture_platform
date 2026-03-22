@@ -9,7 +9,7 @@
 
 import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ROLES_KEY } from '@platform/backend-common';
+import { ROLES_KEY } from '@aquaculture/backend-common';
 import { SetupResolver } from '../setup.resolver';
 
 describe('SetupResolver', () => {

@@ -10,7 +10,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan } from 'typeorm';
-import { isValidSchemaName } from '@platform/backend-common';
+import { isValidSchemaName } from '@aquaculture/backend-common';
 
 import {
   TenantSchema,

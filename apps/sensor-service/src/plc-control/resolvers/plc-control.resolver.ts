@@ -9,7 +9,7 @@ import {
   ResolveField,
   Parent,
 } from '@nestjs/graphql';
-import { Tenant, CurrentUser, Roles, Role, CurrentUserPayload } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role, CurrentUserPayload } from '@aquaculture/backend-common';
 
 import { PlcConnection, PlcConnectionStatus } from '../entities/plc-connection.entity';
 import { FeedingParameter, ParameterStatus } from '../entities/feeding-parameter.entity';

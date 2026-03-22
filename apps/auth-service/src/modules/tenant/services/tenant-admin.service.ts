@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role, getTenantSchemaName } from '@platform/backend-common';
+import { Role, getTenantSchemaName } from '@aquaculture/backend-common';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
@@ -698,7 +698,7 @@ export class TenantAdminService {
     }
   }
 
-  // getTenantSchemaName imported from @platform/backend-common
+  // getTenantSchemaName imported from @aquaculture/backend-common
 
   /**
    * Infer module from table name based on naming convention

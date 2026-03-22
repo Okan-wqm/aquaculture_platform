@@ -2,7 +2,7 @@ import { UnauthorizedException, ForbiddenException, Logger } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
-import { CurrentUser, Public, SkipTenantGuard } from '@platform/backend-common';
+import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AcceptInvitationInput } from '../dto/accept-invitation.dto';

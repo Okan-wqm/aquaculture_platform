@@ -13,7 +13,7 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@platform/backend-common';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 

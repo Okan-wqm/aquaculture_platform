@@ -1,13 +1,13 @@
 /**
  * Schema sanitizer utilities.
  *
- * getTenantSchemaName is now provided by @platform/backend-common.
+ * getTenantSchemaName is now provided by @aquaculture/backend-common.
  * This file re-exports it for backward compatibility with existing consumers.
- * New code should import directly from '@platform/backend-common'.
+ * New code should import directly from '@aquaculture/backend-common'.
  *
- * @deprecated Import { getTenantSchemaName } from '@platform/backend-common' instead.
+ * @deprecated Import { getTenantSchemaName } from '@aquaculture/backend-common' instead.
  */
-export { getTenantSchemaName } from '@platform/backend-common';
+export { getTenantSchemaName } from '@aquaculture/backend-common';
 
 /**
  * Sanitizes and validates PostgreSQL schema names to prevent SQL injection.

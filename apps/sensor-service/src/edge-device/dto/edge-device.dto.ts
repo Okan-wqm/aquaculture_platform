@@ -8,7 +8,7 @@ import {
 } from '@nestjs/graphql';
 import { IsUUID, IsBoolean, IsOptional, IsString, IsHexadecimal, Length, IsEnum, Matches, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 import {
   DeviceIoConfig,

@@ -2,7 +2,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { initTelemetry, StructuredLoggerService } from '@platform/backend-common';
+import { initTelemetry, StructuredLoggerService } from '@aquaculture/backend-common';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 

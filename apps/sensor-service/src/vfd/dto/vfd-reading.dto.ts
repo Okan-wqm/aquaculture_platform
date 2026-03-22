@@ -10,7 +10,7 @@ import {
   IsEnum,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 /**
  * VFD Parameters Output DTO

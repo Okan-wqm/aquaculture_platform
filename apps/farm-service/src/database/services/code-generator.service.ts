@@ -13,7 +13,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { getTenantSchemaName, isValidUUID } from '@platform/backend-common';
+import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common';
 import { CodeSequence } from '../entities/code-sequence.entity';
 
 export interface CodeGeneratorOptions {

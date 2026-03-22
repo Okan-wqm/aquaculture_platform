@@ -11,7 +11,7 @@ import {
 import { Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Tenant, CurrentUser } from '@platform/backend-common';
+import { Tenant, CurrentUser } from '@aquaculture/backend-common';
 import { InAppNotificationService } from '../services/in-app.service';
 import { DeviceToken } from '../entities/device-token.entity';
 

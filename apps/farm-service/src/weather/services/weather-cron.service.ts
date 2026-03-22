@@ -8,7 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
-import { listTenantSchemas, requestContextStorage } from '@platform/backend-common';
+import { listTenantSchemas, requestContextStorage } from '@aquaculture/backend-common';
 import { WeatherSettings } from '../entities/weather-settings.entity';
 import { WeatherSyncService } from './weather-sync.service';
 
@@ -21,7 +21,7 @@ export class WeatherCronService {
     private readonly dataSource: DataSource,
   ) {}
 
-  // getTenantSchemas replaced by listTenantSchemas from @platform/backend-common
+  // getTenantSchemas replaced by listTenantSchemas from @aquaculture/backend-common
 
   /**
    * Her 15 dakikada bir çalışır

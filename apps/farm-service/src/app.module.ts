@@ -18,7 +18,7 @@ import {
   RolesGuard,
   UserContextMiddleware,
   SourceSchemaBootstrapService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 
 /**
  * Extended request interface for GraphQL context
@@ -29,10 +29,12 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@platform/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
+import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
@@ -205,6 +207,17 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
         secret: configService.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
+    }),
+
+    // Schedule module — single forRoot() for the entire service
+    ScheduleModule.forRoot(),
+
+    // Event Emitter — single forRoot() for the entire service
+    EventEmitterModule.forRoot({
+      wildcard: true,
+      delimiter: '.',
+      ignoreErrors: false,
+      maxListeners: 10,
     }),
 
     // CQRS Module

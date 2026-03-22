@@ -4,7 +4,7 @@
 import { InputType, Field } from '@nestjs/graphql';
 import { IsOptional, IsString, IsBoolean, IsEnum } from 'class-validator';
 import { SiteStatus } from '../entities/site.entity';
-import { StandardPaginationInput } from '@platform/backend-common';
+import { StandardPaginationInput } from '@aquaculture/backend-common';
 
 @InputType()
 export class SiteFilterInput {
@@ -34,7 +34,7 @@ export class SiteFilterInput {
   search?: string;
 }
 
-// ARCH-NOTE: Renamed to avoid GraphQL schema collision with @platform/backend-common PaginationInput.
+// ARCH-NOTE: Renamed to avoid GraphQL schema collision with @aquaculture/backend-common PaginationInput.
 // Now extends StandardPaginationInput (page/limit) from the shared lib.
 @InputType('FarmPaginationInput')
 export class PaginationInput extends StandardPaginationInput {}

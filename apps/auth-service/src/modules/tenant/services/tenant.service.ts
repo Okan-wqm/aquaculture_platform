@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@platform/backend-common';
+import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@aquaculture/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import {
   TenantCreatedEvent,
@@ -661,7 +661,7 @@ export class TenantService {
     return query.getMany();
   }
 
-  // getTenantSchemaName is imported from @platform/backend-common
+  // getTenantSchemaName is imported from @aquaculture/backend-common
 
   /**
    * Get tenant database information from PostgreSQL system catalogs

@@ -21,7 +21,7 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, Tenant, CurrentUser, Roles, Role, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@platform/backend-common';
+import { TenantGuard, Tenant, CurrentUser, Roles, Role, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common';
 
 // Entities
 import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';

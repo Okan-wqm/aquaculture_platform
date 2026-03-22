@@ -27,7 +27,7 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
 import { EventBusModule } from '@platform/event-bus';

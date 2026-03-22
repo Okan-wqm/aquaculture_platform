@@ -20,7 +20,7 @@ import {
   ITokenBlacklist,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { DataSource, Repository } from 'typeorm';
 

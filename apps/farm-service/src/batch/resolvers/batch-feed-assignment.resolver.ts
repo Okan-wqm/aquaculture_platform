@@ -8,7 +8,7 @@ import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import { BatchFeedAssignment, FeedAssignmentEntry } from '../entities/batch-feed-assignment.entity';
 import { Batch } from '../entities/batch.entity';

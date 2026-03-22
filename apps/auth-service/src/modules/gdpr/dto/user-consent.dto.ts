@@ -1,6 +1,6 @@
 import { Field, HideField, ID, InputType, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
-import { ConsentType } from '@platform/backend-common';
+import { ConsentType } from '@aquaculture/backend-common';
 
 // Register the ConsentType enum for GraphQL
 registerEnumType(ConsentType, {

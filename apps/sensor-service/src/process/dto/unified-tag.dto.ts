@@ -1,7 +1,7 @@
 import { InputType, ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { IsString, IsOptional, IsEnum, IsUUID, IsNumber, MaxLength, IsObject, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 import { TagDirection, TagIoType, TagDataType } from '../entities/unified-tag.entity';
 

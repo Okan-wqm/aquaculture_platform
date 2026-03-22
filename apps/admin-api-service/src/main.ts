@@ -2,7 +2,7 @@ import { ValidationPipe, Logger, VersioningType, VERSION_NEUTRAL } from '@nestjs
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { StructuredLoggerService } from '@platform/backend-common';
+import { StructuredLoggerService } from '@aquaculture/backend-common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';

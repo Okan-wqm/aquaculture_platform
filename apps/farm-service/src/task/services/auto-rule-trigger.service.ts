@@ -31,7 +31,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { NatsEventBus, IEventHandler } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { listTenantSchemas, getTenantSchemaName, isValidUUID } from '@platform/backend-common';
+import { listTenantSchemas, getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common';
 import { AutoRule, AutoRuleTrigger } from '../entities/auto-rule.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
 
@@ -43,7 +43,7 @@ const TRIGGER_EVENT_MAP: Record<string, AutoRuleTrigger> = {
   'feeding.expiryWarning': AutoRuleTrigger.EXPIRY_NEAR,
 };
 
-// UUID validation imported from @platform/backend-common (isValidUUID)
+// UUID validation imported from @aquaculture/backend-common (isValidUUID)
 
 @Injectable()
 export class AutoRuleTriggerService implements OnModuleInit {
@@ -83,7 +83,7 @@ export class AutoRuleTriggerService implements OnModuleInit {
     }
   }
 
-  // getTenantSchemaName imported from @platform/backend-common
+  // getTenantSchemaName imported from @aquaculture/backend-common
 
   /**
    * Handle an incoming NATS domain event and check for matching AutoRules.
@@ -221,7 +221,7 @@ export class AutoRuleTriggerService implements OnModuleInit {
     });
   }
 
-  // getTenantSchemas and getTenantSchemaName imported from @platform/backend-common
+  // getTenantSchemas and getTenantSchemaName imported from @aquaculture/backend-common
 
   /**
    * SCHEDULE trigger type — runs every hour and checks for SCHEDULE-type rules.

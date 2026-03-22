@@ -13,7 +13,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { Role, SchemaManagerService } from '@platform/backend-common';
+import { Role, SchemaManagerService } from '@aquaculture/backend-common';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';

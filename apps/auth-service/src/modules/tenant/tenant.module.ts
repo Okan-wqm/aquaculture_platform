@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@platform/backend-common';
+import { SchemaManagerService } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { RefreshToken } from '../authentication/entities/refresh-token.entity';

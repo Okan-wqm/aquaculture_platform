@@ -2,8 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER } from '@nestjs/core';
-import { LoggingModule } from '@platform/backend-common';
+import { LoggingModule } from '@aquaculture/backend-common';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
 import { HealthModule } from './health/health.module';
@@ -55,6 +56,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       }),
     }),
     CqrsModule,
+    // Schedule module — single forRoot() for the entire service
+    ScheduleModule.forRoot(),
     EventStoreModule,
     ProjectionsModule,
     HealthModule,

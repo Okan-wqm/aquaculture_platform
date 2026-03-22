@@ -8,7 +8,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { StandardPaginatedResponse } from '@platform/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common';
 
 import { AlarmSeverity, AlarmSource, PlcAlarm } from '../entities/plc-alarm.entity';
 

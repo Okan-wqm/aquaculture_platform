@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { UserConsent } from '@platform/backend-common';
+import { UserConsent } from '@aquaculture/backend-common';
 
 import { User } from '../authentication/entities/user.entity';
 
@@ -18,7 +18,7 @@ import { UserConsentService } from './services/user-consent.service';
  * - Consent history and audit trail
  * - Tenant isolation
  *
- * This module uses the UserConsent entity from @platform/backend-common
+ * This module uses the UserConsent entity from @aquaculture/backend-common
  * which provides the base consent tracking functionality.
  *
  * Usage:

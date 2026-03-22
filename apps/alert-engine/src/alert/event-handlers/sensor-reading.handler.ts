@@ -1,10 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
-import { requestContextStorage, RequestContext, getTenantSchemaName, isValidUUID } from '@platform/backend-common';
+import { requestContextStorage, RequestContext, getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
 
-// UUID validation imported from @platform/backend-common (isValidUUID)
+// UUID validation imported from @aquaculture/backend-common (isValidUUID)
 
 /**
  * Sensor Reading Event interface
@@ -50,7 +50,7 @@ export class SensorReadingEventHandler
     return 'SensorReading';
   }
 
-  // getTenantSchemaName imported from @platform/backend-common
+  // getTenantSchemaName imported from @aquaculture/backend-common
 
   async handle(event: SensorReadingEvent): Promise<void> {
     this.logger.debug(

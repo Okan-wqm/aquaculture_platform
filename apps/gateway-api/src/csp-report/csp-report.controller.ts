@@ -12,7 +12,7 @@
 
 import { Controller, Post, Body, HttpCode, Req, Logger, Optional } from '@nestjs/common';
 import { Request } from 'express';
-import { SecurityEventService } from '@platform/backend-common';
+import { SecurityEventService } from '@aquaculture/backend-common';
 
 import { Public } from '../guards/auth.guard';
 

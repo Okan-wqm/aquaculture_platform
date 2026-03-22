@@ -47,7 +47,7 @@ import { TicketService } from './services/ticket.service';
       OnboardingProgress,
       TenantReadOnly,
     ]),
-    ScheduleModule.forRoot(),
+    ScheduleModule,
   ],
   controllers: [
     MessagingController,

@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@platform/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { ConsumableResponse, PaginatedConsumablesResponse } from './dto/consumable.response';
 import { CreateConsumableInput } from './dto/create-consumable.input';
 import { UpdateConsumableInput } from './dto/update-consumable.input';

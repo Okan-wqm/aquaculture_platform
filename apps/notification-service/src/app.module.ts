@@ -14,7 +14,8 @@ import {
   UserContextMiddleware,
   TenantContextMiddleware,
   RedisModule,
-} from '@platform/backend-common';
+} from '@aquaculture/backend-common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
 import { HealthModule } from './health/health.module';
@@ -137,6 +138,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         keyPrefix: 'aqua:notif:',
       }),
     }),
+
+    // Schedule module — single forRoot() for the entire service
+    ScheduleModule.forRoot(),
 
     // Feature modules
     NotificationModule,

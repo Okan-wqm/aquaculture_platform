@@ -7,7 +7,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@platform/backend-common';
+import { SchemaManagerService } from '@aquaculture/backend-common';
 
 // Entities
 import { BackupController } from './controllers/backup.controller';
@@ -42,7 +42,7 @@ import { SchemaManagementService } from './services/schema-management.service';
       DatabaseMetric,
       SlowQueryLog,
     ]),
-    ScheduleModule.forRoot(),
+    ScheduleModule,
   ],
   controllers: [
     SchemaController,

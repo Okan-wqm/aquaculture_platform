@@ -9,7 +9,7 @@ import {
   ResolveField,
   Parent,
 } from '@nestjs/graphql';
-import { Tenant, CurrentUser, Roles, Role } from '@platform/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 

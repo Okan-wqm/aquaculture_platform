@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
-import { SchemaManagerService } from '@platform/backend-common';
+import { SchemaManagerService } from '@aquaculture/backend-common';
 
 /**
  * Default tenant roles seed data

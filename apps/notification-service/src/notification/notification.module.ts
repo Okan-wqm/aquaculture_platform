@@ -37,8 +37,8 @@ import { NotificationResolver } from './resolvers/notification.resolver';
 @Module({
   imports: [
     TypeOrmModule.forFeature([NotificationLog, DeviceToken]),
-    // Required for @Cron decorators in RetrySchedulerService and NotificationRetentionService
-    ScheduleModule.forRoot(),
+    // Required for @Cron decorators — forRoot() is in AppModule, plain import here
+    ScheduleModule,
   ],
   providers: [
     // Services

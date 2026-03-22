@@ -2,7 +2,7 @@ import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { initTelemetry, StructuredLoggerService } from '@platform/backend-common';
+import { initTelemetry, StructuredLoggerService } from '@aquaculture/backend-common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';

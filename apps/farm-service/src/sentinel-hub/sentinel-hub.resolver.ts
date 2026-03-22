@@ -13,7 +13,7 @@ import {
   SentinelHubToken,
   SentinelHubWmtsConfig,
 } from './entities/sentinel-hub-settings.entity';
-import { CurrentTenant, TenantGuard, Roles, Role } from '@platform/backend-common';
+import { CurrentTenant, TenantGuard, Roles, Role } from '@aquaculture/backend-common';
 
 @Resolver(() => SentinelHubSettings)
 @UseGuards(TenantGuard)

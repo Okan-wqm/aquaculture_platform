@@ -3,22 +3,16 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
-  ForbiddenException,
-  Inject,
-  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService, Role } from '@platform/backend-common';
-import { IEventBus } from '@platform/event-bus';
-import { UserInvitedEvent } from '@platform/event-contracts';
+import { SchemaManagerService } from '@platform/backend-common';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { User } from '../../authentication/entities/user.entity';
-import { Tenant } from '../entities/tenant.entity';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
+import { UserLifecycleService } from './user-lifecycle.service';
 
 /**
  * Created tenant user result
@@ -82,18 +76,17 @@ export class TenantUserManagementService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    @InjectRepository(Tenant)
-    private readonly tenantRepository: Repository<Tenant>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
-    @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    private readonly userLifecycleService: UserLifecycleService,
   ) {}
 
   /**
-   * Create a new user within a tenant schema and assign initial role
+   * Create a new user within a tenant schema and assign initial role.
+   * Delegates to UserLifecycleService for the unified creation flow.
    */
   async createTenantUser(
     tenantId: string,
@@ -111,86 +104,7 @@ export class TenantUserManagementService {
     createdBy: string,
     sendInvitation: boolean = true,
   ): Promise<CreatedTenantUser> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    // Validate tenant exists and is active
-    const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
-    if (!tenant) {
-      throw new NotFoundException(`Tenant with ID "${tenantId}" not found`);
-    }
-
-    // Check for existing user with same email (globally unique)
-    const existingUser = await this.userRepository.findOne({
-      where: { email: input.email.toLowerCase() },
-    });
-    if (existingUser) {
-      throw new ConflictException(`User with email "${input.email}" already exists`);
-    }
-
-    // Validate role exists in tenant
-    const role = await this.tenantRoleService.getRoleById(tenantId, input.roleId);
-    if (!role) {
-      throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
-    }
-
-    // Generate invitation token if not providing password
-    // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
-    const plainInvitationToken = sendInvitation && !input.password
-      ? crypto.randomBytes(32).toString('hex')
-      : null;
-    // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
-    // Plain token is sent to user via email, hash is stored in DB for verification
-    const invitationTokenHash = plainInvitationToken
-      ? crypto.createHash('sha256').update(plainInvitationToken).digest('hex')
-      : null;
-    const invitationExpiry = plainInvitationToken
-      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-      : null;
-
-    // Create user in auth.users table
-    const newUser = this.userRepository.create({
-      email: input.email.toLowerCase(),
-      firstName: input.firstName,
-      lastName: input.lastName,
-      password: input.password || undefined,
-      role: Role.MODULE_USER, // Default global role; tenant role is separate
-      tenantId,
-      isActive: true,
-      isEmailVerified: false,
-      invitationToken: invitationTokenHash, // Store hash, not plain token
-      invitationExpiresAt: invitationExpiry,
-      invitedBy: createdBy,
-    });
-
-    const savedUser = await this.userRepository.save(newUser);
-    this.logger.log(`Created user ${savedUser.email} (${savedUser.id}) for tenant ${tenantId}`);
-
-    // Create role assignment in tenant schema
-    const roleAssignment = await this.createRoleAssignment(
-      schemaName,
-      savedUser.id,
-      input.roleId,
-      role,
-      input.permissionOverrides || { grants: [], revokes: [] },
-      createdBy,
-    );
-
-    // Send invitation email if requested — use plain token (not hash) for user link
-    let invitationSent = false;
-    if (sendInvitation && plainInvitationToken) {
-      try {
-        await this.sendInvitationEmail(tenant, savedUser, plainInvitationToken);
-        invitationSent = true;
-      } catch (error) {
-        this.logger.error(`Failed to send invitation email to ${savedUser.email}: ${(error as Error).message}`);
-      }
-    }
-
-    return {
-      user: savedUser,
-      roleAssignment,
-      invitationSent,
-    };
+    return this.userLifecycleService.createUser(tenantId, input, createdBy, sendInvitation);
   }
 
   /**
@@ -299,76 +213,18 @@ export class TenantUserManagementService {
   }
 
   /**
-   * Soft-delete a tenant user
-   *
-   * Sets isActive = false, revokes role assignment, and revokes all refresh tokens.
-   * This is a "soft delete" — the user record remains but is fully deactivated.
+   * Soft-delete a tenant user.
+   * Delegates to UserLifecycleService which ensures:
+   * - User deactivation
+   * - Role assignment revocation
+   * - CRITICAL: Refresh token revocation (was missing before)
    */
   async deleteTenantUser(
     tenantId: string,
     userId: string,
     deletedBy: string,
   ): Promise<boolean> {
-    // SECURITY: Prevent self-deletion
-    if (deletedBy === userId) {
-      throw new BadRequestException('Cannot delete your own account');
-    }
-
-    // Validate user exists and belongs to tenant
-    const user = await this.userRepository.findOne({
-      where: { id: userId, tenantId },
-    });
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
-    }
-
-    // SECURITY: Cannot delete another TENANT_ADMIN
-    if (user.role === Role.TENANT_ADMIN) {
-      throw new ForbiddenException('Cannot delete a tenant admin user');
-    }
-
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    // 1. Deactivate the user
-    user.isActive = false;
-    await this.userRepository.save(user);
-
-    // 2. Revoke role assignments in tenant schema
-    try {
-      await this.dataSource.query(
-        `UPDATE "${schemaName}"."user_role_assignments"
-         SET is_active = false, updated_at = NOW(), updated_by = $2
-         WHERE user_id = $1 AND is_active = true`,
-        [userId, deletedBy],
-      );
-    } catch (error) {
-      this.logger.warn(`Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`);
-    }
-
-    this.logger.log(`Deleted (soft) user ${user.email} from tenant ${tenantId}`);
-
-    // SECURITY AUDIT: Log user deletion (BULGU-016)
-    try {
-      const admin = await this.userRepository.findOne({ where: { id: deletedBy } });
-      await this.auditLogService.log({
-        tenantId,
-        performedBy: deletedBy,
-        performedByEmail: admin?.email,
-        action: 'USER_DELETED',
-        entityType: 'User',
-        entityId: userId,
-        details: {
-          targetEmail: user.email,
-          targetRole: user.role,
-          timestamp: new Date().toISOString(),
-        },
-        severity: AuditLogSeverity.WARNING,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to log audit event USER_DELETED: ${(error as Error).message}`);
-    }
-
-    return true;
+    return this.userLifecycleService.deleteUser(tenantId, userId, deletedBy);
   }
 
   /**
@@ -777,41 +633,6 @@ export class TenantUserManagementService {
       assignedAt: new Date(),
       assignedBy,
     };
-  }
-
-  /**
-   * Send invitation email to new user
-   */
-  private async sendInvitationEmail(
-    tenant: Tenant,
-    user: User,
-    invitationToken: string,
-  ): Promise<void> {
-    const baseUrl = process.env['APP_URL'];
-    if (!baseUrl) {
-      throw new Error('APP_URL environment variable is not configured');
-    }
-    const actionUrl = `${baseUrl}/accept-invitation/${invitationToken}`;
-
-    const event: UserInvitedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'UserInvited',
-      timestamp: new Date(),
-      tenantId: tenant.id,
-      userId: user.id,
-      email: user.email,
-      firstName: user.firstName || undefined,
-      lastName: user.lastName || undefined,
-      role: user.role,
-      tenantName: tenant.name,
-      invitedBy: user.invitedBy || undefined,
-      credentialType: 'reset_token',
-      actionUrl,
-      version: 1,
-    };
-
-    await this.eventBus.publish(event);
-    this.logger.log(`Published UserInvitedEvent for ${user.email}`);
   }
 
   /**

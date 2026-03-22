@@ -1,42 +1,71 @@
-# Discovery Log - Tenant Isolation Architect (Agent 1)
+# Discovery Log — Auth Service Tenant Module
 
-## Findings from Discovery Pass (2026-03-22)
+Scan date: 2026-03-22
+Scanned by: Agent 2 (Auth Security Architect)
+Scope: `apps/auth-service/src/modules/tenant/`
 
-### MED: Duplicated UUID regex across codebase
+## Fixed (CRIT/HIGH) — in this PR
 
-**Files affected:**
-- `libs/backend-common/src/database/tenant-schema.utils.ts` - `UUID_V4_REGEX`
-- `libs/backend-common/src/middleware/tenant-context.middleware.ts` - inline regex
-- `libs/backend-common/src/guards/tenant.guard.ts` - inline regex (duplicated twice)
-- `libs/backend-common/src/redis/tenant-redis.service.ts` - local `UUID_REGEX`
-- `libs/backend-common/src/database/rls/tenant-rls.service.ts` - local `UUID_REGEX`
+### CRIT-001: deleteTenantUser did NOT revoke refresh tokens
+- **File**: `services/tenant-user-management.service.ts` (deleteTenantUser)
+- **Impact**: After soft-deleting a user, their refresh tokens remained valid.
+  An attacker could use a stolen refresh token to continue obtaining access tokens.
+- **Fix**: Created `UserLifecycleService.deleteUser()` that revokes ALL refresh
+  tokens as part of the deletion flow. `deleteTenantUser` now delegates to it.
 
-**Recommendation:** All files should import `UUID_V4_REGEX` from `tenant-schema.utils.ts` or a central `constants.ts` to avoid regex drift.
+### HIGH-002: MobileSettingsResolver entirely unguarded
+- **File**: `resolvers/mobile-settings.resolver.ts`
+- **Impact**: Any authenticated user could view/modify other users' mobile
+  settings, including admin-level bulk operations.
+- **Fix**: Added `@TenantAdminOrHigher()` to admin methods,
+  `@Roles(Role.MODULE_USER, ...)` to `getMyMobileSettings`.
 
-### MED: tenant-schema.middleware.ts defines its own TenantRequest interface
+### HIGH-003: myModules query unguarded
+- **File**: `resolvers/tenant-admin.resolver.ts`
+- **Impact**: Any authenticated request could list module assignments.
+- **Fix**: Added `@Roles(Role.MODULE_USER, Role.MODULE_MANAGER, Role.TENANT_ADMIN, Role.SUPER_ADMIN)`.
 
-**File:** `libs/backend-common/src/middleware/tenant-schema.middleware.ts` (line 11-20)
+### HIGH-004: updateTenantSettings missing TenantUpdatedEvent
+- **File**: `services/tenant.service.ts` (updateTenantSettings)
+- **Impact**: When a TENANT_ADMIN updated settings, no `TenantUpdatedEvent` was
+  published, causing downstream services to miss tenant configuration changes.
+- **Fix**: Consolidated into `update()` with role-based field filtering.
+  TenantUpdatedEvent is now published for ALL update paths.
 
-The file defines a local `TenantRequest` interface instead of importing from the canonical location (`types/tenant-request.interface.ts`). This creates type drift risk if fields are added to the canonical interface.
+### HIGH-005: TenantService.update() used unfiltered Object.assign
+- **File**: `services/tenant.service.ts` (update)
+- **Impact**: If a TENANT_ADMIN managed to call `update()` directly (bypassing the
+  resolver's routing), they could modify `status`, `plan`, `maxUsers`.
+- **Fix**: `update()` now accepts caller role and applies field allowlist for
+  non-SUPER_ADMIN callers.
 
-### LOW: SessionManagerService and TokenBlacklistService use raw Redis client
+## Logged (MED/LOW) — for future work
 
-**Files:**
-- `libs/backend-common/src/security/session-manager/session-manager.service.ts`
-- `libs/backend-common/src/security/token-blacklist/token-blacklist.service.ts`
+### MED-001: MobileSettingsService.getByUserId queries by userId only, not tenantId
+- **File**: `services/mobile-settings.service.ts` line 20
+- **Issue**: `findOne({ where: { userId } })` does not include `tenantId` in the
+  lookup. If a TENANT_ADMIN knows another tenant's userId, they could read
+  cross-tenant mobile settings.
+- **Recommendation**: Change to `findOne({ where: { userId, tenantId } })`.
 
-Both inject raw `ioredis.Redis` via `@Inject('REDIS_CLIENT')` instead of using `RedisService`. This means they bypass the `RedisService` key prefix system and use their own prefixing. Not a security issue since these are user-scoped (not tenant-scoped), but inconsistent.
+### MED-002: TenantService.updateTenantSettings still exists as dead code
+- **File**: `services/tenant.service.ts` (updateTenantSettings)
+- **Issue**: The method is no longer called from the resolver (consolidated into
+  `update()`), but the code remains. It could be accidentally re-used without
+  proper event publishing.
+- **Recommendation**: Deprecate or remove; ensure any remaining callers use
+  `update(id, input, role)` instead.
 
-### LOW: TenantContextMiddleware accepts tenantId from query parameter without UUID validation
+### LOW-001: BulkUpdateMobileSettingsInput.userIds missing @IsUUID validation
+- **File**: `dto/mobile-settings.dto.ts` line 48-49
+- **Issue**: `userIds` is typed as `string[]` with `@Field(() => [ID])` but lacks
+  `@IsUUID('4', { each: true })` class-validator decorator. Malformed UUIDs could
+  reach the service layer.
+- **Recommendation**: Add `@IsUUID('4', { each: true })` to the `userIds` field.
 
-**File:** `libs/backend-common/src/middleware/tenant-context.middleware.ts` (line 108-111)
-
-The `queryTenant` extraction path (source 3) does not validate that the tenant ID is a UUID. While TenantGuard later validates UUID format, there's a window where an invalid tenantId could be set on the request. The header-based extraction (source 1) similarly lacks UUID validation at this layer.
-
-**Note:** The TenantGuard (separate middleware) does validate UUID format, so this is defense-in-depth, not a direct vulnerability.
-
-### LOW: IdorGuard validateTenantAccess returns true when no resourceTenantId found
-
-**File:** `libs/backend-common/src/security/validators/idor-guard.ts` (line 254)
-
-When `resourceTenantId` is undefined (not found in request params/query/body), the guard returns `true` (allows access). While this is by design for routes that operate within the user's own tenant context, it could be confusing and should be documented more prominently.
+### LOW-002: MobileSettingsService.bulkUpdate processes users sequentially
+- **File**: `services/mobile-settings.service.ts` (bulkUpdate)
+- **Issue**: Uses a `for` loop calling `update()` one user at a time. For large
+  tenant user bases this is O(n) database round-trips.
+- **Recommendation**: Use a batch UPDATE query or Promise.all with concurrency
+  limiting.

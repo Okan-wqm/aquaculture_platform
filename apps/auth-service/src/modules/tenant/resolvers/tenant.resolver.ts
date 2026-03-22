@@ -96,12 +96,8 @@ export class TenantResolver {
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
-    // SECURITY: Non-SUPER_ADMIN callers use restricted updateTenantSettings
-    // which blocks status, plan, and maxUsers changes (SEC-AUTH-016)
-    if (role !== Role.SUPER_ADMIN) {
-      return this.tenantService.updateTenantSettings(id, input);
-    }
-    return this.tenantService.update(id, input);
+    // SECURITY: Role-based field filtering is handled inside TenantService.update()
+    return this.tenantService.update(id, input, role);
   }
 
   @SuperAdminOnly()
@@ -233,18 +229,8 @@ export class TenantResolver {
     return this.tenantService.removeModuleManager(tenantId, moduleId);
   }
 
-  /**
-   * Update tenant settings (TENANT_ADMIN can update limited fields)
-   */
-  @TenantAdminOrHigher()
-  @Mutation(() => Tenant)
-  async updateTenantSettings(
-    @Args('input') input: UpdateTenantInput,
-    @CurrentUser('tenantId') tenantId: string,
-  ): Promise<Tenant> {
-    // Tenant admins can only update their own tenant
-    return this.tenantService.updateTenantSettings(tenantId, input);
-  }
+  // NOTE: updateTenantSettings mutation removed — consolidated into updateTenant
+  // which applies role-based field filtering via TenantService.update()
 
   // ============================================================================
   // Audit Log & Activity Queries

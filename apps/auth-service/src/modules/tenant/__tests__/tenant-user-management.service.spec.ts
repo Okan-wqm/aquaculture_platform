@@ -20,6 +20,7 @@ import { User } from '../../authentication/entities/user.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 import { TenantRoleService, TenantRoleWithDetails } from '../services/tenant-role.service';
 import { TenantUserManagementService } from '../services/tenant-user-management.service';
+import { UserLifecycleService } from '../services/user-lifecycle.service';
 
 // ============================================================================
 // Constants
@@ -126,6 +127,10 @@ describe('TenantUserManagementService', () => {
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock };
   let mockAuditLogService: { log: jest.Mock };
+  let mockUserLifecycleService: {
+    createUser: jest.Mock;
+    deleteUser: jest.Mock;
+  };
 
   beforeEach(async () => {
     const mockUserRepo = createMockRepository();
@@ -151,6 +156,32 @@ describe('TenantUserManagementService', () => {
       log: jest.fn().mockResolvedValue(undefined),
     };
 
+    // Default mock for UserLifecycleService — used by createTenantUser/deleteTenantUser delegation
+    mockUserLifecycleService = {
+      createUser: jest.fn().mockResolvedValue({
+        user: createMockUser({ email: 'newuser@tenant.com' }),
+        roleAssignment: {
+          id: 'assignment-001',
+          userId: USER_ID,
+          roleId: ROLE_ID,
+          roleName: 'Operator',
+          roleColor: '#10B981',
+          roleIcon: 'activity',
+          roleLevel: 30,
+          permissionOverrides: { grants: [], revokes: [] },
+          panelPermissions: {},
+          resourcePermissions: ['sites:view', 'sensors:view'],
+          effectivePermissions: ['sites:view', 'sensors:view'],
+          isActive: true,
+          expiresAt: null,
+          assignedAt: new Date(),
+          assignedBy: ADMIN_USER_ID,
+        },
+        invitationSent: false,
+      }),
+      deleteUser: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantUserManagementService,
@@ -161,6 +192,7 @@ describe('TenantUserManagementService', () => {
         { provide: TenantRoleService, useValue: mockTenantRoleService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: UserLifecycleService, useValue: mockUserLifecycleService },
       ],
     }).compile();
 
@@ -174,7 +206,7 @@ describe('TenantUserManagementService', () => {
   });
 
   // ==========================================================================
-  // createTenantUser
+  // createTenantUser (delegates to UserLifecycleService)
   // ==========================================================================
 
   describe('createTenantUser', () => {
@@ -185,358 +217,48 @@ describe('TenantUserManagementService', () => {
       roleId: ROLE_ID,
     };
 
-    it('should create user with MODULE_USER global role', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null); // no duplicate
-      const savedUser = createMockUser({ email: 'newuser@tenant.com' });
-      userRepository.save.mockResolvedValue(savedUser);
-      // createRoleAssignment INSERT
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
+    it('should delegate to UserLifecycleService.createUser', async () => {
       const result = await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID);
 
+      expect(mockUserLifecycleService.createUser).toHaveBeenCalledWith(
+        TENANT_ID,
+        createInput,
+        ADMIN_USER_ID,
+        true, // sendInvitation defaults to true
+      );
       expect(result.user).toBeDefined();
       expect(result.roleAssignment).toBeDefined();
-      expect(userRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          role: Role.MODULE_USER,
-          tenantId: TENANT_ID,
-          isActive: true,
-        }),
-      );
     });
 
-    it('should normalize email to lowercase', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
+    it('should pass sendInvitation=false when specified', async () => {
+      await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID, false);
 
-      await service.createTenantUser(
+      expect(mockUserLifecycleService.createUser).toHaveBeenCalledWith(
         TENANT_ID,
-        { ...createInput, email: 'Test@TENANT.COM' },
+        createInput,
         ADMIN_USER_ID,
-      );
-
-      // findOne should use lowercase email
-      expect(userRepository.findOne).toHaveBeenCalledWith({
-        where: { email: 'test@tenant.com' },
-      });
-      // Create should use lowercase email
-      expect(userRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ email: 'test@tenant.com' }),
+        false,
       );
     });
 
-    it('should throw ConflictException for duplicate email', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(createMockUser()); // existing user found
+    it('should propagate errors from UserLifecycleService', async () => {
+      mockUserLifecycleService.createUser.mockRejectedValue(
+        new ConflictException('User already exists'),
+      );
 
       await expect(
         service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should throw NotFoundException when tenant does not exist', async () => {
-      tenantRepository.findOne.mockResolvedValue(null);
+    it('should propagate NotFoundException from UserLifecycleService', async () => {
+      mockUserLifecycleService.createUser.mockRejectedValue(
+        new NotFoundException('Tenant not found'),
+      );
 
       await expect(
         service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID),
       ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException when role does not exist in tenant', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      mockTenantRoleService.getRoleById.mockResolvedValue(null);
-
-      await expect(
-        service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should generate SHA-256 hashed invitation token when no password provided', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID, true);
-
-      // The create call should have a hashed invitation token (SHA-256 = 64 hex chars)
-      expect(userRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          invitationToken: expect.stringMatching(/^[0-9a-f]{64}$/),
-          invitationExpiresAt: expect.any(Date),
-        }),
-      );
-    });
-
-    it('should set invitation expiry to 7 days from now', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const before = Date.now();
-      await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID, true);
-      const after = Date.now();
-
-      const createCall = userRepository.create.mock.calls[0]![0] as any;
-      const expiresAt = createCall.invitationExpiresAt.getTime();
-      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-      expect(expiresAt).toBeGreaterThanOrEqual(before + sevenDaysMs - 5000);
-      expect(expiresAt).toBeLessThanOrEqual(after + sevenDaysMs + 5000);
-    });
-
-    it('should not generate invitation token when password is provided', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      await service.createTenantUser(
-        TENANT_ID,
-        { ...createInput, password: 'SecurePass123!' },
-        ADMIN_USER_ID,
-        true,
-      );
-
-      expect(userRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          invitationToken: null,
-          invitationExpiresAt: null,
-          password: 'SecurePass123!',
-        }),
-      );
-    });
-
-    it('should publish UserInvited event with plain token (not hash)', async () => {
-      process.env['APP_URL'] = 'https://app.test.com';
-
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      const savedUser = createMockUser({
-        email: 'newuser@tenant.com',
-        invitedBy: ADMIN_USER_ID,
-      });
-      userRepository.save.mockResolvedValue(savedUser);
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID, true);
-
-      expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-      const event = mockEventBus.publish.mock.calls[0][0];
-      expect(event.eventType).toBe('UserInvited');
-      expect(event.email).toBe(savedUser.email);
-      // actionUrl should contain a 64-char hex token (plain, not hashed)
-      expect(event.actionUrl).toMatch(/\/accept-invitation\/[0-9a-f]{64}$/);
-
-      delete process.env['APP_URL'];
-    });
-
-    it('should not send invitation when sendInvitation is false', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const result = await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID, false);
-
-      expect(result.invitationSent).toBe(false);
-      expect(mockEventBus.publish).not.toHaveBeenCalled();
-    });
-
-    it('should assign role in tenant schema after user creation', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      const savedUser = createMockUser({ id: 'new-user-id' });
-      userRepository.save.mockResolvedValue(savedUser);
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const result = await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID, false);
-
-      expect(result.roleAssignment).toBeDefined();
-      expect(result.roleAssignment.roleId).toBe(ROLE_ID);
-      expect(result.roleAssignment.roleName).toBe('Operator');
-      // Verify the INSERT went to the correct schema
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining(TENANT_SCHEMA),
-        expect.any(Array),
-      );
-    });
-
-    it('should handle invitation email failure gracefully (set invitationSent = false)', async () => {
-      process.env['APP_URL'] = 'https://app.test.com';
-
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-      mockEventBus.publish.mockRejectedValueOnce(new Error('SMTP error'));
-
-      const result = await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID, true);
-
-      // User should still be created, just invitationSent = false
-      expect(result.user).toBeDefined();
-      expect(result.invitationSent).toBe(false);
-
-      delete process.env['APP_URL'];
-    });
-
-    it('should pass permission overrides to role assignment', async () => {
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const overrides = {
-        grants: ['sensors:configure'],
-        revokes: ['sites:view'],
-      };
-
-      const result = await service.createTenantUser(
-        TENANT_ID,
-        { ...createInput, permissionOverrides: overrides },
-        ADMIN_USER_ID,
-        false,
-      );
-
-      expect(result.roleAssignment.permissionOverrides).toEqual(overrides);
-    });
-  });
-
-  // ==========================================================================
-  // calculateEffectivePermissions (via createTenantUser)
-  // ==========================================================================
-
-  describe('calculateEffectivePermissions', () => {
-    it('should combine base permissions with grants and revokes', async () => {
-      // Role has sites:view, sensors:view
-      // Override: grant sensors:configure, revoke sites:view
-      const role = createMockRoleWithDetails({
-        permissions: {
-          id: 'perm-1',
-          roleId: ROLE_ID,
-          panelPermissions: {},
-          resourcePermissions: ['sites:view', 'sensors:view'],
-        },
-      });
-      mockTenantRoleService.getRoleById.mockResolvedValue(role);
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const result = await service.createTenantUser(
-        TENANT_ID,
-        {
-          firstName: 'New',
-          lastName: 'User',
-          email: 'perm-test@tenant.com',
-          roleId: ROLE_ID,
-          permissionOverrides: {
-            grants: ['sensors:configure'],
-            revokes: ['sites:view'],
-          },
-        },
-        ADMIN_USER_ID,
-        false,
-      );
-
-      const effective = result.roleAssignment.effectivePermissions;
-      expect(effective).toContain('sensors:view'); // from base
-      expect(effective).toContain('sensors:configure'); // granted
-      expect(effective).not.toContain('sites:view'); // revoked
-    });
-
-    it('should return base permissions when no overrides provided', async () => {
-      const role = createMockRoleWithDetails({
-        permissions: {
-          id: 'perm-1',
-          roleId: ROLE_ID,
-          panelPermissions: {},
-          resourcePermissions: ['sites:view', 'sensors:view', 'tanks:view'],
-        },
-      });
-      mockTenantRoleService.getRoleById.mockResolvedValue(role);
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const result = await service.createTenantUser(
-        TENANT_ID,
-        {
-          firstName: 'Base',
-          lastName: 'Perm',
-          email: 'base@tenant.com',
-          roleId: ROLE_ID,
-        },
-        ADMIN_USER_ID,
-        false,
-      );
-
-      const effective = result.roleAssignment.effectivePermissions;
-      expect(effective).toEqual(expect.arrayContaining(['sites:view', 'sensors:view', 'tanks:view']));
-      expect(effective).toHaveLength(3);
-    });
-
-    it('should handle empty role permissions with grants', async () => {
-      const role = createMockRoleWithDetails({
-        permissions: {
-          id: 'perm-1',
-          roleId: ROLE_ID,
-          panelPermissions: {},
-          resourcePermissions: [],
-        },
-      });
-      mockTenantRoleService.getRoleById.mockResolvedValue(role);
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const result = await service.createTenantUser(
-        TENANT_ID,
-        {
-          firstName: 'Empty',
-          lastName: 'Base',
-          email: 'empty@tenant.com',
-          roleId: ROLE_ID,
-          permissionOverrides: {
-            grants: ['sensors:calibrate'],
-            revokes: [],
-          },
-        },
-        ADMIN_USER_ID,
-        false,
-      );
-
-      expect(result.roleAssignment.effectivePermissions).toEqual(['sensors:calibrate']);
-    });
-
-    it('should handle role with null permissions', async () => {
-      const role = createMockRoleWithDetails({ permissions: null });
-      mockTenantRoleService.getRoleById.mockResolvedValue(role);
-      tenantRepository.findOne.mockResolvedValue(createMockTenant());
-      userRepository.findOne.mockResolvedValue(null);
-      userRepository.save.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
-
-      const result = await service.createTenantUser(
-        TENANT_ID,
-        {
-          firstName: 'Null',
-          lastName: 'Perms',
-          email: 'null@tenant.com',
-          roleId: ROLE_ID,
-        },
-        ADMIN_USER_ID,
-        false,
-      );
-
-      expect(result.roleAssignment.effectivePermissions).toEqual([]);
     });
   });
 

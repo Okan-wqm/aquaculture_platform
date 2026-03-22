@@ -8,7 +8,7 @@ import { ProjectionsController } from './projections.controller';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
+    ScheduleModule,
     TypeOrmModule.forFeature([ProjectionCheckpoint, StoredEvent]),
   ],
   controllers: [ProjectionsController],

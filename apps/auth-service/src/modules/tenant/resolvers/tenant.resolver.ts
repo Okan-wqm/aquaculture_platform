@@ -363,9 +363,12 @@ export class TenantResolver {
       .map(([date, users]) => ({ date, count: users.size }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
+    // Real active session count from non-revoked, non-expired refresh tokens
+    const activeSessions = await this.tenantService.countActiveSessions(tenantId);
+
     return {
       recentLogins,
-      activeSessions: 0,
+      activeSessions,
       userActivitySummaries,
       dailyActiveUsers,
     };
@@ -373,21 +376,13 @@ export class TenantResolver {
 
   /**
    * Get module usage statistics
-   * Returns per-module usage counts derived from audit logs
+   * Returns per-module active user counts from user_module_assignments
    */
   @TenantAdminOrHigher()
   @Query(() => [ModuleUsageStatResponse])
   async moduleUsageStats(
     @CurrentUser('tenantId') tenantId: string,
   ): Promise<ModuleUsageStatResponse[]> {
-    // Get tenant modules for code list
-    const modules = await this.tenantService.getTenantModules(tenantId);
-    return modules.map(m => ({
-      moduleCode: m.module?.code ?? 'unknown',
-      userCount: 0,
-      lastAccessAt: undefined as Date | undefined,
-      actionsThisMonth: 0,
-      actionsLastMonth: 0,
-    }));
+    return this.tenantService.getModuleUsageStats(tenantId);
   }
 }

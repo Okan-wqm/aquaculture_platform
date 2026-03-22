@@ -73,6 +73,40 @@ const logger = new Logger('Cacheable');
 /** Track classes that have already emitted the missing-Redis warning */
 const warnedClasses = new Set<string>();
 
+/** Track key patterns that have already emitted the missing-tenant-namespace warning */
+const warnedTenantKeys = new Set<string>();
+
+/**
+ * Prefixes that are exempt from tenant namespace validation.
+ * These are legitimate cross-tenant or system-wide cache keys.
+ */
+const TENANT_EXEMPT_PREFIXES = ['system:', 'global:'];
+
+/**
+ * Check if a cache key includes a tenant namespace.
+ * Keys should contain 'tenant:' to indicate proper tenant scoping.
+ * Keys starting with "system:" or "global:" are exempt.
+ */
+function validateTenantKeyPattern(cacheKey: string, keyPattern: string, className: string, methodName: string): void {
+  // Skip validation for exempt prefixes
+  if (TENANT_EXEMPT_PREFIXES.some(prefix => cacheKey.startsWith(prefix))) {
+    return;
+  }
+
+  // Check if key contains tenant namespace
+  if (!cacheKey.includes('tenant:') && !cacheKey.includes('tenant_')) {
+    const warnKey = `${className}.${methodName}`;
+    if (!warnedTenantKeys.has(warnKey)) {
+      warnedTenantKeys.add(warnKey);
+      logger.warn(
+        `Cache key "${cacheKey}" in ${className}.${methodName} is missing tenant namespace. ` +
+        `Multi-tenant cache keys should include "tenant:{tenantId}:" prefix to prevent cross-tenant data leakage. ` +
+        `If this is intentionally global, prefix with "system:" or "global:".`,
+      );
+    }
+  }
+}
+
 /**
  * Interpolate cache key pattern with method arguments
  * Pattern: "prefix:{0}:{1}" where {0}, {1} are argument indices
@@ -148,6 +182,9 @@ export function Cacheable(
       const cacheKey = options.keyGenerator
         ? options.keyGenerator(...args)
         : interpolateKey(keyPattern, args);
+
+      // Runtime validation: warn if cache key doesn't include tenant namespace
+      validateTenantKeyPattern(cacheKey, keyPattern, className, propertyKey);
 
       try {
         // Try to get from cache

@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotImplementedException, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common';
 import { Repository, DataSource } from 'typeorm';
@@ -786,13 +786,15 @@ export class TenantProvisioningService {
   }
 
   private async backupTenantData(tenant: Tenant): Promise<void> {
-    this.logger.log(`Backing up data for tenant ${tenant.id}`);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    throw new NotImplementedException(
+      `Tenant data backup not yet implemented for tenant ${tenant.id}. Track: BACKLOG-001`,
+    );
   }
 
   private async removeTenantResources(tenant: Tenant): Promise<void> {
-    this.logger.log(`Removing resources for tenant ${tenant.id}`);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    throw new NotImplementedException(
+      `Tenant resource removal not yet implemented for tenant ${tenant.id}. Track: BACKLOG-002`,
+    );
   }
 
   private async cleanupTenantSchema(tenant: Tenant): Promise<void> {

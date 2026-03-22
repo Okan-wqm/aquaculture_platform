@@ -108,6 +108,20 @@ export class HealthService {
           'http://localhost:3006/graphql',
         ),
       ],
+      [
+        'hydroponics',
+        this.configService.get(
+          'HYDROPONICS_SERVICE_URL',
+          'http://localhost:4007/graphql',
+        ),
+      ],
+      [
+        'config',
+        this.configService.get(
+          'CONFIG_SERVICE_URL',
+          'http://localhost:3007/graphql',
+        ),
+      ],
     ]);
   }
 

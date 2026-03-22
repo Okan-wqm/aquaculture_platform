@@ -130,7 +130,8 @@ describe('HttpExceptionFilter', () => {
     const response = getMockResponse(host);
     const calls = response.json.mock.calls;
     if (calls.length > 0) {
-      return calls[calls.length - 1][0];
+      const lastCall = calls[calls.length - 1];
+      return lastCall ? lastCall[0] : undefined;
     }
     return undefined;
   };
@@ -293,8 +294,9 @@ describe('HttpExceptionFilter', () => {
 
     it('should use unknown field when cannot extract', () => {
       const host = createMockHttpHost();
+      // Use a message without a word-space pattern so extraction falls through
       const exception = new HttpException(
-        { message: ['invalid input'] },
+        { message: ['!@# invalid'] },
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
 

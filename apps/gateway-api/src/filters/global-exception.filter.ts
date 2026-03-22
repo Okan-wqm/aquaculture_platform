@@ -27,6 +27,8 @@ interface GqlContext {
 
 /**
  * Error response format
+ * SECURITY: tenantId is intentionally excluded from client responses
+ * to prevent information disclosure. It is logged server-side only.
  */
 interface ErrorResponse {
   statusCode: number;
@@ -35,19 +37,18 @@ interface ErrorResponse {
   timestamp: string;
   path: string;
   correlationId?: string;
-  tenantId?: string;
   details?: unknown;
 }
 
 /**
  * GraphQL error extensions
+ * SECURITY: tenantId is intentionally excluded from client responses.
  */
 interface GraphQLErrorExtensions {
   code: string;
   statusCode: number;
   timestamp: string;
   correlationId?: string;
-  tenantId?: string;
   path?: string;
   details?: unknown;
   [key: string]: unknown;
@@ -86,6 +87,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const correlationId = request.headers['x-correlation-id'];
     const tenantIdHeader = request.headers['x-tenant-id'];
 
+    // SECURITY: tenantId is resolved for server-side logging only — never sent to client
+    const tenantId = request.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined);
+
     const errorResponse: ErrorResponse = {
       statusCode,
       message: this.sanitizeMessage(message),
@@ -93,7 +97,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.url,
       correlationId: typeof correlationId === 'string' ? correlationId : undefined,
-      tenantId: request.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined),
     };
 
     // Include details only in non-production
@@ -101,7 +104,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       errorResponse.details = details;
     }
 
-    this.logError(exception, errorResponse);
+    this.logError(exception, errorResponse, tenantId);
 
     response.status(statusCode).json(errorResponse);
   }
@@ -120,12 +123,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const correlationId = request?.headers?.['x-correlation-id'];
     const tenantIdHeader = request?.headers?.['x-tenant-id'];
 
+    // SECURITY: tenantId is resolved for server-side logging only — never sent to client
+    const tenantId = request?.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined);
+
     const extensions: GraphQLErrorExtensions = {
       code: this.getGraphQLErrorCode(statusCode),
       statusCode,
       timestamp: new Date().toISOString(),
       correlationId: typeof correlationId === 'string' ? correlationId : undefined,
-      tenantId: request?.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined),
     };
 
     // Include path in non-production
@@ -145,10 +150,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       timestamp: extensions.timestamp,
       path: request?.url ?? 'graphql',
       correlationId: extensions.correlationId,
-      tenantId: extensions.tenantId,
     };
 
-    this.logError(exception, errorResponse);
+    this.logError(exception, errorResponse, tenantId);
 
     return new GraphQLError(this.sanitizeMessage(message), {
       extensions,
@@ -261,12 +265,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return message;
   }
 
-  private logError(exception: unknown, errorResponse: ErrorResponse): void {
+  private logError(exception: unknown, errorResponse: ErrorResponse, tenantId?: string): void {
     const logContext = {
       statusCode: errorResponse.statusCode,
       path: errorResponse.path,
       correlationId: errorResponse.correlationId,
-      tenantId: errorResponse.tenantId,
+      tenantId, // Logged server-side only, never in client response
       timestamp: errorResponse.timestamp,
     };
 

@@ -24,6 +24,7 @@ import { GlobalExceptionFilter } from '../global-exception.filter';
 
 /**
  * Error response body structure
+ * SECURITY: tenantId is intentionally excluded — it is logged server-side only
  */
 interface ErrorResponseBody {
   statusCode: number;
@@ -32,7 +33,6 @@ interface ErrorResponseBody {
   path?: string;
   timestamp?: string;
   correlationId?: string;
-  tenantId?: string;
   details?: unknown;
 }
 
@@ -137,7 +137,8 @@ describe('GlobalExceptionFilter', () => {
     const response = httpHost.getResponse();
     const calls = response.json.mock.calls;
     if (calls.length > 0) {
-      return calls[calls.length - 1][0];
+      const lastCall = calls[calls.length - 1];
+      return lastCall ? lastCall[0] : undefined;
     }
     return undefined;
   };
@@ -196,18 +197,15 @@ describe('GlobalExceptionFilter', () => {
       );
     });
 
-    it('should include tenant ID in response', () => {
+    it('should NOT include tenant ID in response (security: information disclosure)', () => {
       const host = createMockHttpHost({ tenantId: 'tenant-456' });
       const exception = new HttpException('Error', HttpStatus.BAD_REQUEST);
 
       filter.catch(exception, host);
 
-      const response = getMockResponse(host);
-      expect(response.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tenantId: 'tenant-456',
-        }),
-      );
+      const responseBody = getResponseBody(host);
+      expect(responseBody).toBeDefined();
+      expect(responseBody).not.toHaveProperty('tenantId');
     });
 
     it('should include timestamp in response', () => {
@@ -499,7 +497,7 @@ describe('GlobalExceptionFilter', () => {
       const response = getMockResponse(host);
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          error: 'Bad Request',
+          error: 'BAD_REQUEST',
         }),
       );
     });

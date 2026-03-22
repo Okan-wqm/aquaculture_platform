@@ -495,7 +495,12 @@
       "Bash(cd:*)",
       "Bash(for svc:*)",
       "Bash(do echo:*)",
-      "Read(//var/aqua-saas/apps/$svc/src/**)"
+      "Read(//var/aqua-saas/apps/$svc/src/**)",
+      "WebFetch(domain:www.augmentcode.com)",
+      "WebFetch(domain:www.anthropic.com)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:claudelog.com)",
+      "Bash(for wt:*)"
     ],
     "deny": [],
     "ask": []

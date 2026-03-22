@@ -261,7 +261,12 @@ Her task için bu 8 adımı SIRAyla uygula. ATLAMA.
 ## Evrensel Anti-Pattern'ler (Hiçbir koşulda yapma)
 
 ASLA: // TODO: fix later → Şimdi düzelt veya dokunma
-ASLA: any as SomeType → Proper type cast yaz
+ASLA: any — HİÇBİR YERDE. Production kodda da, test kodda da, mock'larda da.
+  → Production: proper type, unknown, veya generic kullan
+  → Test mock: jest.Mocked<Type>, Partial<Type>, veya explicit mock interface
+  → Error catch: catch (error: unknown), ASLA catch (e: any)
+  → Type cast: as unknown as TargetType, ASLA as any
+  → Eğer any kaçınılmazsa (3rd party lib): // JUSTIFIED: <neden> yorumu ZORUNLU
 ASLA: catch (e) { } → En azından logger.error(e) + rethrow/handle
 ASLA: console.log → this.logger kullan (NestJS Logger)
 ASLA: Object.assign(entity, untrustedInput) → Explicit field mapping

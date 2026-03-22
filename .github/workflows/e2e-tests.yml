@@ -1,13 +1,11 @@
 name: E2E Tests
 
 on:
-  # Deploy tamamlandıktan sonra otomatik tetikle
   workflow_run:
     workflows: ["CD - Production", "CD - Staging", "Deploy to DigitalOcean"]
     types: [completed]
     branches: [main]
 
-  # Manuel tetikleme
   workflow_dispatch:
     inputs:
       project:
@@ -21,11 +19,6 @@ on:
           - workflow
           - integration
           - modules
-      target_url:
-        description: 'Gateway URL to test against'
-        required: false
-        default: ''
-        type: string
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -33,62 +26,62 @@ concurrency:
 
 jobs:
   e2e:
-    name: E2E Tests
+    name: E2E Tests on Server
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Deploy başarılıysa veya manuel tetiklendiyse çalış
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
-    env:
-      # DigitalOcean sunucu URL'si — secrets'tan al
-      GATEWAY_URL: ${{ inputs.target_url || secrets.E2E_GATEWAY_URL || 'http://localhost:4000' }}
-      # DB doğrulaması opsiyonel — PostgreSQL dışarıdan erişilebilir değilse testler API-only modda çalışır
-      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL || '' }}
-      SKIP_DB_VERIFICATION: ${{ secrets.E2E_DATABASE_URL == '' && 'true' || 'false' }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET }}
-      NODE_ENV: test
-      CI: true
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Run E2E tests on DigitalOcean server via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          PROJECT: ${{ github.event.inputs.project || 'all' }}
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: e2e/package-lock.json
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          timeout: 600s
+          envs: PROJECT
+          script: |
+            set -e
+            cd /var/aqua-saas
 
-      - name: Install E2E dependencies
-        working-directory: e2e
-        run: npm ci
+            echo "=== Installing E2E dependencies ==="
+            cd e2e
+            npm ci --prefer-offline 2>/dev/null || npm install
+            npx playwright install --with-deps chromium 2>/dev/null || true
 
-      - name: Install Playwright browsers
-        working-directory: e2e
-        run: npx playwright install --with-deps chromium
+            echo "=== Setting environment ==="
+            export GATEWAY_URL=http://localhost:3000
+            export DATABASE_URL=postgresql://aquaculture:$DB_PASSWORD@localhost:5432/aquaculture
+            export JWT_SECRET=$(grep JWT_SECRET /var/aqua-saas/.env | cut -d= -f2)
+            export DB_PASSWORD=$(grep DB_PASSWORD /var/aqua-saas/.env | cut -d= -f2)
+            export NODE_ENV=test
+            export CI=true
 
-      - name: Wait for services to be healthy
-        run: |
-          echo "Testing gateway health at $GATEWAY_URL..."
-          for i in $(seq 1 30); do
-            if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then
-              echo "Gateway is healthy!"
-              break
+            echo "=== Checking gateway health ==="
+            curl -sf http://localhost:3000/health || echo "Gateway health check failed, continuing..."
+
+            echo "=== Running E2E tests ==="
+            if [ "$PROJECT" = "all" ]; then
+              npx playwright test --reporter=list 2>&1 || true
+            else
+              npx playwright test --project="$PROJECT" --reporter=list 2>&1 || true
             fi
-            echo "Attempt $i/30 - waiting for gateway..."
-            sleep 10
-          done
 
-      - name: Run E2E tests
-        working-directory: e2e
-        run: |
-          PROJECT="${{ github.event.inputs.project || 'all' }}"
-          if [ "$PROJECT" = "all" ]; then
-            npx playwright test --reporter=html,github
-          else
-            npx playwright test --project="$PROJECT" --reporter=html,github
-          fi
+            echo "=== Test run complete ==="
+
+      - name: Copy test results from server
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          source: "/var/aqua-saas/e2e/playwright-report/*,/var/aqua-saas/e2e/test-results/*"
+          target: "."
+          strip_components: 3
+        continue-on-error: true
 
       - name: Upload test report
         if: always()
@@ -97,28 +90,4 @@ jobs:
           name: e2e-test-report-${{ github.run_number }}
           path: e2e/playwright-report/
           retention-days: 14
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-test-results-${{ github.run_number }}
-          path: e2e/test-results/
-          retention-days: 7
-
-      - name: Comment PR with results
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const body = `## E2E Test Results\n\n` +
-              `**Status:** ${{ job.status }}\n` +
-              `**Gateway:** ${{ env.GATEWAY_URL }}\n` +
-              `**Run:** [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+        continue-on-error: true

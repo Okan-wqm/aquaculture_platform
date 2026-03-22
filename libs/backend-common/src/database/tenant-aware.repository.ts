@@ -1,4 +1,4 @@
-import { Repository, EntityTarget, DataSource, ObjectLiteral, DeepPartial, FindManyOptions, FindOneOptions } from 'typeorm';
+import { Repository, EntityTarget, DataSource, ObjectLiteral, DeepPartial, FindManyOptions, FindOneOptions, FindOptionsWhere, SelectQueryBuilder } from 'typeorm';
 import { Injectable, Scope, Inject, Logger } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import { SchemaManagerService } from './schema-manager.service';
@@ -9,6 +9,17 @@ import { TenantRequest } from '../types/tenant-request.interface';
  */
 export interface TenantEntity extends ObjectLiteral {
   tenantId: string;
+}
+
+/**
+ * Scoped repository interface that automatically applies tenant filtering.
+ * Returned by getScopedRepository().
+ */
+export interface ScopedRepository<T extends TenantEntity> {
+  find(options?: FindManyOptions<T>): Promise<T[]>;
+  findOne(options: FindOneOptions<T>): Promise<T | null>;
+  count(options?: FindManyOptions<T>): Promise<number>;
+  createQueryBuilder(alias?: string): SelectQueryBuilder<T>;
 }
 
 /**
@@ -246,10 +257,86 @@ export class TenantAwareRepository<T extends TenantEntity> {
   }
 
   /**
-   * Get the underlying repository for advanced queries
-   * NOTE: Use with caution - ensure tenant filtering is applied manually
+   * @deprecated Use getScopedRepository() for tenant-filtered access or
+   * getUnfilteredRepository() for legitimate cross-tenant operations.
+   *
+   * This method is deprecated because it returns a raw repository without
+   * automatic tenant filtering, which creates a risk of cross-tenant data leakage.
+   *
+   * @throws Error always - migrate to getScopedRepository() or getUnfilteredRepository()
    */
-  getRepository(): Repository<T> {
+  getRepository(): never {
+    throw new Error(
+      'getRepository() is deprecated and unsafe. ' +
+      'Use getScopedRepository() for automatic tenant filtering, or ' +
+      'getUnfilteredRepository() for legitimate cross-tenant operations (e.g., admin, migrations).',
+    );
+  }
+
+  /**
+   * Get a scoped repository proxy that automatically applies tenant filtering
+   * on find, findOne, count, and createQueryBuilder operations.
+   *
+   * SECURITY: All read operations automatically include tenantId filter.
+   * This is the recommended way to access the repository for tenant-scoped work.
+   */
+  getScopedRepository(): ScopedRepository<T> {
+    const tenantId = this.requireTenantId();
+    const repository = this.repository;
+
+    return {
+      find(options?: FindManyOptions<T>): Promise<T[]> {
+        const mergedOptions: FindManyOptions<T> = {
+          ...options,
+          where: {
+            ...(options?.where as Record<string, unknown> || {}),
+            tenantId,
+          } as FindOptionsWhere<T>,
+        };
+        return repository.find(mergedOptions);
+      },
+
+      findOne(options: FindOneOptions<T>): Promise<T | null> {
+        const mergedOptions: FindOneOptions<T> = {
+          ...options,
+          where: {
+            ...(options?.where as Record<string, unknown> || {}),
+            tenantId,
+          } as FindOptionsWhere<T>,
+        };
+        return repository.findOne(mergedOptions);
+      },
+
+      count(options?: FindManyOptions<T>): Promise<number> {
+        const mergedOptions: FindManyOptions<T> = {
+          ...options,
+          where: {
+            ...(options?.where as Record<string, unknown> || {}),
+            tenantId,
+          } as FindOptionsWhere<T>,
+        };
+        return repository.count(mergedOptions);
+      },
+
+      createQueryBuilder(alias?: string): SelectQueryBuilder<T> {
+        const qb = repository.createQueryBuilder(alias);
+        qb.andWhere('"tenantId" = :tenantId', { tenantId });
+        return qb;
+      },
+    };
+  }
+
+  /**
+   * Get the underlying repository WITHOUT tenant filtering.
+   *
+   * WARNING: Only use for legitimate cross-tenant operations such as:
+   * - Admin/superuser queries
+   * - System migrations
+   * - Background jobs that span tenants
+   *
+   * Callers MUST manually apply tenant filtering where needed.
+   */
+  getUnfilteredRepository(): Repository<T> {
     return this.repository;
   }
 

@@ -110,7 +110,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       return { tenantId: queryTenant, source: 'query' };
     }
 
-    // 4. Try from subdomain (e.g., tenant1.api.example.com)
+    // 4. Try from subdomain (e.g., {uuid}.api.example.com)
     const host = req.hostname;
 
     // Skip IP addresses (IPv4 and localhost)
@@ -121,14 +121,61 @@ export class TenantContextMiddleware implements NestMiddleware {
     const parts = host.split('.');
     if (parts.length >= 3) {
       const subdomain = parts[0];
-      // Exclude common prefixes and validate UUID format for subdomain-based tenant IDs
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (subdomain && !['www', 'api', 'app', 'admin', 'localhost'].includes(subdomain) && uuidRegex.test(subdomain)) {
+      const baseDomain = parts.slice(1).join('.');
+
+      // Exclude common prefixes
+      if (subdomain && !['www', 'api', 'app', 'admin', 'localhost'].includes(subdomain)) {
+        // SECURITY: Subdomains must be valid UUIDs to prevent spoofing
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(subdomain)) {
+          this.logger.debug(
+            `Rejected non-UUID subdomain: "${subdomain}" from host "${host}"`,
+          );
+          return null;
+        }
+
+        // SECURITY: In production, only extract tenants from allowed base domains
+        if (!this.isAllowedBaseDomain(baseDomain)) {
+          this.logger.warn(
+            `Rejected subdomain tenant extraction from unauthorized domain: "${host}". ` +
+            `Base domain "${baseDomain}" is not in ALLOWED_BASE_DOMAINS.`,
+          );
+          return null;
+        }
+
         return { tenantId: subdomain, source: 'subdomain' };
       }
     }
 
     return null;
+  }
+
+  /**
+   * Check if a base domain is allowed for subdomain-based tenant extraction.
+   *
+   * - In production: requires ALLOWED_BASE_DOMAINS env var to be set
+   *   and the base domain to be in the list. If env var is not set, allows all.
+   * - In non-production: always allows (for development flexibility)
+   */
+  private isAllowedBaseDomain(baseDomain: string): boolean {
+    const isProduction = process.env['NODE_ENV'] === 'production';
+
+    if (!isProduction) {
+      return true;
+    }
+
+    const allowedDomainsEnv = process.env['ALLOWED_BASE_DOMAINS'];
+    if (!allowedDomainsEnv) {
+      // If not configured in production, allow all (backward compatible)
+      return true;
+    }
+
+    const allowedDomains = allowedDomainsEnv
+      .split(',')
+      .map(d => d.trim().toLowerCase())
+      .filter(d => d.length > 0);
+
+    return allowedDomains.includes(baseDomain.toLowerCase());
   }
 
   /**

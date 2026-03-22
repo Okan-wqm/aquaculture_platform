@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Users,
   Package,
@@ -15,7 +16,7 @@ import {
 import { graphqlRequest } from '../services/tenant-api.service';
 import { MY_MODULES_QUERY, TENANT_USERS_QUERY, MY_SUBSCRIPTION_QUERY } from '../graphql';
 import { useTenantStats } from '../hooks/useTenantData';
-import { logError } from '../utils/error-handling';
+import { formatRelativeTime, formatDate } from '../utils/date-utils';
 
 /**
  * Stat card data type
@@ -134,24 +135,6 @@ const colorClasses = {
 };
 
 /**
- * Format date to relative time
- */
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 5) return 'Just now';
-  if (diffMins < 60) return `${diffMins} minutes ago`;
-  if (diffHours < 24) return `${diffHours} hours ago`;
-  if (diffDays < 7) return `${diffDays} days ago`;
-  return date.toLocaleDateString('tr-TR');
-}
-
-/**
  * Status badge component
  */
 const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
@@ -189,42 +172,32 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
 
 /**
  * TenantDashboard Page
+ *
+ * All data fetching uses TanStack Query for caching, deduplication, and
+ * automatic background refetching. No manual useState/useEffect/fetch.
  */
 const TenantDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [modules, setModules] = useState<ModuleStatus[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [activities, setActivities] = useState<RecentActivity[]>([]);
-  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const queryClient = useQueryClient();
 
   // Use TanStack Query for stats (PERF-001)
   const { data: tenantStats } = useTenantStats();
 
-  const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Fetch modules, users, and subscription in parallel via graphqlRequest (HIGH-001)
-      const [modulesData, usersData, subscriptionData] = await Promise.all([
-        graphqlRequest<{ myModules: Array<{
-          id: string;
-          moduleId: string;
-          name: string;
-          description?: string;
-          icon?: string;
-          color?: string;
-          isEnabled: boolean;
-          defaultRoute?: string;
-        }> }>(MY_MODULES_QUERY),
-        graphqlRequest<{ tenantUsers: User[] }>(TENANT_USERS_QUERY),
-        graphqlRequest<{ subscription: SubscriptionInfo | null }>(MY_SUBSCRIPTION_QUERY).catch(() => ({ subscription: null })),
-      ]);
-
-      // Process modules
-      const modulesList = (modulesData.myModules || []).map((m) => {
+  // Modules query
+  const modulesQuery = useQuery({
+    queryKey: ['dashboard', 'modules'],
+    queryFn: async () => {
+      const data = await graphqlRequest<{ myModules: Array<{
+        id: string;
+        moduleId: string;
+        name: string;
+        description?: string;
+        icon?: string;
+        color?: string;
+        isEnabled: boolean;
+        defaultRoute?: string;
+      }> }>(MY_MODULES_QUERY);
+      return (data.myModules || []).map((m): ModuleStatus => {
         const code = m.name?.toLowerCase().includes('farm') ? 'farm'
           : m.name?.toLowerCase().includes('hr') || m.name?.toLowerCase().includes('insan') ? 'hr'
           : m.name?.toLowerCase().includes('sensor') || m.name?.toLowerCase().includes('sens') ? 'sensor'
@@ -232,55 +205,66 @@ const TenantDashboard: React.FC = () => {
         return {
           id: m.id,
           name: m.name,
-          code: code,
+          code,
           status: m.isEnabled ? 'active' : 'inactive',
           users: 0,
           lastActivity: 'Active',
           icon: moduleIconMap[code] || m.icon || '📦',
-        } as ModuleStatus;
+        };
       });
-      setModules(modulesList);
+    },
+    staleTime: 2 * 60 * 1000,
+  });
 
-      // Process users
-      const usersList = usersData.tenantUsers || [];
-      setUsers(usersList);
+  // Users query
+  const usersQuery = useQuery({
+    queryKey: ['dashboard', 'users'],
+    queryFn: async () => {
+      const data = await graphqlRequest<{ tenantUsers: User[] }>(TENANT_USERS_QUERY);
+      return data.tenantUsers || [];
+    },
+    staleTime: 2 * 60 * 1000,
+  });
 
-      // Generate recent activity from users
-      const recentActivities: RecentActivity[] = usersList
-        .filter((u: User) => u.lastLoginAt)
-        .sort((a: User, b: User) =>
-          new Date(b.lastLoginAt || 0).getTime() - new Date(a.lastLoginAt || 0).getTime()
-        )
-        .slice(0, 5)
-        .map((u: User, idx: number) => ({
-          id: `activity-${idx}`,
-          type: 'login' as const,
-          description: `${u.firstName || ''} ${u.lastName || ''} (${u.email}) logged in`,
-          timestamp: u.lastLoginAt ? formatRelativeTime(u.lastLoginAt) : 'Unknown',
-          user: u.email,
-        }));
-      setActivities(recentActivities);
+  // Subscription query
+  const subscriptionQuery = useQuery({
+    queryKey: ['dashboard', 'subscription'],
+    queryFn: async () => {
+      const data = await graphqlRequest<{ subscription: SubscriptionInfo | null }>(MY_SUBSCRIPTION_QUERY);
+      return data.subscription;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
-      // Set subscription data
-      setSubscription(subscriptionData.subscription);
+  const modules = modulesQuery.data ?? [];
+  const users = usersQuery.data ?? [];
+  const subscription = subscriptionQuery.data ?? null;
+  const loading = modulesQuery.isLoading || usersQuery.isLoading;
+  const error = modulesQuery.error ?? usersQuery.error;
 
-    } catch (err) {
-      if (signal?.aborted) return;
-      logError('TenantDashboard.loadDashboardData', err);
-      setError((err as Error).message);
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, []);
+  // Generate recent activity from users
+  const activities = useMemo((): RecentActivity[] =>
+    users
+      .filter((u: User) => u.lastLoginAt)
+      .sort((a: User, b: User) =>
+        new Date(b.lastLoginAt || 0).getTime() - new Date(a.lastLoginAt || 0).getTime()
+      )
+      .slice(0, 5)
+      .map((u: User, idx: number) => ({
+        id: `activity-${idx}`,
+        type: 'login' as const,
+        description: `${u.firstName || ''} ${u.lastName || ''} (${u.email}) logged in`,
+        timestamp: u.lastLoginAt ? formatRelativeTime(u.lastLoginAt) : 'Unknown',
+        user: u.email,
+      })),
+    [users],
+  );
 
-  // PERF-004: Cancel in-flight fetches on unmount to prevent state updates after unmount
-  useEffect(() => {
-    const controller = new AbortController();
-    loadDashboardData(controller.signal);
-    return () => controller.abort();
-  }, [loadDashboardData]);
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  };
 
-  // Calculate stats — prefer TanStack Query stats if available (PERF-001)
+  // Calculate stats -- prefer TanStack Query stats if available (PERF-001)
   const activeUsers = tenantStats?.activeUsers ?? users.filter(u => u.isActive).length;
   const totalUsers = tenantStats?.totalUsers ?? users.length;
   const activeModules = tenantStats?.activeModules ?? modules.filter(m => m.status === 'active').length;
@@ -343,7 +327,7 @@ const TenantDashboard: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => loadDashboardData()}
+            onClick={handleRefresh}
             className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
             title="Refresh"
           >
@@ -364,10 +348,10 @@ const TenantDashboard: React.FC = () => {
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
             <p className="text-sm font-medium text-red-800">Failed to load data</p>
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-red-600">{(error as Error).message}</p>
           </div>
           <button
-            onClick={() => loadDashboardData()}
+            onClick={handleRefresh}
             className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
           >
             Retry
@@ -412,14 +396,14 @@ const TenantDashboard: React.FC = () => {
                   <span className="text-sm font-normal text-gray-500">/mo</span>
                 </p>
                 <p className="text-xs text-gray-500">
-                  Next billing: {new Date(subscription.currentPeriodEnd).toLocaleDateString('tr-TR')}
+                  Next billing: {formatDate(subscription.currentPeriodEnd)}
                 </p>
               </div>
               {subscription.status === 'trial' && subscription.trialEndDate && (
                 <div className="px-4 py-2 bg-blue-100 rounded-lg">
                   <p className="text-xs font-medium text-blue-700">Trial ends</p>
                   <p className="text-sm font-semibold text-blue-800">
-                    {new Date(subscription.trialEndDate).toLocaleDateString('tr-TR')}
+                    {formatDate(subscription.trialEndDate)}
                   </p>
                 </div>
               )}

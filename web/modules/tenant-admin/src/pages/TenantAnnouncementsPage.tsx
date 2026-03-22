@@ -180,11 +180,11 @@ export const TenantAnnouncementsPage: React.FC = () => {
     if (hours < 1) return `${Math.round(diff / (1000 * 60))} minutes ago`;
     if (hours < 24) return `${Math.round(hours)} hours ago`;
     if (hours < 48) return 'Yesterday';
-    return date.toLocaleDateString('en-US', {
+    return new Intl.DateTimeFormat(undefined, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-    });
+    }).format(date);
   };
 
   const handleViewAnnouncement = async (announcement: ExtendedAnnouncement) => {
@@ -514,11 +514,11 @@ export const TenantAnnouncementsPage: React.FC = () => {
                   <div className="flex items-center gap-2 text-sm text-yellow-700">
                     <Clock size={14} />
                     <span>
-                      Expires: {new Date(selectedAnnouncement.expiresAt).toLocaleDateString('en-US', {
+                      Expires: {new Intl.DateTimeFormat(undefined, {
                         month: 'long',
                         day: 'numeric',
                         year: 'numeric',
-                      })}
+                      }).format(new Date(selectedAnnouncement.expiresAt))}
                     </span>
                   </div>
                 </div>
@@ -533,13 +533,13 @@ export const TenantAnnouncementsPage: React.FC = () => {
                     <CheckCircle size={18} />
                     <span className="text-sm font-medium">
                       You acknowledged this on{' '}
-                      {new Date(selectedAnnouncement.acknowledgedAt!).toLocaleDateString('en-US', {
+                      {new Intl.DateTimeFormat(undefined, {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit',
-                      })}
+                      }).format(new Date(selectedAnnouncement.acknowledgedAt!))}
                     </span>
                   </div>
                 ) : (

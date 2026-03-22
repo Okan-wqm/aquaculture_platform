@@ -19,34 +19,9 @@ import { useAuthContext } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
 import { graphqlRequest } from '../services/tenant-api.service';
-import {
-  TENANT_USERS_QUERY,
-  UPDATE_USER_MUTATION,
-  DELETE_USER_MUTATION,
-  CREATE_TENANT_USER_MUTATION,
-  DEACTIVATE_TENANT_USER_MUTATION,
-} from '../graphql';
 import { logError } from '../utils/error-handling';
+import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
-
-/**
- * Format relative time
- */
-function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return 'Never';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 5) return 'Just now';
-  if (diffMins < 60) return `${diffMins} minutes ago`;
-  if (diffHours < 24) return `${diffHours} hours ago`;
-  if (diffDays < 30) return `${diffDays} days ago`;
-  return date.toLocaleDateString('tr-TR');
-}
 
 /**
  * API User type
@@ -155,6 +130,64 @@ function transformUser(apiUser: ApiUser): User {
   };
 }
 
+const TENANT_USERS_QUERY = `
+  query TenantUsers($limit: Int, $offset: Int, $status: String, $role: String) {
+    tenantUsers(limit: $limit, offset: $offset, status: $status, role: $role) {
+      id
+      email
+      firstName
+      lastName
+      role
+      isActive
+      isEmailVerified
+      lastLoginAt
+      createdAt
+    }
+  }
+`;
+
+const UPDATE_USER_MUTATION = `
+  mutation UpdateTenantUser($userId: ID!, $input: UpdateTenantUserInput!) {
+    updateTenantUser(userId: $userId, input: $input) {
+      id
+      email
+      firstName
+      lastName
+      role
+      isActive
+    }
+  }
+`;
+
+const DELETE_USER_MUTATION = `
+  mutation DeleteTenantUser($userId: ID!) {
+    deleteTenantUser(userId: $userId)
+  }
+`;
+
+const CREATE_TENANT_USER_MUTATION = `
+  mutation CreateTenantUser($input: CreateTenantUserInput!) {
+    createTenantUser(input: $input) {
+      userId
+      email
+      firstName
+      lastName
+      roleAssignment { id roleId roleName }
+      invitationSent
+      createdAt
+    }
+  }
+`;
+
+const DEACTIVATE_TENANT_USER_MUTATION = `
+  mutation DeactivateTenantUser($userId: ID!) {
+    deactivateTenantUser(userId: $userId) {
+      id
+      isActive
+    }
+  }
+`;
+
 /**
  * TenantUsers Page
  *
@@ -176,6 +209,10 @@ const TenantUsers: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Server-side pagination
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
 
   // Add User Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -211,7 +248,17 @@ const TenantUsers: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await graphqlRequest<{ tenantUsers: ApiUser[] }>(TENANT_USERS_QUERY);
+      const variables: Record<string, unknown> = {
+        limit: pageSize,
+        offset: page * pageSize,
+      };
+      if (statusFilter !== 'all') variables.status = statusFilter;
+      if (roleFilter !== 'all') variables.role = roleFilter;
+
+      const data = await graphqlRequest<{ tenantUsers: ApiUser[] }>(
+        TENANT_USERS_QUERY,
+        variables,
+      );
       setUsers((data.tenantUsers || []).map(transformUser));
     } catch (err) {
       logError('TenantUsers.loadUsers', err);
@@ -219,7 +266,7 @@ const TenantUsers: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, pageSize, statusFilter, roleFilter]);
 
   useEffect(() => {
     loadUsers();
@@ -399,7 +446,7 @@ const TenantUsers: React.FC = () => {
           </div>
           <select
             value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
+            onChange={(e) => { setRoleFilter(e.target.value); setPage(0); }}
             className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
           >
             <option value="all">All Roles</option>
@@ -409,7 +456,7 @@ const TenantUsers: React.FC = () => {
           </select>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
             className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
           >
             <option value="all">All Status</option>
@@ -553,12 +600,22 @@ const TenantUsers: React.FC = () => {
 
         {/* Pagination */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-          <p className="text-sm text-gray-500">Showing {filteredUsers.length} of {users.length} users</p>
+          <p className="text-sm text-gray-500">
+            Showing {filteredUsers.length} users (page {page + 1})
+          </p>
           <div className="flex items-center gap-2">
-            <button className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50" disabled>
+            <button
+              className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+            >
               Previous
             </button>
-            <button className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50" disabled>
+            <button
+              className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              disabled={users.length < pageSize}
+              onClick={() => setPage((p) => p + 1)}
+            >
               Next
             </button>
           </div>

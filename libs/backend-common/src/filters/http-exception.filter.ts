@@ -95,29 +95,38 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
+    const message = extractMessage(exceptionResponse, exception.message);
+    const correlationId = request.headers['x-correlation-id'] || undefined;
+    const tenantId = request.headers['x-tenant-id'] || undefined;
+
+    // SECURITY: tenantId is logged server-side but NEVER included in client response
+    this.logger.warn(
+      `HTTP Exception: ${status} ${request.method} ${request.url}`,
+      {
+        statusCode: status,
+        path: request.url,
+        method: request.method,
+        message,
+        correlationId,
+        tenantId,
+        stack: exception.stack,
+      },
+    );
+
     const errorResponse = {
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
-      message: extractMessage(exceptionResponse, exception.message),
+      message,
       error: isExceptionResponseObject(exceptionResponse)
         ? exceptionResponse.error
         : undefined,
       details: isExceptionResponseObject(exceptionResponse)
         ? exceptionResponse.details
         : undefined,
-      correlationId: request.headers['x-correlation-id'] || undefined,
-      tenantId: request.headers['x-tenant-id'] || undefined,
+      correlationId,
     };
-
-    this.logger.warn(
-      `HTTP Exception: ${status} ${request.method} ${request.url}`,
-      {
-        ...errorResponse,
-        stack: exception.stack,
-      },
-    );
 
     response.status(status).json(errorResponse);
   }
@@ -153,23 +162,31 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.message
         : 'An unexpected error occurred';
 
+    const correlationId = request?.headers?.['x-correlation-id'] || undefined;
+    const tenantId = request?.headers?.['x-tenant-id'] || undefined;
+
+    // SECURITY: tenantId is logged server-side but NEVER included in client response
+    this.logger.error(
+      `Unhandled Exception: ${status} ${request?.method} ${request?.url}`,
+      exception instanceof Error ? exception.stack : exception,
+      {
+        statusCode: status,
+        path: request?.url,
+        method: request?.method,
+        message,
+        correlationId,
+        tenantId,
+      },
+    );
+
     const errorResponse = {
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request?.url,
       method: request?.method,
       message,
-      correlationId: request?.headers?.['x-correlation-id'] || undefined,
-      tenantId: request?.headers?.['x-tenant-id'] || undefined,
+      correlationId,
     };
-
-    this.logger.error(
-      `Unhandled Exception: ${status} ${request?.method} ${request?.url}`,
-      exception instanceof Error ? exception.stack : exception,
-      {
-        ...errorResponse,
-      },
-    );
 
     response?.status(status).json(errorResponse);
   }
@@ -192,10 +209,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = exception.message;
     }
 
+    const correlationId = context?.req?.headers?.['x-correlation-id'];
+    const tenantId = context?.req?.headers?.['x-tenant-id'];
+
+    // SECURITY: tenantId is logged server-side but NEVER included in client response
     this.logger.error(`GraphQL Unhandled Exception: ${code}`, {
       message,
-      correlationId: context?.req?.headers?.['x-correlation-id'],
-      tenantId: context?.req?.headers?.['x-tenant-id'],
+      correlationId,
+      tenantId,
       stack: exception instanceof Error ? exception.stack : undefined,
     });
 
@@ -204,8 +225,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         code,
         statusCode: status,
         timestamp: new Date().toISOString(),
-        correlationId: context?.req?.headers?.['x-correlation-id'],
-        tenantId: context?.req?.headers?.['x-tenant-id'],
+        correlationId,
       },
     });
   }
@@ -253,10 +273,14 @@ export class GraphQLExceptionFilter implements GqlExceptionFilter {
       message = exception.message;
     }
 
+    const correlationId = context?.req?.headers?.['x-correlation-id'];
+    const tenantId = context?.req?.headers?.['x-tenant-id'];
+
+    // SECURITY: tenantId is logged server-side but NEVER included in client response
     this.logger.error(`GraphQL Exception: ${code}`, {
       message,
-      correlationId: context?.req?.headers?.['x-correlation-id'],
-      tenantId: context?.req?.headers?.['x-tenant-id'],
+      correlationId,
+      tenantId,
       stack: exception instanceof Error ? exception.stack : undefined,
     });
 
@@ -272,8 +296,7 @@ export class GraphQLExceptionFilter implements GqlExceptionFilter {
         code,
         statusCode: status,
         timestamp: new Date().toISOString(),
-        correlationId: context?.req?.headers?.['x-correlation-id'],
-        tenantId: context?.req?.headers?.['x-tenant-id'],
+        correlationId,
         details,
       },
     });

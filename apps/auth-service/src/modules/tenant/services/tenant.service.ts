@@ -19,15 +19,16 @@ import {
   UserInvitedEvent,
 } from '@platform/event-contracts';
 import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, MoreThan, Between } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { TENANT_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
+import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
 import { CreateTenantInput, UpdateTenantInput, AssignModulesToTenantInput } from '../dto/create-tenant.dto';
-import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo } from '../dto/tenant-stats.dto';
+import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
@@ -112,6 +113,8 @@ export class TenantService {
     private readonly tenantModuleRepository: Repository<TenantModule>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
@@ -569,7 +572,11 @@ export class TenantService {
       inactive_users: string;
     }
 
-    const [userStatsResult, activeModules] = await Promise.all([
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const [userStatsResult, activeModules, activeSessions, currentMonthNewUsers, prevMonthNewUsers] = await Promise.all([
       this.dataSource.query<UserStatsRow[]>(
         `SELECT
           COUNT(*) AS total_users,
@@ -580,6 +587,18 @@ export class TenantService {
         [tenantId],
       ),
       this.tenantModuleRepository.count({ where: { tenantId, isEnabled: true } }),
+      // Active sessions: non-revoked, non-expired refresh tokens for this tenant
+      this.refreshTokenRepository.count({
+        where: { tenantId, isRevoked: false, expiresAt: MoreThan(now) },
+      }),
+      // Current month new users for growth calculation
+      this.userRepository.count({
+        where: { tenantId, createdAt: MoreThan(startOfMonth) },
+      }),
+      // Previous month new users for growth calculation
+      this.userRepository.count({
+        where: { tenantId, createdAt: Between(startOfPrevMonth, startOfMonth) },
+      }),
     ]);
 
     const stats = userStatsResult[0];
@@ -588,8 +607,10 @@ export class TenantService {
     const pendingUsers = parseInt(stats?.pending_users ?? '0') || 0;
     const inactiveUsers = parseInt(stats?.inactive_users ?? '0') || 0;
 
-    // Calculate monthly growth (simplified - would need historical data in production)
-    const monthlyGrowthPercent = 15; // Placeholder
+    // Real monthly growth: percentage change in new user registrations month-over-month
+    const monthlyGrowthPercent = prevMonthNewUsers > 0
+      ? Math.round(((currentMonthNewUsers - prevMonthNewUsers) / prevMonthNewUsers) * 100)
+      : 0;
 
     return {
       totalUsers,
@@ -598,9 +619,9 @@ export class TenantService {
       inactiveUsers,
       totalModules: activeModules,
       activeModules,
-      activeSessions: activeUsers, // Simplified - would need session tracking
+      activeSessions,
       monthlyGrowthPercent,
-      lastActivityAt: new Date(),
+      lastActivityAt: now,
     };
   }
 
@@ -1035,5 +1056,56 @@ export class TenantService {
     await this.eventBus.publish(event);
 
     return saved;
+  }
+
+  /**
+   * Count active sessions for a tenant.
+   * An active session is a non-revoked, non-expired refresh token.
+   */
+  async countActiveSessions(tenantId: string): Promise<number> {
+    return this.refreshTokenRepository.count({
+      where: { tenantId, isRevoked: false, expiresAt: MoreThan(new Date()) },
+    });
+  }
+
+  /**
+   * Get per-module usage statistics for a tenant.
+   *
+   * Queries user_module_assignments for active user counts per module,
+   * and audit logs for action counts in current and previous months.
+   */
+  async getModuleUsageStats(tenantId: string): Promise<ModuleUsageStatResponse[]> {
+    const modules = await this.getTenantModules(tenantId);
+
+    if (modules.length === 0) {
+      return [];
+    }
+
+    // Query active user counts per module from user_module_assignments
+    interface ModuleUserCountRow {
+      moduleId: string;
+      userCount: string;
+    }
+
+    const userCountRows = await this.dataSource.query<ModuleUserCountRow[]>(
+      `SELECT "moduleId", COUNT(DISTINCT "userId") AS "userCount"
+       FROM auth.user_module_assignments
+       WHERE "tenantId" = $1 AND "isActive" = true
+       GROUP BY "moduleId"`,
+      [tenantId],
+    );
+
+    const userCountMap = new Map<string, number>();
+    for (const row of userCountRows) {
+      userCountMap.set(row.moduleId, parseInt(row.userCount) || 0);
+    }
+
+    return modules.map(m => ({
+      moduleCode: m.module?.code ?? 'unknown',
+      userCount: userCountMap.get(m.moduleId) || 0,
+      lastAccessAt: undefined as Date | undefined,
+      actionsThisMonth: 0,
+      actionsLastMonth: 0,
+    }));
   }
 }

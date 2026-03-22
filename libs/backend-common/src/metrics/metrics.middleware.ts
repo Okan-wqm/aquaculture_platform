@@ -36,6 +36,13 @@ export class MetricsMiddleware implements NestMiddleware {
     const startTime = process.hrtime.bigint();
     this.metricsService.incInFlight();
 
+    // Extract tenant identifier for per-tenant metrics dimensioning.
+    // Platform targets ~100 tenants, so direct tenantId is safe for label cardinality.
+    const tenantId =
+      (req as unknown as { tenantId?: string }).tenantId
+      || (req.headers['x-tenant-id'] as string | undefined)
+      || 'system';
+
     // Use the 'finish' event to record metrics after the response is sent
     res.on('finish', () => {
       this.metricsService.decInFlight();
@@ -55,6 +62,7 @@ export class MetricsMiddleware implements NestMiddleware {
         route,
         res.statusCode,
         durationSeconds,
+        tenantId,
       );
     });
 

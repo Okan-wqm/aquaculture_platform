@@ -4,6 +4,7 @@ export * from './base-event';
 // Domain events by module
 export * from './auth-events';
 export * from './tenant-events';
+export * from './tenant-commands';
 export * from './farm-events';
 export * from './sensor-events';
 export * from './alert-events';

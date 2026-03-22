@@ -26,6 +26,13 @@ import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 
 import { SettingCategory } from './entities/system-setting.entity';
 import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
+import {
+  BulkUpdateSettingsDto,
+  UpdateEmailConfigDto,
+  SetMaintenanceModeDto,
+  UpdateBillingConfigDto,
+  ImportSettingsDto,
+} from './dto/settings.dto';
 
 // ============================================================================
 // DTOs with Validation (Fix: MEDIUM-001)
@@ -115,7 +122,7 @@ export class SettingsController {
     @Body() dto: UpdateSystemSettingDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.updateSetting(key, { ...dto, updatedBy: userId });
   }
@@ -126,7 +133,7 @@ export class SettingsController {
    */
   @Post('key/:key/reset')
   async resetToDefault(@Param('key') key: string, @Req() req: Request) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.resetToDefault(key, userId);
   }
@@ -137,12 +144,12 @@ export class SettingsController {
    */
   @Put('bulk')
   async bulkUpdate(
-    @Body() body: { updates: { key: string; value: string }[] },
+    @Body() dto: BulkUpdateSettingsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.settingsService.bulkUpdate(body.updates, userId);
+    return this.settingsService.bulkUpdate(dto.updates, userId);
   }
 
   // ============================================================================
@@ -163,21 +170,12 @@ export class SettingsController {
    */
   @Put('config/email')
   async updateEmailConfig(
-    @Body()
-    body: {
-      smtpHost?: string;
-      smtpPort?: number;
-      smtpSecure?: boolean;
-      smtpUsername?: string;
-      smtpPassword?: string;
-      fromAddress?: string;
-      fromName?: string;
-    },
+    @Body() dto: UpdateEmailConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    await this.settingsService.updateEmailConfig(body, userId);
+    await this.settingsService.updateEmailConfig(dto, userId);
     return this.settingsService.getEmailConfig();
   }
 
@@ -201,7 +199,7 @@ export class SettingsController {
     @Body() body: UpdateSecurityConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.updateSecurityConfig(body, userId);
     return this.settingsService.getSecurityConfig();
@@ -227,7 +225,7 @@ export class SettingsController {
     @Body() body: UpdateRateLimitConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.updateRateLimitConfig(body, userId);
     return this.settingsService.getRateLimitConfig();
@@ -247,20 +245,15 @@ export class SettingsController {
    */
   @Put('config/maintenance')
   async setMaintenanceMode(
-    @Body()
-    body: {
-      enabled: boolean;
-      message?: string;
-      allowedIps?: string[];
-    },
+    @Body() dto: SetMaintenanceModeDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.setMaintenanceMode(
-      body.enabled,
-      body.message,
-      body.allowedIps,
+      dto.enabled,
+      dto.message,
+      dto.allowedIps,
       userId,
     );
     return this.settingsService.getMaintenanceStatus();
@@ -280,18 +273,12 @@ export class SettingsController {
    */
   @Put('config/billing')
   async updateBillingConfig(
-    @Body()
-    body: {
-      stripeEnabled?: boolean;
-      defaultCurrency?: string;
-      taxRate?: number;
-      invoiceDueDays?: number;
-    },
+    @Body() dto: UpdateBillingConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    await this.settingsService.updateBillingConfig(body, userId);
+    await this.settingsService.updateBillingConfig(dto, userId);
     return this.settingsService.getBillingConfig();
   }
 
@@ -332,12 +319,12 @@ export class SettingsController {
    */
   @Post('import')
   async importSettings(
-    @Body() body: { data: Record<string, unknown> },
+    @Body() dto: ImportSettingsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.settingsService.importSettings(body.data, userId);
+    return this.settingsService.importSettings(dto.data, userId);
   }
 
   // ============================================================================

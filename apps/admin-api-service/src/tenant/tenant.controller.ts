@@ -42,6 +42,8 @@ import {
   TenantStatsDto,
   TenantUsageDto,
 } from './dto/tenant.dto';
+import { DeactivateTenantDto } from './dto/deactivate-tenant.dto';
+import { ProvisionTenantDto } from './dto/provision-tenant.dto';
 import { TenantActivity, TenantNote } from './entities/tenant-activity.entity';
 import { Tenant } from './entities/tenant.entity';
 import {
@@ -309,11 +311,11 @@ export class TenantController {
   @ApiOperation({ summary: 'Deactivate a tenant' })
   async deactivateTenant(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body('reason') reason: string,
+    @Body() dto: DeactivateTenantDto,
     @CurrentUser() user: AdminUser,
   ): Promise<Tenant> {
     return this.commandBus.execute(
-      new DeactivateTenantCommand(id, reason, user.id),
+      new DeactivateTenantCommand(id, dto.reason, user.id),
     );
   }
 
@@ -326,12 +328,12 @@ export class TenantController {
   @HttpCode(HttpStatus.OK)
   async provisionTenant(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { createAdmin?: boolean; adminEmail?: string; modules?: string[] },
+    @Body() dto: ProvisionTenantDto,
   ): Promise<ProvisioningResult> {
     return this.provisioningService.provisionTenant(id, {
-      createFirstAdmin: body.createAdmin || false,
-      adminEmail: body.adminEmail,
-      assignModules: body.modules || [],
+      createFirstAdmin: dto.createAdmin || false,
+      adminEmail: dto.adminEmail,
+      assignModules: dto.modules || [],
     });
   }
 

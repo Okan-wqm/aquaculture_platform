@@ -18,15 +18,6 @@ import { Request } from 'express';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
-  UserLimitsConfig,
-  StorageConfig,
-  ApiConfig,
-  DataRetentionConfig,
-  TenantSecurityConfig,
-  TenantNotificationConfig,
-  FeatureFlagsConfig,
-} from '../entities/tenant-configuration.entity';
-import {
   TenantConfigurationService,
   CreateTenantConfigurationDto,
   UpdateTenantConfigurationDto,
@@ -35,6 +26,19 @@ import {
   VerifyDomainDto,
   UpdateBrandingDto,
 } from '../services/tenant-configuration.service';
+import {
+  UpdateUserLimitsDto,
+  UpdateStorageConfigDto,
+  CheckStorageLimitDto,
+  UpdateApiConfigDto,
+  ValidateApiKeyDto,
+  UpdateWebhookDto,
+  UpdateTenantSecurityDto,
+  IpAddressDto,
+  UpdateNotificationConfigDto,
+  UpdateFeatureFlagsDto,
+  UpdateDataRetentionDto,
+} from '../dto/tenant-configuration.dto';
 
 @ApiTags('Settings')
 @Controller('settings/tenant')
@@ -113,12 +117,12 @@ export class TenantConfigurationController {
   @Put(':tenantId/user-limits')
   async updateUserLimits(
     @Param('tenantId') tenantId: string,
-    @Body() limits: Partial<UserLimitsConfig>,
+    @Body() dto: UpdateUserLimitsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.configService.updateUserLimits(tenantId, limits, userId);
+    return this.configService.updateUserLimits(tenantId, dto, userId);
   }
 
   // ============================================================================
@@ -134,20 +138,20 @@ export class TenantConfigurationController {
   @Put(':tenantId/storage')
   async updateStorageConfig(
     @Param('tenantId') tenantId: string,
-    @Body() storage: Partial<StorageConfig>,
+    @Body() dto: UpdateStorageConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.configService.updateStorageConfig(tenantId, storage, userId);
+    return this.configService.updateStorageConfig(tenantId, dto, userId);
   }
 
   @Post(':tenantId/storage/check-limit')
   async checkStorageLimit(
     @Param('tenantId') tenantId: string,
-    @Body() body: { additionalSizeGB: number },
+    @Body() dto: CheckStorageLimitDto,
   ) {
-    const allowed = await this.configService.checkStorageLimit(tenantId, body.additionalSizeGB);
+    const allowed = await this.configService.checkStorageLimit(tenantId, dto.additionalSizeGB);
     return { allowed };
   }
 
@@ -164,12 +168,12 @@ export class TenantConfigurationController {
   @Put(':tenantId/api')
   async updateApiConfig(
     @Param('tenantId') tenantId: string,
-    @Body() apiConfig: Partial<ApiConfig>,
+    @Body() dto: UpdateApiConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.configService.updateApiConfig(tenantId, apiConfig, userId);
+    return this.configService.updateApiConfig(tenantId, dto, userId);
   }
 
   // ============================================================================
@@ -196,9 +200,9 @@ export class TenantConfigurationController {
   @Post(':tenantId/api-keys/validate')
   async validateApiKey(
     @Param('tenantId') tenantId: string,
-    @Body() body: { apiKey: string },
+    @Body() dto: ValidateApiKeyDto,
   ) {
-    const result = await this.configService.validateApiKey(tenantId, body.apiKey);
+    const result = await this.configService.validateApiKey(tenantId, dto.apiKey);
     return { valid: !!result, key: result };
   }
 
@@ -223,9 +227,9 @@ export class TenantConfigurationController {
   async updateWebhook(
     @Param('tenantId') tenantId: string,
     @Param('webhookId') webhookId: string,
-    @Body() updates: Partial<CreateWebhookDto>,
+    @Body() dto: UpdateWebhookDto,
   ) {
-    return this.configService.updateWebhook(tenantId, webhookId, updates);
+    return this.configService.updateWebhook(tenantId, webhookId, dto);
   }
 
   @Delete(':tenantId/webhooks/:webhookId')
@@ -272,7 +276,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateBrandingDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateBranding(tenantId, dto, userId);
   }
@@ -290,20 +294,20 @@ export class TenantConfigurationController {
   @Put(':tenantId/security')
   async updateSecurityConfig(
     @Param('tenantId') tenantId: string,
-    @Body() security: Partial<TenantSecurityConfig>,
+    @Body() dto: UpdateTenantSecurityDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.configService.updateSecurityConfig(tenantId, security, userId);
+    return this.configService.updateSecurityConfig(tenantId, dto, userId);
   }
 
   @Post(':tenantId/security/ip-whitelist')
   async addToIpWhitelist(
     @Param('tenantId') tenantId: string,
-    @Body() body: { ip: string },
+    @Body() dto: IpAddressDto,
   ) {
-    return this.configService.addToIpWhitelist(tenantId, body.ip);
+    return this.configService.addToIpWhitelist(tenantId, dto.ip);
   }
 
   @Delete(':tenantId/security/ip-whitelist/:ip')
@@ -317,9 +321,9 @@ export class TenantConfigurationController {
   @Post(':tenantId/security/ip-blacklist')
   async addToIpBlacklist(
     @Param('tenantId') tenantId: string,
-    @Body() body: { ip: string },
+    @Body() dto: IpAddressDto,
   ) {
-    return this.configService.addToIpBlacklist(tenantId, body.ip);
+    return this.configService.addToIpBlacklist(tenantId, dto.ip);
   }
 
   @Delete(':tenantId/security/ip-blacklist/:ip')
@@ -343,12 +347,12 @@ export class TenantConfigurationController {
   @Put(':tenantId/notifications')
   async updateNotificationConfig(
     @Param('tenantId') tenantId: string,
-    @Body() notification: Partial<TenantNotificationConfig>,
+    @Body() dto: UpdateNotificationConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.configService.updateNotificationConfig(tenantId, notification, userId);
+    return this.configService.updateNotificationConfig(tenantId, dto, userId);
   }
 
   // ============================================================================
@@ -364,12 +368,12 @@ export class TenantConfigurationController {
   @Put(':tenantId/features')
   async updateFeatureFlags(
     @Param('tenantId') tenantId: string,
-    @Body() flags: Partial<FeatureFlagsConfig>,
+    @Body() dto: UpdateFeatureFlagsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.configService.updateFeatureFlags(tenantId, flags, userId);
+    return this.configService.updateFeatureFlags(tenantId, dto, userId);
   }
 
   @Post(':tenantId/features/modules/:moduleCode/enable')
@@ -401,11 +405,11 @@ export class TenantConfigurationController {
   @Put(':tenantId/data-retention')
   async updateDataRetentionConfig(
     @Param('tenantId') tenantId: string,
-    @Body() retention: Partial<DataRetentionConfig>,
+    @Body() dto: UpdateDataRetentionDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.configService.updateDataRetentionConfig(tenantId, retention, userId);
+    return this.configService.updateDataRetentionConfig(tenantId, dto, userId);
   }
 }

@@ -258,6 +258,44 @@ class CreateAlertRuleDto {
   cooldownMinutes!: number;
 }
 
+class UpdateAuditAlertRuleDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  conditions?: {
+    category?: ActivityCategory[];
+    severity?: ActivitySeverity[];
+    actions?: string[];
+    entityTypes?: string[];
+    successOnly?: boolean;
+    failureOnly?: boolean;
+    ipPatterns?: string[];
+  };
+
+  @IsOptional()
+  @IsArray()
+  alertChannels?: ('email' | 'webhook' | 'slack' | 'sms')[];
+
+  @IsOptional()
+  @IsArray()
+  recipients?: string[];
+
+  @IsOptional()
+  @IsNumber()
+  cooldownMinutes?: number;
+}
+
 // ============================================================================
 // Controller
 // ============================================================================
@@ -449,7 +487,7 @@ export class AuditTrailController {
   @Put('alert-rules/:id')
   updateAlertRule(
     @Param('id') id: string,
-    @Body() dto: Partial<CreateAlertRuleDto>,
+    @Body() dto: UpdateAuditAlertRuleDto,
   ): AuditAlertRule | null {
     return this.auditService.updateAlertRule(id, dto);
   }

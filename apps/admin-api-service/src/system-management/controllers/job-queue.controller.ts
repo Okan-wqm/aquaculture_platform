@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsNumber, IsObject, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsObject, IsArray, MaxLength, Min, Max } from 'class-validator';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
@@ -113,6 +113,163 @@ class CreateJobDto {
   metadata?: Record<string, unknown>;
 }
 
+class UpdateQueueDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  description?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  concurrency?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  maxJobsPerSecond?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  defaultMaxRetries?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1000)
+  defaultTimeoutMs?: number;
+
+  @IsOptional()
+  @IsObject()
+  retryPolicy?: JobRetryPolicy;
+}
+
+class ScheduleJobDto {
+  @IsString()
+  name!: string;
+
+  @IsString()
+  queueName!: string;
+
+  @IsOptional()
+  @IsString()
+  jobType?: JobType;
+
+  @IsOptional()
+  @IsNumber()
+  priority?: number;
+
+  @IsOptional()
+  @IsObject()
+  payload?: Record<string, unknown>;
+
+  @IsString()
+  scheduledAt!: string;
+
+  @IsOptional()
+  @IsNumber()
+  timeoutMs?: number;
+
+  @IsOptional()
+  @IsNumber()
+  maxAttempts?: number;
+
+  @IsOptional()
+  @IsObject()
+  retryPolicy?: JobRetryPolicy;
+
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsArray()
+  dependencies?: string[];
+
+  @IsOptional()
+  @IsArray()
+  tags?: string[];
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+class RecurringJobDto {
+  @IsString()
+  name!: string;
+
+  @IsString()
+  queueName!: string;
+
+  @IsOptional()
+  @IsString()
+  jobType?: JobType;
+
+  @IsOptional()
+  @IsNumber()
+  priority?: number;
+
+  @IsOptional()
+  @IsObject()
+  payload?: Record<string, unknown>;
+
+  @IsString()
+  cronExpression!: string;
+
+  @IsOptional()
+  @IsNumber()
+  timeoutMs?: number;
+
+  @IsOptional()
+  @IsNumber()
+  maxAttempts?: number;
+
+  @IsOptional()
+  @IsObject()
+  retryPolicy?: JobRetryPolicy;
+
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsArray()
+  dependencies?: string[];
+
+  @IsOptional()
+  @IsArray()
+  tags?: string[];
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+class RetryFailedJobsDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  queueName?: string;
+}
+
+class PurgeCompletedJobsDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(365)
+  olderThanDays?: number;
+}
+
 class UpdateJobProgressDto {
   @IsNumber()
   current!: number;
@@ -170,7 +327,7 @@ export class JobQueueController {
   }
 
   @Put('queues/:name')
-  async updateQueue(@Param('name') name: string, @Body() dto: Partial<CreateQueueDto>) {
+  async updateQueue(@Param('name') name: string, @Body() dto: UpdateQueueDto) {
     return this.jobQueueService.updateQueue(name, dto);
   }
 
@@ -204,18 +361,18 @@ export class JobQueueController {
 
   @Post('schedule')
   async scheduleJob(
-    @Body() dto: CreateJobDto & { scheduledAt: string },
+    @Body() dto: ScheduleJobDto,
   ) {
-    const { scheduledAt: scheduledAtStr, cronExpression: _cron, ...rest } = dto;
+    const { scheduledAt: scheduledAtStr, ...rest } = dto;
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleJob(definition, new Date(scheduledAtStr));
   }
 
   @Post('recurring')
   async scheduleRecurringJob(
-    @Body() dto: CreateJobDto & { cronExpression: string },
+    @Body() dto: RecurringJobDto,
   ) {
-    const { cronExpression, scheduledAt: _scheduled, ...rest } = dto;
+    const { cronExpression, ...rest } = dto;
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleRecurringJob(definition, cronExpression);
   }
@@ -297,13 +454,13 @@ export class JobQueueController {
   // ============================================================================
 
   @Post('retry-failed')
-  async retryFailedJobs(@Body() dto: { queueName?: string }) {
+  async retryFailedJobs(@Body() dto: RetryFailedJobsDto) {
     const count = await this.jobQueueService.retryFailedJobs(dto.queueName);
     return { retriedCount: count };
   }
 
   @Post('purge-completed')
-  async purgeCompletedJobs(@Body() dto: { olderThanDays?: number }) {
+  async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto) {
     const count = await this.jobQueueService.purgeCompletedJobs(dto.olderThanDays);
     return { purgedCount: count };
   }

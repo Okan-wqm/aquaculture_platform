@@ -23,6 +23,7 @@ import {
   MetricsMiddleware,
   RedisModule,
   RedisService,
+  generateServiceIdentityHeaders,
 } from '@aquaculture/backend-common';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
@@ -97,6 +98,12 @@ interface GatewayContext {
  */
 class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
   private readonly logger = new Logger('AuthenticatedDataSource');
+  private readonly secret?: string;
+
+  constructor(config: { url?: string; secret?: string }) {
+    super({ url: config.url });
+    this.secret = config.secret;
+  }
 
   override willSendRequest(params: {
     request: { http?: { headers: { set: (key: string, value: string) => void } } };
@@ -185,6 +192,14 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       httpRequest.headers.set('x-user-roles', JSON.stringify(user.roles ?? []));
       // Forward full user payload for @CurrentUser() decorator in subgraphs
       httpRequest.headers.set('x-user-payload', JSON.stringify(user));
+    }
+
+    // Sign request for subgraph identity verification
+    if (this.secret) {
+      const identityHeaders = generateServiceIdentityHeaders('gateway-api', this.secret);
+      for (const [key, value] of Object.entries(identityHeaders)) {
+        httpRequest.headers.set(key, value);
+      }
     }
   }
 
@@ -288,7 +303,11 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       driver: ApolloGatewayDriver,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
+      useFactory: (configService: ConfigService) => {
+        // Capture INTERNAL_SERVICE_SECRET for HMAC signing in buildService closure
+        const internalServiceSecret = configService.get<string>('INTERNAL_SERVICE_SECRET');
+
+        return {
         gateway: {
           supergraphSdl: new RetryableIntrospectAndCompose({
             subgraphs: [
@@ -330,7 +349,7 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
             pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
           }),
           buildService({ url }) {
-            return new AuthenticatedDataSource({ url });
+            return new AuthenticatedDataSource({ url, secret: internalServiceSecret });
           },
         },
         server: {
@@ -416,7 +435,8 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
             return { req, res };
           },
         },
-      }),
+      };
+      },
     }),
 
     // MinIO Storage Module for file uploads

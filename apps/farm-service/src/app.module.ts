@@ -18,6 +18,7 @@ import {
   RolesGuard,
   UserContextMiddleware,
   SourceSchemaBootstrapService,
+  ServiceIdentityGuard,
 } from '@aquaculture/backend-common';
 
 /**
@@ -270,6 +271,12 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    // SECURITY: Service identity guard - validates HMAC-signed service identity headers
+    // Must be FIRST guard (before tenant/roles) to verify request origin
+    {
+      provide: APP_GUARD,
+      useClass: ServiceIdentityGuard,
     },
     // Tenant guard
     {

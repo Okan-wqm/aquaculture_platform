@@ -23,6 +23,7 @@ import {
   TenantGuard,
   ThrottlerModule,
   ThrottlerGuard,
+  ServiceIdentityGuard,
   SourceSchemaBootstrapService,
   createTenantSchemaMiddleware,
   createTenantConnectionBootstrap,
@@ -168,6 +169,12 @@ const complexityCache = new Map<string, number>();
     HealthModule,
   ],
   providers: [
+    // SECURITY: Service identity guard - validates HMAC-signed service identity headers
+    // Must be FIRST guard (before tenant/roles/throttler) to verify request origin
+    {
+      provide: APP_GUARD,
+      useClass: ServiceIdentityGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: TenantGuard,

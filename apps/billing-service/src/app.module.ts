@@ -10,7 +10,7 @@ import {
 } from '@nestjs/apollo';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -129,6 +129,12 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     HealthModule,
   ],
   providers: [
+    // SECURITY: Service identity guard - validates HMAC-signed service identity headers
+    // Must be FIRST guard (before auth/tenant/roles) to verify request origin
+    {
+      provide: APP_GUARD,
+      useClass: ServiceIdentityGuard,
+    },
     // SECURITY: Global JWT auth guard - requires authentication on all resolvers
     {
       provide: APP_GUARD,

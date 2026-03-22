@@ -23,6 +23,7 @@ import {
   TenantGuard,
   RolesGuard,
   SourceSchemaBootstrapService,
+  ServiceIdentityGuard,
   createTenantSchemaMiddleware,
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
@@ -263,6 +264,12 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     HealthModule,
   ],
   providers: [
+    // SECURITY: Service identity guard - validates HMAC-signed service identity headers
+    // Must be FIRST guard (before tenant/roles) to verify request origin
+    {
+      provide: APP_GUARD,
+      useClass: ServiceIdentityGuard,
+    },
     // SECURITY: Tenant guard - ensures tenant isolation
     {
       provide: APP_GUARD,

@@ -20,6 +20,7 @@ import {
   TenantGuard,
   RolesGuard,
   SourceSchemaBootstrapService,
+  ServiceIdentityGuard,
 } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -350,6 +351,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    // SECURITY: Service identity guard - validates HMAC-signed service identity headers
+    // Must be FIRST guard (before tenant/roles) to verify request origin
+    {
+      provide: APP_GUARD,
+      useClass: ServiceIdentityGuard,
     },
     // Tenant guard - ensures tenant isolation
     {

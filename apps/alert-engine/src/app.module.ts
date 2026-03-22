@@ -18,6 +18,7 @@ import {
   RolesGuard,
   RedisModule,
   SourceSchemaBootstrapService,
+  ServiceIdentityGuard,
   createTenantSchemaMiddleware,
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
@@ -142,6 +143,12 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    // SECURITY: Service identity guard - validates HMAC-signed service identity headers
+    // Must be FIRST guard (before tenant/roles) to verify request origin
+    {
+      provide: APP_GUARD,
+      useClass: ServiceIdentityGuard,
     },
     // Tenant guard
     {

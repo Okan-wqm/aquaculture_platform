@@ -12,6 +12,10 @@ export * from './decorators/require-permission.decorator';
 export * from './guards/roles.guard';
 export * from './guards/tenant.guard';
 export * from './guards/tenant-permission.guard';
+export * from './guards/service-identity.guard';
+
+// Utils - Inter-service authentication
+export * from './utils/service-identity.util';
 
 // Filters
 export * from './filters/http-exception.filter';

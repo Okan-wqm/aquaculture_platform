@@ -1,0 +1,122 @@
+name: E2E Tests
+
+on:
+  # Deploy tamamlandıktan sonra otomatik tetikle
+  workflow_run:
+    workflows: ["CD - Production", "CD - Staging", "Deploy to DigitalOcean"]
+    types: [completed]
+    branches: [main]
+
+  # Manuel tetikleme
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Test project to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - security
+          - workflow
+          - integration
+          - modules
+      target_url:
+        description: 'Gateway URL to test against'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Deploy başarılıysa veya manuel tetiklendiyse çalış
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    env:
+      # DigitalOcean sunucu URL'si — secrets'tan al
+      GATEWAY_URL: ${{ inputs.target_url || secrets.E2E_GATEWAY_URL || 'http://localhost:4000' }}
+      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL || 'postgresql://aquaculture:aquaculture@localhost:5432/aquaculture' }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      NODE_ENV: test
+      CI: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install E2E dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Testing gateway health at $GATEWAY_URL..."
+          for i in $(seq 1 30); do
+            if curl -sf "$GATEWAY_URL/health" > /dev/null 2>&1; then
+              echo "Gateway is healthy!"
+              break
+            fi
+            echo "Attempt $i/30 - waiting for gateway..."
+            sleep 10
+          done
+
+      - name: Run E2E tests
+        working-directory: e2e
+        run: |
+          PROJECT="${{ github.event.inputs.project || 'all' }}"
+          if [ "$PROJECT" = "all" ]; then
+            npx playwright test --reporter=html,github
+          else
+            npx playwright test --project="$PROJECT" --reporter=html,github
+          fi
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-report-${{ github.run_number }}
+          path: e2e/playwright-report/
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results-${{ github.run_number }}
+          path: e2e/test-results/
+          retention-days: 7
+
+      - name: Comment PR with results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = `## E2E Test Results\n\n` +
+              `**Status:** ${{ job.status }}\n` +
+              `**Gateway:** ${{ env.GATEWAY_URL }}\n` +
+              `**Run:** [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

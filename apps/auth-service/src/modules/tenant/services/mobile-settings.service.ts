@@ -17,7 +17,8 @@ export class MobileSettingsService {
    * Creates default settings if none exist
    */
   async getByUserId(userId: string, tenantId: string): Promise<MobileUserSettings> {
-    let settings = await this.repo.findOne({ where: { userId } });
+    // SECURITY: Filter by both userId AND tenantId to enforce tenant isolation
+    let settings = await this.repo.findOne({ where: { userId, tenantId } });
 
     if (!settings) {
       settings = this.repo.create({
@@ -51,7 +52,8 @@ export class MobileSettingsService {
       allowedFeatures?: Partial<MobileUserSettings['allowedFeatures']>;
     },
   ): Promise<MobileUserSettings> {
-    let settings = await this.repo.findOne({ where: { userId } });
+    // SECURITY: Filter by both userId AND tenantId to enforce tenant isolation
+    let settings = await this.repo.findOne({ where: { userId, tenantId } });
 
     if (!settings) {
       // Create with defaults then apply updates

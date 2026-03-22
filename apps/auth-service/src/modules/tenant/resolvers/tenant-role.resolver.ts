@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { CurrentUser, TenantAdminOrHigher, Roles, Role } from '@platform/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 

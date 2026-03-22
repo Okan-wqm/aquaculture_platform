@@ -13,9 +13,8 @@ export enum TenantStatus {
   ACTIVE = 'ACTIVE',
   SUSPENDED = 'SUSPENDED',
   CANCELLED = 'CANCELLED',
-  // For code compatibility (map to same db values)
-  DEACTIVATED = 'CANCELLED',
-  ARCHIVED = 'CANCELLED',
+  DEACTIVATED = 'DEACTIVATED',
+  ARCHIVED = 'ARCHIVED',
 }
 
 export enum TenantPlan {

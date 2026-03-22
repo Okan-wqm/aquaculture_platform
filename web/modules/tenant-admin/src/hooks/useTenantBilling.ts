@@ -9,6 +9,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { TENANT_BILLING_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -65,57 +66,6 @@ export interface TenantBillingData {
   planLimits: PlanLimits | null;
   usageMetrics: UsageMetrics | null;
 }
-
-// ============================================================================
-// GraphQL Queries
-// ============================================================================
-
-const TENANT_BILLING_QUERY = `
-  query TenantBilling {
-    tenantBilling {
-      subscription {
-        id
-        plan
-        status
-        billingPeriod
-        currentPeriodStart
-        currentPeriodEnd
-        trialEndDate
-        monthlyPrice
-        currency
-      }
-      invoices {
-        id
-        invoiceNumber
-        amount
-        currency
-        status
-        issuedAt
-        dueDate
-        paidAt
-        description
-      }
-      planLimits {
-        maxFarms
-        maxSensors
-        maxUsers
-        maxStorage
-        currentFarms
-        currentSensors
-        currentUsers
-        currentStorage
-      }
-      usageMetrics {
-        apiCallsThisMonth
-        apiCallsLimit
-        storageUsedGb
-        storageLimit
-        sensorReadingsThisMonth
-        sensorReadingsLimit
-      }
-    }
-  }
-`;
 
 // ============================================================================
 // Query Keys

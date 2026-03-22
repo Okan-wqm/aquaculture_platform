@@ -19,6 +19,13 @@ import { useAuthContext } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
 import { graphqlRequest } from '../services/tenant-api.service';
+import {
+  TENANT_USERS_QUERY,
+  UPDATE_USER_MUTATION,
+  DELETE_USER_MUTATION,
+  CREATE_TENANT_USER_MUTATION,
+  DEACTIVATE_TENANT_USER_MUTATION,
+} from '../graphql';
 import { logError } from '../utils/error-handling';
 import { DeleteConfirmModal } from '../components/common';
 
@@ -147,64 +154,6 @@ function transformUser(apiUser: ApiUser): User {
     createdAt: apiUser.createdAt,
   };
 }
-
-const TENANT_USERS_QUERY = `
-  query TenantUsers {
-    tenantUsers {
-      id
-      email
-      firstName
-      lastName
-      role
-      isActive
-      isEmailVerified
-      lastLoginAt
-      createdAt
-    }
-  }
-`;
-
-const UPDATE_USER_MUTATION = `
-  mutation UpdateTenantUser($userId: ID!, $input: UpdateTenantUserInput!) {
-    updateTenantUser(userId: $userId, input: $input) {
-      id
-      email
-      firstName
-      lastName
-      role
-      isActive
-    }
-  }
-`;
-
-const DELETE_USER_MUTATION = `
-  mutation DeleteTenantUser($userId: ID!) {
-    deleteTenantUser(userId: $userId)
-  }
-`;
-
-const CREATE_TENANT_USER_MUTATION = `
-  mutation CreateTenantUser($input: CreateTenantUserInput!) {
-    createTenantUser(input: $input) {
-      userId
-      email
-      firstName
-      lastName
-      roleAssignment { id roleId roleName }
-      invitationSent
-      createdAt
-    }
-  }
-`;
-
-const DEACTIVATE_TENANT_USER_MUTATION = `
-  mutation DeactivateTenantUser($userId: ID!) {
-    deactivateTenantUser(userId: $userId) {
-      id
-      isActive
-    }
-  }
-`;
 
 /**
  * TenantUsers Page

@@ -3,10 +3,8 @@
  * Backend API integration for tenant-specific features
  */
 
-import { getTenantId, getAccessToken } from '@aquaculture/shared-ui';
-
-// API URL - Shell nginx routes /api to admin-api-service
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+import { getTenantId } from '@aquaculture/shared-ui';
+import { apiClient } from './api-client';
 
 // ============================================================================
 // Types
@@ -72,41 +70,6 @@ export interface MessagingStats {
 }
 
 // ============================================================================
-// Helper Functions
-// ============================================================================
-
-async function apiFetch<T>(
-  endpoint: string,
-  options?: RequestInit
-): Promise<T> {
-  const token = getAccessToken();
-  const tenantId = getTenantId();
-
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({ message: 'API Error' }));
-    throw new Error(errorBody.message || `HTTP ${response.status}`);
-  }
-
-  // Handle empty responses
-  const text = await response.text();
-  if (!text) {
-    return {} as T;
-  }
-
-  return JSON.parse(text);
-}
-
-// ============================================================================
 // Messaging API
 // ============================================================================
 
@@ -120,7 +83,7 @@ export const messagingApi = {
       throw new Error('Tenant ID not found');
     }
     
-    return apiFetch<{ data: MessageThread[] }>(
+    return apiClient.rest<{ data: MessageThread[] }>(
       `/support/messages/threads/tenant/${tenantId}`
     );
   },
@@ -129,7 +92,7 @@ export const messagingApi = {
    * Get messages for a specific thread
    */
   getThreadMessages: async (threadId: string): Promise<Message[]> => {
-    return apiFetch<Message[]>(
+    return apiClient.rest<Message[]>(
       `/support/messages/threads/${threadId}/messages?includeInternal=false`
     );
   },
@@ -142,7 +105,7 @@ export const messagingApi = {
     content: string,
     senderName: string
   ): Promise<Message> => {
-    return apiFetch<Message>(
+    return apiClient.rest<Message>(
       `/support/messages/threads/${threadId}/messages`,
       {
         method: 'POST',
@@ -155,7 +118,7 @@ export const messagingApi = {
    * Mark thread messages as read
    */
   markAsRead: async (threadId: string): Promise<void> => {
-    return apiFetch<void>(
+    return apiClient.rest<void>(
       `/support/messages/threads/${threadId}/read`,
       {
         method: 'POST',
@@ -176,7 +139,7 @@ export const messagingApi = {
       throw new Error('Tenant ID not found');
     }
 
-    return apiFetch<MessageThread>(
+    return apiClient.rest<MessageThread>(
       '/support/messages/threads',
       {
         method: 'POST',
@@ -189,7 +152,7 @@ export const messagingApi = {
    * Get messaging statistics
    */
   getStats: async (): Promise<MessagingStats> => {
-    return apiFetch<MessagingStats>('/support/messages/stats');
+    return apiClient.rest<MessagingStats>('/support/messages/stats');
   },
 };
 
@@ -202,7 +165,7 @@ export const announcementsApi = {
    * Get published announcements for tenant
    */
   getAnnouncements: async (): Promise<Announcement[]> => {
-    const result = await apiFetch<{ data: Announcement[] }>(
+    const result = await apiClient.rest<{ data: Announcement[] }>(
       '/support/announcements?isPublished=true&limit=100'
     );
     return result.data || [];
@@ -214,7 +177,7 @@ export const announcementsApi = {
   acknowledgeAnnouncement: async (announcementId: string): Promise<void> => {
     // Note: This endpoint might need to be created on the backend
     // For now, we'll use a POST request
-    return apiFetch<void>(
+    return apiClient.rest<void>(
       `/support/announcements/${announcementId}/acknowledge`,
       {
         method: 'POST',
@@ -226,7 +189,7 @@ export const announcementsApi = {
    * Mark announcement as viewed
    */
   markAsViewed: async (announcementId: string): Promise<void> => {
-    return apiFetch<void>(
+    return apiClient.rest<void>(
       `/support/announcements/${announcementId}/view`,
       {
         method: 'POST',
@@ -303,7 +266,7 @@ export const ticketsApi = {
       throw new Error('Tenant ID not found');
     }
     const params = status ? `?status=${status}` : '';
-    return apiFetch<{ data: SupportTicket[] }>(
+    return apiClient.rest<{ data: SupportTicket[] }>(
       `/support/tickets/tenant/${tenantId}${params}`
     );
   },
@@ -312,7 +275,7 @@ export const ticketsApi = {
    * Get a single ticket by ID
    */
   getTicket: async (ticketId: string): Promise<SupportTicket> => {
-    return apiFetch<SupportTicket>(`/support/tickets/${ticketId}`);
+    return apiClient.rest<SupportTicket>(`/support/tickets/${ticketId}`);
   },
 
   /**
@@ -330,7 +293,7 @@ export const ticketsApi = {
     if (!tenantId) {
       throw new Error('Tenant ID not found');
     }
-    return apiFetch<SupportTicket>('/support/tickets', {
+    return apiClient.rest<SupportTicket>('/support/tickets', {
       method: 'POST',
       body: JSON.stringify({
         ...data,
@@ -345,7 +308,7 @@ export const ticketsApi = {
    * Get comments for a ticket
    */
   getComments: async (ticketId: string): Promise<TicketComment[]> => {
-    const result = await apiFetch<{ data: TicketComment[] }>(
+    const result = await apiClient.rest<{ data: TicketComment[] }>(
       `/support/tickets/${ticketId}/comments?includeInternal=false`
     );
     return result.data || [];
@@ -359,7 +322,7 @@ export const ticketsApi = {
     content: string,
     authorName: string
   ): Promise<TicketComment> => {
-    return apiFetch<TicketComment>(
+    return apiClient.rest<TicketComment>(
       `/support/tickets/${ticketId}/comments`,
       {
         method: 'POST',
@@ -376,7 +339,7 @@ export const ticketsApi = {
     rating: number,
     feedback?: string
   ): Promise<void> => {
-    return apiFetch<void>(
+    return apiClient.rest<void>(
       `/support/tickets/${ticketId}/satisfaction`,
       {
         method: 'POST',

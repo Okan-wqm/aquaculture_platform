@@ -10,6 +10,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useCallback, useMemo } from 'react';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { TENANT_AUDIT_LOGS_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -42,47 +43,6 @@ export interface AuditLogPage {
   data: AuditLogEntry[];
   total: number;
 }
-
-// ============================================================================
-// GraphQL Query
-// ============================================================================
-
-const TENANT_AUDIT_LOGS_QUERY = `
-  query TenantAuditLogs(
-    $startDate: String
-    $endDate: String
-    $action: String
-    $severity: String
-    $performedBy: String
-    $limit: Int
-    $offset: Int
-  ) {
-    tenantAuditLogs(
-      startDate: $startDate
-      endDate: $endDate
-      action: $action
-      severity: $severity
-      performedBy: $performedBy
-      limit: $limit
-      offset: $offset
-    ) {
-      data {
-        id
-        performedBy
-        performedByEmail
-        action
-        entityType
-        entityId
-        details
-        severity
-        ipAddress
-        userAgent
-        createdAt
-      }
-      total
-    }
-  }
-`;
 
 // ============================================================================
 // Query Keys

@@ -1,11 +1,11 @@
 /**
  * Tenant Admin API Service
  *
- * Handles all API calls for the tenant admin panel.
- * Uses GraphQL for data fetching.
+ * Handles all GraphQL API calls for the tenant admin panel.
+ * Uses centralized apiClient and GraphQL query definitions.
  */
 
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
+import { apiClient } from './api-client';
 import {
   MY_TENANT_QUERY,
   TENANT_STATS_QUERY,
@@ -17,7 +17,15 @@ import {
   ASSIGN_MODULE_MANAGER_MUTATION,
   REMOVE_MODULE_MANAGER_MUTATION,
   UPDATE_TENANT_SETTINGS_MUTATION,
-} from './graphql-queries';
+  TENANT_ROLES_QUERY,
+  TENANT_ROLE_QUERY,
+  DEFAULT_TENANT_ROLE_QUERY,
+  PERMISSION_CATEGORIES_QUERY,
+  CREATE_TENANT_ROLE_MUTATION,
+  UPDATE_TENANT_ROLE_MUTATION,
+  DELETE_TENANT_ROLE_MUTATION,
+  SEED_TENANT_ROLES_MUTATION,
+} from '../graphql';
 
 // ============================================================================
 // Types
@@ -143,151 +151,95 @@ export interface TenantDatabaseInfo {
 }
 
 // ============================================================================
-// API Configuration
+// Backward-compatible graphqlRequest wrapper
 // ============================================================================
 
-const API_URL = '/graphql';
-
 /**
- * Execute GraphQL query/mutation
+ * Execute GraphQL query/mutation.
+ * Delegates to apiClient.graphql() for centralized auth/error handling.
  */
 export async function graphqlRequest<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const token = getAccessToken();
-
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({
-      query,
-      variables,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-
-  const result = await response.json();
-
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-
-  return result.data;
+  return apiClient.graphql<T>(query, variables);
 }
 
 // ============================================================================
 // API Functions
 // ============================================================================
 
-/**
- * Get current tenant information
- */
 export async function getMyTenant(): Promise<Tenant> {
-  const data = await graphqlRequest<{ myTenant: Tenant }>(MY_TENANT_QUERY);
+  const data = await apiClient.graphql<{ myTenant: Tenant }>(MY_TENANT_QUERY);
   return data.myTenant;
 }
 
-/**
- * Get tenant statistics
- */
 export async function getTenantStats(): Promise<TenantStats> {
-  const data = await graphqlRequest<{ tenantStats: TenantStats }>(TENANT_STATS_QUERY);
+  const data = await apiClient.graphql<{ tenantStats: TenantStats }>(TENANT_STATS_QUERY);
   return data.tenantStats;
 }
 
-/**
- * Get tenant's modules
- */
 export async function getMyTenantModules(): Promise<TenantModule[]> {
-  const data = await graphqlRequest<{ myTenantModules: TenantModule[] }>(
+  const data = await apiClient.graphql<{ myTenantModules: TenantModule[] }>(
     MY_TENANT_MODULES_QUERY,
   );
   return data.myTenantModules;
 }
 
-/**
- * Get tenant users
- */
 export async function getTenantUsers(options?: {
   status?: string;
   role?: string;
   limit?: number;
   offset?: number;
 }): Promise<User[]> {
-  const data = await graphqlRequest<{ tenantUsers: User[] }>(
+  const data = await apiClient.graphql<{ tenantUsers: User[] }>(
     TENANT_USERS_QUERY,
     options,
   );
   return data.tenantUsers;
 }
 
-/**
- * Get tenant database information
- */
 export async function getTenantDatabase(): Promise<TenantDatabaseInfo> {
-  const data = await graphqlRequest<{ tenantDatabase: TenantDatabaseInfo }>(
+  const data = await apiClient.graphql<{ tenantDatabase: TenantDatabaseInfo }>(
     TENANT_DATABASE_QUERY,
   );
   return data.tenantDatabase;
 }
 
-/**
- * Assign module manager
- */
 export async function assignModuleManager(
   moduleId: string,
   userId: string,
 ): Promise<TenantModule> {
-  const data = await graphqlRequest<{ assignModuleManager: TenantModule }>(
+  const data = await apiClient.graphql<{ assignModuleManager: TenantModule }>(
     ASSIGN_MODULE_MANAGER_MUTATION,
-    {
-      input: { moduleId, userId },
-    },
+    { input: { moduleId, userId } },
   );
   return data.assignModuleManager;
 }
 
-/**
- * Remove module manager
- */
 export async function removeModuleManager(moduleId: string): Promise<TenantModule> {
-  const data = await graphqlRequest<{ removeModuleManager: TenantModule }>(
+  const data = await apiClient.graphql<{ removeModuleManager: TenantModule }>(
     REMOVE_MODULE_MANAGER_MUTATION,
     { moduleId },
   );
   return data.removeModuleManager;
 }
 
-/**
- * Update tenant settings
- */
 export async function updateTenantSettings(
   input: Partial<Pick<Tenant, 'name' | 'description' | 'logoUrl' | 'contactEmail' | 'contactPhone' | 'address' | 'settings'>>,
 ): Promise<Tenant> {
-  const data = await graphqlRequest<{ updateTenantSettings: Tenant }>(
+  const data = await apiClient.graphql<{ updateTenantSettings: Tenant }>(
     UPDATE_TENANT_SETTINGS_MUTATION,
     { input },
   );
   return data.updateTenantSettings;
 }
 
-/**
- * Get table schema information (columns and indexes)
- * Uses GraphQL query from auth-service
- */
 export async function getTableSchema(
   schemaName: string,
   tableName: string,
 ): Promise<TableSchemaInfo> {
-  const data = await graphqlRequest<{ tableSchema: TableSchemaInfo }>(
+  const data = await apiClient.graphql<{ tableSchema: TableSchemaInfo }>(
     TABLE_SCHEMA_QUERY,
     { schemaName, tableName },
   );
@@ -306,22 +258,16 @@ export interface GetTableDataInput {
 }
 
 export interface TableDataResult {
-  tableName: string; // Returns "schema.table" format
+  tableName: string;
   totalRows: number;
   columns: string[];
-  rows: string; // JSON string - needs to be parsed
+  rows: string;
   offset: number;
   limit: number;
 }
 
-/**
- * Get table data with pagination (tenant-isolated)
- * Uses GraphQL query from auth-service with tenant isolation
- * @param input.schemaName - Schema name (e.g., 'farm', 'sensor', 'auth')
- * @param input.tableName - Table name (e.g., 'tanks', 'sensors')
- */
 export async function getTableData(input: GetTableDataInput): Promise<TableDataResult> {
-  const data = await graphqlRequest<{ tableData: TableDataResult }>(
+  const data = await apiClient.graphql<{ tableData: TableDataResult }>(
     TABLE_DATA_QUERY,
     { input },
   );
@@ -341,7 +287,7 @@ export type {
 } from '../types/permissions';
 
 // ============================================================================
-// Tenant Role Types (for future implementation)
+// Tenant Role Types
 // ============================================================================
 
 import type { TenantRolePermissions } from '../types/permissions';
@@ -382,113 +328,47 @@ export interface UpdateTenantRoleInput {
 }
 
 // ============================================================================
-// Tenant Role API Functions (Stubs - Backend not implemented yet)
+// Tenant Role API Functions
 // ============================================================================
-
-const TENANT_ROLES_QUERY = `
-  query TenantRoles {
-    tenantRoles {
-      id name description color icon level isSystem isDefault userCount createdAt updatedAt
-      permissions { id roleId panelPermissions resourcePermissions }
-    }
-  }
-`;
-
-const TENANT_ROLE_QUERY = `
-  query TenantRole($roleId: ID!) {
-    tenantRole(roleId: $roleId) {
-      id name description color icon level isSystem isDefault userCount createdAt updatedAt
-      permissions { id roleId panelPermissions resourcePermissions }
-    }
-  }
-`;
-
-const DEFAULT_TENANT_ROLE_QUERY = `
-  query DefaultTenantRole {
-    defaultTenantRole {
-      id name description color icon level isSystem isDefault userCount createdAt updatedAt
-      permissions { id roleId panelPermissions resourcePermissions }
-    }
-  }
-`;
-
-const PERMISSION_CATEGORIES_QUERY = `
-  query PermissionCategories {
-    permissionCategories { categoryKey name resources { name actions } }
-  }
-`;
-
-const CREATE_TENANT_ROLE_MUTATION = `
-  mutation CreateTenantRole($input: CreateTenantRoleInput!) {
-    createTenantRole(input: $input) {
-      id name description color icon level isSystem isDefault userCount createdAt updatedAt
-      permissions { id roleId panelPermissions resourcePermissions }
-    }
-  }
-`;
-
-const UPDATE_TENANT_ROLE_MUTATION = `
-  mutation UpdateTenantRole($roleId: ID!, $input: UpdateTenantRoleInput!) {
-    updateTenantRole(roleId: $roleId, input: $input) {
-      id name description color icon level isSystem isDefault userCount createdAt updatedAt
-      permissions { id roleId panelPermissions resourcePermissions }
-    }
-  }
-`;
-
-const DELETE_TENANT_ROLE_MUTATION = `
-  mutation DeleteTenantRole($roleId: ID!) {
-    deleteTenantRole(roleId: $roleId)
-  }
-`;
-
-const SEED_TENANT_ROLES_MUTATION = `
-  mutation SeedTenantRoles {
-    seedTenantRoles {
-      id name description color icon level isSystem isDefault userCount createdAt updatedAt
-      permissions { id roleId panelPermissions resourcePermissions }
-    }
-  }
-`;
 
 import type { PermissionCategory as PermCat } from '../types/permissions';
 
 export async function getTenantRoles(): Promise<TenantRole[]> {
-  const data = await graphqlRequest<{ tenantRoles: TenantRole[] }>(TENANT_ROLES_QUERY);
+  const data = await apiClient.graphql<{ tenantRoles: TenantRole[] }>(TENANT_ROLES_QUERY);
   return data.tenantRoles;
 }
 
 export async function getTenantRole(roleId: string): Promise<TenantRole> {
-  const data = await graphqlRequest<{ tenantRole: TenantRole }>(TENANT_ROLE_QUERY, { roleId });
+  const data = await apiClient.graphql<{ tenantRole: TenantRole }>(TENANT_ROLE_QUERY, { roleId });
   return data.tenantRole;
 }
 
 export async function getDefaultTenantRole(): Promise<TenantRole | null> {
-  const data = await graphqlRequest<{ defaultTenantRole: TenantRole | null }>(DEFAULT_TENANT_ROLE_QUERY);
+  const data = await apiClient.graphql<{ defaultTenantRole: TenantRole | null }>(DEFAULT_TENANT_ROLE_QUERY);
   return data.defaultTenantRole;
 }
 
 export async function getPermissionCategories(): Promise<PermCat[]> {
-  const data = await graphqlRequest<{ permissionCategories: PermCat[] }>(PERMISSION_CATEGORIES_QUERY);
+  const data = await apiClient.graphql<{ permissionCategories: PermCat[] }>(PERMISSION_CATEGORIES_QUERY);
   return data.permissionCategories;
 }
 
 export async function createTenantRole(input: CreateTenantRoleInput): Promise<TenantRole> {
-  const data = await graphqlRequest<{ createTenantRole: TenantRole }>(CREATE_TENANT_ROLE_MUTATION, { input });
+  const data = await apiClient.graphql<{ createTenantRole: TenantRole }>(CREATE_TENANT_ROLE_MUTATION, { input });
   return data.createTenantRole;
 }
 
 export async function updateTenantRole(roleId: string, input: UpdateTenantRoleInput): Promise<TenantRole> {
-  const data = await graphqlRequest<{ updateTenantRole: TenantRole }>(UPDATE_TENANT_ROLE_MUTATION, { roleId, input });
+  const data = await apiClient.graphql<{ updateTenantRole: TenantRole }>(UPDATE_TENANT_ROLE_MUTATION, { roleId, input });
   return data.updateTenantRole;
 }
 
 export async function deleteTenantRole(roleId: string): Promise<boolean> {
-  const data = await graphqlRequest<{ deleteTenantRole: boolean }>(DELETE_TENANT_ROLE_MUTATION, { roleId });
+  const data = await apiClient.graphql<{ deleteTenantRole: boolean }>(DELETE_TENANT_ROLE_MUTATION, { roleId });
   return data.deleteTenantRole;
 }
 
 export async function seedTenantRoles(): Promise<TenantRole[]> {
-  const data = await graphqlRequest<{ seedTenantRoles: TenantRole[] }>(SEED_TENANT_ROLES_MUTATION);
+  const data = await apiClient.graphql<{ seedTenantRoles: TenantRole[] }>(SEED_TENANT_ROLES_MUTATION);
   return data.seedTenantRoles;
 }

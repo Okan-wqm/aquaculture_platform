@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { EDGE_DEVICE_QUERY } from '../graphql';
 
 interface EdgeDevice {
   id: string;
@@ -40,50 +41,6 @@ interface EdgeDevice {
     isActive: boolean;
   }>;
 }
-
-const EDGE_DEVICE_QUERY = `
-  query EdgeDevice($id: ID!) {
-    edgeDevice(id: $id) {
-      id
-      tenantId
-      siteId
-      deviceCode
-      deviceName
-      deviceModel
-      serialNumber
-      description
-      lifecycleState
-      mqttClientId
-      agentVersion
-      lastSeenAt
-      isOnline
-      ipAddress
-      firmwareVersion
-      cpuUsage
-      memoryUsage
-      storageUsage
-      temperatureCelsius
-      uptimeSeconds
-      connectionQuality
-      config
-      capabilities
-      tags
-      createdAt
-      updatedAt
-      sensorCount
-      programCount
-      activeAlarmCount
-      ioConfig {
-        id
-        tagName
-        ioType
-        dataType
-        unit
-        isActive
-      }
-    }
-  }
-`;
 
 /**
  * Hook for polling edge device data at regular intervals.

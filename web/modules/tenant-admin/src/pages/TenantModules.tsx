@@ -21,6 +21,7 @@ import { useAuthContext } from '@aquaculture/shared-ui';
 import { useAssignModuleManager } from '../hooks/useTenantData';
 import { useTenantUsers } from '../hooks/useTenantData';
 import { graphqlRequest } from '../services/tenant-api.service';
+import { MY_MODULES_ID_QUERY, MODULE_USAGE_STATS_QUERY } from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // Note: TenantModule interface removed - now using AuthContext UserModule type
@@ -388,32 +389,6 @@ const ModuleDetailsModal: React.FC<{
     </div>
   );
 };
-
-const MY_MODULES_ID_QUERY = `
-  query MyModulesWithIds {
-    myModules {
-      id
-      code
-    }
-  }
-`;
-
-/**
- * Module usage statistics query
- * Returns per-module usage counts, last access, and user counts.
- * Falls back gracefully if the backend query is not yet available.
- */
-const MODULE_USAGE_STATS_QUERY = `
-  query ModuleUsageStats {
-    moduleUsageStats {
-      moduleCode
-      userCount
-      lastAccessAt
-      actionsThisMonth
-      actionsLastMonth
-    }
-  }
-`;
 
 interface ModuleUsageStat {
   moduleCode: string;

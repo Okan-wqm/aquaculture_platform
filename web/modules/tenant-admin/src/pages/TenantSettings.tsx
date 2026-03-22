@@ -14,34 +14,17 @@ import {
   AlertCircle,
   Lock,
 } from 'lucide-react';
-import { getAccessToken } from '@platform/shared-ui/utils/api-client';
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { useMyTenant, useUpdateTenantSettings } from '../hooks/useTenantData';
+import { graphqlRequest } from '../services/tenant-api.service';
+import {
+  TENANT_USERS_QUERY,
+  GET_NOTIFICATION_PREFERENCES_QUERY,
+  UPDATE_NOTIFICATION_PREFERENCES_MUTATION,
+  GET_MOBILE_USERS_SETTINGS_QUERY,
+  UPDATE_MOBILE_USER_SETTINGS_MUTATION,
+} from '../graphql';
 import { logError } from '../utils/error-handling';
-
-// GraphQL Configuration (for mobile-users section which uses a separate mutation)
-const GRAPHQL_URL = '/graphql';
-
-const executeGraphQL = async <T,>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const token = getAccessToken();
-  const response = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-  const result = await response.json();
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'GraphQL error');
-  }
-  return result.data;
-};
 
 /**
  * Settings section type
@@ -238,21 +221,9 @@ const TenantSettings: React.FC = () => {
   useEffect(() => {
     if (activeSection === 'notifications') {
       setNotifLoading(true);
-      executeGraphQL<{ getMyNotificationPreferences: typeof notifPrefs }>(`
-        query GetMyNotificationPreferences {
-          getMyNotificationPreferences {
-            emailEnabled
-            smsEnabled
-            pushEnabled
-            quietHoursStart
-            quietHoursEnd
-            quietHoursTimezone
-            alertNotifications
-            taskNotifications
-            systemNotifications
-          }
-        }
-      `)
+      graphqlRequest<{ getMyNotificationPreferences: typeof notifPrefs }>(
+        GET_NOTIFICATION_PREFERENCES_QUERY,
+      )
         .then((data) => {
           const p = data.getMyNotificationPreferences;
           setNotifPrefs({
@@ -284,21 +255,7 @@ const TenantSettings: React.FC = () => {
     setNotifSaving(true);
     setSaveError(null);
     try {
-      await executeGraphQL(`
-        mutation UpdateMyNotificationPreferences($input: UpdateNotificationPreferencesInput!) {
-          updateMyNotificationPreferences(input: $input) {
-            emailEnabled
-            smsEnabled
-            pushEnabled
-            quietHoursStart
-            quietHoursEnd
-            quietHoursTimezone
-            alertNotifications
-            taskNotifications
-            systemNotifications
-          }
-        }
-      `, {
+      await graphqlRequest(UPDATE_NOTIFICATION_PREFERENCES_MUTATION, {
         input: {
           emailEnabled: notifPrefs.emailEnabled,
           smsEnabled: notifPrefs.smsEnabled,
@@ -346,29 +303,8 @@ const TenantSettings: React.FC = () => {
     try {
       // Load users and mobile settings in parallel
       const [usersData, settingsData] = await Promise.all([
-        executeGraphQL<{ tenantUsers: TenantUser[] }>(`
-          query TenantUsers {
-            tenantUsers {
-              id
-              email
-              firstName
-              lastName
-              role
-              isActive
-            }
-          }
-        `),
-        executeGraphQL<{ getMobileUsersSettings: MobileUserSettingsData[] }>(`
-          query GetMobileUsersSettings {
-            getMobileUsersSettings {
-              id
-              userId
-              tenantId
-              isMobileEnabled
-              allowedFeatures
-            }
-          }
-        `),
+        graphqlRequest<{ tenantUsers: TenantUser[] }>(TENANT_USERS_QUERY),
+        graphqlRequest<{ getMobileUsersSettings: MobileUserSettingsData[] }>(GET_MOBILE_USERS_SETTINGS_QUERY),
       ]);
 
       setMobileUsers(usersData.tenantUsers || []);
@@ -441,22 +377,11 @@ const TenantSettings: React.FC = () => {
     setMobileSaving(true);
     setMobileError(null);
 
-    const MOBILE_MUTATION = `
-      mutation UpdateMobileUserSettings($input: UpdateMobileUserSettingsInput!) {
-        updateMobileUserSettings(input: $input) {
-          id
-          userId
-          isMobileEnabled
-          allowedFeatures
-        }
-      }
-    `;
-
     try {
       await Promise.all(
         Array.from(dirtyUserIds).map((userId) => {
           const settings = getUserSettings(userId);
-          return executeGraphQL(MOBILE_MUTATION, {
+          return graphqlRequest(UPDATE_MOBILE_USER_SETTINGS_MUTATION, {
             input: {
               userId,
               isMobileEnabled: settings.isMobileEnabled,

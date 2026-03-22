@@ -97,7 +97,7 @@ export class TenantResolver {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
     // SECURITY: Role-based field filtering is handled inside TenantService.update()
-    return this.tenantService.update(id, input, role);
+    return this.tenantService.update(id, input);
   }
 
   @SuperAdminOnly()

@@ -77,7 +77,7 @@ const EventHandlers = [
   imports: [
     TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan]),
     CqrsModule,
-    ScheduleModule.forRoot(),
+    ScheduleModule,
   ],
   controllers: [StripeWebhookController],
   providers: [

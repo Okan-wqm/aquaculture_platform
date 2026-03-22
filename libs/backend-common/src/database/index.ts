@@ -27,3 +27,6 @@ export * from './watchdog';
 
 // Tenant Connection Bootstrap (centralized factory)
 export { createTenantConnectionBootstrap } from './tenant-connection-bootstrap.service';
+
+// Row-Level Security (RLS) for PostgreSQL tenant isolation
+export * from './rls';

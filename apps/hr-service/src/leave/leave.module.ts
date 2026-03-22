@@ -20,7 +20,7 @@ import { Employee } from '../hr/entities/employee.entity';
       Employee,
     ]),
     CqrsModule,
-    ScheduleModule.forRoot(),
+    ScheduleModule,
   ],
   providers: [
     LeaveResolver,

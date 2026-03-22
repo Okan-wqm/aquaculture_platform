@@ -1,14 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import 'reflect-metadata';
-import { Role } from '@platform/backend-common';
+import { ROLES_KEY, Role } from '@platform/backend-common';
 
 import { MobileSettingsResolver } from '../resolvers/mobile-settings.resolver';
 
 /**
  * Verify that MobileSettingsResolver methods have the correct auth guard decorators.
+ *
+ * NestJS SetMetadata stores metadata on the method function itself (not on
+ * target + propertyKey). To read it type-safely we look up the property
+ * descriptor value and pass it as the target to Reflect.getMetadata.
  *
  * - getMobileUserSettings, getMobileUsersSettings, updateMobileUserSettings, bulkUpdateMobileSettings
  *   must require @TenantAdminOrHigher()
@@ -16,15 +16,20 @@ import { MobileSettingsResolver } from '../resolvers/mobile-settings.resolver';
  */
 describe('MobileSettingsResolver — Guard Decorators', () => {
   /**
-   * Helper: extract the 'roles' metadata key from a method descriptor.
-   * Both @Roles() and @TenantAdminOrHigher() set the same 'roles' metadata.
+   * Type-safe helper: extract the 'roles' metadata from a resolver method.
+   *
+   * NestJS SetMetadata attaches metadata to the method descriptor value (the
+   * function object), so we retrieve the descriptor and pass descriptor.value
+   * as the Reflect.getMetadata target. This avoids using `any`.
    */
-  function getRolesMetadata(method: any): Role[] | undefined {
-    return Reflect.getMetadata('roles', method) as Role[] | undefined;
+  function getMethodRoles(prototype: object, methodName: string): Role[] | undefined {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
+    if (!descriptor?.value) return undefined;
+    return Reflect.getMetadata(ROLES_KEY, descriptor.value as object) as Role[] | undefined;
   }
 
   it('getMobileUserSettings should require TenantAdminOrHigher', () => {
-    const roles = getRolesMetadata(MobileSettingsResolver.prototype.getMobileUserSettings);
+    const roles = getMethodRoles(MobileSettingsResolver.prototype, 'getMobileUserSettings');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.SUPER_ADMIN);
     expect(roles).toContain(Role.TENANT_ADMIN);
@@ -33,7 +38,7 @@ describe('MobileSettingsResolver — Guard Decorators', () => {
   });
 
   it('getMobileUsersSettings should require TenantAdminOrHigher', () => {
-    const roles = getRolesMetadata(MobileSettingsResolver.prototype.getMobileUsersSettings);
+    const roles = getMethodRoles(MobileSettingsResolver.prototype, 'getMobileUsersSettings');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.SUPER_ADMIN);
     expect(roles).toContain(Role.TENANT_ADMIN);
@@ -41,7 +46,7 @@ describe('MobileSettingsResolver — Guard Decorators', () => {
   });
 
   it('updateMobileUserSettings should require TenantAdminOrHigher', () => {
-    const roles = getRolesMetadata(MobileSettingsResolver.prototype.updateMobileUserSettings);
+    const roles = getMethodRoles(MobileSettingsResolver.prototype, 'updateMobileUserSettings');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.SUPER_ADMIN);
     expect(roles).toContain(Role.TENANT_ADMIN);
@@ -49,7 +54,7 @@ describe('MobileSettingsResolver — Guard Decorators', () => {
   });
 
   it('bulkUpdateMobileSettings should require TenantAdminOrHigher', () => {
-    const roles = getRolesMetadata(MobileSettingsResolver.prototype.bulkUpdateMobileSettings);
+    const roles = getMethodRoles(MobileSettingsResolver.prototype, 'bulkUpdateMobileSettings');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.SUPER_ADMIN);
     expect(roles).toContain(Role.TENANT_ADMIN);
@@ -57,7 +62,7 @@ describe('MobileSettingsResolver — Guard Decorators', () => {
   });
 
   it('getMyMobileSettings should allow MODULE_USER (minimum role)', () => {
-    const roles = getRolesMetadata(MobileSettingsResolver.prototype.getMyMobileSettings);
+    const roles = getMethodRoles(MobileSettingsResolver.prototype, 'getMyMobileSettings');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.MODULE_USER);
   });

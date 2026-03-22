@@ -1,19 +1,23 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import 'reflect-metadata';
-import { Role } from '@platform/backend-common';
+import { ROLES_KEY, Role } from '@platform/backend-common';
 
 import { TenantAdminResolver } from '../resolvers/tenant-admin.resolver';
 
 /**
- * Verify that TenantAdminResolver.myModules has proper auth guard.
+ * Verify that TenantAdminResolver methods have proper auth guards.
+ *
+ * NestJS SetMetadata stores metadata on the method function itself (not on
+ * target + propertyKey). We retrieve the descriptor value to read it type-safely.
  */
 describe('TenantAdminResolver — Guard Decorators', () => {
-  function getRolesMetadata(method: any): Role[] | undefined {
-    return Reflect.getMetadata('roles', method) as Role[] | undefined;
+  function getMethodRoles(prototype: object, methodName: string): Role[] | undefined {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
+    if (!descriptor?.value) return undefined;
+    return Reflect.getMetadata(ROLES_KEY, descriptor.value as object) as Role[] | undefined;
   }
 
   it('myModules should require at least MODULE_USER role', () => {
-    const roles = getRolesMetadata(TenantAdminResolver.prototype.myModules);
+    const roles = getMethodRoles(TenantAdminResolver.prototype, 'myModules');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.MODULE_USER);
     expect(roles).toContain(Role.MODULE_MANAGER);
@@ -22,7 +26,7 @@ describe('TenantAdminResolver — Guard Decorators', () => {
   });
 
   it('moduleUsers should require TenantAdminOrHigher', () => {
-    const roles = getRolesMetadata(TenantAdminResolver.prototype.moduleUsers);
+    const roles = getMethodRoles(TenantAdminResolver.prototype, 'moduleUsers');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.SUPER_ADMIN);
     expect(roles).toContain(Role.TENANT_ADMIN);

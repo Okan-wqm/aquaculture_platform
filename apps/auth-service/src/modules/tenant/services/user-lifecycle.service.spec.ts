@@ -1,10 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BadRequestException,
   ForbiddenException,
@@ -109,7 +102,7 @@ const createMockRepository = () => ({
   findOne: jest.fn(),
   findAndCount: jest.fn(),
   save: jest.fn(),
-  create: jest.fn((data: any) => ({ ...data } as any)),
+  create: jest.fn(<T>(data: T) => ({ ...data })),
   update: jest.fn(),
   delete: jest.fn(),
   count: jest.fn(),
@@ -137,7 +130,7 @@ describe('UserLifecycleService', () => {
 
     mockDataSource = {
       query: jest.fn().mockResolvedValue([]),
-      transaction: jest.fn().mockImplementation(async (cb: any) => {
+      transaction: jest.fn().mockImplementation(async (cb: (manager: unknown) => Promise<unknown>) => {
         // Simulate transaction by passing a mock manager
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),

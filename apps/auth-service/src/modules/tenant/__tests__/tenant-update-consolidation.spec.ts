@@ -1,24 +1,25 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import 'reflect-metadata';
 import { ForbiddenException } from '@nestjs/common';
 import { Role } from '@platform/backend-common';
 
 import { TenantResolver } from '../resolvers/tenant.resolver';
+import { TenantService } from '../services/tenant.service';
+import { AuditLogService } from '../../../audit/audit-log.service';
 
 /**
  * Verify the updateTenant mutation consolidation:
- * 1. updateTenantSettings mutation is removed
+ * 1. updateTenantSettings mutation is removed from resolver
  * 2. updateTenant applies role-based filtering via TenantService.update(id, input, role)
  */
 describe('Tenant Update Consolidation', () => {
   describe('TenantResolver mutations', () => {
     it('should NOT have updateTenantSettings method', () => {
       // The standalone updateTenantSettings mutation has been removed
-      expect(
-        (TenantResolver.prototype as any).updateTenantSettings
-      ).toBeUndefined();
+      const descriptor = Object.getOwnPropertyDescriptor(
+        TenantResolver.prototype,
+        'updateTenantSettings',
+      );
+      expect(descriptor).toBeUndefined();
     });
 
     it('should have updateTenant method', () => {
@@ -28,7 +29,7 @@ describe('Tenant Update Consolidation', () => {
 
   describe('TenantService.update role-based filtering', () => {
     it('should call TenantService.update with role parameter', async () => {
-      // Create a minimal resolver instance with a mock service
+      // Create a minimal resolver instance with mock services
       const mockTenantService = {
         update: jest.fn().mockResolvedValue({
           id: 'tenant-1',
@@ -42,8 +43,8 @@ describe('Tenant Update Consolidation', () => {
       };
 
       const resolver = new TenantResolver(
-        mockTenantService as any,
-        mockAuditLogService as any,
+        mockTenantService as unknown as TenantService,
+        mockAuditLogService as unknown as AuditLogService,
       );
 
       await resolver.updateTenant(
@@ -66,8 +67,8 @@ describe('Tenant Update Consolidation', () => {
       const mockAuditLogService = { findByTenant: jest.fn() };
 
       const resolver = new TenantResolver(
-        mockTenantService as any,
-        mockAuditLogService as any,
+        mockTenantService as unknown as TenantService,
+        mockAuditLogService as unknown as AuditLogService,
       );
 
       await expect(
@@ -89,8 +90,8 @@ describe('Tenant Update Consolidation', () => {
       const mockAuditLogService = { findByTenant: jest.fn() };
 
       const resolver = new TenantResolver(
-        mockTenantService as any,
-        mockAuditLogService as any,
+        mockTenantService as unknown as TenantService,
+        mockAuditLogService as unknown as AuditLogService,
       );
 
       await resolver.updateTenant(

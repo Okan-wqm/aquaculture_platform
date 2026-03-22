@@ -339,7 +339,7 @@ services:
       DB_PORT: 5432
       DB_USERNAME: ${POSTGRES_USER:-aquaculture}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: aquaculture_observability
+      DB_NAME: aquaculture
     depends_on:
       - postgres
     # Attached to aqua-internal only — no published ports, not reachable from aqua-network

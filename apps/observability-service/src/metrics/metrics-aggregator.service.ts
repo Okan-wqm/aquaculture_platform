@@ -193,7 +193,7 @@ export class MetricsAggregatorService {
       // Query sensor count from tenant-specific schema
       const sensorResult = await safeQuery<{ count: string }[]>(
         this.dataSource,
-        `SELECT count(*)::text as count FROM sensor.sensors WHERE "tenantId" = $1`,
+        `SELECT count(*)::text as count FROM sensor.sensors WHERE tenant_id = $1`,
         [tenantId],
         [{ count: '0' }],
         this.logger,
@@ -249,8 +249,8 @@ export class MetricsAggregatorService {
     for (const row of statusRows) {
       const count = parseInt(row.count, 10);
       total += count;
-      if (row.status === 'active') active = count;
-      if (row.status === 'suspended') suspended = count;
+      if (row.status === 'ACTIVE') active = count;
+      if (row.status === 'SUSPENDED') suspended = count;
     }
 
     // Query tenant counts by tier/plan
@@ -258,7 +258,7 @@ export class MetricsAggregatorService {
       this.dataSource,
       `SELECT COALESCE(plan, 'free') as tier, count(*)::text as count
        FROM auth.tenants
-       WHERE status = 'active'
+       WHERE status = 'ACTIVE'
        GROUP BY plan`,
       [],
       [],
@@ -288,9 +288,9 @@ export class MetricsAggregatorService {
     // Active sensors (had a reading in last hour)
     const activeResult = await safeQuery<{ count: string }[]>(
       this.dataSource,
-      `SELECT count(DISTINCT "sensorId")::text as count
+      `SELECT count(DISTINCT sensor_id)::text as count
        FROM sensor.sensor_readings
-       WHERE "createdAt" > NOW() - INTERVAL '1 hour'`,
+       WHERE created_at > NOW() - INTERVAL '1 hour'`,
       [],
       [{ count: '0' }],
       this.logger,
@@ -302,7 +302,7 @@ export class MetricsAggregatorService {
       this.dataSource,
       `SELECT count(*)::text as count
        FROM sensor.sensor_readings
-       WHERE "createdAt" > NOW() - INTERVAL '24 hours'`,
+       WHERE created_at > NOW() - INTERVAL '24 hours'`,
       [],
       [{ count: '0' }],
       this.logger,
@@ -312,9 +312,9 @@ export class MetricsAggregatorService {
     // Readings per minute (last 5 minutes average)
     const rpmResult = await safeQuery<{ rpm: string }[]>(
       this.dataSource,
-      `SELECT COALESCE(count(*)::float / GREATEST(EXTRACT(EPOCH FROM (NOW() - MIN("createdAt"))) / 60, 1), 0)::text as rpm
+      `SELECT COALESCE(count(*)::float / GREATEST(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) / 60, 1), 0)::text as rpm
        FROM sensor.sensor_readings
-       WHERE "createdAt" > NOW() - INTERVAL '5 minutes'`,
+       WHERE created_at > NOW() - INTERVAL '5 minutes'`,
       [],
       [{ rpm: '0' }],
       this.logger,
@@ -363,8 +363,8 @@ export class MetricsAggregatorService {
     const triggeredResult = await safeQuery<{ count: string }[]>(
       this.dataSource,
       `SELECT count(*)::text as count
-       FROM alert.alert_events
-       WHERE "createdAt" > NOW() - INTERVAL '24 hours'`,
+       FROM alert.alert_incidents
+       WHERE created_at > NOW() - INTERVAL '24 hours'`,
       [],
       [{ count: '0' }],
       this.logger,
@@ -375,8 +375,8 @@ export class MetricsAggregatorService {
     const severityRows = await safeQuery<{ severity: string; count: string }[]>(
       this.dataSource,
       `SELECT COALESCE(severity, 'unknown') as severity, count(*)::text as count
-       FROM alert.alert_events
-       WHERE "createdAt" > NOW() - INTERVAL '24 hours'
+       FROM alert.alert_incidents
+       WHERE created_at > NOW() - INTERVAL '24 hours'
        GROUP BY severity`,
       [],
       [],

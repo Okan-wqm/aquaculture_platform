@@ -669,8 +669,9 @@ services:
       DB_PORT: 5432
       DB_USERNAME: ${POSTGRES_USER:-aquaculture}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      # observability-service uses its own dedicated database, not the main aquaculture db
-      DB_NAME: aquaculture_observability
+      # Observability reads cross-service metrics from the main aquaculture DB
+      # (sensor, auth, alert, farm schemas). No own entities — schema-based isolation.
+      DB_NAME: aquaculture
     depends_on:
       postgres:
         condition: service_healthy

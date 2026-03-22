@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { TenantAdminOrHigher, CurrentUser } from '@platform/backend-common';
+import { TenantAdminOrHigher, CurrentUser, Roles, Role } from '@platform/backend-common';
 
 import { User } from '../../authentication/entities/user.entity';
 import {
@@ -30,7 +30,9 @@ export class TenantAdminResolver {
    * Get modules accessible by current user
    * TENANT_ADMIN: All tenant modules
    * MODULE_MANAGER/USER: Only assigned modules
+   * SECURITY: Requires at least MODULE_USER role
    */
+  @Roles(Role.MODULE_USER, Role.MODULE_MANAGER, Role.TENANT_ADMIN, Role.SUPER_ADMIN)
   @Query(() => [UserModuleInfo])
   async myModules(@CurrentUser('sub') userId: string): Promise<UserModuleInfo[]> {
     return this.tenantAdminService.getMyModules(userId);

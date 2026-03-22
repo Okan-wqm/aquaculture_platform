@@ -779,7 +779,7 @@ describe('TenantCreation', () => {
           adminUser: {
             userId: 'admin-user-uuid',
             email: 'john@test.com',
-            invitationToken: 'invitation-token-123',
+            // invitationToken intentionally omitted — token only travels via email
           },
         }),
       );

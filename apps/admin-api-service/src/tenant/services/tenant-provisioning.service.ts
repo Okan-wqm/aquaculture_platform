@@ -14,6 +14,7 @@ import { TenantConfigurationService } from '../../settings/services/tenant-confi
 import { RoleTemplateService } from '../../users/services/role-template.service';
 import { UserPermissionsService } from '../../users/services/user-permissions.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { ProvisioningSagaService, SagaResult } from './provisioning-saga.service';
 
 /**
  * Default tenant role definition for provisioning
@@ -33,10 +34,13 @@ export interface ProvisioningResult {
   tenantId: string;
   steps: ProvisioningStep[];
   error?: string;
+  compensationErrors?: Array<{ step: string; error: string }>;
   adminUser?: {
     userId: string;
     email: string;
-    invitationToken: string;
+    // NOTE: invitationToken intentionally omitted from result.
+    // The raw token must only travel via email to prevent leakage
+    // through API responses, logs, or event payloads.
   };
 }
 
@@ -102,7 +106,18 @@ export class TenantProvisioningService {
   }
 
   /**
-   * Provision a new tenant with all required resources
+   * Provision a new tenant with all required resources.
+   *
+   * Uses ProvisioningSagaService to orchestrate steps with compensating
+   * transactions. On failure, completed steps are rolled back in reverse.
+   *
+   * TODO(NATS-MIGRATION): The following steps currently write directly to
+   * auth.* tables. They should be replaced with NATS request-reply commands
+   * using the contracts in @platform/event-contracts/tenant-commands:
+   *   - setupDefaultRoles → SetupTenantRolesCommand
+   *   - createFirstAdminUser → CreateTenantAdminCommand
+   *   - assignModulesToTenant → AssignTenantModulesCommand
+   *   - On rollback → RollbackTenantProvisioningCommand
    */
   async provisionTenant(
     tenantId: string,
@@ -117,219 +132,279 @@ export class TenantProvisioningService {
       skipSchemaCreation = false,
     } = options;
 
-    const steps: ProvisioningStep[] = [
-      { name: 'validate_tenant', status: 'pending' },
-      ...(assignModules.length > 0
-        ? [{ name: 'assign_modules', status: 'pending' as const }]
-        : []),
-      { name: 'create_schema', status: 'pending' },
-      { name: 'setup_default_roles', status: 'pending' },
-      { name: 'create_default_config', status: 'pending' },
-      ...(createFirstAdmin && adminEmail
-        ? [{ name: 'create_first_admin', status: 'pending' as const }]
-        : []),
-      { name: 'activate_tenant', status: 'pending' },
-    ];
+    // Pre-flight: validate tenant exists and is in PENDING state
+    const tenant = await this.tenantRepository.findOne({
+      where: { id: tenantId },
+    });
 
-    const updateStep = (
-      index: number,
-      status: ProvisioningStep['status'],
-      duration?: number,
-      error?: string,
-    ): void => {
-      const step = steps[index];
-      if (step) {
-        step.status = status;
-        if (duration !== undefined) step.duration = duration;
-        if (error !== undefined) step.error = error;
-      }
-    };
-
-    try {
-      const tenant = await this.tenantRepository.findOne({
-        where: { id: tenantId },
-      });
-
-      if (!tenant) {
-        return {
-          success: false,
-          tenantId,
-          steps,
-          error: `Tenant ${tenantId} not found`,
-        };
-      }
-
-      // Step 1: Validate tenant
-      // MED-005 fix: perform an atomic UPDATE ... WHERE status = PENDING to prevent TOCTOU races.
-      // Even if two requests both read status=PENDING, only one UPDATE will match — the other
-      // will update 0 rows and be rejected here, preventing duplicate provisioning.
-      updateStep(0, 'in_progress');
-      const startValidate = Date.now();
-
-      if (tenant.status !== TenantStatus.PENDING) {
-        updateStep(
-          0,
-          'failed',
-          undefined,
-          `Tenant status must be PENDING, got ${tenant.status}`,
-        );
-        return { success: false, tenantId, steps };
-      }
-
-      // Atomically mark the tenant as being provisioned; if another process already claimed it,
-      // rowsAffected will be 0 and we bail out immediately.
-      const [, rowsAffected] = await this.dataSource.query(
-        `UPDATE auth.tenants SET status = 'ACTIVE', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
-        [tenantId, TenantStatus.PENDING],
-      );
-      if ((rowsAffected as number) === 0) {
-        updateStep(
-          0,
-          'failed',
-          Date.now() - startValidate,
-          'Tenant provisioning already in progress or completed by a concurrent request',
-        );
-        return { success: false, tenantId, steps };
-      }
-      // Update the in-memory entity to reflect the new status so downstream steps work correctly
-      tenant.status = TenantStatus.ACTIVE;
-
-      updateStep(0, 'completed', Date.now() - startValidate);
-
-      let stepIndex = 1;
-
-      // Step 2 (Optional): Assign modules BEFORE schema creation
-      // This ensures createTenantSchema() can query tenant_modules to determine
-      // which module tables to create (sensor, farm, hr)
-      if (assignModules.length > 0) {
-        updateStep(stepIndex, 'in_progress');
-        const startModules = Date.now();
-        await this.assignModulesToTenant(tenant.id, assignModules);
-        updateStep(stepIndex, 'completed', Date.now() - startModules);
-        stepIndex++;
-      }
-
-      // Step 3: Create schema (unless skipped)
-      // Queries tenant_modules to determine which module tables to create
-      updateStep(stepIndex, 'in_progress');
-      const startSchema = Date.now();
-      if (skipSchemaCreation) {
-        this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
-        updateStep(stepIndex, 'completed', Date.now() - startSchema);
-      } else {
-        await this.createTenantSchema(tenant);
-        updateStep(stepIndex, 'completed', Date.now() - startSchema);
-      }
-      stepIndex++;
-
-      // Step 4: Setup default roles
-      updateStep(stepIndex, 'in_progress');
-      const startRoles = Date.now();
-      await this.setupDefaultRoles(tenant);
-      updateStep(stepIndex, 'completed', Date.now() - startRoles);
-      stepIndex++;
-
-      // Step 5: Create default configuration
-      updateStep(stepIndex, 'in_progress');
-      const startConfig = Date.now();
-      await this.createDefaultConfiguration(tenant);
-      updateStep(stepIndex, 'completed', Date.now() - startConfig);
-      stepIndex++;
-
-      let adminUser: ProvisioningResult['adminUser'] | undefined;
-
-      // Step 6 (Optional): Create first admin user
-      if (createFirstAdmin && adminEmail) {
-        updateStep(stepIndex, 'in_progress');
-        const startAdmin = Date.now();
-        const adminResult = await this.createFirstAdminUser(
-          tenant.id,
-          adminEmail,
-          adminFirstName || 'Admin',
-          adminLastName || 'User',
-        );
-
-        if (!adminResult.success) {
-          updateStep(stepIndex, 'failed', Date.now() - startAdmin, adminResult.error);
-          // Don't fail the whole provisioning, just log warning
-          this.logger.warn(
-            `Could not create first admin for tenant ${tenantId}: ${adminResult.error}`,
-          );
-        } else {
-          adminUser = {
-            userId: adminResult.userId!,
-            email: adminEmail,
-            invitationToken: adminResult.invitationToken!,
-          };
-          updateStep(stepIndex, 'completed', Date.now() - startAdmin);
-
-          // Send invitation email
-          if (this.emailSenderService) {
-            try {
-              const expiresAt = new Date();
-              expiresAt.setDate(expiresAt.getDate() + 7);
-
-              const emailResult = await this.emailSenderService.sendInvitationEmail({
-                email: adminEmail,
-                firstName: adminFirstName || 'Admin',
-                lastName: adminLastName || 'User',
-                tenantName: tenant.name,
-                invitationToken: adminResult.invitationToken!,
-                role: 'TENANT_ADMIN',
-                expiresAt,
-              });
-
-              if (emailResult.success) {
-                this.logger.log(`Invitation email sent to ${adminEmail}`);
-              } else {
-                this.logger.warn(`Failed to send invitation email to ${adminEmail}: ${emailResult.error}`);
-              }
-            } catch (emailError) {
-              this.logger.warn(`Error sending invitation email: ${(emailError as Error).message}`);
-            }
-          } else {
-            this.logger.warn('EmailSenderService not available, invitation email not sent');
-          }
-        }
-        stepIndex++;
-      }
-
-      // Final Step: Activate tenant
-      // Note: status was already set to ACTIVE by the atomic UPDATE in step 1.
-      // This save refreshes updatedAt and persists any in-memory changes.
-      updateStep(stepIndex, 'in_progress');
-      const startActivate = Date.now();
-      tenant.status = TenantStatus.ACTIVE;
-      await this.tenantRepository.save(tenant);
-      updateStep(stepIndex, 'completed', Date.now() - startActivate);
-
-      this.logger.log(`Tenant ${tenantId} provisioned successfully`);
-
-      return {
-        success: true,
-        tenantId,
-        steps,
-        adminUser,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to provision tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-
-      // Mark current step as failed
-      const currentStep = steps.find((s) => s.status === 'in_progress');
-      if (currentStep) {
-        currentStep.status = 'failed';
-        currentStep.error = (error as Error).message;
-      }
-
+    if (!tenant) {
       return {
         success: false,
         tenantId,
-        steps,
-        error: (error as Error).message,
+        steps: [{ name: 'validate_tenant', status: 'failed', error: `Tenant ${tenantId} not found` }],
+        error: `Tenant ${tenantId} not found`,
       };
+    }
+
+    if (tenant.status !== TenantStatus.PENDING) {
+      return {
+        success: false,
+        tenantId,
+        steps: [{
+          name: 'validate_tenant',
+          status: 'failed',
+          error: `Tenant status must be PENDING, got ${tenant.status}`,
+        }],
+        error: `Tenant status must be PENDING, got ${tenant.status}`,
+      };
+    }
+
+    // MED-005 fix: Atomically claim the tenant to prevent TOCTOU races.
+    const [, rowsAffected] = await this.dataSource.query(
+      `UPDATE auth.tenants SET status = 'ACTIVE', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
+      [tenantId, TenantStatus.PENDING],
+    );
+    if ((rowsAffected as number) === 0) {
+      return {
+        success: false,
+        tenantId,
+        steps: [{
+          name: 'validate_tenant',
+          status: 'failed',
+          error: 'Tenant provisioning already in progress or completed by a concurrent request',
+        }],
+        error: 'Tenant provisioning already in progress or completed by a concurrent request',
+      };
+    }
+    tenant.status = TenantStatus.ACTIVE;
+
+    // Build the saga with steps + compensating actions
+    const saga = new ProvisioningSagaService();
+    let adminUser: ProvisioningResult['adminUser'] | undefined;
+
+    // Step: Assign modules (optional, before schema creation)
+    // TODO(NATS-MIGRATION): Replace with NATS AssignTenantModulesCommand
+    if (assignModules.length > 0) {
+      saga.addStep(
+        'assign_modules',
+        async () => {
+          await this.assignModulesToTenant(tenant.id, assignModules);
+        },
+        async () => {
+          // Compensate: remove assigned modules
+          this.logger.warn(`Compensating: removing modules for tenant ${tenant.id}`);
+          await this.dataSource.query(
+            `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1`,
+            [tenant.id],
+          ).catch((err: Error) => {
+            this.logger.error(`Failed to remove modules during compensation: ${err.message}`);
+          });
+        },
+      );
+    }
+
+    // Step: Create tenant schema
+    if (!skipSchemaCreation) {
+      saga.addStep(
+        'create_schema',
+        async () => {
+          await this.createTenantSchema(tenant);
+        },
+        async () => {
+          // Compensate: delete the schema
+          this.logger.warn(`Compensating: deleting schema for tenant ${tenant.id}`);
+          await this.schemaManager.deleteTenantSchema(tenant.id);
+          // Also clean up tracking record
+          const schemaRecord = await this.tenantSchemaRepository.findOne({ where: { tenantId: tenant.id } });
+          if (schemaRecord) {
+            schemaRecord.status = 'deleted' as SchemaStatus;
+            await this.tenantSchemaRepository.save(schemaRecord);
+          }
+        },
+      );
+    } else {
+      saga.addStep(
+        'create_schema',
+        async () => {
+          this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
+        },
+      );
+    }
+
+    // Step: Setup default roles
+    // TODO(NATS-MIGRATION): Replace with NATS SetupTenantRolesCommand
+    saga.addStep(
+      'setup_default_roles',
+      async () => {
+        await this.setupDefaultRoles(tenant);
+      },
+      async () => {
+        // Compensate: delete roles created for this tenant
+        this.logger.warn(`Compensating: deleting roles for tenant ${tenant.id}`);
+        await this.dataSource.query(
+          `DELETE FROM auth.tenant_roles WHERE "tenantId" = $1`,
+          [tenant.id],
+        ).catch((err: Error) => {
+          this.logger.error(`Failed to delete roles during compensation: ${err.message}`);
+        });
+      },
+    );
+
+    // Step: Create default configuration
+    saga.addStep(
+      'create_default_config',
+      async () => {
+        await this.createDefaultConfiguration(tenant);
+      },
+      async () => {
+        // Compensate: configuration cleanup is handled by TenantConfigurationService
+        this.logger.warn(`Compensating: removing configuration for tenant ${tenant.id}`);
+        // Best effort — config may not have been created
+      },
+    );
+
+    // Step (Optional): Create first admin user
+    // TODO(NATS-MIGRATION): Replace with NATS CreateTenantAdminCommand
+    if (createFirstAdmin && adminEmail) {
+      saga.addStep(
+        'create_first_admin',
+        async () => {
+          const adminResult = await this.createFirstAdminUser(
+            tenant.id,
+            adminEmail,
+            adminFirstName || 'Admin',
+            adminLastName || 'User',
+          );
+
+          if (!adminResult.success) {
+            // Admin creation failure is non-fatal — log and continue
+            this.logger.warn(
+              `Could not create first admin for tenant ${tenantId}: ${adminResult.error}`,
+            );
+            return;
+          }
+
+          // Store admin user info (without invitationToken — it only travels via email)
+          adminUser = {
+            userId: adminResult.userId!,
+            email: adminEmail,
+          };
+
+          // Send invitation email with the raw token
+          await this.sendAdminInvitationEmail(
+            adminEmail,
+            adminFirstName || 'Admin',
+            adminLastName || 'User',
+            tenant.name,
+            adminResult.invitationToken!,
+          );
+        },
+        async () => {
+          // Compensate: delete the admin user and invitation
+          this.logger.warn(`Compensating: deleting admin user for tenant ${tenant.id}`);
+          await this.dataSource.query(
+            `DELETE FROM auth.users WHERE "tenantId" = $1 AND role = 'TENANT_ADMIN'`,
+            [tenant.id],
+          ).catch((err: Error) => {
+            this.logger.error(`Failed to delete admin user during compensation: ${err.message}`);
+          });
+          await this.dataSource.query(
+            `DELETE FROM auth.invitations WHERE "tenantId" = $1`,
+            [tenant.id],
+          ).catch((err: Error) => {
+            this.logger.error(`Failed to delete invitations during compensation: ${err.message}`);
+          });
+        },
+      );
+    }
+
+    // Step: Activate tenant (persist the ACTIVE status set atomically above)
+    saga.addStep(
+      'activate_tenant',
+      async () => {
+        tenant.status = TenantStatus.ACTIVE;
+        await this.tenantRepository.save(tenant);
+      },
+      async () => {
+        // Compensate: revert tenant to PENDING
+        this.logger.warn(`Compensating: reverting tenant ${tenant.id} to PENDING`);
+        await this.dataSource.query(
+          `UPDATE auth.tenants SET status = $1, "updatedAt" = NOW() WHERE id = $2`,
+          [TenantStatus.PENDING, tenant.id],
+        );
+      },
+    );
+
+    // Execute the saga
+    const sagaResult: SagaResult = await saga.run();
+
+    // Map saga result to ProvisioningResult
+    const provisioningSteps: ProvisioningStep[] = sagaResult.steps.map((s) => ({
+      name: s.name,
+      status: s.status === 'completed' ? 'completed'
+        : s.status === 'failed' ? 'failed'
+        : s.status === 'compensated' ? 'failed'
+        : s.status === 'compensation_failed' ? 'failed'
+        : 'pending',
+      duration: s.duration,
+      error: s.error,
+    }));
+
+    if (sagaResult.success) {
+      this.logger.log(`Tenant ${tenantId} provisioned successfully`);
+    } else {
+      this.logger.error(
+        `Tenant ${tenantId} provisioning failed at step [${sagaResult.failedStep}]: ${sagaResult.error}`,
+      );
+    }
+
+    return {
+      success: sagaResult.success,
+      tenantId,
+      steps: provisioningSteps,
+      error: sagaResult.error,
+      compensationErrors: sagaResult.compensationErrors.length > 0 ? sagaResult.compensationErrors : undefined,
+      adminUser: sagaResult.success ? adminUser : undefined,
+    };
+  }
+
+  /**
+   * Send invitation email to the new admin user.
+   * Extracted from provisionTenant for clarity and testability.
+   */
+  private async sendAdminInvitationEmail(
+    email: string,
+    firstName: string,
+    lastName: string,
+    tenantName: string,
+    rawInvitationToken: string,
+  ): Promise<void> {
+    if (!this.emailSenderService) {
+      this.logger.warn('EmailSenderService not available, invitation email not sent');
+      return;
+    }
+
+    try {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      const emailResult = await this.emailSenderService.sendInvitationEmail({
+        email,
+        firstName,
+        lastName,
+        tenantName,
+        invitationToken: rawInvitationToken,
+        role: 'TENANT_ADMIN',
+        expiresAt,
+      });
+
+      if (emailResult.success) {
+        this.logger.log(`Invitation email sent to ${email}`);
+      } else {
+        this.logger.warn(`Failed to send invitation email to ${email}: ${emailResult.error}`);
+      }
+    } catch (emailError) {
+      this.logger.warn(`Error sending invitation email: ${(emailError as Error).message}`);
     }
   }
 

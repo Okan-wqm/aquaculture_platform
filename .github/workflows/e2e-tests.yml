@@ -42,7 +42,9 @@ jobs:
     env:
       # DigitalOcean sunucu URL'si — secrets'tan al
       GATEWAY_URL: ${{ inputs.target_url || secrets.E2E_GATEWAY_URL || 'http://localhost:4000' }}
-      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL || 'postgresql://aquaculture:aquaculture@localhost:5432/aquaculture' }}
+      # DB doğrulaması opsiyonel — PostgreSQL dışarıdan erişilebilir değilse testler API-only modda çalışır
+      DATABASE_URL: ${{ secrets.E2E_DATABASE_URL || '' }}
+      SKIP_DB_VERIFICATION: ${{ secrets.E2E_DATABASE_URL == '' && 'true' || 'false' }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       NODE_ENV: test
       CI: true

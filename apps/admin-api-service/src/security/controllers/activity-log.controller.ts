@@ -19,7 +19,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max, MaxLength } from 'class-validator';
 
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
@@ -187,6 +187,16 @@ class LogActivityDto {
   duration?: number;
 }
 
+class TerminateUserSessionsDto {
+  @IsIn(['logout', 'forced', 'security'])
+  reason!: 'logout' | 'forced' | 'security';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  terminatedBy?: string;
+}
+
 class ActivityStatsQueryDto {
   @IsOptional()
   @IsString()
@@ -323,12 +333,12 @@ export class ActivityLogController {
   @HttpCode(HttpStatus.OK)
   async terminateUserSessions(
     @Param('userId') userId: string,
-    @Body() body: { reason: 'logout' | 'forced' | 'security'; terminatedBy?: string },
+    @Body() dto: TerminateUserSessionsDto,
   ) {
     const count = await this.activityService.terminateAllUserSessions(
       userId,
-      body.reason,
-      body.terminatedBy,
+      dto.reason,
+      dto.terminatedBy,
     );
     return { terminated: count };
   }

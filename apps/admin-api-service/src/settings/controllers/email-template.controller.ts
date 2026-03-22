@@ -15,13 +15,17 @@ import { ApiTags } from '@nestjs/swagger';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
-import { EmailTemplateVariable } from '../entities/system-setting.entity';
 import {
   EmailTemplateService,
   CreateEmailTemplateDto,
   UpdateEmailTemplateDto,
   RenderTemplateDto,
 } from '../services/email-template.service';
+import {
+  CreateTenantOverrideDto,
+  ValidateTemplateDto,
+  SendTestEmailDto,
+} from '../dto/email-template.dto';
 
 @ApiTags('Settings')
 @Controller('settings/email-templates')
@@ -106,9 +110,10 @@ export class EmailTemplateController {
   @Post('code/:code/override')
   async createTenantOverride(
     @Param('code') code: string,
-    @Body() body: { tenantId: string; overrides: Partial<UpdateEmailTemplateDto> },
+    @Body() dto: CreateTenantOverrideDto,
   ) {
-    return this.templateService.createTenantOverride(code, body.tenantId, body.overrides);
+    const { tenantId, ...overrides } = dto;
+    return this.templateService.createTenantOverride(code, tenantId, overrides);
   }
 
   /**
@@ -145,9 +150,9 @@ export class EmailTemplateController {
    */
   @Post('validate')
   async validateTemplate(
-    @Body() body: { bodyHtml: string; variables: EmailTemplateVariable[] },
+    @Body() dto: ValidateTemplateDto,
   ) {
-    return this.templateService.validateTemplate(body.bodyHtml, body.variables);
+    return this.templateService.validateTemplate(dto.bodyHtml, dto.variables);
   }
 
   // ============================================================================
@@ -161,7 +166,7 @@ export class EmailTemplateController {
   @Post(':id/test')
   async sendTestEmail(
     @Param('id') id: string,
-    @Body() body: { recipientEmail: string; variables: Record<string, string> },
+    @Body() dto: SendTestEmailDto,
   ) {
     // This would integrate with a notification/email service
     // For now, just return the rendered template
@@ -169,12 +174,12 @@ export class EmailTemplateController {
 
     const rendered = await this.templateService.renderTemplate({
       templateCode: template.code,
-      variables: body.variables,
+      variables: dto.variables,
     });
 
     return {
       message: 'Test email would be sent (email service integration required)',
-      recipientEmail: body.recipientEmail,
+      recipientEmail: dto.recipientEmail,
       rendered,
     };
   }

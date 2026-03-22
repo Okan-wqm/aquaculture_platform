@@ -14,7 +14,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsArray, IsIP, IsOptional, IsString, ArrayMaxSize } from 'class-validator';
+import { IsArray, IsIP, IsOptional, IsString, ArrayMaxSize, MaxLength } from 'class-validator';
 import { Request } from 'express';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
@@ -24,6 +24,16 @@ import {
   CreateIpAccessRuleDto,
   UpdateIpAccessRuleDto,
 } from '../services/ip-access.service';
+
+class CheckIpAccessDto {
+  @IsIP()
+  ip!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  tenantId?: string;
+}
 
 // H23 fix: Proper DTO with array size limit and IP validation for bulk operations
 class BulkIpDto {
@@ -102,7 +112,7 @@ export class IpAccessController {
     @Body() dto: CreateIpAccessRuleDto,
     @Req() req: Request,
   ) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!userId) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -138,9 +148,9 @@ export class IpAccessController {
    */
   @Post('check')
   async checkIpAccess(
-    @Body() body: { ip: string; tenantId?: string },
+    @Body() dto: CheckIpAccessDto,
   ) {
-    return this.ipAccessService.checkIpAccess(body.ip, body.tenantId);
+    return this.ipAccessService.checkIpAccess(dto.ip, dto.tenantId);
   }
 
   // ============================================================================
@@ -156,7 +166,7 @@ export class IpAccessController {
     @Body() dto: BulkIpDto,
     @Req() req: Request,
   ) {
-    const createdBy = (req as any).user?.id;
+    const createdBy = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!createdBy) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -176,7 +186,7 @@ export class IpAccessController {
     @Body() dto: BulkIpDto,
     @Req() req: Request,
   ) {
-    const createdBy = (req as any).user?.id;
+    const createdBy = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!createdBy) {
       throw new UnauthorizedException('User not authenticated');
     }

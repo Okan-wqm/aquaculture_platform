@@ -400,7 +400,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
   ) {
-    const adminId = (req as any).user?.id;
+    const adminId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -618,7 +618,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
   ) {
-    const adminId = (req as any).user?.id;
+    const adminId = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -635,7 +635,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
   ) {
-    const revertedBy = (req as any).user?.id;
+    const revertedBy = (req as unknown as { user?: { id?: string } }).user?.id;
     if (!revertedBy) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -694,7 +694,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req?: Request,
   ) {
-    const adminId = (req as any)?.user?.id;
+    const adminId = (req as unknown as { user?: { id?: string } } | undefined)?.user?.id;
     return this.debugToolsService.queryOverrides({
       tenantId,
       adminId,

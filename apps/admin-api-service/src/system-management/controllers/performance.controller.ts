@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsNumber, IsObject, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, MaxLength } from 'class-validator';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
@@ -48,6 +48,26 @@ class RecordMetricDto {
   @IsOptional()
   @IsNumber()
   sampleCount?: number;
+}
+
+class RecordRequestMetricDto {
+  @IsString()
+  @MaxLength(255)
+  service!: string;
+
+  @IsString()
+  @MaxLength(255)
+  endpoint!: string;
+
+  @IsString()
+  @MaxLength(10)
+  method!: string;
+
+  @IsNumber()
+  durationMs!: number;
+
+  @IsBoolean()
+  isError!: boolean;
 }
 
 class UpdateThresholdsDto {
@@ -249,13 +269,7 @@ export class PerformanceController {
 
   @Post('metrics/request')
   async recordRequestMetric(
-    @Body() dto: {
-      service: string;
-      endpoint: string;
-      method: string;
-      durationMs: number;
-      isError: boolean;
-    },
+    @Body() dto: RecordRequestMetricDto,
   ) {
     await this.performanceService.recordRequestMetric(
       dto.service,

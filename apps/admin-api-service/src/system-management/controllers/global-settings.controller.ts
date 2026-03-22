@@ -15,7 +15,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { Request } from 'express';
 
 import { Public } from '../../decorators/public.decorator';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
@@ -312,8 +314,113 @@ class UpdateConfigDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   reason?: string;
 }
+
+class UpdateMaintenanceDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  scope?: MaintenanceScope;
+
+  @IsOptional()
+  @IsString()
+  type?: MaintenanceType;
+
+  @IsOptional()
+  @IsString()
+  tenantId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  affectedTenants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+
+  @IsOptional()
+  scheduledStart?: Date;
+
+  @IsOptional()
+  scheduledEnd?: Date;
+
+  @IsOptional()
+  @IsNumber()
+  estimatedDurationMinutes?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  userMessage?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowReadOnlyAccess?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  bypassForSuperAdmins?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  whitelistedIPs?: string[];
+}
+
+class ExtendMaintenanceDto {
+  @IsNumber()
+  @Min(1)
+  @Max(1440)
+  additionalMinutes!: number;
+}
+
+class DeployVersionDto {
+  @IsString()
+  @MaxLength(255)
+  deployedBy!: string;
+}
+
+class RollbackVersionDto {
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsString()
+  @MaxLength(255)
+  rolledBackBy!: string;
+}
+
+class BulkConfigUpdateItem {
+  @IsString()
+  @MaxLength(255)
+  key!: string;
+
+  @IsDefined()
+  value!: unknown;
+}
+
+class BulkUpdateConfigsDto {
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => BulkConfigUpdateItem)
+  updates!: BulkConfigUpdateItem[];
+}
+
+// UpdateProvisioningConfig uses runtime validation in the handler
+// since it's a dynamic key-value Record<string, string>
 
 // ============================================================================
 // Controller
@@ -445,7 +552,7 @@ export class GlobalSettingsController {
   @Put('maintenance/:id')
   async updateMaintenanceMode(
     @Param('id') id: string,
-    @Body() dto: Partial<CreateMaintenanceDto>,
+    @Body() dto: UpdateMaintenanceDto,
   ) {
     return this.globalSettingsService.updateMaintenanceMode(id, {
       ...dto,
@@ -472,7 +579,7 @@ export class GlobalSettingsController {
   @Post('maintenance/:id/extend')
   async extendMaintenance(
     @Param('id') id: string,
-    @Body() dto: { additionalMinutes: number },
+    @Body() dto: ExtendMaintenanceDto,
   ) {
     return this.globalSettingsService.extendMaintenance(id, dto.additionalMinutes);
   }
@@ -507,14 +614,14 @@ export class GlobalSettingsController {
   }
 
   @Post('versions/:id/deploy')
-  async deployVersion(@Param('id') id: string, @Body() dto: { deployedBy: string }) {
+  async deployVersion(@Param('id') id: string, @Body() dto: DeployVersionDto) {
     return this.globalSettingsService.deployVersion(id, dto.deployedBy);
   }
 
   @Post('versions/:id/rollback')
   async rollbackVersion(
     @Param('id') id: string,
-    @Body() dto: { reason: string; rolledBackBy: string },
+    @Body() dto: RollbackVersionDto,
   ) {
     return this.globalSettingsService.rollbackVersion(id, dto.reason, dto.rolledBackBy);
   }
@@ -560,7 +667,7 @@ export class GlobalSettingsController {
 
   @Post('configs/bulk-update')
   async bulkUpdateConfigs(
-    @Body() dto: { updates: Array<{ key: string; value: unknown }> },
+    @Body() dto: BulkUpdateConfigsDto,
   ) {
     return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
   }
@@ -579,12 +686,13 @@ export class GlobalSettingsController {
   @UseGuards(PlatformAdminGuard)
   async updateProvisioningConfig(
     @Body() body: Record<string, string>,
-    @Req() req: any,
+    @Req() req: Request,
   ) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Invalid configuration payload');
     }
-    const updatedBy = req.user?.email || req.user?.id || 'admin';
+    const user = (req as unknown as { user?: { email?: string; id?: string } }).user;
+    const updatedBy = user?.email || user?.id || 'admin';
     await this.globalSettingsService.updateProvisioningConfig(body, updatedBy);
     return { success: true };
   }

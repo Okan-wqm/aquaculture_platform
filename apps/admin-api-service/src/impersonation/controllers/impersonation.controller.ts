@@ -168,6 +168,33 @@ class LogActionDto {
   details?: Record<string, unknown>;
 }
 
+class EndImpersonationDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+class TerminateSessionDto {
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+}
+
+class LogResourceAccessDto {
+  @IsString()
+  @MaxLength(100)
+  resourceType!: string;
+
+  @IsString()
+  @MaxLength(100)
+  resourceId!: string;
+
+  @IsString()
+  @MaxLength(100)
+  action!: string;
+}
+
 class ExtendSessionDto {
   @IsInt()
   @Min(5, { message: 'Minimum extension is 5 minutes' })
@@ -272,7 +299,7 @@ export class ImpersonationController {
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
-    const user = (req as any).user;
+    const user = (req as unknown as { user?: { id?: string } }).user;
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -314,7 +341,7 @@ export class ImpersonationController {
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin identity from verified JWT token, not client-supplied headers
-    const user = (req as any).user;
+    const user = (req as unknown as { user?: { id?: string; email?: string } }).user;
     if (!user?.id || !user?.email) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -334,11 +361,11 @@ export class ImpersonationController {
   @Post('sessions/:id/end')
   async endImpersonation(
     @Param('id') sessionId: string,
-    @Body() dto: { reason?: string },
+    @Body() dto: EndImpersonationDto,
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
-    const user = (req as any).user;
+    const user = (req as unknown as { user?: { id?: string } }).user;
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -350,11 +377,11 @@ export class ImpersonationController {
   @Post('sessions/:id/terminate')
   async terminateSession(
     @Param('id') sessionId: string,
-    @Body() dto: { reason: string },
+    @Body() dto: TerminateSessionDto,
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
-    const user = (req as any).user;
+    const user = (req as unknown as { user?: { id?: string } }).user;
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -369,7 +396,7 @@ export class ImpersonationController {
     @Body() dto: ExtendSessionDto,
     @Req() req: Request,
   ) {
-    const user = (req as any).user;
+    const user = (req as unknown as { user?: { id?: string } }).user;
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -435,7 +462,7 @@ export class ImpersonationController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async logResourceAccess(
     @Param('id') sessionId: string,
-    @Body() dto: { resourceType: string; resourceId: string; action: string },
+    @Body() dto: LogResourceAccessDto,
   ) {
     await this.impersonationService.logResourceAccess(
       sessionId,

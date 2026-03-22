@@ -40,6 +40,7 @@ import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { EmailSenderService, InvitationEmailData } from '../settings/services/email-sender.service';
 
 import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
+import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
 import { PanelPermissions, DEFAULT_USER_PERMISSIONS } from './entities/user-permissions.entity';
 import {
   RoleTemplateService,
@@ -346,9 +347,9 @@ export class UsersController {
   @Patch(':id/reset-password')
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body('newPassword') newPassword: string,
+    @Body() dto: ResetPasswordByAdminDto,
   ) {
-    return this.usersService.resetPassword(id, newPassword);
+    return this.usersService.resetPassword(id, dto.newPassword);
   }
 
   /**

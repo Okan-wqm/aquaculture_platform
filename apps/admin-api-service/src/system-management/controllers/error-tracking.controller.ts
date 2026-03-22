@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsObject, IsArray, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsObject, IsArray, IsNumber, IsBoolean, IsUUID, MaxLength, ArrayMaxSize } from 'class-validator';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
@@ -93,6 +93,73 @@ class UpdateErrorGroupDto {
   @IsOptional()
   @IsString()
   linkedTicketUrl?: string;
+}
+
+class ResolveErrorGroupDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+}
+
+class AssignErrorGroupDto {
+  @IsString()
+  @MaxLength(255)
+  assigneeId!: string;
+}
+
+class MergeErrorGroupsDto {
+  @IsString()
+  targetId!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(50)
+  sourceIds!: string[];
+}
+
+class UpdateErrorAlertRuleDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+
+  @IsOptional()
+  @IsObject()
+  conditions?: {
+    severity?: ErrorSeverity[];
+    service?: string[];
+    errorType?: string[];
+    messagePattern?: string;
+    occurrenceThreshold?: number;
+    timeWindowMinutes?: number;
+    userCountThreshold?: number;
+  };
+
+  @IsOptional()
+  @IsArray()
+  actions?: Array<{
+    type: 'email' | 'slack' | 'pagerduty' | 'webhook' | 'sms';
+    config: Record<string, unknown>;
+  }>;
+
+  @IsOptional()
+  @IsNumber()
+  cooldownMinutes?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 class CreateAlertRuleDto {
@@ -233,7 +300,7 @@ export class ErrorTrackingController {
   @Post('groups/:id/resolve')
   async resolveErrorGroup(
     @Param('id') id: string,
-    @Body() dto: { userId?: string; notes?: string },
+    @Body() dto: ResolveErrorGroupDto,
   ) {
     return this.errorTrackingService.updateErrorGroupStatus(
       id,
@@ -256,14 +323,14 @@ export class ErrorTrackingController {
   @Post('groups/:id/assign')
   async assignErrorGroup(
     @Param('id') id: string,
-    @Body() dto: { assigneeId: string },
+    @Body() dto: AssignErrorGroupDto,
   ) {
     return this.errorTrackingService.assignErrorGroup(id, dto.assigneeId);
   }
 
   @Post('groups/merge')
   async mergeErrorGroups(
-    @Body() dto: { targetId: string; sourceIds: string[] },
+    @Body() dto: MergeErrorGroupsDto,
   ) {
     return this.errorTrackingService.mergeErrorGroups(dto.targetId, dto.sourceIds);
   }
@@ -331,7 +398,7 @@ export class ErrorTrackingController {
   @Put('alert-rules/:id')
   async updateAlertRule(
     @Param('id') id: string,
-    @Body() dto: Partial<CreateAlertRuleDto> & { isActive?: boolean },
+    @Body() dto: UpdateErrorAlertRuleDto,
   ) {
     return this.errorTrackingService.updateAlertRule(id, dto);
   }

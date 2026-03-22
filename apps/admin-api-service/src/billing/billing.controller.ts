@@ -49,6 +49,23 @@ import {
   SetModulePricingDto,
 } from './services/module-pricing.service';
 import {
+  UpdateModulePricingDto,
+  SeedModulePricingDto,
+  ComparePlansDto,
+  ValidateDiscountCodeDto,
+  ApplyDiscountCodeDto,
+  GenerateDiscountCodeDto,
+  BulkCreateDiscountCodesDto,
+  CancelSubscriptionDto,
+  ExtendTrialDto,
+  QuickEstimateDto,
+  ComparePricingDto,
+  RejectCustomPlanDto,
+  CloneCustomPlanDto,
+  MarkInvoicePaidDto,
+  VoidInvoiceDto,
+} from './dto/billing.dto';
+import {
   UsageMeteringManagementService,
 } from './services/usage-metering-management.service';
 import {
@@ -128,14 +145,14 @@ export class BillingController {
   @Post('plans')
   async createPlan(@Body() dto: CreatePlanDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.planService.create({ ...dto, createdBy: userId });
   }
 
   @Put('plans/:id')
   async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.planService.update(id, { ...dto, updatedBy: userId });
   }
 
@@ -145,16 +162,15 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.planService.deprecate(id, userId);
   }
 
   @Post('plans/compare')
   async comparePlans(
-    @Body('currentPlanId') currentPlanId: string,
-    @Body('newPlanId') newPlanId: string,
+    @Body() dto: ComparePlansDto,
   ) {
-    return this.planService.comparePlans(currentPlanId, newPlanId);
+    return this.planService.comparePlans(dto.currentPlanId, dto.newPlanId);
   }
 
   @Get('plans/defaults/:tier')
@@ -165,7 +181,7 @@ export class BillingController {
   @Post('plans/seed')
   async seedPlans(@Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     await this.planService.seedDefaultPlans(userId);
     return { success: true, message: 'Default plans seeded successfully' };
   }
@@ -213,7 +229,7 @@ export class BillingController {
   @Post('discounts')
   async createDiscountCode(@Body() dto: CreateDiscountCodeDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.discountService.create({ ...dto, createdBy: userId });
   }
 
@@ -224,7 +240,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.discountService.update(id, { ...dto, updatedBy: userId });
   }
 
@@ -234,36 +250,28 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.discountService.deactivate(id, userId);
   }
 
   @Post('discounts/validate')
   async validateDiscountCode(
-    @Body('code') code: string,
-    @Body('tenantId') tenantId: string,
-    @Body('planId') planId?: string,
-    @Body('orderAmount') orderAmount?: number,
+    @Body() dto: ValidateDiscountCodeDto,
   ) {
-    return this.discountService.validateCode(code, tenantId, planId, orderAmount);
+    return this.discountService.validateCode(dto.code, dto.tenantId, dto.planId, dto.orderAmount);
   }
 
   @Post('discounts/apply')
   async applyDiscountCode(
-    @Body('code') code: string,
-    @Body('tenantId') tenantId: string,
-    @Body('originalAmount') originalAmount: number,
-    @Body('subscriptionId') subscriptionId?: string,
-    @Body('invoiceId') invoiceId?: string,
-    @Body('planId') planId?: string,
+    @Body() dto: ApplyDiscountCodeDto,
     @Req() req?: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
-    return this.discountService.applyDiscount(code, tenantId, originalAmount, {
-      subscriptionId,
-      invoiceId,
-      planId,
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    return this.discountService.applyDiscount(dto.code, dto.tenantId, dto.originalAmount, {
+      subscriptionId: dto.subscriptionId,
+      invoiceId: dto.invoiceId,
+      planId: dto.planId,
       redeemedBy: userId,
     });
   }
@@ -282,24 +290,21 @@ export class BillingController {
 
   @Post('discounts/generate-code')
   async generateUniqueCode(
-    @Body('prefix') prefix?: string,
-    @Body('length') length?: number,
+    @Body() dto: GenerateDiscountCodeDto,
   ) {
-    const code = await this.discountService.generateUniqueCode(prefix, length);
+    const code = await this.discountService.generateUniqueCode(dto.prefix, dto.length);
     return { code };
   }
 
   @Post('discounts/bulk-create')
   async bulkCreateDiscountCodes(
-    @Body('count') count: number,
-    @Body('template') template: Omit<CreateDiscountCodeDto, 'code'>,
-    @Body('codePrefix') codePrefix: string | undefined,
+    @Body() dto: BulkCreateDiscountCodesDto,
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity, review feedback ile eklendi
-    const userId = (req as any).user?.id;
-    const safeTemplate = { ...template, createdBy: userId };
-    const codes = await this.discountService.bulkCreate(count, safeTemplate, codePrefix);
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const safeTemplate = { ...dto.template, createdBy: userId };
+    const codes = await this.discountService.bulkCreate(dto.count, safeTemplate, dto.codePrefix);
     return { success: true, count: codes.length, codes };
   }
 
@@ -310,7 +315,7 @@ export class BillingController {
   @Post('subscriptions')
   async createSubscription(@Body() dto: CreateSubscriptionDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.subscriptionService.createSubscription({ ...dto, createdBy: userId });
   }
 
@@ -370,7 +375,7 @@ export class BillingController {
   @Post('subscriptions/change-plan')
   async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.subscriptionService.changePlan({ ...request, changedBy: userId });
   }
 
@@ -379,17 +384,16 @@ export class BillingController {
   @Post('subscriptions/tenant/:tenantId/cancel')
   async cancelSubscription(
     @Param('tenantId') tenantId: string,
-    @Body('reason') reason: string,
-    @Body('cancelImmediately') cancelImmediately?: boolean,
+    @Body() dto: CancelSubscriptionDto,
     @Req() req?: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.subscriptionService.cancelSubscription(
       tenantId,
-      reason,
+      dto.reason,
       userId,
-      cancelImmediately,
+      dto.cancelImmediately,
     );
   }
 
@@ -399,19 +403,19 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.subscriptionService.reactivateSubscription(tenantId, userId);
   }
 
   @Post('subscriptions/tenant/:tenantId/extend-trial')
   async extendTrial(
     @Param('tenantId') tenantId: string,
-    @Body('additionalDays') additionalDays: number,
+    @Body() dto: ExtendTrialDto,
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
-    return this.subscriptionService.extendTrial(tenantId, additionalDays, userId);
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    return this.subscriptionService.extendTrial(tenantId, dto.additionalDays, userId);
   }
 
   @Post('subscriptions/process-renewals')
@@ -478,7 +482,7 @@ export class BillingController {
   @Put('module-pricing/:pricingId')
   async updateModulePricing(
     @Param('pricingId') pricingId: string,
-    @Body() dto: Partial<SetModulePricingDto>,
+    @Body() dto: UpdateModulePricingDto,
   ) {
     return this.modulePricingService.updateModulePricing(pricingId, dto);
   }
@@ -490,8 +494,8 @@ export class BillingController {
   }
 
   @Post('module-pricing/seed')
-  async seedModulePricing(@Body('moduleIdMap') moduleIdMap: Record<string, string>) {
-    const map = new Map(Object.entries(moduleIdMap));
+  async seedModulePricing(@Body() dto: SeedModulePricingDto) {
+    const map = new Map(Object.entries(dto.moduleIdMap));
     const count = await this.modulePricingService.seedDefaultPricing(map);
     return { success: true, seededCount: count };
   }
@@ -507,24 +511,19 @@ export class BillingController {
 
   @Post('pricing/quick-estimate')
   async getQuickEstimate(
-    @Body('moduleCodes') moduleCodes: string[],
-    @Body('tier') tier: PlanTier,
-    @Body('quantities') quantities?: {
-      users?: number;
-      farms?: number;
-      ponds?: number;
-      sensors?: number;
-    },
+    @Body() dto: QuickEstimateDto,
   ) {
-    return this.pricingCalculator.getQuickEstimate(moduleCodes, tier, quantities);
+    return this.pricingCalculator.getQuickEstimate(dto.moduleCodes, dto.tier, dto.quantities);
   }
 
   @Post('pricing/compare')
   async comparePricing(
-    @Body('config1') config1: QuoteRequest,
-    @Body('config2') config2: QuoteRequest,
+    @Body() dto: ComparePricingDto,
   ) {
-    return this.pricingCalculator.comparePricing(config1, config2);
+    return this.pricingCalculator.comparePricing(
+      dto.config1 as QuoteRequest,
+      dto.config2 as QuoteRequest,
+    );
   }
 
   // ============================================================================
@@ -563,7 +562,7 @@ export class BillingController {
   @Post('custom-plans')
   async createCustomPlan(@Body() dto: CreateCustomPlanDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.customPlanService.createCustomPlan({ ...dto, createdBy: userId });
   }
 
@@ -574,7 +573,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.customPlanService.updateCustomPlan(planId, { ...dto, updatedBy: userId });
   }
 
@@ -589,19 +588,19 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.customPlanService.approvePlan(planId, userId);
   }
 
   @Post('custom-plans/:planId/reject')
   async rejectCustomPlan(
     @Param('planId') planId: string,
-    @Body('reason') reason: string,
+    @Body() dto: RejectCustomPlanDto,
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
-    return this.customPlanService.rejectPlan(planId, reason, userId);
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    return this.customPlanService.rejectPlan(planId, dto.reason, userId);
   }
 
   @Post('custom-plans/:planId/activate')
@@ -618,9 +617,9 @@ export class BillingController {
   @Post('custom-plans/:planId/clone')
   async cloneCustomPlan(
     @Param('planId') planId: string,
-    @Body('newTenantId') newTenantId: string,
+    @Body() dto: CloneCustomPlanDto,
   ) {
-    return this.customPlanService.clonePlan(planId, newTenantId);
+    return this.customPlanService.clonePlan(planId, dto.newTenantId);
   }
 
   // ============================================================================
@@ -684,12 +683,12 @@ export class BillingController {
   @Post('invoices/:invoiceId/mark-paid')
   async markInvoiceAsPaid(
     @Param('invoiceId') invoiceId: string,
-    @Body('amount') amount: number,
+    @Body() dto: MarkInvoicePaidDto,
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
-    return this.invoiceService.markAsPaid(invoiceId, amount, userId);
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    return this.invoiceService.markAsPaid(invoiceId, dto.amount, userId);
   }
 
   // Fix: H8 -- per-route throttle: invoice void is sensitive (3 req / 5 min)
@@ -697,12 +696,12 @@ export class BillingController {
   @Post('invoices/:invoiceId/void')
   async voidInvoice(
     @Param('invoiceId') invoiceId: string,
-    @Body('reason') reason: string,
+    @Body() dto: VoidInvoiceDto,
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId = (req as any).user?.id;
-    return this.invoiceService.voidInvoice(invoiceId, reason, userId);
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    return this.invoiceService.voidInvoice(invoiceId, dto.reason, userId);
   }
 
   @Post('invoices/update-overdue')
@@ -746,14 +745,14 @@ export class BillingController {
   @ThrottleSensitive()
   @Post('payments')
   async recordPayment(@Body() dto: RecordPaymentDto, @Req() req: Request) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.paymentService.recordPayment(dto, userId);
   }
 
   @ThrottleSensitive()
   @Post('payments/refund')
   async refundPayment(@Body() dto: RefundPaymentDto, @Req() req: Request) {
-    const userId = (req as any).user?.id;
+    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
     return this.paymentService.refundPayment(dto, userId);
   }
 

@@ -29,8 +29,8 @@ import { FeedingSchedulerService } from './feeding-scheduler.service';
 
 @Module({
   imports: [
-    // NestJS Schedule module for cron jobs
-    ScheduleModule.forRoot(),
+    // NestJS Schedule module — forRoot() is in AppModule, plain import here
+    ScheduleModule,
     // Event Emitter for async event handling
     EventEmitterModule.forRoot({
       // Use wildcards for event patterns

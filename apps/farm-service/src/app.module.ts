@@ -33,6 +33,7 @@ import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSc
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
+import { ScheduleModule } from '@nestjs/schedule';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
@@ -206,6 +207,9 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
         signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
       }),
     }),
+
+    // Schedule module — single forRoot() for the entire service
+    ScheduleModule.forRoot(),
 
     // CQRS Module
     CqrsModule,

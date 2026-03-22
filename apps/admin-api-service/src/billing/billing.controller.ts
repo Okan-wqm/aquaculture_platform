@@ -521,8 +521,8 @@ export class BillingController {
     @Body() dto: ComparePricingDto,
   ) {
     return this.pricingCalculator.comparePricing(
-      dto.config1 as QuoteRequest,
-      dto.config2 as QuoteRequest,
+      dto.config1,
+      dto.config2,
     );
   }
 

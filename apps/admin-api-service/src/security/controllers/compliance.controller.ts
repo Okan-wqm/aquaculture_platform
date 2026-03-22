@@ -269,9 +269,10 @@ export class ComplianceController {
     @Body() dto: UpdateDataRequestDto,
     @Req() req: Request,
   ): Promise<DataRequest> {
-    const userId = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user?.id;
-    const userName = (req as unknown as { user?: { name?: string; email?: string } }).user?.name || (req as unknown as { user?: { email?: string } }).user?.email || userId;
+    const userPayload = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user;
+    const userId = userPayload?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
+    const userName = userPayload?.name || userPayload?.email || userId;
     return this.complianceService.updateDataRequest(
       id,
       dto,
@@ -370,9 +371,10 @@ export class ComplianceController {
     @Body() dto: GenerateReportDto,
     @Req() req: Request,
   ): Promise<ComplianceReport> {
-    const userId = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user?.id;
-    const userName = (req as unknown as { user?: { name?: string; email?: string } }).user?.name || (req as unknown as { user?: { email?: string } }).user?.email || userId;
+    const userPayload = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user;
+    const userId = userPayload?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
+    const userName = userPayload?.name || userPayload?.email || userId;
     return this.complianceService.generateComplianceReport({
       complianceType: dto.complianceType,
       reportPeriodStart: new Date(dto.reportPeriodStart),

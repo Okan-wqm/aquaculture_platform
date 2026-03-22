@@ -97,6 +97,7 @@ export class ProvisioningSagaService {
 
     for (let i = 0; i < this.steps.length; i++) {
       const step = this.steps[i];
+      if (!step) continue;
       const detail: SagaStep = {
         name: step.name,
         status: 'pending',
@@ -159,6 +160,7 @@ export class ProvisioningSagaService {
     // Iterate completed steps in reverse
     for (let i = completedSteps.length - 1; i >= 0; i--) {
       const stepName = completedSteps[i];
+      if (!stepName) continue;
       const internalStep = this.steps.find((s) => s.name === stepName);
       const detail = stepDetails.find((d) => d.name === stepName);
 

@@ -5,6 +5,7 @@ import {
   IsString,
   IsArray,
   IsIP,
+  IsIn,
   Min,
   Max,
   MaxLength,
@@ -220,16 +221,16 @@ export class UpdateTenantSecurityDto {
 
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
-  allowedMfaMethods?: string[];
+  @IsIn(['totp', 'sms', 'email'], { each: true })
+  allowedMfaMethods?: ('totp' | 'sms' | 'email')[];
 
   @IsOptional()
   @IsBoolean()
   ssoEnabled?: boolean;
 
   @IsOptional()
-  @IsString()
-  ssoProvider?: string;
+  @IsIn(['saml', 'oauth2', 'oidc'])
+  ssoProvider?: 'saml' | 'oauth2' | 'oidc';
 
   @IsOptional()
   @IsNumber()
@@ -370,16 +371,16 @@ export class UpdateNotificationConfigDto {
   smsEnabled?: boolean;
 
   @IsOptional()
-  @IsString()
-  smsProvider?: string;
+  @IsIn(['twilio', 'nexmo', 'aws_sns'])
+  smsProvider?: 'twilio' | 'nexmo' | 'aws_sns';
 
   @IsOptional()
   @IsBoolean()
   pushEnabled?: boolean;
 
   @IsOptional()
-  @IsString()
-  pushProvider?: string;
+  @IsIn(['firebase', 'onesignal', 'pusher'])
+  pushProvider?: 'firebase' | 'onesignal' | 'pusher';
 
   @IsOptional()
   @IsBoolean()
@@ -400,8 +401,8 @@ export class UpdateNotificationConfigDto {
   webhookEnabled?: boolean;
 
   @IsOptional()
-  @IsString()
-  digestFrequency?: string;
+  @IsIn(['realtime', 'hourly', 'daily', 'weekly'])
+  digestFrequency?: 'realtime' | 'hourly' | 'daily' | 'weekly';
 
   @IsOptional()
   @IsBoolean()

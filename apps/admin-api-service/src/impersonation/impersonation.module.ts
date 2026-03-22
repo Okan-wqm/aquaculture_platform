@@ -19,7 +19,7 @@ import { ImpersonationService } from './services';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
+    ScheduleModule,
     TypeOrmModule.forFeature([
       ImpersonationSession,
       ImpersonationPermission,

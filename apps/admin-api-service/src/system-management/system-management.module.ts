@@ -36,7 +36,7 @@ import {
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
+    ScheduleModule,
     TypeOrmModule.forFeature([
       // Global Settings
       FeatureToggle,

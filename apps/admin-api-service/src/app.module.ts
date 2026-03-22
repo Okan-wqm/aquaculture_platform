@@ -3,6 +3,7 @@ import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
@@ -97,6 +98,8 @@ if (isProduction) {
       },
     }),
     CqrsModule,
+    // Schedule module — single forRoot() for the entire service
+    ScheduleModule.forRoot(),
     // NATS Event Bus for cross-service event publishing
     EventBusModule.forRootAsync({
       imports: [ConfigModule],

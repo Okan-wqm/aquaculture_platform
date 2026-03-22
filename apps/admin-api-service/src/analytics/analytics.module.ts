@@ -43,7 +43,7 @@ import { ReportsService } from './services/reports.service';
       SubscriptionReadOnly,
       InvoiceReadOnly,
     ]),
-    ScheduleModule.forRoot(),
+    ScheduleModule,
     AuditLogModule,
   ],
   controllers: [AnalyticsController, ReportsController],

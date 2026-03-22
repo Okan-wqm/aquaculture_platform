@@ -33,7 +33,7 @@ import { FeatureFlagDebugService } from '../impersonation/services/feature-flag-
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
+    ScheduleModule,
     TypeOrmModule.forFeature([
       DebugSession,
       CapturedQuery,

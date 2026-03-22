@@ -42,7 +42,7 @@ import { SchemaManagementService } from './services/schema-management.service';
       DatabaseMetric,
       SlowQueryLog,
     ]),
-    ScheduleModule.forRoot(),
+    ScheduleModule,
   ],
   controllers: [
     SchemaController,

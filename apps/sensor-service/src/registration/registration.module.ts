@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
@@ -14,7 +13,6 @@ import { SensorRegistrationService } from './services/sensor-registration.servic
 @Module({
   imports: [
     TypeOrmModule.forFeature([Sensor, SensorDataChannel]),
-    EventEmitterModule.forRoot(),
   ],
   providers: [
     SensorRegistrationService,

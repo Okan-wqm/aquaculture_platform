@@ -9,6 +9,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { RedisModule, TenantGuard, RolesGuard, LoggingModule } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -121,6 +122,8 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     }),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // Event Emitter — single forRoot() for the entire service
+    EventEmitterModule.forRoot(),
     BillingModule,
     MeteringModule,
     HealthModule,

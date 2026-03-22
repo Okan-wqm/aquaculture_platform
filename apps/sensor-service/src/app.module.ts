@@ -8,6 +8,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import {
@@ -295,6 +296,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),
+
+    // Event Emitter — single forRoot() for the entire service
+    EventEmitterModule.forRoot(),
 
     // Enterprise infrastructure (@Global modules - must be before feature modules)
     CredentialVaultModule,

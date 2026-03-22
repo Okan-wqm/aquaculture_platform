@@ -34,6 +34,7 @@ const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
@@ -210,6 +211,14 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
 
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+
+    // Event Emitter — single forRoot() for the entire service
+    EventEmitterModule.forRoot({
+      wildcard: true,
+      delimiter: '.',
+      ignoreErrors: false,
+      maxListeners: 10,
+    }),
 
     // CQRS Module
     CqrsModule,

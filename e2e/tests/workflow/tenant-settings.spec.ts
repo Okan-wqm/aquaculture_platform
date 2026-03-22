@@ -1,0 +1,134 @@
+import { GraphQLTestClient } from '../../helpers/graphql-client';
+import { generateTenantFixture, TestTenantFixture } from '../../helpers/tenant.fixture';
+
+/**
+ * Tenant Settings E2E Workflow Test
+ *
+ * Tests updating tenant settings (name, description, contactEmail)
+ * and verifying persistence through the myTenant query.
+ */
+describe('Tenant Settings', () => {
+  let client: GraphQLTestClient;
+  let fixture: TestTenantFixture;
+  let originalName: string;
+  let originalDescription: string | null;
+  let originalContactEmail: string | null;
+
+  beforeAll(async () => {
+    client = new GraphQLTestClient();
+    fixture = generateTenantFixture();
+    client.setToken(fixture.adminToken);
+
+    // Store original values for restore in cleanup
+    try {
+      const current = await client.query<{
+        myTenant: {
+          name: string;
+          description: string | null;
+          contactEmail: string | null;
+        };
+      }>(`
+        query MyTenant {
+          myTenant {
+            name
+            description
+            contactEmail
+          }
+        }
+      `);
+      originalName = current.myTenant.name;
+      originalDescription = current.myTenant.description;
+      originalContactEmail = current.myTenant.contactEmail;
+    } catch {
+      originalName = '';
+      originalDescription = null;
+      originalContactEmail = null;
+    }
+  });
+
+  afterAll(async () => {
+    // Restore original settings
+    if (originalName) {
+      try {
+        await client.mutate(`
+          mutation RestoreTenantSettings($input: UpdateTenantInput!) {
+            updateTenantSettings(input: $input) {
+              id
+            }
+          }
+        `, {
+          input: {
+            name: originalName,
+            description: originalDescription,
+            contactEmail: originalContactEmail,
+          },
+        });
+      } catch {
+        // Restore failure is not a test failure
+      }
+    }
+    client.clearToken();
+  });
+
+  test('Update tenant settings -> verify persistence', async () => {
+    const updatedName = `E2E Updated Tenant ${Date.now()}`;
+    const updatedDescription = `E2E test description updated at ${new Date().toISOString()}`;
+    const updatedContactEmail = `e2e-updated-${Date.now()}@test.aquaculture.dev`;
+
+    // Step 1: Update tenant settings via updateTenantSettings mutation
+    const updateResult = await client.mutate<{
+      updateTenantSettings: {
+        id: string;
+        name: string;
+        description: string | null;
+        contactEmail: string | null;
+      };
+    }>(
+      `
+      mutation UpdateTenantSettings($input: UpdateTenantInput!) {
+        updateTenantSettings(input: $input) {
+          id
+          name
+          description
+          contactEmail
+        }
+      }
+      `,
+      {
+        input: {
+          name: updatedName,
+          description: updatedDescription,
+          contactEmail: updatedContactEmail,
+        },
+      },
+    );
+
+    // Verify mutation returned updated values
+    expect(updateResult.updateTenantSettings.name).toBe(updatedName);
+    expect(updateResult.updateTenantSettings.description).toBe(updatedDescription);
+    expect(updateResult.updateTenantSettings.contactEmail).toBe(updatedContactEmail);
+
+    // Step 2: Verify persistence by re-querying
+    const verifyResult = await client.query<{
+      myTenant: {
+        id: string;
+        name: string;
+        description: string | null;
+        contactEmail: string | null;
+      };
+    }>(`
+      query VerifyTenantSettings {
+        myTenant {
+          id
+          name
+          description
+          contactEmail
+        }
+      }
+    `);
+
+    expect(verifyResult.myTenant.name).toBe(updatedName);
+    expect(verifyResult.myTenant.description).toBe(updatedDescription);
+    expect(verifyResult.myTenant.contactEmail).toBe(updatedContactEmail);
+  });
+});

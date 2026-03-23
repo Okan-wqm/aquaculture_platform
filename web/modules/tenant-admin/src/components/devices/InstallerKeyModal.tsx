@@ -143,12 +143,18 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                {step === 'form' ? 'Installer Link Olu\u015Ftur' : 'Installer Haz\u0131r!'}
+                {step === 'confirm'
+                  ? 'Onay Gerekli'
+                  : step === 'form'
+                    ? 'Installer Link Olu\u015Ftur'
+                    : 'Installer Haz\u0131r!'}
               </h2>
               <p className="text-xs text-gray-500">
-                {step === 'form'
-                  ? 'Birden fazla cihaza kurulum yap\u0131labilen link'
-                  : 'A\u015Fa\u011F\u0131daki komutu end\u00FCstriyel PC\'de \u00E7al\u0131\u015Ft\u0131r\u0131n'}
+                {step === 'confirm'
+                  ? 'Auto-approve ayar\u0131n\u0131 onaylay\u0131n'
+                  : step === 'form'
+                    ? 'Birden fazla cihaza kurulum yap\u0131labilen link'
+                    : 'A\u015Fa\u011F\u0131daki komutu end\u00FCstriyel PC\'de \u00E7al\u0131\u015Ft\u0131r\u0131n'}
               </p>
             </div>
           </div>

@@ -125,8 +125,6 @@ function transformUser(apiUser: ApiUser): User {
   };
 }
 
-// Query strings removed -- now using typed API functions from lib/api
-
 /**
  * TenantUsers Page
  *

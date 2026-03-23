@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Copy, Check, Key, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, Copy, Check, Key, AlertCircle, AlertTriangle, Loader2, ShieldAlert } from 'lucide-react';
 import {
   createProvisioningKey,
   listProvisioningKeys,
@@ -14,10 +14,16 @@ interface InstallerKeyModalProps {
   onCreated: () => void;
 }
 
+/** HIGH-03: Safety limits for auto-approve provisioning keys */
+const AUTO_APPROVE_MAX_DEVICES_MIN = 1;
+const AUTO_APPROVE_MAX_DEVICES_MAX = 100;
+const AUTO_APPROVE_EXPIRES_DAYS_MIN = 1;
+const AUTO_APPROVE_EXPIRES_DAYS_MAX = 365;
+
 // TenantKeyResponse and TenantProvisioningKey imported from lib/types
 
 export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, onCreated }) => {
-  const [step, setStep] = useState<'form' | 'result'>('form');
+  const [step, setStep] = useState<'form' | 'result' | 'confirm'>('form');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -33,6 +39,29 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
   const [existingKeys, setExistingKeys] = useState<TenantProvisioningKey[]>([]);
   const [showExisting, setShowExisting] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(false);
+
+  /**
+   * HIGH-03: Compute whether auto-approve safety limits are satisfied.
+   * When autoApprove is enabled, maxDevices and expiresInDays are mandatory
+   * and must be within allowed ranges.
+   */
+  const autoApproveSafetyErrors = useMemo((): string[] => {
+    if (!autoApprove) return [];
+    const errors: string[] = [];
+    const parsedMax = maxDevices ? parseInt(maxDevices, 10) : NaN;
+    const parsedExpiry = expiresInDays ? parseInt(expiresInDays, 10) : NaN;
+
+    if (isNaN(parsedMax) || parsedMax < AUTO_APPROVE_MAX_DEVICES_MIN || parsedMax > AUTO_APPROVE_MAX_DEVICES_MAX) {
+      errors.push(`Max devices must be between ${AUTO_APPROVE_MAX_DEVICES_MIN} and ${AUTO_APPROVE_MAX_DEVICES_MAX} when auto-approve is enabled.`);
+    }
+    if (isNaN(parsedExpiry) || parsedExpiry < AUTO_APPROVE_EXPIRES_DAYS_MIN || parsedExpiry > AUTO_APPROVE_EXPIRES_DAYS_MAX) {
+      errors.push(`Expiry must be between ${AUTO_APPROVE_EXPIRES_DAYS_MIN} and ${AUTO_APPROVE_EXPIRES_DAYS_MAX} days when auto-approve is enabled.`);
+    }
+    return errors;
+  }, [autoApprove, maxDevices, expiresInDays]);
+
+  /** Whether the Create button should be disabled */
+  const isCreateDisabled = loading || (autoApprove && autoApproveSafetyErrors.length > 0);
 
   const handleCreate = async () => {
     setLoading(true);
@@ -54,6 +83,18 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
       setError(err instanceof Error ? err.message : 'Failed to create key');
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * HIGH-03: If autoApprove is on, show confirmation dialog before creating.
+   * If autoApprove is off, create directly.
+   */
+  const handleCreateClick = () => {
+    if (autoApprove) {
+      setStep('confirm');
+    } else {
+      handleCreate();
     }
   };
 
@@ -116,7 +157,46 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
           </button>
         </div>
 
-        {step === 'form' ? (
+        {step === 'confirm' ? (
+          /* HIGH-03: Auto-approve confirmation dialog */
+          <div className="p-6 space-y-4" data-testid="auto-approve-confirm-dialog">
+            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+              <AlertTriangle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800">
+                  Auto-Approve Onay\u0131
+                </p>
+                <p className="text-sm text-amber-700 mt-1">
+                  Bu key, cihazlar\u0131 g\u00FCvenlik incelemesi yapmadan otomatik olarak onaylayacak.
+                  Emin misiniz?
+                </p>
+                <p className="text-sm text-amber-700 mt-2">
+                  This key will automatically approve devices without review. Are you sure?
+                </p>
+                <div className="mt-3 text-xs text-amber-600 space-y-1">
+                  <p>Max Devices: {maxDevices}</p>
+                  <p>Expires In: {expiresInDays} days</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setStep('form')}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                data-testid="confirm-cancel-button"
+              >
+                Vazge\u00E7
+              </button>
+              <button
+                onClick={() => { setStep('form'); handleCreate(); }}
+                className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700"
+                data-testid="confirm-approve-button"
+              >
+                Evet, Olu\u015Ftur
+              </button>
+            </div>
+          </div>
+        ) : step === 'form' ? (
           <div className="p-6 space-y-4">
             {error && (
               <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
@@ -138,25 +218,41 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max Cihaz</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Max Cihaz{autoApprove && <span className="text-red-500 ml-0.5">*</span>}
+                </label>
                 <input
                   type="number"
                   value={maxDevices}
                   onChange={(e) => setMaxDevices(e.target.value)}
-                  placeholder="S\u0131n\u0131rs\u0131z"
-                  min="1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder={autoApprove ? `${AUTO_APPROVE_MAX_DEVICES_MIN}-${AUTO_APPROVE_MAX_DEVICES_MAX}` : 'S\u0131n\u0131rs\u0131z'}
+                  min={autoApprove ? AUTO_APPROVE_MAX_DEVICES_MIN : 1}
+                  max={autoApprove ? AUTO_APPROVE_MAX_DEVICES_MAX : undefined}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                    autoApprove && autoApproveSafetyErrors.some(e => e.includes('Max devices'))
+                      ? 'border-red-300 bg-red-50'
+                      : 'border-gray-300'
+                  }`}
+                  data-testid="max-devices-input"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ge\u00E7erlilik (g\u00FCn)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Ge\u00E7erlilik (g\u00FCn){autoApprove && <span className="text-red-500 ml-0.5">*</span>}
+                </label>
                 <input
                   type="number"
                   value={expiresInDays}
                   onChange={(e) => setExpiresInDays(e.target.value)}
-                  placeholder="S\u00FCresiz"
-                  min="1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder={autoApprove ? `${AUTO_APPROVE_EXPIRES_DAYS_MIN}-${AUTO_APPROVE_EXPIRES_DAYS_MAX}` : 'S\u00FCresiz'}
+                  min={autoApprove ? AUTO_APPROVE_EXPIRES_DAYS_MIN : 1}
+                  max={autoApprove ? AUTO_APPROVE_EXPIRES_DAYS_MAX : undefined}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                    autoApprove && autoApproveSafetyErrors.some(e => e.includes('Expiry'))
+                      ? 'border-red-300 bg-red-50'
+                      : 'border-gray-300'
+                  }`}
+                  data-testid="expires-in-days-input"
                 />
               </div>
             </div>
@@ -167,6 +263,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                 checked={autoApprove}
                 onChange={(e) => setAutoApprove(e.target.checked)}
                 className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                data-testid="auto-approve-checkbox"
               />
               <div>
                 <span className="text-sm font-medium text-gray-700">Auto-Approve</span>
@@ -174,15 +271,35 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               </div>
             </label>
 
-            {/* SEC-003: Warn about auto-approve security implications */}
+            {/* HIGH-03: Visual warning banner when autoApprove is enabled */}
             {autoApprove && (
-              <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-700">
-                  <strong>Security warning:</strong> Auto-approve skips the device security review step.
-                  Any device that presents this key will be immediately activated. Set an expiry date
-                  and maximum device count to limit exposure.
-                </p>
+              <div
+                data-testid="auto-approve-warning-banner"
+                className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg"
+              >
+                <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-amber-700">
+                    <strong>Security warning:</strong> Auto-approve skips the device security review step.
+                    Any device that presents this key will be immediately activated.
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    <strong>Required:</strong> Set a maximum device count ({AUTO_APPROVE_MAX_DEVICES_MIN}-{AUTO_APPROVE_MAX_DEVICES_MAX})
+                    and expiry period ({AUTO_APPROVE_EXPIRES_DAYS_MIN}-{AUTO_APPROVE_EXPIRES_DAYS_MAX} days) to limit exposure.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* HIGH-03: Show specific validation errors when auto-approve limits are not met */}
+            {autoApprove && autoApproveSafetyErrors.length > 0 && (
+              <div data-testid="auto-approve-safety-errors" className="space-y-1">
+                {autoApproveSafetyErrors.map((err, idx) => (
+                  <div key={idx} className="flex items-center gap-1.5 text-xs text-red-600">
+                    <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                    {err}
+                  </div>
+                ))}
               </div>
             )}
 
@@ -195,9 +312,10 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                 {loadingKeys ? 'Y\u00FCkleniyor...' : 'Mevcut key\'leri g\u00F6r\u00FCnt\u00FCle'}
               </button>
               <button
-                onClick={handleCreate}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium text-sm"
+                onClick={handleCreateClick}
+                disabled={isCreateDisabled}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm"
+                data-testid="create-key-button"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
                 Olu\u015Ftur

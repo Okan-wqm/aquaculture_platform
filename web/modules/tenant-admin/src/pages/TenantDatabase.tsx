@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Table,
   HardDrive,
@@ -18,6 +18,7 @@ import {
   Users,
   Cpu,
   Database,
+  ShieldAlert,
 } from 'lucide-react';
 import { getTenantDatabase, getTableSchema, getTableData } from '../lib/api';
 import type { TenantDatabaseInfo, ColumnInfo, IndexInfo, TableDataResult } from '../lib/types';
@@ -195,6 +196,10 @@ const TenantDatabase: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // HIGH-01: Schema whitelist — store the tenant's own schema from the initial query
+  const allowedSchemaRef = useRef<string | null>(null);
+  const [schemaViolation, setSchemaViolation] = useState<string | null>(null);
+
   // Module grouping state - all modules expanded by default
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({
     farm: true,
@@ -223,6 +228,10 @@ const TenantDatabase: React.FC = () => {
       setLoading(true);
       setError(null);
       const data = await getTenantDatabase();
+      // HIGH-01: Capture the tenant's allowed schema name on first load
+      if (data.schemaName) {
+        allowedSchemaRef.current = data.schemaName;
+      }
       setDatabaseInfo(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load database info');
@@ -235,12 +244,40 @@ const TenantDatabase: React.FC = () => {
     fetchDatabaseInfo();
   }, [fetchDatabaseInfo]);
 
+  /**
+   * HIGH-01: Validate that the requested schema matches the tenant's own schema.
+   * Defence-in-depth — prevents a TENANT_ADMIN from crafting requests to
+   * browse other tenants' schemas via DevTools manipulation.
+   */
+  const validateSchemaAccess = useCallback((schemaName: string): boolean => {
+    const allowed = allowedSchemaRef.current;
+    if (!allowed) {
+      // Schema not yet loaded — block as precaution
+      setSchemaViolation('Schema validation unavailable. Please refresh and try again.');
+      return false;
+    }
+    if (schemaName !== allowed) {
+      setSchemaViolation(
+        `Access denied: Schema "${schemaName}" does not match your tenant schema "${allowed}". ` +
+        'Cross-tenant schema access is not permitted.',
+      );
+      return false;
+    }
+    setSchemaViolation(null);
+    return true;
+  }, []);
+
   // Handle View Schema button click
   const handleViewSchema = async (tableName: string) => {
     // tableName format: "schema.table" (e.g., "farm.tanks")
     const parts = tableName.split('.');
     const schemaName = parts.length > 1 ? parts[0] : 'public';
     const tableOnly = parts.length > 1 ? parts[1] : parts[0];
+
+    // HIGH-01: Block queries to schemas other than the tenant's own
+    if (!validateSchemaAccess(schemaName)) {
+      return;
+    }
 
     setSelectedTable(tableName);
     setSchemaLoading(true);
@@ -273,6 +310,11 @@ const TenantDatabase: React.FC = () => {
     const parts = fullTableName.split('.');
     const schemaName = parts.length > 1 ? parts[0] : 'public';
     const tableName = parts.length > 1 ? parts[1] : parts[0];
+
+    // HIGH-01: Block queries to schemas other than the tenant's own
+    if (!validateSchemaAccess(schemaName)) {
+      return;
+    }
 
     setDataTableName(fullTableName);
     setDataLoading(true);
@@ -464,6 +506,30 @@ const TenantDatabase: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* HIGH-01: Schema violation security warning */}
+      {schemaViolation && (
+        <div
+          data-testid="schema-violation-warning"
+          className="bg-red-50 border border-red-200 rounded-xl p-4"
+        >
+          <div className="flex gap-3">
+            <ShieldAlert className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-red-800 font-medium">
+                Security Violation Detected
+              </p>
+              <p className="text-sm text-red-700 mt-1">{schemaViolation}</p>
+              <button
+                onClick={() => setSchemaViolation(null)}
+                className="mt-2 text-xs text-red-600 hover:text-red-800 font-medium underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

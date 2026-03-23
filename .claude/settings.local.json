@@ -500,7 +500,21 @@
       "WebFetch(domain:www.anthropic.com)",
       "WebFetch(domain:dev.to)",
       "WebFetch(domain:claudelog.com)",
-      "Bash(for wt:*)"
+      "Bash(for wt:*)",
+      "Read(//tmp/ruflo/**)",
+      "Bash(bash -s -- --full)",
+      "Bash(npm list:*)",
+      "Bash(claude-flow --version)",
+      "Bash(ruflo --help)",
+      "Bash(ruflo swarm:*)",
+      "Bash(ruflo task:*)",
+      "Bash(ruflo start:*)",
+      "Bash(ruflo init:*)",
+      "Bash(ruflo daemon:*)",
+      "Bash(ruflo agent:*)",
+      "Bash(ruflo sparc:*)",
+      "Bash(ruflo workflow:*)",
+      "Bash(ruflo memory:*)"
     ],
     "deny": [],
     "ask": []

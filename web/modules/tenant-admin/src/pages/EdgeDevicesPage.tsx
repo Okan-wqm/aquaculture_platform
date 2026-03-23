@@ -15,32 +15,11 @@ import {
 } from 'lucide-react';
 
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { EDGE_DEVICES_QUERY } from '../graphql';
+import { getEdgeDevices } from '../lib/api';
+import type { EdgeDeviceListItem, DeviceStats } from '../lib/types';
 import { logError } from '../utils/error-handling';
 
-interface EdgeDeviceListItem {
-  id: string;
-  deviceCode: string;
-  deviceName: string;
-  deviceModel: string;
-  lifecycleState: string;
-  isOnline: boolean;
-  lastSeenAt?: string;
-  cpuUsage?: number;
-  memoryUsage?: number;
-  agentVersion?: string;
-  ipAddress?: string;
-  sensorCount?: number;
-  programCount?: number;
-}
-
-interface DeviceStats {
-  total: number;
-  online: number;
-  offline: number;
-  byState: Array<{ state: string; count: number }>;
-}
+// EdgeDeviceListItem and DeviceStats imported from lib/types
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -84,10 +63,7 @@ const EdgeDevicesPage: React.FC = () => {
       if (stateFilter) variables.lifecycleState = stateFilter;
       if (onlineFilter !== undefined) variables.isOnline = onlineFilter;
 
-      const data = await graphqlRequest<{
-        edgeDevices: { items: EdgeDeviceListItem[]; total: number };
-        edgeDeviceStats: DeviceStats;
-      }>(EDGE_DEVICES_QUERY, variables);
+      const data = await getEdgeDevices(variables);
 
       setDevices(data.edgeDevices.items);
       setTotal(data.edgeDevices.total);

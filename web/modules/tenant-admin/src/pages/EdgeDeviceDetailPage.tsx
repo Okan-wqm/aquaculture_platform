@@ -18,15 +18,14 @@ import {
   X,
 } from 'lucide-react';
 
-import { graphqlRequest } from '../services/tenant-api.service';
 import {
-  APPROVE_DEVICE_MUTATION,
-  PING_DEVICE_MUTATION,
-  REBOOT_DEVICE_MUTATION,
-  MAINTENANCE_DEVICE_MUTATION,
-  DECOMMISSION_DEVICE_MUTATION,
-  DEVICE_EVENTS_QUERY,
-} from '../graphql';
+  approveDevice,
+  pingDevice,
+  rebootDevice,
+  setDeviceMaintenanceMode,
+  decommissionDevice,
+  getDeviceEvents,
+} from '../lib/api';
 import { useDevicePolling } from '../hooks/useDevicePolling';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
@@ -169,10 +168,10 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const [showDecommissionModal, setShowDecommissionModal] = useState(false);
   const [showRebootModal, setShowRebootModal] = useState(false);
 
-  const runAction = async (name: string, mutation: string, variables: Record<string, unknown>) => {
+  const runAction = async (name: string, actionFn: () => Promise<unknown>) => {
     setActionLoading(name);
     try {
-      await graphqlRequest(mutation, variables);
+      await actionFn();
       refetch();
     } catch (err) {
       logError(`EdgeDeviceDetail.${name}`, err);
@@ -192,10 +191,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const loadEvents = async () => {
     if (!deviceId) return;
     try {
-      const data = await graphqlRequest<{
-        deviceEvents: { items: Array<{ id: string; eventType: string; severity: string; message: string; createdAt: string }> };
-      }>(DEVICE_EVENTS_QUERY, { deviceId, page: 1, limit: 50 });
-      setEvents(data.deviceEvents.items);
+      const data = await getDeviceEvents(deviceId, 1, 50);
+      setEvents(data.items);
       setEventsLoaded(true);
     } catch (err) {
       logError('EdgeDeviceDetail.loadEvents', err);
@@ -267,7 +264,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {device.lifecycleState === 'pending_approval' && (
             <button
-              onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
+              onClick={() => runAction('approve', () => approveDevice(device.id))}
               disabled={!!actionLoading}
               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
             >
@@ -276,7 +273,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
+            onClick={() => runAction('ping', () => pingDevice(device.id))}
             disabled={!!actionLoading}
             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
           >
@@ -392,7 +389,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
               <button
                 onClick={() => {
                   const enabled = device.lifecycleState !== 'maintenance';
-                  runAction('maintenance', MAINTENANCE_DEVICE_MUTATION, { id: device.id, enabled });
+                  runAction('maintenance', () => setDeviceMaintenanceMode(device.id, enabled));
                 }}
                 disabled={!!actionLoading}
                 className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm disabled:opacity-50"
@@ -488,7 +485,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       onClose={() => setShowRebootModal(false)}
       onConfirm={() => {
         setShowRebootModal(false);
-        runAction('reboot', REBOOT_DEVICE_MUTATION, { id: device.id, reason: 'Admin reboot' });
+        runAction('reboot', () => rebootDevice(device.id, 'Admin reboot'));
       }}
       loading={actionLoading === 'reboot'}
     />
@@ -499,7 +496,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       onClose={() => setShowDecommissionModal(false)}
       onConfirm={(reason) => {
         setShowDecommissionModal(false);
-        runAction('decommission', DECOMMISSION_DEVICE_MUTATION, { id: device.id, reason });
+        runAction('decommission', () => decommissionDevice(device.id, reason));
       }}
       loading={actionLoading === 'decommission'}
     />

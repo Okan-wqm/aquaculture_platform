@@ -13,8 +13,8 @@ import {
   MoreVertical,
   RefreshCw,
 } from 'lucide-react';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { MY_MODULES_QUERY, TENANT_USERS_QUERY, MY_SUBSCRIPTION_QUERY } from '../graphql';
+import { getMyModules, getTenantUsers, getMySubscription } from '../lib/api';
+import type { User, MyModule } from '../lib/types';
 import { useTenantStats } from '../hooks/useTenantData';
 import { formatRelativeTime, formatDate } from '../utils/date-utils';
 
@@ -55,49 +55,7 @@ interface RecentActivity {
   user: string;
 }
 
-/**
- * API Response types
- */
-interface User {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-  isActive: boolean;
-  isEmailVerified?: boolean;
-  profileImageUrl?: string | null;
-  phoneNumber?: string | null;
-  preferredLanguage?: string | null;
-  mfaEnabled?: boolean;
-  lastLoginAt?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-/**
- * Subscription info from GraphQL
- */
-interface SubscriptionInfo {
-  id: string;
-  status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'suspended' | 'expired';
-  planTier: string;
-  planName: string;
-  billingCycle: string;
-  currentPeriodStart: string;
-  currentPeriodEnd: string;
-  trialEndDate?: string;
-  pricing: {
-    basePrice: number;
-    currency: string;
-  };
-  moduleItems?: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    monthlyPrice: number;
-  }>;
-}
+// User and SubscriptionInfo types imported from lib/types
 
 /**
  * Module icon mapping
@@ -187,17 +145,8 @@ const TenantDashboard: React.FC = () => {
   const modulesQuery = useQuery({
     queryKey: ['dashboard', 'modules'],
     queryFn: async () => {
-      const data = await graphqlRequest<{ myModules: Array<{
-        id: string;
-        moduleId: string;
-        name: string;
-        description?: string;
-        icon?: string;
-        color?: string;
-        isEnabled: boolean;
-        defaultRoute?: string;
-      }> }>(MY_MODULES_QUERY);
-      return (data.myModules || []).map((m): ModuleStatus => {
+      const modules = await getMyModules();
+      return (modules || []).map((m: MyModule): ModuleStatus => {
         const code = m.name?.toLowerCase().includes('farm') ? 'farm'
           : m.name?.toLowerCase().includes('hr') || m.name?.toLowerCase().includes('insan') ? 'hr'
           : m.name?.toLowerCase().includes('sensor') || m.name?.toLowerCase().includes('sens') ? 'sensor'
@@ -220,8 +169,8 @@ const TenantDashboard: React.FC = () => {
   const usersQuery = useQuery({
     queryKey: ['dashboard', 'users'],
     queryFn: async () => {
-      const data = await graphqlRequest<{ tenantUsers: User[] }>(TENANT_USERS_QUERY);
-      return data.tenantUsers || [];
+      const users = await getTenantUsers();
+      return users || [];
     },
     staleTime: 2 * 60 * 1000,
   });
@@ -230,8 +179,7 @@ const TenantDashboard: React.FC = () => {
   const subscriptionQuery = useQuery({
     queryKey: ['dashboard', 'subscription'],
     queryFn: async () => {
-      const data = await graphqlRequest<{ subscription: SubscriptionInfo | null }>(MY_SUBSCRIPTION_QUERY);
-      return data.subscription;
+      return getMySubscription();
     },
     staleTime: 5 * 60 * 1000,
   });

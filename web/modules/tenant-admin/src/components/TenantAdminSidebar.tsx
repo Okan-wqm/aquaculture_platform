@@ -25,8 +25,8 @@ import {
   Sprout,
   Shield,
 } from 'lucide-react';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { MY_MODULES_QUERY } from '../graphql';
+import { getMyModules } from '../lib/api';
+import type { MyModule } from '../lib/types';
 import { logError } from '../utils/error-handling';
 
 /**
@@ -49,20 +49,8 @@ interface NavSection {
   items: NavItem[];
 }
 
-/**
- * Module type from GraphQL API
- */
-interface TenantModule {
-  id: string;
-  moduleId: string;
-  code: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  color?: string;
-  isEnabled: boolean;
-  defaultRoute?: string;
-}
+// Module type from lib/types (MyModule)
+type TenantModule = MyModule;
 
 /**
  * Sidebar props
@@ -244,8 +232,8 @@ export const TenantAdminSidebar: React.FC<TenantAdminSidebarProps> = ({
     setLoadingModules(true);
 
     try {
-      const data = await graphqlRequest<{ myModules: TenantModule[] }>(MY_MODULES_QUERY);
-      const modulesList = (data.myModules || []).filter(m => m.isEnabled);
+      const modules = await getMyModules();
+      const modulesList = (modules || []).filter(m => m.isEnabled);
       setModules(modulesList);
     } catch (err) {
       logError('TenantAdminSidebar.loadModules', err);

@@ -20,8 +20,7 @@ import {
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { useAssignModuleManager } from '../hooks/useTenantData';
 import { useTenantUsers } from '../hooks/useTenantData';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { MY_MODULES_ID_QUERY, MODULE_USAGE_STATS_QUERY } from '../graphql';
+import { getMyModuleIds, getModuleUsageStats } from '../lib/api';
 import { logError } from '../utils/error-handling';
 
 // Note: TenantModule interface removed - now using AuthContext UserModule type
@@ -390,13 +389,8 @@ const ModuleDetailsModal: React.FC<{
   );
 };
 
-interface ModuleUsageStat {
-  moduleCode: string;
-  userCount: number;
-  lastAccessAt: string | null;
-  actionsThisMonth: number;
-  actionsLastMonth: number;
-}
+// ModuleUsageStat imported via lib/api (getModuleUsageStats return type)
+import type { ModuleUsageStat } from '../lib/types';
 
 /**
  * TenantModules Page
@@ -417,10 +411,10 @@ const TenantModules: React.FC = () => {
   // BUG-019: Fetch real module UUIDs from GraphQL — AuthContext only carries code/name/route
   const [moduleIdByCode, setModuleIdByCode] = useState<Record<string, string>>({});
   useEffect(() => {
-    graphqlRequest<{ myModules: Array<{ id: string; code: string }> }>(MY_MODULES_ID_QUERY)
-      .then((data) => {
+    getMyModuleIds()
+      .then((modules) => {
         const map: Record<string, string> = {};
-        (data.myModules || []).forEach((m) => { if (m.code) map[m.code] = m.id; });
+        (modules || []).forEach((m) => { if (m.code) map[m.code] = m.id; });
         setModuleIdByCode(map);
       })
       .catch((err) => logError('TenantModules.fetchModuleIds', err));
@@ -429,10 +423,10 @@ const TenantModules: React.FC = () => {
   // Wave 4: Fetch module usage stats (graceful fallback if backend not ready)
   const [usageStats, setUsageStats] = useState<Record<string, ModuleUsageStat>>({});
   useEffect(() => {
-    graphqlRequest<{ moduleUsageStats: ModuleUsageStat[] }>(MODULE_USAGE_STATS_QUERY)
-      .then((data) => {
+    getModuleUsageStats()
+      .then((stats) => {
         const map: Record<string, ModuleUsageStat> = {};
-        (data.moduleUsageStats || []).forEach((s) => { map[s.moduleCode] = s; });
+        (stats || []).forEach((s) => { map[s.moduleCode] = s; });
         setUsageStats(map);
       })
       .catch((err) => {

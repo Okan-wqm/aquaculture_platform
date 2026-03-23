@@ -1,0 +1,59 @@
+{
+  "tasks": {
+    "task-1774253109156-lz5ajw": {
+      "taskId": "task-1774253109156-lz5ajw",
+      "type": "implementation",
+      "description": "Task 3: Fix optimistic role create race condition in useTenantRoles.ts + normalize Plan enum to lowercase matching backend. Files: web/modules/tenant-admin/src/hooks/useTenantRoles.ts, web/modules/tenant-admin/src/services/tenant-api.service.ts, web/modules/tenant-admin/src/graphql/tenant-queries.ts",
+      "priority": "normal",
+      "status": "in_progress",
+      "progress": 0,
+      "assignedTo": [
+        "coder-mn2whcwm"
+      ],
+      "tags": [],
+      "createdAt": "2026-03-23T08:05:09.156Z",
+      "startedAt": "2026-03-23T08:05:18.575Z",
+      "completedAt": null
+    },
+    "task-1774253594151-rpo1dq": {
+      "taskId": "task-1774253594151-rpo1dq",
+      "type": "implementation",
+      "description": "Task 3: Fix optimistic role create + Plan enum",
+      "priority": "normal",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [],
+      "createdAt": "2026-03-23T08:13:14.151Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1774253598608-jap80p": {
+      "taskId": "task-1774253598608-jap80p",
+      "type": "implementation",
+      "description": "Task 4: Consolidate API layer",
+      "priority": "normal",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [],
+      "createdAt": "2026-03-23T08:13:18.608Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1774253602258-pdzs93": {
+      "taskId": "task-1774253602258-pdzs93",
+      "type": "implementation",
+      "description": "Task 6: Fix billing query fields + status filter",
+      "priority": "normal",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [],
+      "createdAt": "2026-03-23T08:13:22.258Z",
+      "startedAt": null,
+      "completedAt": null
+    }
+  },
+  "version": "3.0.0"
+}

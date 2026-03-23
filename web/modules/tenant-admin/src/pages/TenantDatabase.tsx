@@ -19,15 +19,8 @@ import {
   Cpu,
   Database,
 } from 'lucide-react';
-import {
-  getTenantDatabase,
-  getTableSchema,
-  getTableData,
-  TenantDatabaseInfo,
-  ColumnInfo,
-  IndexInfo,
-  TableDataResult,
-} from '../services/tenant-api.service';
+import { getTenantDatabase, getTableSchema, getTableData } from '../lib/api';
+import type { TenantDatabaseInfo, ColumnInfo, IndexInfo, TableDataResult } from '../lib/types';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
 

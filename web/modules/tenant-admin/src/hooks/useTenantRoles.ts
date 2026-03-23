@@ -22,13 +22,15 @@ import {
   updateTenantRole,
   deleteTenantRole,
   seedTenantRoles,
-  type TenantRole,
-  type TenantRolePermissions,
-  type PermissionCategory,
-  type CreateTenantRoleInput,
-  type UpdateTenantRoleInput,
-  type PanelPermissions,
-} from '../services/tenant-api.service';
+} from '../lib/api';
+import type {
+  TenantRole,
+  TenantRolePermissions,
+  PermissionCategory,
+  CreateTenantRoleInput,
+  UpdateTenantRoleInput,
+  PanelPermissions,
+} from '../lib/types';
 import { processError, logError, type AppError } from '../utils/error-handling';
 
 // ============================================================================

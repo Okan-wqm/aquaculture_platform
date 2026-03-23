@@ -14,12 +14,14 @@ import {
   assignModuleManager,
   removeModuleManager,
   updateTenant,
-  type Tenant,
-  type TenantStats,
-  type TenantModule,
-  type User,
-  type TenantDatabaseInfo,
-} from '../services/tenant-api.service';
+} from '../lib/api';
+import type {
+  Tenant,
+  TenantStats,
+  TenantModule,
+  User,
+  TenantDatabaseInfo,
+} from '../lib/types';
 
 // ============================================================================
 // Query Keys

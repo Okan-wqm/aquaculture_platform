@@ -1,0 +1,382 @@
+/**
+ * Tenant Admin Types - Single Source of Truth
+ *
+ * CRIT-04: All type definitions used across the tenant-admin module are
+ * consolidated here. No other file should define User, Tenant, Module,
+ * or related domain types.
+ */
+
+import type { TenantRolePermissions } from '../types/permissions';
+
+// ============================================================================
+// Enums & Literal Types
+// ============================================================================
+
+/** Tenant plan tier. Backend returns UPPER_CASE; some contexts use lowercase. */
+export type TenantPlan = 'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE';
+
+export type TenantStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
+
+export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
+
+export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING';
+
+// ============================================================================
+// Core Domain Types
+// ============================================================================
+
+/**
+ * Unified User interface.
+ *
+ * Consolidates the 4 independent User/ApiUser/TenantUser definitions that
+ * previously existed across tenant-api.service.ts, TenantDashboard.tsx,
+ * TenantSettings.tsx, and TenantUsers.tsx.
+ */
+export interface User {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role: UserRole | string;
+  status?: UserStatus;
+  isActive?: boolean;
+  isEmailVerified?: boolean;
+  // Profile fields
+  profileImageUrl?: string | null;
+  phoneNumber?: string | null;
+  preferredLanguage?: string | null;
+  // Security fields
+  mfaEnabled?: boolean;
+  lastLoginAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/**
+ * Tenant entity from backend.
+ */
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  logoUrl?: string;
+  contactEmail: string;
+  contactPhone?: string;
+  address?: string;
+  status: TenantStatus;
+  plan: TenantPlan;
+  maxUsers: number;
+  settings?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Tenant statistics summary.
+ */
+export interface TenantStats {
+  totalUsers: number;
+  activeUsers: number;
+  pendingUsers: number;
+  inactiveUsers: number;
+  totalModules: number;
+  activeModules: number;
+  activeSessions: number;
+  monthlyGrowthPercent?: number;
+  lastActivityAt: string;
+}
+
+// ============================================================================
+// Module Types
+// ============================================================================
+
+/**
+ * Base module definition from the platform catalog.
+ */
+export interface Module {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  icon?: string;
+  category: string;
+  isActive: boolean;
+}
+
+/**
+ * A module assigned to a tenant (many-to-many pivot).
+ */
+export interface TenantModule {
+  id: string;
+  moduleId: string;
+  isEnabled: boolean;
+  configuration?: Record<string, unknown>;
+  activatedAt: string;
+  expiresAt?: string;
+  managerId?: string;
+  module: Module;
+}
+
+/**
+ * Module returned by the myModules query (flattened view).
+ */
+export interface MyModule {
+  id: string;
+  moduleId: string;
+  code: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  isEnabled: boolean;
+  defaultRoute?: string;
+}
+
+/**
+ * Module usage statistics.
+ */
+export interface ModuleUsageStat {
+  moduleCode: string;
+  userCount: number;
+  lastAccessAt: string | null;
+  actionsThisMonth: number;
+  actionsLastMonth: number;
+}
+
+// ============================================================================
+// Database Types
+// ============================================================================
+
+export interface TableInfo {
+  name: string;
+  rowCount: number;
+  size: string;
+  indexCount: number;
+  lastModified: string;
+}
+
+export interface ColumnInfo {
+  columnName: string;
+  dataType: string;
+  isNullable: boolean;
+  columnDefault: string | null;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+  foreignKeyTable?: string;
+  foreignKeyColumn?: string;
+}
+
+export interface IndexInfo {
+  indexName: string;
+  columnName: string;
+  isUnique: boolean;
+  isPrimary: boolean;
+}
+
+export interface TableSchemaInfo {
+  tableName: string;
+  schemaName: string;
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+}
+
+export interface TenantDatabaseInfo {
+  databaseName: string;
+  schemaName: string;
+  totalSize: string;
+  tableCount: number;
+  status: string;
+  lastBackup: string;
+  activeConnections: number;
+  maxConnections: number;
+  databaseType: string;
+  region: string;
+  isolationLevel: string;
+  encryption: string;
+  tables: TableInfo[];
+}
+
+export interface GetTableDataInput {
+  schemaName: string;
+  tableName: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface TableDataResult {
+  tableName: string;
+  totalRows: number;
+  columns: string[];
+  rows: string;
+  offset: number;
+  limit: number;
+}
+
+// ============================================================================
+// Role Types
+// ============================================================================
+
+export interface TenantRole {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+  icon: string;
+  level: number;
+  isSystem: boolean;
+  isDefault: boolean;
+  userCount: number;
+  permissions?: TenantRolePermissions | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTenantRoleInput {
+  name: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  level?: number;
+  isDefault?: boolean;
+  panelPermissions: Record<string, Record<string, Record<string, boolean>>>;
+}
+
+export interface UpdateTenantRoleInput {
+  name?: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  level?: number;
+  isDefault?: boolean;
+  panelPermissions?: Record<string, Record<string, Record<string, boolean>>>;
+}
+
+// ============================================================================
+// Billing / Subscription Types
+// ============================================================================
+
+export interface SubscriptionInfo {
+  id: string;
+  status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'suspended' | 'expired';
+  planTier: string;
+  planName: string;
+  billingCycle: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  trialEndDate?: string;
+  pricing: {
+    basePrice: number;
+    currency: string;
+  };
+  moduleItems?: Array<{
+    moduleId: string;
+    moduleCode: string;
+    moduleName: string;
+    monthlyPrice: number;
+  }>;
+}
+
+// ============================================================================
+// Device Types
+// ============================================================================
+
+export interface EdgeDeviceListItem {
+  id: string;
+  deviceCode: string;
+  deviceName: string;
+  deviceModel: string;
+  lifecycleState: string;
+  isOnline: boolean;
+  lastSeenAt?: string;
+  cpuUsage?: number;
+  memoryUsage?: number;
+  agentVersion?: string;
+  ipAddress?: string;
+  sensorCount?: number;
+  programCount?: number;
+}
+
+export interface DeviceStats {
+  total: number;
+  online: number;
+  offline: number;
+  byState: Array<{ state: string; count: number }>;
+}
+
+export interface DeviceEvent {
+  id: string;
+  eventType: string;
+  severity: string;
+  message: string;
+  createdAt: string;
+}
+
+// ============================================================================
+// Notification / Mobile Settings Types
+// ============================================================================
+
+export interface NotificationPreferences {
+  emailEnabled: boolean;
+  smsEnabled: boolean;
+  pushEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  quietHoursTimezone: string;
+  alertNotifications: boolean;
+  taskNotifications: boolean;
+  systemNotifications: boolean;
+}
+
+export interface MobileUserSettingsData {
+  id: string;
+  userId: string;
+  tenantId: string;
+  isMobileEnabled: boolean;
+  allowedFeatures: {
+    mortality: boolean;
+    cull: boolean;
+    harvest: boolean;
+    feeding: boolean;
+    waterQuality: boolean;
+    tankView: boolean;
+  };
+}
+
+// ============================================================================
+// Provisioning Key Types
+// ============================================================================
+
+export interface TenantKeyResponse {
+  id: string;
+  keyToken: string;
+  installerUrl: string;
+  installerCommand: string;
+  expiresAt?: string;
+  maxDevices?: number;
+  autoApprove: boolean;
+}
+
+export interface TenantProvisioningKey {
+  id: string;
+  keyToken: string;
+  name?: string;
+  isActive: boolean;
+  maxDevices?: number;
+  usedCount: number;
+  autoApprove: boolean;
+  expiresAt?: string;
+  createdAt: string;
+}
+
+// ============================================================================
+// Re-export Permission Types
+// ============================================================================
+
+export type {
+  PermissionCategory,
+  PanelPermissions,
+  TenantRolePermissions,
+  PermissionAction,
+  PermissionResource,
+} from '../types/permissions';

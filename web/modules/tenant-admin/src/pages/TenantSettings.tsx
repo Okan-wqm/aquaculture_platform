@@ -15,15 +15,14 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import { useMyTenant, useUpdateTenant } from '../hooks/useTenantData';
 import {
-  getTenantUsers,
-  getNotificationPreferences,
-  updateNotificationPreferences,
-  getMobileUsersSettings,
-  updateMobileUserSettings,
-} from '../lib/api';
-import type { User, MobileUserSettingsData } from '../lib/types';
+  useMyTenant,
+  useUpdateTenantSettings,
+  useNotificationPreferences,
+  useUpdateNotificationPreferences,
+  useMobileUsersData,
+  useUpdateMobileUserSettings,
+} from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 
 /**
@@ -36,8 +35,25 @@ interface SettingsSection {
   icon: React.ReactNode;
 }
 
-// MobileUserSettingsData and User types imported from lib/types
-type TenantUser = User;
+/**
+ * Mobile user settings from API
+ */
+interface MobileUserSettingsData {
+  id: string;
+  userId: string;
+  tenantId: string;
+  isMobileEnabled: boolean;
+  allowedFeatures: {
+    mortality: boolean;
+    cull: boolean;
+    harvest: boolean;
+    feeding: boolean;
+    waterQuality: boolean;
+    tankView: boolean;
+  };
+}
+
+// TenantUser type is now provided by useMobileUsersData hook (TenantUserBasic)
 
 /**
  * Settings sections
@@ -159,7 +175,7 @@ const TenantSettings: React.FC = () => {
 
   // Fetch real tenant data
   const { data: tenantData } = useMyTenant();
-  const updateTenantMutation = useUpdateTenant();
+  const updateSettingsMutation = useUpdateTenantSettings();
 
   // Form state - populated from API
   const [tenantName, setTenantName] = useState('');
@@ -189,35 +205,30 @@ const TenantSettings: React.FC = () => {
     taskNotifications: true,
     systemNotifications: true,
   });
-  const [notifLoading, setNotifLoading] = useState(false);
-  const [notifSaving, setNotifSaving] = useState(false);
   const [notifDirty, setNotifDirty] = useState(false);
 
-  // Load notification preferences when section is active
+  // TanStack Query for notification preferences
+  const { data: notifData, isLoading: notifLoading } = useNotificationPreferences(activeSection === 'notifications');
+  const updateNotifPrefsMutation = useUpdateNotificationPreferences();
+  const notifSaving = updateNotifPrefsMutation.isPending;
+
+  // Populate notification prefs when data arrives
   useEffect(() => {
-    if (activeSection === 'notifications') {
-      setNotifLoading(true);
-      getNotificationPreferences()
-        .then((p) => {
-          setNotifPrefs({
-            emailEnabled: p.emailEnabled,
-            smsEnabled: p.smsEnabled,
-            pushEnabled: p.pushEnabled,
-            quietHoursStart: p.quietHoursStart || '',
-            quietHoursEnd: p.quietHoursEnd || '',
-            quietHoursTimezone: p.quietHoursTimezone || 'Europe/Istanbul',
-            alertNotifications: p.alertNotifications,
-            taskNotifications: p.taskNotifications,
-            systemNotifications: p.systemNotifications,
-          });
-          setNotifDirty(false);
-        })
-        .catch((err) => {
-          logError('TenantSettings.loadNotificationPreferences', err);
-        })
-        .finally(() => setNotifLoading(false));
+    if (notifData) {
+      setNotifPrefs({
+        emailEnabled: notifData.emailEnabled,
+        smsEnabled: notifData.smsEnabled,
+        pushEnabled: notifData.pushEnabled,
+        quietHoursStart: notifData.quietHoursStart || '',
+        quietHoursEnd: notifData.quietHoursEnd || '',
+        quietHoursTimezone: notifData.quietHoursTimezone || 'Europe/Istanbul',
+        alertNotifications: notifData.alertNotifications,
+        taskNotifications: notifData.taskNotifications,
+        systemNotifications: notifData.systemNotifications,
+      });
+      setNotifDirty(false);
     }
-  }, [activeSection]);
+  }, [notifData]);
 
   const updateNotifPref = <K extends keyof typeof notifPrefs>(key: K, value: (typeof notifPrefs)[K]) => {
     setNotifPrefs((prev) => ({ ...prev, [key]: value }));
@@ -225,10 +236,9 @@ const TenantSettings: React.FC = () => {
   };
 
   const saveNotificationPreferences = async () => {
-    setNotifSaving(true);
     setSaveError(null);
     try {
-      await updateNotificationPreferences({
+      await updateNotifPrefsMutation.mutateAsync({
         emailEnabled: notifPrefs.emailEnabled,
         smsEnabled: notifPrefs.smsEnabled,
         pushEnabled: notifPrefs.pushEnabled,
@@ -245,8 +255,6 @@ const TenantSettings: React.FC = () => {
     } catch (err) {
       logError('TenantSettings.saveNotificationPreferences', err);
       setSaveError(err instanceof Error ? err.message : 'Failed to save notification preferences');
-    } finally {
-      setNotifSaving(false);
     }
   };
 
@@ -260,44 +268,22 @@ const TenantSettings: React.FC = () => {
   const [timezone, setTimezone] = useState('UTC');
   const [dateFormat, setDateFormat] = useState('MM/DD/YYYY');
 
-  // Mobile Users state
-  const [mobileUsers, setMobileUsers] = useState<TenantUser[]>([]);
+  // Mobile Users state - using TanStack Query
+  const { data: mobileData, isLoading: mobileLoading, error: mobileQueryError } = useMobileUsersData(activeSection === 'mobileUsers');
+  const updateMobileSettingsMutation = useUpdateMobileUserSettings();
+  const mobileUsers = mobileData?.users ?? [];
   const [mobileSettings, setMobileSettings] = useState<Map<string, MobileUserSettingsData>>(new Map());
-  const [mobileLoading, setMobileLoading] = useState(false);
-  const [mobileError, setMobileError] = useState<string | null>(null);
-  const [mobileSaving, setMobileSaving] = useState(false);
+  const mobileError = mobileQueryError ? (mobileQueryError as Error).message : null;
+  const mobileSaving = updateMobileSettingsMutation.isPending;
   const [dirtyUserIds, setDirtyUserIds] = useState<Set<string>>(new Set());
 
-  const loadMobileData = useCallback(async () => {
-    setMobileLoading(true);
-    setMobileError(null);
-    try {
-      // Load users and mobile settings in parallel
-      const [usersResult, settingsResult] = await Promise.all([
-        getTenantUsers(),
-        getMobileUsersSettings(),
-      ]);
-
-      setMobileUsers((usersResult || []) as TenantUser[]);
-
-      const settingsMap = new Map<string, MobileUserSettingsData>();
-      for (const s of settingsResult || []) {
-        settingsMap.set(s.userId, s);
-      }
-      setMobileSettings(settingsMap);
-      setDirtyUserIds(new Set());
-    } catch (err) {
-      setMobileError((err as Error).message);
-    } finally {
-      setMobileLoading(false);
-    }
-  }, []);
-
+  // Sync settings from query
   useEffect(() => {
-    if (activeSection === 'mobileUsers') {
-      loadMobileData();
+    if (mobileData?.settings) {
+      setMobileSettings(mobileData.settings);
+      setDirtyUserIds(new Set());
     }
-  }, [activeSection, loadMobileData]);
+  }, [mobileData?.settings]);
 
   // Get or create default settings for a user
   const getUserSettings = (userId: string): MobileUserSettingsData => {
@@ -345,14 +331,11 @@ const TenantSettings: React.FC = () => {
 
   // Save changed mobile settings — use Promise.all instead of serial loop (PERF-002)
   const saveMobileSettings = async () => {
-    setMobileSaving(true);
-    setMobileError(null);
-
     try {
       await Promise.all(
         Array.from(dirtyUserIds).map((userId) => {
           const settings = getUserSettings(userId);
-          return updateMobileUserSettings({
+          return updateMobileSettingsMutation.mutateAsync({
             userId,
             isMobileEnabled: settings.isMobileEnabled,
             mortality: settings.allowedFeatures.mortality,
@@ -369,9 +352,7 @@ const TenantSettings: React.FC = () => {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      setMobileError((err as Error).message);
-    } finally {
-      setMobileSaving(false);
+      logError('TenantSettings.saveMobileSettings', err);
     }
   };
 
@@ -400,16 +381,11 @@ const TenantSettings: React.FC = () => {
       return;
     }
 
-    if (!tenantData?.id) {
-      setSaveError('Tenant data not loaded yet. Please wait and try again.');
-      return;
-    }
-
     setLoading(true);
     setSaveError(null);
     try {
-      await updateTenantMutation.mutateAsync({
-        id: tenantData.id,
+      await updateSettingsMutation.mutateAsync({
+        id: tenantData?.id ?? '',
         input: {
           name: tenantName,
           contactEmail,
@@ -425,7 +401,7 @@ const TenantSettings: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeSection, tenantName, contactEmail, contactPhone, address, tenantData, updateTenantMutation, saveMobileSettings, saveNotificationPreferences]);
+  }, [activeSection, tenantName, contactEmail, contactPhone, address, updateSettingsMutation, saveMobileSettings, saveNotificationPreferences, tenantData]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -745,7 +721,7 @@ const TenantSettings: React.FC = () => {
             <p className="text-sm text-red-600">{mobileError}</p>
           </div>
           <button
-            onClick={loadMobileData}
+            onClick={() => { /* refetch handled by TanStack Query */ }}
             className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
           >
             Retry
@@ -885,7 +861,7 @@ const TenantSettings: React.FC = () => {
             onClick={handleSave}
             disabled={
               loading ||
-              updateTenantMutation.isPending ||
+              updateSettingsMutation.isPending ||
               (activeSection === 'mobileUsers' && (mobileSaving || dirtyUserIds.size === 0)) ||
               (activeSection === 'notifications' && (notifSaving || !notifDirty)) ||
               ['security', 'localization', 'appearance'].includes(activeSection)
@@ -902,7 +878,7 @@ const TenantSettings: React.FC = () => {
                 <Check className="w-4 h-4" />
                 Saved!
               </>
-            ) : (loading || updateTenantMutation.isPending || mobileSaving || notifSaving) ? (
+            ) : (loading || updateSettingsMutation.isPending || mobileSaving || notifSaving) ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Saving...

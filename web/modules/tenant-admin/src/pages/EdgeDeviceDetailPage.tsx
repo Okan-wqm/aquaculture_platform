@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -18,15 +18,16 @@ import {
   X,
 } from 'lucide-react';
 
-import {
-  approveDevice,
-  pingDevice,
-  rebootDevice,
-  setDeviceMaintenanceMode,
-  decommissionDevice,
-  getDeviceEvents,
-} from '../lib/api';
 import { useDevicePolling } from '../hooks/useDevicePolling';
+import {
+  useDeviceEvents,
+  useDeviceAction,
+  APPROVE_DEVICE_MUTATION,
+  PING_DEVICE_MUTATION,
+  REBOOT_DEVICE_MUTATION,
+  MAINTENANCE_DEVICE_MUTATION,
+  DECOMMISSION_DEVICE_MUTATION,
+} from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
 import { useAuthContext } from '@aquaculture/shared-ui';
@@ -162,40 +163,28 @@ const EdgeDeviceDetailPage: React.FC = () => {
   // SEC-007: Only TENANT_ADMIN can perform destructive device actions
   const isTenantAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [events, setEvents] = useState<Array<{ id: string; eventType: string; severity: string; message: string; createdAt: string }>>([]);
-  const [eventsLoaded, setEventsLoaded] = useState(false);
+  const [actionName, setActionName] = useState<string | null>(null);
   const [showDecommissionModal, setShowDecommissionModal] = useState(false);
   const [showRebootModal, setShowRebootModal] = useState(false);
 
-  const runAction = async (name: string, actionFn: () => Promise<unknown>) => {
-    setActionLoading(name);
+  // TanStack Query hooks
+  const deviceActionMutation = useDeviceAction();
+  const { data: events = [], refetch: refetchEvents } = useDeviceEvents(
+    deviceId || '',
+    activeTab === 'events',
+  );
+
+  const actionLoading = deviceActionMutation.isPending ? actionName : null;
+
+  const runAction = async (name: string, mutation: string, variables: Record<string, unknown>) => {
+    setActionName(name);
     try {
-      await actionFn();
+      await deviceActionMutation.mutateAsync({ mutation, variables });
       refetch();
     } catch (err) {
       logError(`EdgeDeviceDetail.${name}`, err);
     } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // BUG-009: Load events when tab is already active on mount (e.g. deep link to events tab)
-  useEffect(() => {
-    if (activeTab === 'events' && !eventsLoaded && deviceId) {
-      loadEvents();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, deviceId]);
-
-  const loadEvents = async () => {
-    if (!deviceId) return;
-    try {
-      const data = await getDeviceEvents(deviceId, 1, 50);
-      setEvents(data.items);
-      setEventsLoaded(true);
-    } catch (err) {
-      logError('EdgeDeviceDetail.loadEvents', err);
+      setActionName(null);
     }
   };
 
@@ -264,7 +253,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {device.lifecycleState === 'pending_approval' && (
             <button
-              onClick={() => runAction('approve', () => approveDevice(device.id))}
+              onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
               disabled={!!actionLoading}
               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
             >
@@ -273,7 +262,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => runAction('ping', () => pingDevice(device.id))}
+            onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
             disabled={!!actionLoading}
             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
           >
@@ -301,7 +290,6 @@ const EdgeDeviceDetailPage: React.FC = () => {
               key={tab.id}
               onClick={() => {
                 setActiveTab(tab.id);
-                if (tab.id === 'events' && !eventsLoaded) loadEvents();
               }}
               className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
@@ -389,7 +377,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
               <button
                 onClick={() => {
                   const enabled = device.lifecycleState !== 'maintenance';
-                  runAction('maintenance', () => setDeviceMaintenanceMode(device.id, enabled));
+                  runAction('maintenance', MAINTENANCE_DEVICE_MUTATION, { id: device.id, enabled });
                 }}
                 disabled={!!actionLoading}
                 className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm disabled:opacity-50"
@@ -448,7 +436,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         <div className="bg-white border border-gray-200 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900">Device Events</h3>
-            <button onClick={loadEvents} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+            <button onClick={() => refetchEvents()} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
               Refresh
             </button>
           </div>
@@ -485,7 +473,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       onClose={() => setShowRebootModal(false)}
       onConfirm={() => {
         setShowRebootModal(false);
-        runAction('reboot', () => rebootDevice(device.id, 'Admin reboot'));
+        runAction('reboot', REBOOT_DEVICE_MUTATION, { id: device.id, reason: 'Admin reboot' });
       }}
       loading={actionLoading === 'reboot'}
     />
@@ -496,7 +484,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
       onClose={() => setShowDecommissionModal(false)}
       onConfirm={(reason) => {
         setShowDecommissionModal(false);
-        runAction('decommission', () => decommissionDevice(device.id, reason));
+        runAction('decommission', DECOMMISSION_DEVICE_MUTATION, { id: device.id, reason });
       }}
       loading={actionLoading === 'decommission'}
     />

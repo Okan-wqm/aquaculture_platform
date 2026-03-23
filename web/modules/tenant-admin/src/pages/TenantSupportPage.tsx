@@ -7,8 +7,6 @@
  * - Track ticket status and SLA
  * - Rate resolved tickets
  *
- * Data layer: GraphQL via graphqlRequest (support resolver).
- *
  * Note: TenantAdmin cannot:
  * - Assign tickets
  * - Change priority
@@ -16,7 +14,7 @@
  * - See internal notes from SuperAdmin
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   Ticket,
   Plus,
@@ -38,99 +36,75 @@ import {
   FileText,
   Loader2,
 } from 'lucide-react';
-import { graphqlRequest } from '../services/tenant-api.service';
-import {
-  MY_TICKETS_QUERY,
-  TICKET_QUERY,
-  TICKET_COMMENTS_QUERY,
-  SUPPORT_STATS_QUERY,
-  CREATE_TICKET_MUTATION,
-  ADD_TICKET_COMMENT_MUTATION,
-  RATE_TICKET_MUTATION,
-} from '../graphql';
+import { useAuthContext } from '@aquaculture/shared-ui';
 import { logError } from '../utils/error-handling';
+import {
+  useSupportTickets,
+  useTicketComments,
+  useCreateTicket,
+  useAddTicketComment,
+  useSubmitTicketRating,
+  type ApiSupportTicket,
+  type ApiTicketComment,
+  type ApiTicketCategory,
+} from '../hooks/useTenantData';
 
 // ============================================================================
-// Types (aligned with backend GraphQL DTOs)
+// Types
 // ============================================================================
 
 type TicketPriority = 'critical' | 'high' | 'medium' | 'low';
 type TicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed';
 type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug' | 'general';
-type CommentAuthorType = 'super_admin' | 'tenant_admin' | 'system';
 
-interface TicketListItem {
+interface SupportTicket {
   id: string;
   ticketNumber: string;
-  tenantId: string;
-  tenantName: string;
-  subject: string;
-  category: TicketCategory;
-  priority: TicketPriority;
-  status: TicketStatus;
-  assignedToName: string | null;
-  reportedByName: string;
-  commentCount: number;
-  createdAt: string;
-  updatedAt: string;
-  isResponseSLABreached: boolean;
-  isResolutionSLABreached: boolean;
-}
-
-interface SupportTicketDetail {
-  id: string;
-  ticketNumber: string;
-  tenantId: string;
   subject: string;
   description: string;
   category: TicketCategory;
   priority: TicketPriority;
   status: TicketStatus;
-  assignedTo: string | null;
-  assignedToName: string | null;
+  assignedToName?: string;
   reportedBy: string;
   reportedByName: string;
   commentCount: number;
-  slaResponseDeadline: string | null;
-  slaResolutionDeadline: string | null;
-  firstResponseAt: string | null;
-  resolvedAt: string | null;
-  satisfactionRating: number | null;
-  satisfactionComment: string | null;
-  tags: string[] | null;
+  slaResponseDeadline?: string;
+  slaResolutionDeadline?: string;
+  firstResponseAt?: string;
+  resolvedAt?: string;
+  satisfactionRating?: number;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
-  tenantName: string | null;
 }
 
-interface CommentItem {
+interface TicketComment {
   id: string;
   ticketId: string;
   authorId: string;
   authorName: string;
-  authorType: CommentAuthorType;
+  authorType: 'admin' | 'tenant' | 'system';
   content: string;
-  isInternal: boolean;
-  attachments: Array<{
-    id: string;
-    filename: string;
-    url: string;
-    size: number;
-  }> | null;
+  attachments: TicketAttachment[];
   createdAt: string;
 }
 
-interface SupportStats {
+interface TicketAttachment {
+  id: string;
+  filename: string;
+  url: string;
+  size: number;
+}
+
+interface TicketStats {
   total: number;
   open: number;
   inProgress: number;
-  waitingCustomer: number;
   resolved: number;
   avgResponseMinutes: number;
-  avgResolutionMinutes: number;
-  slaComplianceRate: number;
-  satisfactionAvg: number;
 }
+
 
 // ============================================================================
 // Components
@@ -142,7 +116,7 @@ interface SupportStats {
 const NewTicketModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (ticket: { subject: string; category: TicketCategory; description: string }) => void;
+  onSubmit: (ticket: Partial<SupportTicket>) => void;
 }> = ({ isOpen, onClose, onSubmit }) => {
   const [subject, setSubject] = useState('');
   const [category, setCategory] = useState<TicketCategory>('general');
@@ -277,7 +251,7 @@ const RatingModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (rating: number) => void;
-  ticket: TicketListItem | SupportTicketDetail | null;
+  ticket: SupportTicket | null;
 }> = ({ isOpen, onClose, onSubmit, ticket }) => {
   const [rating, setRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
@@ -339,76 +313,83 @@ const RatingModal: React.FC<{
 };
 
 // ============================================================================
+// Helper: map API ticket to local display type
+// ============================================================================
+
+function mapTicket(t: ApiSupportTicket): SupportTicket {
+  return {
+    id: t.id,
+    ticketNumber: t.ticketNumber || `TKT-${t.id.slice(0, 8)}`,
+    subject: t.subject,
+    description: t.description,
+    category: t.category as TicketCategory,
+    priority: t.priority as TicketPriority,
+    status: (t.status === 'pending_customer' ? 'waiting_customer' : t.status) as TicketStatus,
+    assignedToName: t.assignedToName,
+    reportedBy: t.reportedBy ?? t.createdBy ?? '',
+    reportedByName: t.reportedByName ?? t.createdByName ?? '',
+    commentCount: t.commentCount ?? 0,
+    tags: t.tags || [],
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    resolvedAt: t.resolvedAt,
+  };
+}
+
+function mapComment(c: ApiTicketComment): TicketComment {
+  return {
+    id: c.id,
+    ticketId: c.ticketId,
+    authorId: c.authorId,
+    authorName: c.authorName,
+    authorType: c.authorType === 'tenant_admin' ? 'tenant' : (c.authorType as 'admin' | 'tenant' | 'system'),
+    content: c.content,
+    attachments: (c.attachments || []).map(a => ({
+      id: a.id,
+      filename: a.fileName ?? a.filename ?? '',
+      url: a.url,
+      size: a.fileSize ?? a.size ?? 0,
+    })),
+    createdAt: c.createdAt,
+  };
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
 export const TenantSupportPage: React.FC = () => {
-  const [tickets, setTickets] = useState<TicketListItem[]>([]);
-  const [stats, setStats] = useState<SupportStats>({
-    total: 0, open: 0, inProgress: 0, waitingCustomer: 0, resolved: 0,
-    avgResponseMinutes: 0, avgResolutionMinutes: 0, slaComplianceRate: 0, satisfactionAvg: 0,
-  });
-  const [selectedTicket, setSelectedTicket] = useState<SupportTicketDetail | null>(null);
-  const [comments, setComments] = useState<CommentItem[]>([]);
+  const { user } = useAuthContext();
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
   const [newComment, setNewComment] = useState('');
   const [newTicketOpen, setNewTicketOpen] = useState(false);
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
-  const [ticketToRate, setTicketToRate] = useState<SupportTicketDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [ticketToRate, setTicketToRate] = useState<SupportTicket | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Fetch tickets and stats from GraphQL
-  const fetchTickets = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // TanStack Query hooks
+  const { data: rawTickets = [], isLoading: loading, error: ticketsError } = useSupportTickets();
+  const { data: rawComments = [] } = useTicketComments(selectedTicketId);
+  const createTicketMutation = useCreateTicket();
+  const addCommentMutation = useAddTicketComment();
+  const submitRatingMutation = useSubmitTicketRating();
 
-      const statusVar = statusFilter !== 'all' ? statusFilter : undefined;
+  const error = ticketsError ? (ticketsError as Error).message : null;
 
-      const [ticketsResult, statsResult] = await Promise.all([
-        graphqlRequest<{ myTickets: TicketListItem[] }>(MY_TICKETS_QUERY, {
-          status: statusVar,
-        }),
-        graphqlRequest<{ supportStats: SupportStats }>(SUPPORT_STATS_QUERY),
-      ]);
+  // Map API types to local display types
+  const tickets = rawTickets.map(mapTicket);
+  const comments = rawComments.map(mapComment);
+  const selectedTicket = selectedTicketId ? tickets.find(t => t.id === selectedTicketId) ?? null : null;
 
-      setTickets(ticketsResult.myTickets || []);
-      setStats(statsResult.supportStats);
-    } catch (err) {
-      logError('TenantSupportPage.fetchTickets', err);
-      setError(err instanceof Error ? err.message : 'Failed to load tickets');
-    } finally {
-      setLoading(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
-
-  useEffect(() => {
-    fetchTickets();
-  }, [fetchTickets]);
-
-  // Fetch ticket detail and comments when ticket is selected
-  const fetchTicketDetail = useCallback(async (ticketId: string) => {
-    try {
-      const [ticketResult, commentsResult] = await Promise.all([
-        graphqlRequest<{ ticket: SupportTicketDetail }>(TICKET_QUERY, { id: ticketId }),
-        graphqlRequest<{ ticketComments: CommentItem[] }>(TICKET_COMMENTS_QUERY, { ticketId }),
-      ]);
-      setSelectedTicket(ticketResult.ticket);
-      // Filter out internal comments (tenant admin shouldn't see them)
-      const visibleComments = (commentsResult.ticketComments || []).filter(c => !c.isInternal);
-      setComments(visibleComments);
-    } catch (err) {
-      logError('TenantSupportPage.fetchTicketDetail', err);
-      setComments([]);
-    }
-  }, []);
-
-  const handleSelectTicket = (ticket: TicketListItem) => {
-    fetchTicketDetail(ticket.id);
+  // Calculate stats
+  const stats: TicketStats = {
+    total: tickets.length,
+    open: tickets.filter(t => t.status === 'open').length,
+    inProgress: tickets.filter(t => t.status === 'in_progress').length,
+    resolved: tickets.filter(t => t.status === 'resolved' || t.status === 'closed').length,
+    avgResponseMinutes: 0,
   };
 
   const filteredTickets = tickets.filter((ticket) => {
@@ -500,20 +481,21 @@ export const TenantSupportPage: React.FC = () => {
     return date.toLocaleDateString();
   };
 
-  const handleCreateTicket = async (ticketData: { subject: string; category: TicketCategory; description: string }) => {
+  const handleCreateTicket = async (ticketData: Partial<SupportTicket>) => {
     try {
-      setActionError(null);
-      await graphqlRequest<{ createTicket: { id: string } }>(CREATE_TICKET_MUTATION, {
-        input: {
-          subject: ticketData.subject,
-          description: ticketData.description,
-          category: ticketData.category,
-          priority: 'medium',
-        },
+      const userName = user?.firstName && user?.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user?.email || 'Unknown User';
+
+      await createTicketMutation.mutateAsync({
+        subject: ticketData.subject || '',
+        description: ticketData.description || '',
+        category: (ticketData.category || 'general') as ApiTicketCategory,
+        priority: 'medium',
+        createdByName: userName,
+        createdByEmail: user?.email,
       });
 
-      // Refresh tickets list
-      await fetchTickets();
       setNewTicketOpen(false);
     } catch (err) {
       logError('TenantSupportPage.createTicket', err);
@@ -522,24 +504,19 @@ export const TenantSupportPage: React.FC = () => {
   };
 
   const handleAddComment = async () => {
-    if (!newComment.trim() || !selectedTicket) return;
+    if (!newComment.trim() || !selectedTicketId) return;
 
     try {
-      setActionError(null);
-      await graphqlRequest<{ addTicketComment: CommentItem }>(ADD_TICKET_COMMENT_MUTATION, {
-        input: {
-          ticketId: selectedTicket.id,
-          content: newComment.trim(),
-          isInternal: false,
-        },
+      const userName = user?.firstName && user?.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user?.email || 'Unknown User';
+
+      await addCommentMutation.mutateAsync({
+        ticketId: selectedTicketId,
+        content: newComment,
+        authorName: userName,
       });
-
-      // Refresh comments and ticket detail
-      await fetchTicketDetail(selectedTicket.id);
       setNewComment('');
-
-      // Refresh tickets list to update comment count
-      await fetchTickets();
     } catch (err) {
       logError('TenantSupportPage.addComment', err);
       setActionError(err instanceof Error ? err.message : 'Failed to add comment');
@@ -550,26 +527,9 @@ export const TenantSupportPage: React.FC = () => {
     if (!ticketToRate) return;
 
     try {
-      await graphqlRequest<{ rateTicket: { id: string; satisfactionRating: number } }>(
-        RATE_TICKET_MUTATION,
-        {
-          input: {
-            ticketId: ticketToRate.id,
-            rating,
-          },
-        },
-      );
-
-      // Update local state
-      if (selectedTicket?.id === ticketToRate.id) {
-        setSelectedTicket({ ...selectedTicket, satisfactionRating: rating });
-      }
-
+      await submitRatingMutation.mutateAsync({ ticketId: ticketToRate.id, rating });
       setRatingModalOpen(false);
       setTicketToRate(null);
-
-      // Refresh tickets
-      await fetchTickets();
     } catch (err) {
       logError('TenantSupportPage.rateTicket', err);
       setActionError(err instanceof Error ? err.message : 'Failed to submit rating');
@@ -645,12 +605,6 @@ export const TenantSupportPage: React.FC = () => {
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
             <h3 className="text-lg font-medium text-gray-900 mb-1">Failed to Load Tickets</h3>
             <p className="text-gray-500 mb-4">{error}</p>
-            <button
-              onClick={fetchTickets}
-              className="px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
-            >
-              Try Again
-            </button>
           </div>
         </div>
       )}
@@ -695,7 +649,7 @@ export const TenantSupportPage: React.FC = () => {
             {filteredTickets.map((ticket) => (
               <div
                 key={ticket.id}
-                onClick={() => handleSelectTicket(ticket)}
+                onClick={() => setSelectedTicketId(ticket.id)}
                 className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
                   selectedTicket?.id === ticket.id
                     ? 'bg-tenant-50 border-l-4 border-l-tenant-500'
@@ -795,7 +749,7 @@ export const TenantSupportPage: React.FC = () => {
                   </div>
                 </div>
                 <button
-                  onClick={() => setSelectedTicket(null)}
+                  onClick={() => setSelectedTicketId(null)}
                   className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <X size={20} />
@@ -803,7 +757,7 @@ export const TenantSupportPage: React.FC = () => {
               </div>
 
               {/* Tags */}
-              {selectedTicket.tags && selectedTicket.tags.length > 0 && (
+              {selectedTicket.tags.length > 0 && (
                 <div className="flex items-center gap-2 mt-3">
                   <Tag size={14} className="text-gray-500" />
                   {selectedTicket.tags.map((tag) => (
@@ -836,20 +790,13 @@ export const TenantSupportPage: React.FC = () => {
               )}
             </div>
 
-            {/* Description */}
-            {selectedTicket.description && (
-              <div className="px-6 py-4 bg-white border-b border-gray-200">
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedTicket.description}</p>
-              </div>
-            )}
-
             {/* Comments */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {comments.map((comment) => (
                 <div
                   key={comment.id}
                   className={`rounded-lg p-4 ${
-                    comment.authorType === 'super_admin'
+                    comment.authorType === 'admin'
                       ? 'bg-blue-50 border border-blue-100'
                       : 'bg-white border border-gray-200'
                   }`}
@@ -858,7 +805,7 @@ export const TenantSupportPage: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <div
                         className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          comment.authorType === 'super_admin'
+                          comment.authorType === 'admin'
                             ? 'bg-blue-200 text-blue-700'
                             : 'bg-tenant-200 text-tenant-700'
                         }`}
@@ -868,14 +815,14 @@ export const TenantSupportPage: React.FC = () => {
                       <div>
                         <div className="font-medium text-gray-900 text-sm">{comment.authorName}</div>
                         <div className="text-xs text-gray-500">
-                          {comment.authorType === 'super_admin' ? 'Support Team' : 'You'}
+                          {comment.authorType === 'admin' ? 'Support Team' : 'You'}
                         </div>
                       </div>
                     </div>
                     <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
                   </div>
                   <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.content}</p>
-                  {comment.attachments && comment.attachments.length > 0 && (
+                  {comment.attachments.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {comment.attachments.map((att) => {
                         // SEC-009: Only allow https:// URLs to prevent javascript: / data: injection
@@ -917,7 +864,7 @@ export const TenantSupportPage: React.FC = () => {
                     </button>
                     <button
                       onClick={handleAddComment}
-                      disabled={!newComment.trim()}
+                      disabled={!newComment.trim() || addCommentMutation.isPending}
                       className="p-3 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Send size={20} />

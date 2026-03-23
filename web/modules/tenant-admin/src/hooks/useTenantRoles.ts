@@ -22,15 +22,13 @@ import {
   updateTenantRole,
   deleteTenantRole,
   seedTenantRoles,
-} from '../lib/api';
-import type {
-  TenantRole,
-  TenantRolePermissions,
-  PermissionCategory,
-  CreateTenantRoleInput,
-  UpdateTenantRoleInput,
-  PanelPermissions,
-} from '../lib/types';
+  type TenantRole,
+  type TenantRolePermissions,
+  type PermissionCategory,
+  type CreateTenantRoleInput,
+  type UpdateTenantRoleInput,
+  type PanelPermissions,
+} from '../services/tenant-api.service';
 import { processError, logError, type AppError } from '../utils/error-handling';
 
 // ============================================================================
@@ -103,7 +101,6 @@ interface OptimisticContext {
   previousRoles?: TenantRole[];
   previousRole?: TenantRole | null;
   previousDefaultRole?: TenantRole | null;
-  tempId?: string;
 }
 
 /**
@@ -246,13 +243,9 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
       // Snapshot previous value for rollback
       const previousRoles = queryClient.getQueryData<TenantRole[]>(roleKeys.lists());
 
-      // Generate a unique temp ID and track it in context to avoid race conditions
-      // when multiple creates happen in quick succession (CRIT-03)
-      const tempId = generateTempId();
-
       // Create optimistic role object
       const optimisticRole: TenantRole = {
-        id: tempId,
+        id: generateTempId(),
         name: input.name,
         description: input.description ?? undefined,
         color: input.color ?? '#6366F1',
@@ -263,7 +256,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
         userCount: 0,
         permissions: {
           id: generateTempId(),
-          roleId: tempId,
+          roleId: generateTempId(),
           panelPermissions: input.panelPermissions as PanelPermissions || {},
           resourcePermissions: [],
         },
@@ -293,7 +286,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
         );
       }
 
-      return { previousRoles, previousDefaultRole, tempId };
+      return { previousRoles, previousDefaultRole };
     },
 
     // On error, rollback to previous state and log error
@@ -314,13 +307,11 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
     },
 
     // On success, replace optimistic data with actual data
-    onSuccess: (newRole, _variables, context) => {
-      // Replace ONLY the specific temp entry tracked by context.tempId,
-      // not all temp entries — prevents data corruption when multiple
-      // creates happen in quick succession (CRIT-03)
+    onSuccess: (newRole) => {
+      // Update the list with real data
       queryClient.setQueryData<TenantRole[]>(roleKeys.lists(), (old = []) =>
         old.map((role) =>
-          role.id === context?.tempId ? newRole : role
+          role.id.startsWith('temp-') ? newRole : role
         )
       );
       // Add the real role to detail cache

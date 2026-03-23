@@ -53,6 +53,13 @@ export type {
   TenantRolePermissions,
   PermissionAction,
   PermissionResource,
+  // Communication types
+  MessageThread,
+  Message,
+  Announcement,
+  ApiSupportTicket,
+  ApiTicketComment,
+  ApiTicketCategory,
 } from '../lib/types';
 
 // ============================================================================
@@ -105,6 +112,21 @@ export {
   createProvisioningKey,
   listProvisioningKeys,
   revokeProvisioningKey,
+  // Communication
+  getMyThreads,
+  getThreadMessages,
+  sendMessage,
+  createThread,
+  closeThread,
+  reopenThread,
+  getMyTickets,
+  getTicketComments,
+  createTicket,
+  addTicketComment,
+  rateTicket,
+  getMyAnnouncements,
+  viewAnnouncement,
+  acknowledgeAnnouncement,
 } from '../lib/api';
 
 export type {

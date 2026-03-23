@@ -6,14 +6,12 @@
  * - Acknowledge announcements when required
  * - Filter by type and read status
  *
- * Data layer: GraphQL via graphqlRequest (announcement resolver).
- *
  * Note: TenantAdmin cannot:
- * - Create or edit platform announcements (only tenant-level)
+ * - Create or edit announcements
  * - See draft/scheduled/cancelled announcements
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Megaphone,
   Search,
@@ -29,48 +27,34 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react';
-import { graphqlRequest } from '../services/tenant-api.service';
+import { useQueryClient } from '@tanstack/react-query';
 import {
-  MY_ANNOUNCEMENTS_QUERY,
-  VIEW_ANNOUNCEMENT_MUTATION,
-  ACKNOWLEDGE_ANNOUNCEMENT_MUTATION,
-} from '../graphql';
+  useAnnouncements,
+  useAcknowledgeAnnouncement,
+  useMarkAnnouncementViewed,
+  tenantKeys,
+  type Announcement,
+} from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
-// Types (aligned with backend GraphQL DTOs)
+// Types
 // ============================================================================
 
-type AnnouncementType = 'info' | 'warning' | 'critical' | 'maintenance';
-type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'expired' | 'cancelled';
-type AnnouncementScope = 'platform' | 'tenant';
+type AnnouncementType = 'info' | 'warning' | 'error' | 'maintenance' | 'success';
 
-interface AnnouncementListItem {
-  id: string;
-  title: string;
-  content: string;
-  type: AnnouncementType;
-  status: AnnouncementStatus;
-  scope: AnnouncementScope;
-  isGlobal: boolean;
-  publishAt: string | null;
-  expiresAt: string | null;
-  requiresAcknowledgment: boolean;
-  viewCount: number;
-  acknowledgmentCount: number;
-  createdByName: string;
-  createdAt: string;
-  isActive: boolean;
-  hasViewed?: boolean;
-  hasAcknowledged?: boolean;
+// Extended announcement interface with local state
+interface ExtendedAnnouncement extends Omit<Announcement, 'requiresAcknowledgment'> {
+  isRead?: boolean;
+  isAcknowledged?: boolean;
+  acknowledgedAt?: string;
+  requiresAcknowledgment?: boolean;
 }
 
-// Helper to map announcement types for display
-type DisplayAnnouncementType = 'info' | 'warning' | 'error' | 'maintenance';
-
-const mapTypeForDisplay = (type: AnnouncementType): DisplayAnnouncementType => {
+// Helper to map announcement types
+const mapAnnouncementType = (type: string): AnnouncementType => {
   if (type === 'critical') return 'error';
-  return type as DisplayAnnouncementType;
+  return type as AnnouncementType;
 };
 
 // ============================================================================
@@ -78,44 +62,37 @@ const mapTypeForDisplay = (type: AnnouncementType): DisplayAnnouncementType => {
 // ============================================================================
 
 export const TenantAnnouncementsPage: React.FC = () => {
-  const [announcements, setAnnouncements] = useState<AnnouncementListItem[]>([]);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<DisplayAnnouncementType | 'all'>('all');
+  const [typeFilter, setTypeFilter] = useState<AnnouncementType | 'all'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'requires_ack'>('all');
-  const [selectedAnnouncement, setSelectedAnnouncement] = useState<AnnouncementListItem | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<ExtendedAnnouncement | null>(null);
 
-  // Fetch announcements from GraphQL
-  const fetchAnnouncements = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // Local state for read/acknowledged status (could be persisted to backend later)
+  const [localState, setLocalState] = useState<Record<string, { isRead: boolean; isAcknowledged: boolean; acknowledgedAt?: string }>>({});
 
-      const result = await graphqlRequest<{ myAnnouncements: AnnouncementListItem[] }>(
-        MY_ANNOUNCEMENTS_QUERY,
-        {
-          // Only show published announcements for tenant admin
-          status: 'published' as AnnouncementStatus,
-        },
-      );
+  // TanStack Query hooks
+  const { data: rawAnnouncements = [], isLoading: loading, error: queryError } = useAnnouncements();
+  const acknowledgeAnnouncementMutation = useAcknowledgeAnnouncement();
+  const markViewedMutation = useMarkAnnouncementViewed();
 
-      setAnnouncements(result.myAnnouncements || []);
-    } catch (err) {
-      logError('TenantAnnouncementsPage.fetchAnnouncements', err);
-      setError(err instanceof Error ? err.message : 'Failed to load announcements');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const error = queryError ? (queryError as Error).message : null;
 
-  useEffect(() => {
-    fetchAnnouncements();
-  }, [fetchAnnouncements]);
+  // Transform raw announcements with local state
+  const announcements = useMemo<ExtendedAnnouncement[]>(() =>
+    rawAnnouncements.map((ann: Announcement) => ({
+      ...ann,
+      type: mapAnnouncementType(ann.type),
+      isRead: ann.hasViewed ?? localState[ann.id]?.isRead ?? false,
+      isAcknowledged: ann.hasAcknowledged ?? localState[ann.id]?.isAcknowledged ?? false,
+      acknowledgedAt: localState[ann.id]?.acknowledgedAt,
+      requiresAcknowledgment: ann.requiresAcknowledgment ?? ann.priority === 'high',
+    })),
+  [rawAnnouncements, localState]);
 
   // Stats
-  const unreadCount = announcements.filter((a) => !a.hasViewed).length;
-  const pendingAckCount = announcements.filter((a) => a.requiresAcknowledgment && !a.hasAcknowledged).length;
+  const unreadCount = announcements.filter((a) => !a.isRead).length;
+  const pendingAckCount = announcements.filter((a) => a.requiresAcknowledgment && !a.isAcknowledged).length;
 
   const filteredAnnouncements = announcements.filter((ann) => {
     if (
@@ -125,15 +102,15 @@ export const TenantAnnouncementsPage: React.FC = () => {
     ) {
       return false;
     }
-    if (typeFilter !== 'all' && mapTypeForDisplay(ann.type) !== typeFilter) return false;
-    if (readFilter === 'unread' && ann.hasViewed) return false;
-    if (readFilter === 'requires_ack' && (!ann.requiresAcknowledgment || ann.hasAcknowledged)) return false;
+    if (typeFilter !== 'all' && mapAnnouncementType(ann.type) !== typeFilter) return false;
+    if (readFilter === 'unread' && ann.isRead) return false;
+    if (readFilter === 'requires_ack' && (!ann.requiresAcknowledgment || ann.isAcknowledged)) return false;
     return true;
   });
 
-  const getTypeIcon = (type: AnnouncementType) => {
-    const displayType = mapTypeForDisplay(type);
-    switch (displayType) {
+  const getTypeIcon = (type: AnnouncementType | string) => {
+    const mappedType = typeof type === 'string' ? mapAnnouncementType(type) : type;
+    switch (mappedType) {
       case 'info':
         return <Info size={18} className="text-blue-500" />;
       case 'warning':
@@ -142,14 +119,16 @@ export const TenantAnnouncementsPage: React.FC = () => {
         return <AlertCircle size={18} className="text-red-500" />;
       case 'maintenance':
         return <Wrench size={18} className="text-purple-500" />;
+      case 'success':
+        return <CheckCircle size={18} className="text-green-500" />;
       default:
         return <Info size={18} className="text-blue-500" />;
     }
   };
 
-  const getTypeColor = (type: AnnouncementType) => {
-    const displayType = mapTypeForDisplay(type);
-    switch (displayType) {
+  const getTypeColor = (type: AnnouncementType | string) => {
+    const mappedType = typeof type === 'string' ? mapAnnouncementType(type) : type;
+    switch (mappedType) {
       case 'info':
         return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'warning':
@@ -158,14 +137,16 @@ export const TenantAnnouncementsPage: React.FC = () => {
         return 'bg-red-100 text-red-700 border-red-200';
       case 'maintenance':
         return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'success':
+        return 'bg-green-100 text-green-700 border-green-200';
       default:
         return 'bg-gray-100 text-gray-700 border-gray-200';
     }
   };
 
-  const getTypeBgColor = (type: AnnouncementType) => {
-    const displayType = mapTypeForDisplay(type);
-    switch (displayType) {
+  const getTypeBgColor = (type: AnnouncementType | string) => {
+    const mappedType = typeof type === 'string' ? mapAnnouncementType(type) : type;
+    switch (mappedType) {
       case 'info':
         return 'border-l-blue-500';
       case 'warning':
@@ -174,18 +155,10 @@ export const TenantAnnouncementsPage: React.FC = () => {
         return 'border-l-red-500';
       case 'maintenance':
         return 'border-l-purple-500';
+      case 'success':
+        return 'border-l-green-500';
       default:
         return 'border-l-gray-500';
-    }
-  };
-
-  const getTypeLabel = (type: AnnouncementType): string => {
-    switch (type) {
-      case 'info': return 'Info';
-      case 'warning': return 'Warning';
-      case 'critical': return 'Critical';
-      case 'maintenance': return 'Maintenance';
-      default: return type;
     }
   };
 
@@ -205,71 +178,69 @@ export const TenantAnnouncementsPage: React.FC = () => {
     }).format(date);
   };
 
-  const handleViewAnnouncement = async (announcement: AnnouncementListItem) => {
-    // Mark as viewed via GraphQL
-    if (!announcement.hasViewed) {
-      // Optimistic update
-      setAnnouncements(prev =>
-        prev.map((a) => (a.id === announcement.id ? { ...a, hasViewed: true } : a))
-      );
-
-      try {
-        await graphqlRequest<{ viewAnnouncement: { id: string } }>(
-          VIEW_ANNOUNCEMENT_MUTATION,
-          { id: announcement.id },
-        );
-      } catch (err) {
-        logError('TenantAnnouncementsPage.viewAnnouncement', err);
-      }
-    }
-    setSelectedAnnouncement({ ...announcement, hasViewed: true });
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.announcements() });
   };
 
-  const handleAcknowledge = async (announcementId: string) => {
-    // Optimistic update
-    setAnnouncements(prev =>
-      prev.map((a) =>
-        a.id === announcementId
-          ? { ...a, hasAcknowledged: true }
-          : a
-      )
-    );
+  const handleViewAnnouncement = (announcement: ExtendedAnnouncement) => {
+    // Mark as read locally
+    if (!announcement.isRead) {
+      setLocalState(prev => ({
+        ...prev,
+        [announcement.id]: { ...prev[announcement.id], isRead: true }
+      }));
+
+      // Mark as viewed on backend (fire-and-forget)
+      markViewedMutation.mutate(announcement.id, {
+        onError: (err) => logError('TenantAnnouncementsPage.markAsViewed', err),
+      });
+    }
+    setSelectedAnnouncement({ ...announcement, isRead: true });
+  };
+
+  const handleAcknowledge = (announcementId: string) => {
+    const now = new Date().toISOString();
+
+    // Update local state
+    setLocalState(prev => ({
+      ...prev,
+      [announcementId]: {
+        ...prev[announcementId],
+        isAcknowledged: true,
+        acknowledgedAt: now
+      }
+    }));
 
     if (selectedAnnouncement?.id === announcementId) {
       setSelectedAnnouncement({
         ...selectedAnnouncement,
-        hasAcknowledged: true,
+        isAcknowledged: true,
+        acknowledgedAt: now,
       });
     }
 
-    try {
-      await graphqlRequest<{ acknowledgeAnnouncement: { id: string; acknowledgedAt: string } }>(
-        ACKNOWLEDGE_ANNOUNCEMENT_MUTATION,
-        { id: announcementId },
-      );
-    } catch (err) {
-      logError('TenantAnnouncementsPage.acknowledgeAnnouncement', err);
-    }
+    // Send to backend
+    acknowledgeAnnouncementMutation.mutate(announcementId, {
+      onError: (err) => logError('TenantAnnouncementsPage.acknowledgeAnnouncement', err),
+    });
   };
 
-  const handleMarkAllRead = async () => {
-    // Optimistic update
-    setAnnouncements(prev => prev.map((a) => ({ ...a, hasViewed: true })));
+  const handleMarkAllRead = () => {
+    // Update all to read locally
+    const newState = { ...localState };
+    announcements.forEach(a => {
+      newState[a.id] = { ...newState[a.id], isRead: true };
+    });
+    setLocalState(newState);
 
-    // Mark all unviewed announcements as viewed via GraphQL
-    const unviewedAnnouncements = announcements.filter(a => !a.hasViewed);
-    try {
-      await Promise.all(
-        unviewedAnnouncements.map(a =>
-          graphqlRequest<{ viewAnnouncement: { id: string } }>(
-            VIEW_ANNOUNCEMENT_MUTATION,
-            { id: a.id },
-          )
-        )
-      );
-    } catch (err) {
-      logError('TenantAnnouncementsPage.markAllRead', err);
-    }
+    // Mark all as viewed on backend (fire-and-forget)
+    announcements
+      .filter(a => !a.isRead)
+      .forEach(a => {
+        markViewedMutation.mutate(a.id, {
+          onError: (err) => logError('TenantAnnouncementsPage.markAllRead', err),
+        });
+      });
   };
 
   return (
@@ -283,7 +254,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={fetchAnnouncements}
+              onClick={handleRefresh}
               disabled={loading}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
               title="Refresh"
@@ -331,7 +302,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
               <span className="text-sm text-green-600">Acknowledged</span>
             </div>
             <div className="text-xl font-semibold text-green-700 mt-1">
-              {announcements.filter((a) => a.hasAcknowledged).length}
+              {announcements.filter((a) => a.isAcknowledged).length}
             </div>
           </div>
         </div>
@@ -352,7 +323,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
           </div>
           <select
             value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as DisplayAnnouncementType | 'all')}
+            onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
           >
             <option value="all">All Types</option>
@@ -360,6 +331,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
             <option value="warning">Warning</option>
             <option value="error">Critical</option>
             <option value="maintenance">Maintenance</option>
+            <option value="success">Success</option>
           </select>
           <select
             value={readFilter}
@@ -386,7 +358,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                 <AlertCircle size={18} />
                 <span className="text-sm">{error}</span>
                 <button
-                  onClick={fetchAnnouncements}
+                  onClick={handleRefresh}
                   className="ml-auto text-sm underline hover:no-underline"
                 >
                   Retry
@@ -415,23 +387,23 @@ export const TenantAnnouncementsPage: React.FC = () => {
                   onClick={() => handleViewAnnouncement(announcement)}
                   className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors border-l-4 ${getTypeBgColor(announcement.type)} ${
                     selectedAnnouncement?.id === announcement.id ? 'bg-tenant-50' : ''
-                  } ${!announcement.hasViewed ? 'bg-blue-50/50' : ''}`}
+                  } ${!announcement.isRead ? 'bg-blue-50/50' : ''}`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5">{getTypeIcon(announcement.type)}</div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3
-                          className={`font-medium ${!announcement.hasViewed ? 'text-gray-900' : 'text-gray-700'}`}
+                          className={`font-medium ${!announcement.isRead ? 'text-gray-900' : 'text-gray-700'}`}
                         >
                           {announcement.title}
                         </h3>
-                        {!announcement.hasViewed && (
+                        {!announcement.isRead && (
                           <span className="px-1.5 py-0.5 text-xs font-medium bg-blue-500 text-white rounded">
                             NEW
                           </span>
                         )}
-                        {announcement.requiresAcknowledgment && !announcement.hasAcknowledged && (
+                        {announcement.requiresAcknowledgment && !announcement.isAcknowledged && (
                           <span className="px-1.5 py-0.5 text-xs font-medium bg-orange-500 text-white rounded">
                             ACK REQUIRED
                           </span>
@@ -441,15 +413,15 @@ export const TenantAnnouncementsPage: React.FC = () => {
                       <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Clock size={12} />
-                          {formatDate(announcement.publishAt || announcement.createdAt)}
+                          {formatDate(announcement.publishedAt || announcement.createdAt)}
                         </span>
-                        <span>by {announcement.createdByName}</span>
+                        <span>by {announcement.createdBy}</span>
                         <span className={`px-2 py-0.5 rounded ${getTypeColor(announcement.type)}`}>
-                          {getTypeLabel(announcement.type)}
+                          {announcement.type}
                         </span>
                       </div>
                     </div>
-                    {announcement.hasAcknowledged && (
+                    {announcement.isAcknowledged && (
                       <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
                     )}
                   </div>
@@ -474,9 +446,9 @@ export const TenantAnnouncementsPage: React.FC = () => {
                     <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
                         <Calendar size={14} />
-                        {formatDate(selectedAnnouncement.publishAt || selectedAnnouncement.createdAt)}
+                        {formatDate(selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt)}
                       </span>
-                      <span>by {selectedAnnouncement.createdByName}</span>
+                      <span>by {selectedAnnouncement.createdBy}</span>
                     </div>
                   </div>
                 </div>
@@ -494,7 +466,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                   className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${getTypeColor(selectedAnnouncement.type)}`}
                 >
                   {getTypeIcon(selectedAnnouncement.type)}
-                  {getTypeLabel(selectedAnnouncement.type)}
+                  {selectedAnnouncement.type.charAt(0).toUpperCase() + selectedAnnouncement.type.slice(1)}
                 </span>
               </div>
             </div>
@@ -531,11 +503,18 @@ export const TenantAnnouncementsPage: React.FC = () => {
             {/* Acknowledgment Section */}
             {selectedAnnouncement.requiresAcknowledgment && (
               <div className="bg-white border-t border-gray-200 px-6 py-4">
-                {selectedAnnouncement.hasAcknowledged ? (
+                {selectedAnnouncement.isAcknowledged ? (
                   <div className="flex items-center justify-center gap-2 p-3 bg-green-50 rounded-lg text-green-700">
                     <CheckCircle size={18} />
                     <span className="text-sm font-medium">
-                      You have acknowledged this announcement
+                      You acknowledged this on{' '}
+                      {new Intl.DateTimeFormat(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }).format(new Date(selectedAnnouncement.acknowledgedAt!))}
                     </span>
                   </div>
                 ) : (

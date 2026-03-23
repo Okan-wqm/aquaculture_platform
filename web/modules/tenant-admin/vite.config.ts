@@ -41,10 +41,11 @@ export default defineConfig({
         '@aquaculture/shared-ui': {
           singleton: true,
           import: true,
+          requiredVersion: '^1.0.0',
         },
-        zustand: {
+        'lucide-react': {
           singleton: true,
-          requiredVersion: '^4.4.0',
+          requiredVersion: '^0.469.0',
         },
       },
     }),

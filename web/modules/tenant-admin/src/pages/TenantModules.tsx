@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Package,
@@ -18,10 +18,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import { useAssignModuleManager } from '../hooks/useTenantData';
-import { useTenantUsers } from '../hooks/useTenantData';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { MY_MODULES_ID_QUERY, MODULE_USAGE_STATS_QUERY } from '../graphql';
+import { useAssignModuleManager, useTenantUsers, useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 
 // Note: TenantModule interface removed - now using AuthContext UserModule type
@@ -390,14 +387,6 @@ const ModuleDetailsModal: React.FC<{
   );
 };
 
-interface ModuleUsageStat {
-  moduleCode: string;
-  userCount: number;
-  lastAccessAt: string | null;
-  actionsThisMonth: number;
-  actionsLastMonth: number;
-}
-
 /**
  * TenantModules Page
  *
@@ -415,31 +404,10 @@ const TenantModules: React.FC = () => {
   const [selectedModule, setSelectedModule] = useState<DisplayModule | null>(null);
 
   // BUG-019: Fetch real module UUIDs from GraphQL — AuthContext only carries code/name/route
-  const [moduleIdByCode, setModuleIdByCode] = useState<Record<string, string>>({});
-  useEffect(() => {
-    graphqlRequest<{ myModules: Array<{ id: string; code: string }> }>(MY_MODULES_ID_QUERY)
-      .then((data) => {
-        const map: Record<string, string> = {};
-        (data.myModules || []).forEach((m) => { if (m.code) map[m.code] = m.id; });
-        setModuleIdByCode(map);
-      })
-      .catch((err) => logError('TenantModules.fetchModuleIds', err));
-  }, []);
+  const { data: moduleIdByCode = {} } = useModuleIds();
 
   // Wave 4: Fetch module usage stats (graceful fallback if backend not ready)
-  const [usageStats, setUsageStats] = useState<Record<string, ModuleUsageStat>>({});
-  useEffect(() => {
-    graphqlRequest<{ moduleUsageStats: ModuleUsageStat[] }>(MODULE_USAGE_STATS_QUERY)
-      .then((data) => {
-        const map: Record<string, ModuleUsageStat> = {};
-        (data.moduleUsageStats || []).forEach((s) => { map[s.moduleCode] = s; });
-        setUsageStats(map);
-      })
-      .catch((err) => {
-        // Graceful fallback -- usage stats are optional enrichment
-        logError('TenantModules.fetchUsageStats', err);
-      });
-  }, []);
+  const { data: usageStats = {} } = useModuleUsageStats();
 
   // Transform AuthContext modules to DisplayModule format
   const modules = useMemo<DisplayModule[]>(() => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Cpu,
@@ -13,34 +13,10 @@ import {
   XCircle,
   Shield,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { EDGE_DEVICES_QUERY } from '../graphql';
-import { logError } from '../utils/error-handling';
-
-interface EdgeDeviceListItem {
-  id: string;
-  deviceCode: string;
-  deviceName: string;
-  deviceModel: string;
-  lifecycleState: string;
-  isOnline: boolean;
-  lastSeenAt?: string;
-  cpuUsage?: number;
-  memoryUsage?: number;
-  agentVersion?: string;
-  ipAddress?: string;
-  sensorCount?: number;
-  programCount?: number;
-}
-
-interface DeviceStats {
-  total: number;
-  online: number;
-  offline: number;
-  byState: Array<{ state: string; count: number }>;
-}
+import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -64,45 +40,16 @@ const stateIcons: Record<string, React.ReactNode> = {
 
 const EdgeDevicesPage: React.FC = () => {
   const navigate = useNavigate();
-  const [devices, setDevices] = useState<EdgeDeviceListItem[]>([]);
-  const [stats, setStats] = useState<DeviceStats>({ total: 0, online: 0, offline: 0, byState: [] });
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [stateFilter, setStateFilter] = useState<string>('');
   const [onlineFilter, setOnlineFilter] = useState<boolean | undefined>();
   const [showInstallerModal, setShowInstallerModal] = useState(false);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const fetchDevices = useCallback(async () => {
-    setLoading(true);
-    try {
-      const variables: Record<string, unknown> = { page, limit };
-      if (search) variables.search = search;
-      if (stateFilter) variables.lifecycleState = stateFilter;
-      if (onlineFilter !== undefined) variables.isOnline = onlineFilter;
-
-      const data = await graphqlRequest<{
-        edgeDevices: { items: EdgeDeviceListItem[]; total: number };
-        edgeDeviceStats: DeviceStats;
-      }>(EDGE_DEVICES_QUERY, variables);
-
-      setDevices(data.edgeDevices.items);
-      setTotal(data.edgeDevices.total);
-      setStats(data.edgeDeviceStats);
-    } catch (err) {
-      logError('EdgeDevicesPage.fetchDevices', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, stateFilter, onlineFilter]);
-
-  useEffect(() => {
-    fetchDevices();
-  }, [fetchDevices]);
-
+  // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput);
@@ -110,6 +57,19 @@ const EdgeDevicesPage: React.FC = () => {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // TanStack Query for devices
+  const { data, isLoading: loading } = useEdgeDevices({
+    page,
+    limit,
+    search: search || undefined,
+    lifecycleState: stateFilter || undefined,
+    isOnline: onlineFilter,
+  });
+
+  const devices = data?.edgeDevices.items ?? [];
+  const total = data?.edgeDevices.total ?? 0;
+  const stats = data?.edgeDeviceStats ?? { total: 0, online: 0, offline: 0, byState: [] };
 
   const getStateCount = (state: string) =>
     stats?.byState?.find((s: { state: string; count: number }) => s.state === state)?.count || 0;
@@ -122,6 +82,10 @@ const EdgeDevicesPage: React.FC = () => {
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
     return `${Math.floor(diff / 86400000)}d ago`;
+  };
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
   };
 
   return (
@@ -208,7 +172,7 @@ const EdgeDevicesPage: React.FC = () => {
         </div>
 
         <button
-          onClick={fetchDevices}
+          onClick={handleRefresh}
           className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
           title="Refresh"
         >
@@ -358,7 +322,7 @@ const EdgeDevicesPage: React.FC = () => {
       {showInstallerModal && (
         <InstallerKeyModal
           onClose={() => setShowInstallerModal(false)}
-          onCreated={() => fetchDevices()}
+          onCreated={() => handleRefresh()}
         />
       )}
     </div>

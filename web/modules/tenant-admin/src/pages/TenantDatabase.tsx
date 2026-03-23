@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Table,
   HardDrive,
@@ -19,15 +19,14 @@ import {
   Cpu,
   Database,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
-  getTenantDatabase,
-  getTableSchema,
-  getTableData,
-  TenantDatabaseInfo,
-  ColumnInfo,
-  IndexInfo,
-  TableDataResult,
-} from '../services/tenant-api.service';
+  useTenantDatabase,
+  useTableSchema,
+  useTableData,
+  tenantKeys,
+} from '../hooks/useTenantData';
+import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
 
@@ -196,11 +195,9 @@ const StatCard: React.FC<{
  * - Backup status
  */
 const TenantDatabase: React.FC = () => {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'rows' | 'size'>('name');
-  const [databaseInfo, setDatabaseInfo] = useState<TenantDatabaseInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Module grouping state - all modules expanded by default
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({
@@ -212,106 +209,85 @@ const TenantDatabase: React.FC = () => {
 
   // Schema modal state
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [schemaColumns, setSchemaColumns] = useState<ColumnInfo[]>([]);
-  const [schemaIndexes, setSchemaIndexes] = useState<IndexInfo[]>([]);
-  const [schemaLoading, setSchemaLoading] = useState(false);
-  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [selectedSchemaName, setSelectedSchemaName] = useState('');
+  const [selectedTableOnly, setSelectedTableOnly] = useState('');
 
   // Data modal state
   const [dataTableName, setDataTableName] = useState<string | null>(null);
-  const [tableData, setTableData] = useState<TableDataResult | null>(null);
-  const [dataLoading, setDataLoading] = useState(false);
-  const [dataError, setDataError] = useState<string | null>(null);
+  const [dataSchemaName, setDataSchemaName] = useState('');
+  const [dataTableOnly, setDataTableOnly] = useState('');
+  const [dataOffset, setDataOffset] = useState(0);
   const DATA_PAGE_SIZE = 50;
 
-  // Fetch database info (PERF-005: wrapped in useCallback to prevent new ref each render)
-  const fetchDatabaseInfo = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await getTenantDatabase();
-      setDatabaseInfo(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load database info');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // TanStack Query hooks
+  const { data: databaseInfo, isLoading: loading, error: dbError } = useTenantDatabase();
+  const error = dbError ? (dbError as Error).message : null;
 
-  useEffect(() => {
-    fetchDatabaseInfo();
-  }, [fetchDatabaseInfo]);
+  // Schema query - enabled only when a table is selected
+  const { data: schemaData, isLoading: schemaLoading, error: schemaQueryError } = useTableSchema(
+    selectedSchemaName,
+    selectedTableOnly,
+    !!selectedTable,
+  );
+  const schemaColumns: ColumnInfo[] = schemaData?.columns || [];
+  const schemaIndexes: IndexInfo[] = schemaData?.indexes || [];
+  const schemaError = schemaQueryError ? (schemaQueryError as Error).message : null;
+
+  // Data query - enabled only when a data table is selected
+  const { data: tableData, isLoading: dataLoading, error: dataQueryError } = useTableData({
+    schemaName: dataSchemaName,
+    tableName: dataTableOnly,
+    limit: DATA_PAGE_SIZE,
+    offset: dataOffset,
+    enabled: !!dataTableName,
+  });
+  const dataError = dataQueryError ? (dataQueryError as Error).message : null;
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.database() });
+  };
 
   // Handle View Schema button click
-  const handleViewSchema = async (tableName: string) => {
-    // tableName format: "schema.table" (e.g., "farm.tanks")
+  const handleViewSchema = (tableName: string) => {
     const parts = tableName.split('.');
     const schemaName = parts.length > 1 ? parts[0] : 'public';
     const tableOnly = parts.length > 1 ? parts[1] : parts[0];
-
     setSelectedTable(tableName);
-    setSchemaLoading(true);
-    setSchemaError(null);
-    setSchemaColumns([]);
-    setSchemaIndexes([]);
-
-    try {
-      const data = await getTableSchema(schemaName, tableOnly);
-      setSchemaColumns(data.columns || []);
-      setSchemaIndexes(data.indexes || []);
-    } catch (err) {
-      setSchemaError(err instanceof Error ? err.message : 'Failed to load schema');
-    } finally {
-      setSchemaLoading(false);
-    }
+    setSelectedSchemaName(schemaName);
+    setSelectedTableOnly(tableOnly);
   };
 
   // Close schema modal
   const handleCloseSchemaModal = () => {
     setSelectedTable(null);
-    setSchemaColumns([]);
-    setSchemaIndexes([]);
-    setSchemaError(null);
+    setSelectedSchemaName('');
+    setSelectedTableOnly('');
   };
 
   // Handle View Data button click
-  const handleViewData = async (fullTableName: string, offset = 0) => {
-    // Parse "schema.table" format (e.g., "farm.tanks")
+  const handleViewData = (fullTableName: string, offset = 0) => {
     const parts = fullTableName.split('.');
     const schemaName = parts.length > 1 ? parts[0] : 'public';
     const tableName = parts.length > 1 ? parts[1] : parts[0];
-
     setDataTableName(fullTableName);
-    setDataLoading(true);
-    setDataError(null);
-
-    try {
-      const result = await getTableData({
-        schemaName,
-        tableName,
-        limit: DATA_PAGE_SIZE,
-        offset,
-      });
-      setTableData(result);
-    } catch (err) {
-      setDataError(err instanceof Error ? err.message : 'Failed to load data');
-    } finally {
-      setDataLoading(false);
-    }
+    setDataSchemaName(schemaName);
+    setDataTableOnly(tableName);
+    setDataOffset(offset);
   };
 
   // Handle page change in data modal
   const handleDataPageChange = (newOffset: number) => {
     if (dataTableName) {
-      handleViewData(dataTableName, newOffset);
+      setDataOffset(newOffset);
     }
   };
 
   // Close data modal
   const handleCloseDataModal = () => {
     setDataTableName(null);
-    setTableData(null);
-    setDataError(null);
+    setDataSchemaName('');
+    setDataTableOnly('');
+    setDataOffset(0);
   };
 
   // Format number with commas
@@ -413,7 +389,7 @@ const TenantDatabase: React.FC = () => {
           <p className="mt-2 text-sm text-gray-900 font-medium">Failed to load database info</p>
           <p className="mt-1 text-sm text-gray-500">{error}</p>
           <button
-            onClick={fetchDatabaseInfo}
+            onClick={handleRefresh}
             className="mt-4 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700"
           >
             Try Again
@@ -443,7 +419,7 @@ const TenantDatabase: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchDatabaseInfo}
+            onClick={handleRefresh}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
@@ -734,7 +710,7 @@ const TenantDatabase: React.FC = () => {
         isOpen={dataTableName !== null}
         onClose={handleCloseDataModal}
         tableName={dataTableName || ''}
-        data={tableData}
+        data={tableData ?? null}
         loading={dataLoading}
         error={dataError}
         onPageChange={handleDataPageChange}

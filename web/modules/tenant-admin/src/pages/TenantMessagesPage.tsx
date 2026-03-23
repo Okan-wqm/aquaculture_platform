@@ -20,15 +20,17 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { messagingApi, type MessageThread, type Message } from '../services/tenantApi';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import { logError } from '../utils/error-handling';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-// Types are imported from tenantApi
+import {
+  useMessageThreads,
+  useThreadMessages,
+  useSendMessage,
+  useCreateThread,
+  tenantKeys,
+  type MessageThread,
+  type Message,
+} from '../hooks/useTenantData';
 
 // ============================================================================
 // Component
@@ -36,63 +38,22 @@ import { logError } from '../utils/error-handling';
 
 const TenantMessagesPage: React.FC = () => {
   const { user } = useAuthContext();
-  const [threads, setThreads] = useState<MessageThread[]>([]);
+  const queryClient = useQueryClient();
   const [selectedThread, setSelectedThread] = useState<MessageThread | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all');
   const [newMessage, setNewMessage] = useState('');
   const [showNewThreadModal, setShowNewThreadModal] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [messagesLoading, setMessagesLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch threads from backend
-  const fetchThreads = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await messagingApi.getThreads();
-      setThreads(result.data || []);
-    } catch (err) {
-      logError('TenantMessagesPage.fetchThreads', err);
-      setError(err instanceof Error ? err.message : 'Failed to load messages');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // TanStack Query hooks
+  const { data: threads = [], isLoading: loading, error: threadsError } = useMessageThreads();
+  const { data: messages = [], isLoading: messagesLoading } = useThreadMessages(selectedThread?.id ?? null);
+  const sendMessageMutation = useSendMessage();
+  const createThreadMutation = useCreateThread();
 
-  // Fetch messages for selected thread
-  // PERF-008: Fetch messages and mark-as-read in parallel, then refresh threads
-  const fetchMessages = async (threadId: string) => {
-    try {
-      setMessagesLoading(true);
-      const [msgs] = await Promise.all([
-        messagingApi.getThreadMessages(threadId),
-        messagingApi.markAsRead(threadId).catch(() => null),
-      ]);
-      setMessages(msgs || []);
-      // Refresh threads to update unread count (fire-and-forget)
-      fetchThreads();
-    } catch (err) {
-      logError('TenantMessagesPage.fetchMessages', err);
-    } finally {
-      setMessagesLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchThreads();
-  }, []);
-
-  useEffect(() => {
-    if (selectedThread) {
-      fetchMessages(selectedThread.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThread?.id]);
+  const error = threadsError ? (threadsError as Error).message : null;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -116,18 +77,20 @@ const TenantMessagesPage: React.FC = () => {
         ? `${user.firstName} ${user.lastName}`
         : user?.email || 'You';
 
-      await messagingApi.sendMessage(selectedThread.id, newMessage, userName);
+      await sendMessageMutation.mutateAsync({
+        threadId: selectedThread.id,
+        content: newMessage,
+        senderName: userName,
+      });
       setNewMessage('');
-
-      // Refresh messages and threads in parallel (PERF-008)
-      await Promise.all([
-        fetchMessages(selectedThread.id),
-        fetchThreads(),
-      ]);
     } catch (err) {
       // BUG-014: Use inline error state instead of alert()
       setSendError(err instanceof Error ? err.message : 'Failed to send message. Please try again.');
     }
+  };
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.threads() });
   };
 
   const formatTime = (dateString: string) => {
@@ -153,7 +116,7 @@ const TenantMessagesPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={fetchThreads}
+              onClick={handleRefresh}
               disabled={loading}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
               title="Refresh"
@@ -233,7 +196,7 @@ const TenantMessagesPage: React.FC = () => {
                 <AlertCircle size={18} />
                 <span className="text-sm">{error}</span>
                 <button
-                  onClick={fetchThreads}
+                  onClick={handleRefresh}
                   className="ml-auto text-sm underline hover:no-underline"
                 >
                   Retry
@@ -333,7 +296,7 @@ const TenantMessagesPage: React.FC = () => {
                     <p>No messages yet</p>
                   </div>
                 ) : (
-                  messages.map((message) => (
+                  messages.map((message: Message) => (
                   <div
                     key={message.id}
                     className={`flex ${message.senderType === 'tenant_admin' ? 'justify-end' : 'justify-start'}`}
@@ -405,7 +368,7 @@ const TenantMessagesPage: React.FC = () => {
                       </button>
                       <button
                         onClick={handleSendMessage}
-                        disabled={!newMessage.trim()}
+                        disabled={!newMessage.trim() || sendMessageMutation.isPending}
                         className="p-3 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         <Send size={20} />
@@ -447,23 +410,15 @@ const TenantMessagesPage: React.FC = () => {
 
       {/* New Thread Modal */}
       {showNewThreadModal && (
-        <NewThreadModal 
+        <NewThreadModal
           onClose={() => setShowNewThreadModal(false)}
           onSubmit={async (subject, content) => {
-            try {
-              const userName = user?.firstName && user?.lastName 
-                ? `${user.firstName} ${user.lastName}` 
-                : user?.email || 'User';
-              
-              await messagingApi.createThread(subject, content, userName);
-              setShowNewThreadModal(false);
+            const userName = user?.firstName && user?.lastName
+              ? `${user.firstName} ${user.lastName}`
+              : user?.email || 'User';
 
-              // Refresh threads
-              await fetchThreads();
-            } catch (err) {
-              // Re-throw so NewThreadModal can show inline error
-              throw err;
-            }
+            await createThreadMutation.mutateAsync({ subject, content, senderName: userName });
+            setShowNewThreadModal(false);
           }}
         />
       )}

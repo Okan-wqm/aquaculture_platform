@@ -14,7 +14,7 @@
  * - See internal notes from SuperAdmin
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   Ticket,
   Plus,
@@ -39,11 +39,15 @@ import {
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { logError } from '../utils/error-handling';
 import {
-  ticketsApi,
-  SupportTicket as ApiSupportTicket,
-  TicketComment as ApiTicketComment,
-  TicketCategory as ApiTicketCategory,
-} from '../services/tenantApi';
+  useSupportTickets,
+  useTicketComments,
+  useCreateTicket,
+  useAddTicketComment,
+  useSubmitTicketRating,
+  type ApiSupportTicket,
+  type ApiTicketComment,
+  type ApiTicketCategory,
+} from '../hooks/useTenantData';
 
 // ============================================================================
 // Types
@@ -309,106 +313,84 @@ const RatingModal: React.FC<{
 };
 
 // ============================================================================
+// Helper: map API ticket to local display type
+// ============================================================================
+
+function mapTicket(t: ApiSupportTicket): SupportTicket {
+  return {
+    id: t.id,
+    ticketNumber: t.ticketNumber || `TKT-${t.id.slice(0, 8)}`,
+    subject: t.subject,
+    description: t.description,
+    category: t.category as TicketCategory,
+    priority: t.priority as TicketPriority,
+    status: (t.status === 'pending_customer' ? 'waiting_customer' : t.status) as TicketStatus,
+    assignedToName: t.assignedToName,
+    reportedBy: t.createdBy,
+    reportedByName: t.createdByName,
+    commentCount: 0,
+    tags: t.tags || [],
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    resolvedAt: t.resolvedAt,
+  };
+}
+
+function mapComment(c: ApiTicketComment): TicketComment {
+  return {
+    id: c.id,
+    ticketId: c.ticketId,
+    authorId: c.authorId,
+    authorName: c.authorName,
+    authorType: c.authorType === 'tenant_admin' ? 'tenant' : c.authorType,
+    content: c.content,
+    attachments: (c.attachments || []).map(a => ({
+      id: a.id,
+      filename: a.fileName,
+      url: a.url,
+      size: a.fileSize,
+    })),
+    createdAt: c.createdAt,
+  };
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
 export const TenantSupportPage: React.FC = () => {
   const { user } = useAuthContext();
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [stats, setStats] = useState<TicketStats>({ total: 0, open: 0, inProgress: 0, resolved: 0, avgResponseMinutes: 0 });
-  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
-  const [comments, setComments] = useState<TicketComment[]>([]);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
   const [newComment, setNewComment] = useState('');
   const [newTicketOpen, setNewTicketOpen] = useState(false);
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [ticketToRate, setTicketToRate] = useState<SupportTicket | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Fetch tickets from API
-  const fetchTickets = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await ticketsApi.getTickets();
+  // TanStack Query hooks
+  const { data: rawTickets = [], isLoading: loading, error: ticketsError } = useSupportTickets();
+  const { data: rawComments = [] } = useTicketComments(selectedTicketId);
+  const createTicketMutation = useCreateTicket();
+  const addCommentMutation = useAddTicketComment();
+  const submitRatingMutation = useSubmitTicketRating();
 
-      // Map API response to local type
-      const mappedTickets: SupportTicket[] = (result.data || []).map((t: ApiSupportTicket) => ({
-        id: t.id,
-        ticketNumber: t.ticketNumber || `TKT-${t.id.slice(0, 8)}`,
-        subject: t.subject,
-        description: t.description,
-        category: t.category as TicketCategory,
-        priority: t.priority as TicketPriority,
-        status: (t.status === 'pending_customer' ? 'waiting_customer' : t.status) as TicketStatus,
-        assignedToName: t.assignedToName,
-        reportedBy: t.createdBy,
-        reportedByName: t.createdByName,
-        commentCount: 0,
-        tags: t.tags || [],
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt,
-        resolvedAt: t.resolvedAt,
-      }));
+  const error = ticketsError ? (ticketsError as Error).message : null;
 
-      setTickets(mappedTickets);
+  // Map API types to local display types
+  const tickets = rawTickets.map(mapTicket);
+  const comments = rawComments.map(mapComment);
+  const selectedTicket = selectedTicketId ? tickets.find(t => t.id === selectedTicketId) ?? null : null;
 
-      // Calculate stats
-      const open = mappedTickets.filter(t => t.status === 'open').length;
-      const inProgress = mappedTickets.filter(t => t.status === 'in_progress').length;
-      const resolved = mappedTickets.filter(t => t.status === 'resolved' || t.status === 'closed').length;
-      setStats({
-        total: mappedTickets.length,
-        open,
-        inProgress,
-        resolved,
-        avgResponseMinutes: 0, // TODO: fetch from a dedicated support stats endpoint
-      });
-    } catch (err) {
-      logError('TenantSupportPage.fetchTickets', err);
-      setError(err instanceof Error ? err.message : 'Failed to load tickets');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchTickets();
-  }, [fetchTickets]);
-
-  // Fetch comments when ticket is selected
-  useEffect(() => {
-    if (selectedTicket) {
-      const fetchComments = async () => {
-        try {
-          const apiComments = await ticketsApi.getComments(selectedTicket.id);
-          const mappedComments: TicketComment[] = apiComments.map((c: ApiTicketComment) => ({
-            id: c.id,
-            ticketId: c.ticketId,
-            authorId: c.authorId,
-            authorName: c.authorName,
-            authorType: c.authorType === 'tenant_admin' ? 'tenant' : c.authorType,
-            content: c.content,
-            attachments: (c.attachments || []).map(a => ({
-              id: a.id,
-              filename: a.fileName,
-              url: a.url,
-              size: a.fileSize,
-            })),
-            createdAt: c.createdAt,
-          }));
-          setComments(mappedComments);
-        } catch (err) {
-          logError('TenantSupportPage.fetchComments', err);
-          setComments([]);
-        }
-      };
-      fetchComments();
-    }
-  }, [selectedTicket]);
+  // Calculate stats
+  const stats: TicketStats = {
+    total: tickets.length,
+    open: tickets.filter(t => t.status === 'open').length,
+    inProgress: tickets.filter(t => t.status === 'in_progress').length,
+    resolved: tickets.filter(t => t.status === 'resolved' || t.status === 'closed').length,
+    avgResponseMinutes: 0,
+  };
 
   const filteredTickets = tickets.filter((ticket) => {
     if (searchQuery) {
@@ -505,7 +487,7 @@ export const TenantSupportPage: React.FC = () => {
         ? `${user.firstName} ${user.lastName}`
         : user?.email || 'Unknown User';
 
-      await ticketsApi.createTicket({
+      await createTicketMutation.mutateAsync({
         subject: ticketData.subject || '',
         description: ticketData.description || '',
         category: (ticketData.category || 'general') as ApiTicketCategory,
@@ -514,8 +496,6 @@ export const TenantSupportPage: React.FC = () => {
         createdByEmail: user?.email,
       });
 
-      // Refresh tickets list
-      await fetchTickets();
       setNewTicketOpen(false);
     } catch (err) {
       logError('TenantSupportPage.createTicket', err);
@@ -524,43 +504,19 @@ export const TenantSupportPage: React.FC = () => {
   };
 
   const handleAddComment = async () => {
-    if (!newComment.trim() || !selectedTicket) return;
+    if (!newComment.trim() || !selectedTicketId) return;
 
     try {
       const userName = user?.firstName && user?.lastName
         ? `${user.firstName} ${user.lastName}`
         : user?.email || 'Unknown User';
 
-      await ticketsApi.addComment(selectedTicket.id, newComment, userName);
-
-      // Refresh comments
-      const apiComments = await ticketsApi.getComments(selectedTicket.id);
-      const mappedComments: TicketComment[] = apiComments.map((c: ApiTicketComment) => ({
-        id: c.id,
-        ticketId: c.ticketId,
-        authorId: c.authorId,
-        authorName: c.authorName,
-        authorType: c.authorType === 'tenant_admin' ? 'tenant' : c.authorType,
-        content: c.content,
-        attachments: (c.attachments || []).map(a => ({
-          id: a.id,
-          filename: a.fileName,
-          url: a.url,
-          size: a.fileSize,
-        })),
-        createdAt: c.createdAt,
-      }));
-      setComments(mappedComments);
+      await addCommentMutation.mutateAsync({
+        ticketId: selectedTicketId,
+        content: newComment,
+        authorName: userName,
+      });
       setNewComment('');
-
-      // Update ticket in list
-      setTickets(
-        tickets.map((t) =>
-          t.id === selectedTicket.id
-            ? { ...t, commentCount: t.commentCount + 1, updatedAt: new Date().toISOString() }
-            : t
-        )
-      );
     } catch (err) {
       logError('TenantSupportPage.addComment', err);
       setActionError(err instanceof Error ? err.message : 'Failed to add comment');
@@ -571,18 +527,7 @@ export const TenantSupportPage: React.FC = () => {
     if (!ticketToRate) return;
 
     try {
-      await ticketsApi.submitRating(ticketToRate.id, rating);
-
-      setTickets(
-        tickets.map((t) =>
-          t.id === ticketToRate.id ? { ...t, satisfactionRating: rating } : t
-        )
-      );
-
-      if (selectedTicket?.id === ticketToRate.id) {
-        setSelectedTicket({ ...selectedTicket, satisfactionRating: rating });
-      }
-
+      await submitRatingMutation.mutateAsync({ ticketId: ticketToRate.id, rating });
       setRatingModalOpen(false);
       setTicketToRate(null);
     } catch (err) {
@@ -660,12 +605,6 @@ export const TenantSupportPage: React.FC = () => {
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
             <h3 className="text-lg font-medium text-gray-900 mb-1">Failed to Load Tickets</h3>
             <p className="text-gray-500 mb-4">{error}</p>
-            <button
-              onClick={fetchTickets}
-              className="px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
-            >
-              Try Again
-            </button>
           </div>
         </div>
       )}
@@ -710,7 +649,7 @@ export const TenantSupportPage: React.FC = () => {
             {filteredTickets.map((ticket) => (
               <div
                 key={ticket.id}
-                onClick={() => setSelectedTicket(ticket)}
+                onClick={() => setSelectedTicketId(ticket.id)}
                 className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
                   selectedTicket?.id === ticket.id
                     ? 'bg-tenant-50 border-l-4 border-l-tenant-500'
@@ -810,7 +749,7 @@ export const TenantSupportPage: React.FC = () => {
                   </div>
                 </div>
                 <button
-                  onClick={() => setSelectedTicket(null)}
+                  onClick={() => setSelectedTicketId(null)}
                   className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <X size={20} />
@@ -925,7 +864,7 @@ export const TenantSupportPage: React.FC = () => {
                     </button>
                     <button
                       onClick={handleAddComment}
-                      disabled={!newComment.trim()}
+                      disabled={!newComment.trim() || addCommentMutation.isPending}
                       className="p-3 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Send size={20} />

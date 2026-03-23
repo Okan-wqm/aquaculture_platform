@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Users,
   Search,
@@ -15,28 +15,21 @@ import {
   AlertCircle,
   UserMinus,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
-import { graphqlRequest } from '../services/tenant-api.service';
+import {
+  useTenantUsersRaw,
+  useCreateTenantUser,
+  useUpdateTenantUser,
+  useDeleteTenantUser,
+  useDeactivateTenantUser,
+  tenantKeys,
+} from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
-
-/**
- * API User type
- */
-interface ApiUser {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-  isActive: boolean;
-  isEmailVerified?: boolean;
-  lastLoginAt?: string;
-  createdAt: string;
-}
 
 /**
  * User type for display
@@ -110,6 +103,18 @@ const UserAvatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({ nam
 /**
  * Transform API user to display user
  */
+interface ApiUser {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role: string;
+  isActive: boolean;
+  isEmailVerified?: boolean;
+  lastLoginAt?: string;
+  createdAt: string;
+}
+
 function transformUser(apiUser: ApiUser): User {
   let status: User['status'] = 'active';
   if (!apiUser.isActive) {
@@ -130,64 +135,6 @@ function transformUser(apiUser: ApiUser): User {
   };
 }
 
-const TENANT_USERS_QUERY = `
-  query TenantUsers($limit: Int, $offset: Int, $status: String, $role: String) {
-    tenantUsers(limit: $limit, offset: $offset, status: $status, role: $role) {
-      id
-      email
-      firstName
-      lastName
-      role
-      isActive
-      isEmailVerified
-      lastLoginAt
-      createdAt
-    }
-  }
-`;
-
-const UPDATE_USER_MUTATION = `
-  mutation UpdateTenantUser($userId: ID!, $input: UpdateTenantUserInput!) {
-    updateTenantUser(userId: $userId, input: $input) {
-      id
-      email
-      firstName
-      lastName
-      role
-      isActive
-    }
-  }
-`;
-
-const DELETE_USER_MUTATION = `
-  mutation DeleteTenantUser($userId: ID!) {
-    deleteTenantUser(userId: $userId)
-  }
-`;
-
-const CREATE_TENANT_USER_MUTATION = `
-  mutation CreateTenantUser($input: CreateTenantUserInput!) {
-    createTenantUser(input: $input) {
-      userId
-      email
-      firstName
-      lastName
-      roleAssignment { id roleId roleName }
-      invitationSent
-      createdAt
-    }
-  }
-`;
-
-const DEACTIVATE_TENANT_USER_MUTATION = `
-  mutation DeactivateTenantUser($userId: ID!) {
-    deactivateTenantUser(userId: $userId) {
-      id
-      isActive
-    }
-  }
-`;
-
 /**
  * TenantUsers Page
  *
@@ -200,15 +147,13 @@ const TenantUsers: React.FC = () => {
   // SEC-007: Check if current user has TENANT_ADMIN privileges for action visibility
   const { hasRoleOrHigher } = useAuthContext();
   const canManageUsers = hasRoleOrHigher('TENANT_ADMIN');
+  const queryClient = useQueryClient();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Server-side pagination
   const [page, setPage] = useState(0);
@@ -216,7 +161,6 @@ const TenantUsers: React.FC = () => {
 
   // Add User Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Edit state
@@ -224,11 +168,9 @@ const TenantUsers: React.FC = () => {
 
   // Delete state
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // SEC-011: Bulk deactivation state
-  const [isDeactivating, setIsDeactivating] = useState(false);
   const [deactivateError, setDeactivateError] = useState<string | null>(null);
 
   // Roles for the modal
@@ -244,43 +186,34 @@ const TenantUsers: React.FC = () => {
     };
   }, [searchQuery]);
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const variables: Record<string, unknown> = {
-        limit: pageSize,
-        offset: page * pageSize,
-      };
-      if (statusFilter !== 'all') variables.status = statusFilter;
-      if (roleFilter !== 'all') variables.role = roleFilter;
+  // TanStack Query for users
+  const {
+    data: rawUsers = [],
+    isLoading: loading,
+    error: queryError,
+  } = useTenantUsersRaw({
+    limit: pageSize,
+    offset: page * pageSize,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    role: roleFilter !== 'all' ? roleFilter : undefined,
+  });
 
-      const data = await graphqlRequest<{ tenantUsers: ApiUser[] }>(
-        TENANT_USERS_QUERY,
-        variables,
-      );
-      setUsers((data.tenantUsers || []).map(transformUser));
-    } catch (err) {
-      logError('TenantUsers.loadUsers', err);
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, statusFilter, roleFilter]);
+  const error = queryError ? (queryError as Error).message : null;
+  const users = rawUsers.map(transformUser);
 
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+  // Mutations
+  const createUserMutation = useCreateTenantUser();
+  const updateUserMutation = useUpdateTenantUser();
+  const deleteUserMutation = useDeleteTenantUser();
+  const deactivateUserMutation = useDeactivateTenantUser();
 
   // Handle save from AddEditUserModal (create or edit)
   const handleSaveUser = async (data: UserFormData) => {
-    setIsSaving(true);
     setSaveError(null);
 
     try {
       if (editingUser) {
-        // Update existing user
-        await graphqlRequest(UPDATE_USER_MUTATION, {
+        await updateUserMutation.mutateAsync({
           userId: editingUser.id,
           input: {
             firstName: data.firstName,
@@ -289,68 +222,55 @@ const TenantUsers: React.FC = () => {
           },
         });
       } else {
-        // Create new user
-        await graphqlRequest(CREATE_TENANT_USER_MUTATION, {
-          input: {
-            firstName: data.firstName,
-            lastName: data.lastName,
-            email: data.email,
-            roleId: data.roleId,
-            sendInvitation: data.sendInvitation ?? true,
-          },
+        await createUserMutation.mutateAsync({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email,
+          roleId: data.roleId || '',
+          sendInvitation: data.sendInvitation ?? true,
         });
       }
 
       setIsModalOpen(false);
       setEditingUser(null);
-      // Refresh user list to avoid stale data (BUG-020)
-      await loadUsers();
     } catch (err) {
       logError('TenantUsers.handleSaveUser', err);
       setSaveError((err as Error).message);
       throw err;
-    } finally {
-      setIsSaving(false);
     }
   };
 
   // Confirm and execute delete (BUG-003/BUG-004)
   const handleConfirmDelete = async () => {
     if (!deletingUser) return;
-    setIsDeleting(true);
     setDeleteError(null);
     try {
-      await graphqlRequest(DELETE_USER_MUTATION, { userId: deletingUser.id });
+      await deleteUserMutation.mutateAsync(deletingUser.id);
       setDeletingUser(null);
-      await loadUsers();
     } catch (err) {
       logError('TenantUsers.handleDelete', err);
       setDeleteError((err as Error).message);
-    } finally {
-      setIsDeleting(false);
     }
   };
 
   // SEC-011: Handle bulk deactivation of selected users
   const handleBulkDeactivate = async () => {
     if (selectedUsers.length === 0 || !canManageUsers) return;
-    setIsDeactivating(true);
     setDeactivateError(null);
     try {
       await Promise.all(
-        selectedUsers.map((userId) =>
-          graphqlRequest(DEACTIVATE_TENANT_USER_MUTATION, { userId })
-        )
+        selectedUsers.map((userId) => deactivateUserMutation.mutateAsync(userId))
       );
       setSelectedUsers([]);
-      await loadUsers();
     } catch (err) {
       logError('TenantUsers.handleBulkDeactivate', err);
       setDeactivateError((err as Error).message);
-    } finally {
-      setIsDeactivating(false);
     }
   };
+
+  const isDeactivating = deactivateUserMutation.isPending;
+  const isSaving = createUserMutation.isPending || updateUserMutation.isPending;
+  const isDeleting = deleteUserMutation.isPending;
 
   // Filter users based on search and filters
   const filteredUsers = users.filter((user) => {
@@ -376,6 +296,10 @@ const TenantUsers: React.FC = () => {
     }
   };
 
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -394,7 +318,7 @@ const TenantUsers: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={loadUsers}
+            onClick={handleRefresh}
             className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
             title="Refresh"
           >
@@ -425,7 +349,7 @@ const TenantUsers: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load users</p>
             <p className="text-sm text-red-600">{error}</p>
           </div>
-          <button onClick={loadUsers} className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors">
+          <button onClick={handleRefresh} className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors">
             Retry
           </button>
         </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -18,16 +18,16 @@ import {
   X,
 } from 'lucide-react';
 
-import { graphqlRequest } from '../services/tenant-api.service';
+import { useDevicePolling } from '../hooks/useDevicePolling';
 import {
+  useDeviceEvents,
+  useDeviceAction,
   APPROVE_DEVICE_MUTATION,
   PING_DEVICE_MUTATION,
   REBOOT_DEVICE_MUTATION,
   MAINTENANCE_DEVICE_MUTATION,
   DECOMMISSION_DEVICE_MUTATION,
-  DEVICE_EVENTS_QUERY,
-} from '../graphql';
-import { useDevicePolling } from '../hooks/useDevicePolling';
+} from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
 import { useAuthContext } from '@aquaculture/shared-ui';
@@ -163,42 +163,28 @@ const EdgeDeviceDetailPage: React.FC = () => {
   // SEC-007: Only TENANT_ADMIN can perform destructive device actions
   const isTenantAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [events, setEvents] = useState<Array<{ id: string; eventType: string; severity: string; message: string; createdAt: string }>>([]);
-  const [eventsLoaded, setEventsLoaded] = useState(false);
+  const [actionName, setActionName] = useState<string | null>(null);
   const [showDecommissionModal, setShowDecommissionModal] = useState(false);
   const [showRebootModal, setShowRebootModal] = useState(false);
 
+  // TanStack Query hooks
+  const deviceActionMutation = useDeviceAction();
+  const { data: events = [], refetch: refetchEvents } = useDeviceEvents(
+    deviceId || '',
+    activeTab === 'events',
+  );
+
+  const actionLoading = deviceActionMutation.isPending ? actionName : null;
+
   const runAction = async (name: string, mutation: string, variables: Record<string, unknown>) => {
-    setActionLoading(name);
+    setActionName(name);
     try {
-      await graphqlRequest(mutation, variables);
+      await deviceActionMutation.mutateAsync({ mutation, variables });
       refetch();
     } catch (err) {
       logError(`EdgeDeviceDetail.${name}`, err);
     } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // BUG-009: Load events when tab is already active on mount (e.g. deep link to events tab)
-  useEffect(() => {
-    if (activeTab === 'events' && !eventsLoaded && deviceId) {
-      loadEvents();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, deviceId]);
-
-  const loadEvents = async () => {
-    if (!deviceId) return;
-    try {
-      const data = await graphqlRequest<{
-        deviceEvents: { items: Array<{ id: string; eventType: string; severity: string; message: string; createdAt: string }> };
-      }>(DEVICE_EVENTS_QUERY, { deviceId, page: 1, limit: 50 });
-      setEvents(data.deviceEvents.items);
-      setEventsLoaded(true);
-    } catch (err) {
-      logError('EdgeDeviceDetail.loadEvents', err);
+      setActionName(null);
     }
   };
 
@@ -304,7 +290,6 @@ const EdgeDeviceDetailPage: React.FC = () => {
               key={tab.id}
               onClick={() => {
                 setActiveTab(tab.id);
-                if (tab.id === 'events' && !eventsLoaded) loadEvents();
               }}
               className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
@@ -451,7 +436,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         <div className="bg-white border border-gray-200 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900">Device Events</h3>
-            <button onClick={loadEvents} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+            <button onClick={() => refetchEvents()} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
               Refresh
             </button>
           </div>

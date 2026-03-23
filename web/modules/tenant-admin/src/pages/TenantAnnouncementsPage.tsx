@@ -11,7 +11,7 @@
  * - See draft/scheduled/cancelled announcements
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Megaphone,
   Search,
@@ -27,14 +27,20 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react';
-import { announcementsApi, type Announcement } from '../services/tenantApi';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useAnnouncements,
+  useAcknowledgeAnnouncement,
+  useMarkAnnouncementViewed,
+  tenantKeys,
+  type Announcement,
+} from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-// Types imported from tenantApi
 type AnnouncementType = 'info' | 'warning' | 'error' | 'maintenance' | 'success';
 
 // Extended announcement interface with local state
@@ -47,7 +53,6 @@ interface ExtendedAnnouncement extends Announcement {
 
 // Helper to map announcement types
 const mapAnnouncementType = (type: string): AnnouncementType => {
-  // Map backend types to frontend types
   if (type === 'critical') return 'error';
   return type as AnnouncementType;
 };
@@ -57,47 +62,33 @@ const mapAnnouncementType = (type: string): AnnouncementType => {
 // ============================================================================
 
 export const TenantAnnouncementsPage: React.FC = () => {
-  const [announcements, setAnnouncements] = useState<ExtendedAnnouncement[]>([]);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<AnnouncementType | 'all'>('all');
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'requires_ack'>('all');
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<ExtendedAnnouncement | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
+
   // Local state for read/acknowledged status (could be persisted to backend later)
   const [localState, setLocalState] = useState<Record<string, { isRead: boolean; isAcknowledged: boolean; acknowledgedAt?: string }>>({});
 
-  // Fetch announcements from backend (PERF-007: wrapped in useCallback)
-  const fetchAnnouncements = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await announcementsApi.getAnnouncements();
+  // TanStack Query hooks
+  const { data: rawAnnouncements = [], isLoading: loading, error: queryError } = useAnnouncements();
+  const acknowledgeAnnouncementMutation = useAcknowledgeAnnouncement();
+  const markViewedMutation = useMarkAnnouncementViewed();
 
-      // SEC-006: Prefer backend-returned read/acknowledged status, fall back to local state
-      setAnnouncements(
-        data.map(ann => ({
-          ...ann,
-          type: mapAnnouncementType(ann.type),
-          // Use backend fields if present, else fall back to local ephemeral state
-          isRead: (ann as ExtendedAnnouncement).isRead ?? localState[ann.id]?.isRead ?? false,
-          isAcknowledged: (ann as ExtendedAnnouncement).isAcknowledged ?? localState[ann.id]?.isAcknowledged ?? false,
-          acknowledgedAt: (ann as ExtendedAnnouncement).acknowledgedAt ?? localState[ann.id]?.acknowledgedAt,
-          requiresAcknowledgment: ann.priority === 'high',
-        }))
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load announcements');
-    } finally {
-      setLoading(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const error = queryError ? (queryError as Error).message : null;
 
-  useEffect(() => {
-    fetchAnnouncements();
-  }, [fetchAnnouncements]);
+  // Transform raw announcements with local state
+  const announcements = useMemo<ExtendedAnnouncement[]>(() =>
+    rawAnnouncements.map(ann => ({
+      ...ann,
+      type: mapAnnouncementType(ann.type),
+      isRead: (ann as ExtendedAnnouncement).isRead ?? localState[ann.id]?.isRead ?? false,
+      isAcknowledged: (ann as ExtendedAnnouncement).isAcknowledged ?? localState[ann.id]?.isAcknowledged ?? false,
+      acknowledgedAt: (ann as ExtendedAnnouncement).acknowledgedAt ?? localState[ann.id]?.acknowledgedAt,
+      requiresAcknowledgment: ann.priority === 'high',
+    })),
+  [rawAnnouncements, localState]);
 
   // Stats
   const unreadCount = announcements.filter((a) => !a.isRead).length;
@@ -187,49 +178,39 @@ export const TenantAnnouncementsPage: React.FC = () => {
     }).format(date);
   };
 
-  const handleViewAnnouncement = async (announcement: ExtendedAnnouncement) => {
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.announcements() });
+  };
+
+  const handleViewAnnouncement = (announcement: ExtendedAnnouncement) => {
     // Mark as read locally
     if (!announcement.isRead) {
       setLocalState(prev => ({
         ...prev,
         [announcement.id]: { ...prev[announcement.id], isRead: true }
       }));
-      
-      setAnnouncements(
-        announcements.map((a) => (a.id === announcement.id ? { ...a, isRead: true } : a))
-      );
-      
-      // Mark as viewed on backend
-      try {
-        await announcementsApi.markAsViewed(announcement.id);
-      } catch (err) {
-        logError('TenantAnnouncementsPage.markAsViewed', err);
-      }
+
+      // Mark as viewed on backend (fire-and-forget)
+      markViewedMutation.mutate(announcement.id, {
+        onError: (err) => logError('TenantAnnouncementsPage.markAsViewed', err),
+      });
     }
     setSelectedAnnouncement({ ...announcement, isRead: true });
   };
 
-  const handleAcknowledge = async (announcementId: string) => {
+  const handleAcknowledge = (announcementId: string) => {
     const now = new Date().toISOString();
-    
+
     // Update local state
     setLocalState(prev => ({
       ...prev,
-      [announcementId]: { 
-        ...prev[announcementId], 
-        isAcknowledged: true, 
-        acknowledgedAt: now 
+      [announcementId]: {
+        ...prev[announcementId],
+        isAcknowledged: true,
+        acknowledgedAt: now
       }
     }));
-    
-    setAnnouncements(
-      announcements.map((a) =>
-        a.id === announcementId
-          ? { ...a, isAcknowledged: true, acknowledgedAt: now }
-          : a
-      )
-    );
-    
+
     if (selectedAnnouncement?.id === announcementId) {
       setSelectedAnnouncement({
         ...selectedAnnouncement,
@@ -237,35 +218,29 @@ export const TenantAnnouncementsPage: React.FC = () => {
         acknowledgedAt: now,
       });
     }
-    
+
     // Send to backend
-    try {
-      await announcementsApi.acknowledgeAnnouncement(announcementId);
-    } catch (err) {
-      logError('TenantAnnouncementsPage.acknowledgeAnnouncement', err);
-    }
+    acknowledgeAnnouncementMutation.mutate(announcementId, {
+      onError: (err) => logError('TenantAnnouncementsPage.acknowledgeAnnouncement', err),
+    });
   };
 
-  const handleMarkAllRead = async () => {
+  const handleMarkAllRead = () => {
     // Update all to read locally
     const newState = { ...localState };
     announcements.forEach(a => {
       newState[a.id] = { ...newState[a.id], isRead: true };
     });
     setLocalState(newState);
-    
-    setAnnouncements(announcements.map((a) => ({ ...a, isRead: true })));
-    
-    // Mark all as viewed on backend
-    try {
-      await Promise.all(
-        announcements
-          .filter(a => !a.isRead)
-          .map(a => announcementsApi.markAsViewed(a.id))
-      );
-    } catch (err) {
-      logError('TenantAnnouncementsPage.markAllRead', err);
-    }
+
+    // Mark all as viewed on backend (fire-and-forget)
+    announcements
+      .filter(a => !a.isRead)
+      .forEach(a => {
+        markViewedMutation.mutate(a.id, {
+          onError: (err) => logError('TenantAnnouncementsPage.markAllRead', err),
+        });
+      });
   };
 
   return (
@@ -279,7 +254,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={fetchAnnouncements}
+              onClick={handleRefresh}
               disabled={loading}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
               title="Refresh"
@@ -383,7 +358,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                 <AlertCircle size={18} />
                 <span className="text-sm">{error}</span>
                 <button
-                  onClick={fetchAnnouncements}
+                  onClick={handleRefresh}
                   className="ml-auto text-sm underline hover:no-underline"
                 >
                   Retry

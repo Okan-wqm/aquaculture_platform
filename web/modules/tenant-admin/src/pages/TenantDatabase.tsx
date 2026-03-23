@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Table,
   HardDrive,
@@ -360,12 +360,12 @@ const TenantDatabase: React.FC = () => {
   }, [filteredTables]);
 
   // Toggle module expansion
-  const toggleModule = (module: string) => {
+  const toggleModule = useCallback((module: string) => {
     setExpandedModules((prev) => ({
       ...prev,
       [module]: !prev[module],
     }));
-  };
+  }, []);
 
   // Get module stats
   const getModuleStats = (module: string) => {

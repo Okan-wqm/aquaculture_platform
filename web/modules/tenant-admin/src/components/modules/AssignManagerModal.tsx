@@ -6,7 +6,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAssignModuleManager, useTenantUsers } from '../../hooks/useTenantData';
-import { logError } from '../../utils/error-handling';
+import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
 import type { DisplayModule } from './ModuleCard';
 
 /**
@@ -49,7 +49,7 @@ const AssignManagerModal: React.FC<{
       onClose();
     } catch (err) {
       logError('AssignManagerModal', err);
-      setAssignError(err instanceof Error ? err.message : 'Failed to assign manager');
+      setAssignError(sanitizeErrorMessage(err));
     }
   };
 

@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
 import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
+import { formatRelativeTime } from '../utils/date-utils';
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -73,16 +74,6 @@ const EdgeDevicesPage: React.FC = () => {
 
   const getStateCount = (state: string) =>
     stats?.byState?.find((s: { state: string; count: number }) => s.state === state)?.count || 0;
-
-  const formatLastSeen = (dateStr?: string) => {
-    if (!dateStr) return 'Never';
-    const date = new Date(dateStr);
-    const diff = Date.now() - date.getTime();
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return `${Math.floor(diff / 86400000)}d ago`;
-  };
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
@@ -286,7 +277,7 @@ const EdgeDevicesPage: React.FC = () => {
               {/* Footer */}
               <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
                 <span>{device.ipAddress || device.deviceModel}</span>
-                <span>{formatLastSeen(device.lastSeenAt)}</span>
+                <span>{formatRelativeTime(device.lastSeenAt ?? null)}</span>
               </div>
             </div>
           ))}

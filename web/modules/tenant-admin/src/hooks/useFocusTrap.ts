@@ -10,6 +10,9 @@
  * - Returns focus to trigger element on close
  * - Handles Escape key to close modal
  * - Supports Tab/Shift+Tab cycling
+ * - LOW-17: Module-level trap stack enables correct nesting behaviour.
+ *   When a child modal opens it pushes onto the stack and becomes the
+ *   active trap; when it closes the parent trap re-activates automatically.
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -24,6 +27,13 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
   '[contenteditable="true"]',
 ].join(', ');
+
+/**
+ * Module-level stack of active trap container refs.
+ * Only the trap at the top of the stack (last entry) should intercept
+ * focus events.  Lower traps remain registered but dormant.
+ */
+const trapStack: Array<React.RefObject<HTMLDivElement>> = [];
 
 interface UseFocusTrapOptions {
   /** Whether the modal is currently open */
@@ -92,9 +102,17 @@ export function useFocusTrap({
     }
   }, [getFocusableElements]);
 
+  /** True when this trap is the topmost active trap. */
+  const isTopTrap = useCallback((): boolean => {
+    return trapStack.length > 0 && trapStack[trapStack.length - 1] === containerRef;
+  }, []);
+
   // Handle keydown for focus trap and escape
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Only the topmost trap should react
+      if (!isTopTrap()) return;
+
       // Handle Escape key
       if (e.key === 'Escape' && closeOnEscape) {
         e.preventDefault();
@@ -136,8 +154,21 @@ export function useFocusTrap({
         }
       }
     },
-    [closeOnEscape, onClose, getFocusableElements]
+    [closeOnEscape, onClose, getFocusableElements, isTopTrap]
   );
+
+  // Push / pop from the trap stack when the modal opens / closes
+  useEffect(() => {
+    if (isOpen) {
+      trapStack.push(containerRef);
+    }
+    return () => {
+      const idx = trapStack.indexOf(containerRef);
+      if (idx !== -1) {
+        trapStack.splice(idx, 1);
+      }
+    };
+  }, [isOpen]);
 
   // Store trigger element when modal opens
   useEffect(() => {
@@ -169,6 +200,9 @@ export function useFocusTrap({
     if (!isOpen) return;
 
     const handleFocusIn = (e: FocusEvent) => {
+      // Only the topmost trap should intercept
+      if (!isTopTrap()) return;
+
       if (
         containerRef.current &&
         !containerRef.current.contains(e.target as Node)
@@ -183,7 +217,7 @@ export function useFocusTrap({
 
     document.addEventListener('focusin', handleFocusIn);
     return () => document.removeEventListener('focusin', handleFocusIn);
-  }, [isOpen, getFocusableElements]);
+  }, [isOpen, getFocusableElements, isTopTrap]);
 
   return {
     containerRef,

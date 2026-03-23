@@ -179,15 +179,17 @@ const TenantUsers: React.FC = () => {
 
   const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
 
-  const toggleUserSelection = (userId: string) => {
+  const toggleUserSelection = useCallback((userId: string) => {
     setSelectedUsers((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
     );
-  };
+  }, []);
 
-  const toggleAllSelection = () => {
-    setSelectedUsers(selectedUsers.length === filteredUsers.length ? [] : filteredUsers.map((u) => u.id));
-  };
+  const toggleAllSelection = useCallback(() => {
+    setSelectedUsers((prev) =>
+      prev.length === filteredUsers.length ? [] : filteredUsers.map((u) => u.id),
+    );
+  }, [filteredUsers]);
 
   const handleRoleChange = (value: string) => { setRoleFilter(value); setPage(0); };
   const handleStatusChange = (value: string) => { setStatusFilter(value); setPage(0); };

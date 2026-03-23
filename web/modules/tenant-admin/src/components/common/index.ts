@@ -8,3 +8,4 @@
 
 export { DeleteConfirmModal } from './DeleteConfirmModal';
 export type { DeleteConfirmModalProps, DeleteConfirmVariant } from './DeleteConfirmModal';
+export { RequireTenantAdmin } from './RequireTenantAdmin';

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Save, Check, RefreshCw, AlertCircle } from 'lucide-react';
 import { useMyTenant, useUpdateTenantSettings } from '../../hooks/useTenantData';
-import { logError } from '../../utils/error-handling';
+import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
 
 interface GeneralSettingsProps {
   canEdit: boolean;
@@ -46,7 +46,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       logError('GeneralSettings.handleSave', err);
-      setSaveError(err instanceof Error ? err.message : 'Failed to save settings');
+      setSaveError(sanitizeErrorMessage(err));
     }
   }, [tenantName, contactEmail, contactPhone, address, updateSettingsMutation, tenantData]);
 

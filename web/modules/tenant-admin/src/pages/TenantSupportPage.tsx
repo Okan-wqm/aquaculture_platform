@@ -37,7 +37,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import { logError } from '../utils/error-handling';
+import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import {
   useSupportTickets,
   useTicketComments,
@@ -499,7 +499,7 @@ export const TenantSupportPage: React.FC = () => {
       setNewTicketOpen(false);
     } catch (err) {
       logError('TenantSupportPage.createTicket', err);
-      setActionError(err instanceof Error ? err.message : 'Failed to create ticket');
+      setActionError(sanitizeErrorMessage(err));
     }
   };
 
@@ -519,7 +519,7 @@ export const TenantSupportPage: React.FC = () => {
       setNewComment('');
     } catch (err) {
       logError('TenantSupportPage.addComment', err);
-      setActionError(err instanceof Error ? err.message : 'Failed to add comment');
+      setActionError(sanitizeErrorMessage(err));
     }
   };
 
@@ -532,7 +532,7 @@ export const TenantSupportPage: React.FC = () => {
       setTicketToRate(null);
     } catch (err) {
       logError('TenantSupportPage.rateTicket', err);
-      setActionError(err instanceof Error ? err.message : 'Failed to submit rating');
+      setActionError(sanitizeErrorMessage(err));
     }
   };
 

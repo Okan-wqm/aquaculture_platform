@@ -4,7 +4,7 @@ import {
   useNotificationPreferences,
   useUpdateNotificationPreferences,
 } from '../../hooks/useTenantData';
-import { logError } from '../../utils/error-handling';
+import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
 import { Toggle } from './Toggle';
 
 /**
@@ -75,7 +75,7 @@ const NotificationSettings: React.FC = () => {
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       logError('NotificationSettings.handleSave', err);
-      setSaveError(err instanceof Error ? err.message : 'Failed to save notification preferences');
+      setSaveError(sanitizeErrorMessage(err));
     }
   }, [notifPrefs, updateNotifPrefsMutation]);
 

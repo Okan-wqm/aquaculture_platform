@@ -31,6 +31,7 @@ import {
   type MessageThread,
   type Message,
 } from '../hooks/useTenantData';
+import { sanitizeErrorMessage } from '../utils/error-handling';
 
 // ============================================================================
 // Component
@@ -85,7 +86,7 @@ const TenantMessagesPage: React.FC = () => {
       setNewMessage('');
     } catch (err) {
       // BUG-014: Use inline error state instead of alert()
-      setSendError(err instanceof Error ? err.message : 'Failed to send message. Please try again.');
+      setSendError(sanitizeErrorMessage(err));
     }
   };
 
@@ -448,7 +449,7 @@ const NewThreadModal: React.FC<{
       await onSubmit(subject, message);
     } catch (err) {
       // BUG-014: Show inline error instead of alert()
-      setSubmitError(err instanceof Error ? err.message : 'Failed to create conversation. Please try again.');
+      setSubmitError(sanitizeErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

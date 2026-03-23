@@ -6,7 +6,7 @@ import {
   LIST_PROVISIONING_KEYS_QUERY,
   REVOKE_PROVISIONING_KEY_MUTATION,
 } from '../../graphql';
-import { logError } from '../../utils/error-handling';
+import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
 import { formatDate } from '../../utils/date-utils';
 
 interface InstallerKeyModalProps {
@@ -74,7 +74,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
       setStep('result');
       onCreated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create key');
+      setError(sanitizeErrorMessage(err));
     } finally {
       setLoading(false);
     }

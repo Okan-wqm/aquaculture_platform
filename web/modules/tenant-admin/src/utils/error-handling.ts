@@ -180,6 +180,21 @@ export function processError(error: unknown): AppError {
 }
 
 /**
+ * Sanitize an error for safe display in the UI.
+ *
+ * LOW-07: Raw `error.message` may contain stack traces, SQL fragments, or
+ * internal service names that should never be shown to end-users. This
+ * function classifies the error and returns a safe, user-friendly string.
+ *
+ * Use this as a drop-in replacement for `(err as Error).message` in catch
+ * blocks that surface the message to the user.
+ */
+export function sanitizeErrorMessage(error: unknown): string {
+  const processed = processError(error);
+  return processed.userMessage;
+}
+
+/**
  * Get user-friendly error message
  */
 export function getUserFriendlyMessage(code: ErrorCode, originalMessage?: string): string {

@@ -187,7 +187,7 @@ export interface TenantDatabaseInfo {
   totalSize: string;
   tableCount: number;
   status: string;
-  lastBackup: string;
+  lastBackup: string | null;
   activeConnections: number;
   maxConnections: number;
   databaseType: string;

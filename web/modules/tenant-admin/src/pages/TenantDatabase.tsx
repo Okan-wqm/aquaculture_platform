@@ -29,6 +29,7 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
+import { getModuleCodeForTable } from '../lib/constants';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -481,7 +482,7 @@ const TenantDatabase: React.FC = () => {
         <StatCard
           icon={<Clock className="w-6 h-6" />}
           label="Last Backup"
-          value={databaseInfo.lastBackup ? formatDate(databaseInfo.lastBackup) : 'N/A'}
+          value={databaseInfo.lastBackup ? formatDate(databaseInfo.lastBackup) : 'No backup'}
           color="yellow"
         />
       </div>

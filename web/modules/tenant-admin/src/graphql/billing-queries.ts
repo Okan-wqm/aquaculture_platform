@@ -60,7 +60,7 @@ export const TENANT_BILLING_QUERY = `
 
 export const MY_SUBSCRIPTION_QUERY = `
   query MySubscription {
-    subscription {
+    mySubscription {
       id
       status
       planTier

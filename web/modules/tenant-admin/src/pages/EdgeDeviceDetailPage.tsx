@@ -167,12 +167,18 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const [showDecommissionModal, setShowDecommissionModal] = useState(false);
   const [showRebootModal, setShowRebootModal] = useState(false);
 
-  // TanStack Query hooks
+  // MED-23: Paginated device events
+  const EVENTS_PAGE_SIZE = 20;
+  const [eventsLimit, setEventsLimit] = useState(EVENTS_PAGE_SIZE);
   const deviceActionMutation = useDeviceAction();
-  const { data: events = [], refetch: refetchEvents } = useDeviceEvents(
+  const { data: eventsData, refetch: refetchEvents } = useDeviceEvents(
     deviceId || '',
     activeTab === 'events',
+    eventsLimit,
   );
+  const events = eventsData?.items ?? [];
+  const eventsTotal = eventsData?.total ?? 0;
+  const hasMoreEvents = events.length < eventsTotal;
 
   const actionLoading = deviceActionMutation.isPending ? actionName : null;
 
@@ -441,25 +447,34 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </button>
           </div>
           {events.length > 0 ? (
-            <div className="space-y-2">
-              {events.map((event) => (
-                <div key={event.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                  <span className={`mt-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${
-                    severityColors[event.severity] || 'bg-gray-100 text-gray-600'
-                  }`}>
-                    {event.severity}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-900">{event.message}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                      <span>{event.eventType.replace(/_/g, ' ')}</span>
-                      <span>·</span>
-                      <span>{formatDateTime(event.createdAt)}</span>
+            <>
+              <div className="space-y-2">
+                {events.map((event) => (
+                  <div key={event.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                    <span className={`mt-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${
+                      severityColors[event.severity] || 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {event.severity}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-900">{event.message}</p>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                        <span>{event.eventType.replace(/_/g, ' ')}</span>
+                        <span>·</span>
+                        <span>{formatDateTime(event.createdAt)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+              {/* MED-23: Load More */}
+              <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                <span className="text-xs text-gray-500">Showing {events.length} of {eventsTotal} events</span>
+                {hasMoreEvents && (
+                  <button onClick={() => setEventsLimit((prev) => prev + EVENTS_PAGE_SIZE)} className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100">Load More</button>
+                )}
+              </div>
+            </>
           ) : (
             <p className="text-sm text-gray-500">No events recorded</p>
           )}

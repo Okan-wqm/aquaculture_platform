@@ -308,12 +308,12 @@ interface DeviceEvent {
 /**
  * Hook to fetch device events
  */
-export function useDeviceEvents(deviceId: string, enabled = true) {
+export function useDeviceEvents(deviceId: string, enabled = true, limit = 20) {
   return useQuery({
-    queryKey: tenantKeys.deviceEvents(deviceId),
+    queryKey: [...tenantKeys.deviceEvents(deviceId), limit],
     queryFn: async () => {
-      const data = await getDeviceEvents(deviceId, 1, 50);
-      return data.items;
+      const data = await getDeviceEvents(deviceId, 1, limit);
+      return { items: data.items, total: data.total };
     },
     enabled: !!deviceId && enabled,
     staleTime: 30 * 1000,

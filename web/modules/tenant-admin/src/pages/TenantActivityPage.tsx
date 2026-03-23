@@ -36,6 +36,7 @@ import {
   type ActivityPeriod,
 } from '../hooks/useTenantActivity';
 import { formatRelativeTime } from '../utils/date-utils';
+import { UserAvatar } from '../components/ui/UserAvatar';
 
 // ============================================================================
 // Utilities
@@ -88,24 +89,6 @@ const StatCard: React.FC<{
     </div>
   </div>
 );
-
-/**
- * User avatar component
- */
-const UserAvatar: React.FC<{ name: string }> = ({ name }) => {
-  const initials = name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-
-  return (
-    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-xs font-medium">
-      {initials || '??'}
-    </div>
-  );
-};
 
 /**
  * Period selector
@@ -327,7 +310,7 @@ const TenantActivityPage: React.FC = () => {
             <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
               {recentLogins.slice(0, 20).map((login: RecentLogin) => (
                 <div key={login.id} className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors">
-                  <UserAvatar name={getUserName(login.firstName, login.lastName, login.email)} />
+                  <UserAvatar name={getUserName(login.firstName, login.lastName, login.email)} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">
                       {getUserName(login.firstName, login.lastName, login.email)}
@@ -373,6 +356,7 @@ const TenantActivityPage: React.FC = () => {
                 >
                   <UserAvatar
                     name={getUserName(summary.firstName, summary.lastName, summary.email)}
+                    size="sm"
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">

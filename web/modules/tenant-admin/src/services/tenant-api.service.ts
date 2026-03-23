@@ -16,7 +16,7 @@ import {
   TABLE_DATA_QUERY,
   ASSIGN_MODULE_MANAGER_MUTATION,
   REMOVE_MODULE_MANAGER_MUTATION,
-  UPDATE_TENANT_SETTINGS_MUTATION,
+  UPDATE_TENANT_MUTATION,
   TENANT_ROLES_QUERY,
   TENANT_ROLE_QUERY,
   DEFAULT_TENANT_ROLE_QUERY,
@@ -225,15 +225,22 @@ export async function removeModuleManager(moduleId: string): Promise<TenantModul
   return data.removeModuleManager;
 }
 
-export async function updateTenantSettings(
+export async function updateTenant(
+  id: string,
   input: Partial<Pick<Tenant, 'name' | 'description' | 'logoUrl' | 'contactEmail' | 'contactPhone' | 'address' | 'settings'>>,
 ): Promise<Tenant> {
-  const data = await apiClient.graphql<{ updateTenantSettings: Tenant }>(
-    UPDATE_TENANT_SETTINGS_MUTATION,
-    { input },
+  const data = await apiClient.graphql<{ updateTenant: Tenant }>(
+    UPDATE_TENANT_MUTATION,
+    { id, input },
   );
-  return data.updateTenantSettings;
+  return data.updateTenant;
 }
+
+/**
+ * @deprecated Use updateTenant(id, input) instead.
+ * Kept for backward compatibility — callers must migrate to pass tenant ID.
+ */
+export const updateTenantSettings = updateTenant;
 
 export async function getTableSchema(
   schemaName: string,

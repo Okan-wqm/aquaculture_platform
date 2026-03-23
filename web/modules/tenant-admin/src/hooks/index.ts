@@ -6,6 +6,7 @@ export {
   useTenantDatabase,
   useAssignModuleManager,
   useRemoveModuleManager,
+  useUpdateTenant,
   useUpdateTenantSettings,
   tenantKeys,
 } from './useTenantData';

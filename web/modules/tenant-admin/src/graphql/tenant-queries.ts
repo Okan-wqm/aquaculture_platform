@@ -112,18 +112,29 @@ export const TABLE_DATA_QUERY = `
 // Mutations
 // ============================================================================
 
-export const UPDATE_TENANT_SETTINGS_MUTATION = `
-  mutation UpdateTenantSettings($input: UpdateTenantInput!) {
-    updateTenantSettings(input: $input) {
+export const UPDATE_TENANT_MUTATION = `
+  mutation UpdateTenant($id: ID!, $input: UpdateTenantInput!) {
+    updateTenant(id: $id, input: $input) {
       id
       name
+      slug
       description
       logoUrl
       contactEmail
       contactPhone
       address
+      status
+      plan
+      maxUsers
       settings
+      createdAt
       updatedAt
     }
   }
 `;
+
+/**
+ * Backward-compatible alias for UPDATE_TENANT_MUTATION.
+ * @deprecated Use UPDATE_TENANT_MUTATION instead.
+ */
+export const UPDATE_TENANT_SETTINGS_MUTATION = UPDATE_TENANT_MUTATION;

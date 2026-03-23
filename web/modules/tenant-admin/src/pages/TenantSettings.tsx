@@ -15,7 +15,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import { useMyTenant, useUpdateTenantSettings } from '../hooks/useTenantData';
+import { useMyTenant, useUpdateTenant } from '../hooks/useTenantData';
 import { graphqlRequest } from '../services/tenant-api.service';
 import {
   TENANT_USERS_QUERY,
@@ -183,7 +183,7 @@ const TenantSettings: React.FC = () => {
 
   // Fetch real tenant data
   const { data: tenantData } = useMyTenant();
-  const updateSettingsMutation = useUpdateTenantSettings();
+  const updateTenantMutation = useUpdateTenant();
 
   // Form state - populated from API
   const [tenantName, setTenantName] = useState('');
@@ -431,14 +431,22 @@ const TenantSettings: React.FC = () => {
       return;
     }
 
+    if (!tenantData?.id) {
+      setSaveError('Tenant data not loaded yet. Please wait and try again.');
+      return;
+    }
+
     setLoading(true);
     setSaveError(null);
     try {
-      await updateSettingsMutation.mutateAsync({
-        name: tenantName,
-        contactEmail,
-        contactPhone,
-        address,
+      await updateTenantMutation.mutateAsync({
+        id: tenantData.id,
+        input: {
+          name: tenantName,
+          contactEmail,
+          contactPhone,
+          address,
+        },
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -448,7 +456,7 @@ const TenantSettings: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeSection, tenantName, contactEmail, contactPhone, address, updateSettingsMutation, saveMobileSettings, saveNotificationPreferences]);
+  }, [activeSection, tenantName, contactEmail, contactPhone, address, tenantData, updateTenantMutation, saveMobileSettings, saveNotificationPreferences]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -908,7 +916,7 @@ const TenantSettings: React.FC = () => {
             onClick={handleSave}
             disabled={
               loading ||
-              updateSettingsMutation.isPending ||
+              updateTenantMutation.isPending ||
               (activeSection === 'mobileUsers' && (mobileSaving || dirtyUserIds.size === 0)) ||
               (activeSection === 'notifications' && (notifSaving || !notifDirty)) ||
               ['security', 'localization', 'appearance'].includes(activeSection)
@@ -925,7 +933,7 @@ const TenantSettings: React.FC = () => {
                 <Check className="w-4 h-4" />
                 Saved!
               </>
-            ) : (loading || updateSettingsMutation.isPending || mobileSaving || notifSaving) ? (
+            ) : (loading || updateTenantMutation.isPending || mobileSaving || notifSaving) ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Saving...

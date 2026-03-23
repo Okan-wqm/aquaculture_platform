@@ -13,7 +13,7 @@ import {
   getTenantDatabase,
   assignModuleManager,
   removeModuleManager,
-  updateTenantSettings,
+  updateTenant,
   type Tenant,
   type TenantStats,
   type TenantModule,
@@ -134,26 +134,35 @@ export function useRemoveModuleManager() {
 }
 
 /**
- * Hook to update tenant settings
+ * Hook to update tenant via the updateTenant(id, input) mutation.
  */
-export function useUpdateTenantSettings() {
+export function useUpdateTenant() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (
+    mutationFn: ({
+      id,
+      input,
+    }: {
+      id: string;
       input: Partial<
         Pick<
           Tenant,
           'name' | 'description' | 'logoUrl' | 'contactEmail' | 'contactPhone' | 'address' | 'settings'
         >
-      >,
-    ) => updateTenantSettings(input),
+      >;
+    }) => updateTenant(id, input),
     onSuccess: (data) => {
       // Update tenant cache
       queryClient.setQueryData(tenantKeys.tenant(), data);
     },
   });
 }
+
+/**
+ * @deprecated Use useUpdateTenant() instead.
+ */
+export const useUpdateTenantSettings = useUpdateTenant;
 
 // ============================================================================
 // Re-export types

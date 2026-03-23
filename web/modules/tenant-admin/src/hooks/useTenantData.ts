@@ -699,13 +699,41 @@ export function useNotificationPreferences(enabled = false) {
 
 /**
  * Hook to update notification preferences
+ *
+ * FIX HIGH-08: Uses optimistic updates to prevent notification overwrite bug.
+ * The mutation optimistically writes the new prefs into the cache so that a
+ * concurrent read never returns stale data that would overwrite a save in
+ * progress. On error the previous value is rolled back.
  */
 export function useUpdateNotificationPreferences() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: Partial<import('../lib/types').NotificationPreferences>) =>
       updateNotificationPrefsApi(input),
-    onSuccess: () => {
+    onMutate: async (newPrefs) => {
+      // Cancel outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: tenantKeys.notificationPreferences() });
+
+      // Snapshot the previous value
+      const previousPrefs = queryClient.getQueryData(tenantKeys.notificationPreferences());
+
+      // Optimistically update the cache
+      queryClient.setQueryData(
+        tenantKeys.notificationPreferences(),
+        (old: import('../lib/types').NotificationPreferences | undefined) =>
+          old ? { ...old, ...newPrefs } : newPrefs,
+      );
+
+      return { previousPrefs };
+    },
+    onError: (_err, _newPrefs, context) => {
+      // Rollback to the previous value on error
+      if (context?.previousPrefs !== undefined) {
+        queryClient.setQueryData(tenantKeys.notificationPreferences(), context.previousPrefs);
+      }
+    },
+    onSettled: () => {
+      // Always refetch after error or success to ensure server state
       queryClient.invalidateQueries({ queryKey: tenantKeys.notificationPreferences() });
     },
   });

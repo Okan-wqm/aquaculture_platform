@@ -30,15 +30,17 @@ import {
 import { logError } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
+import type { User as ApiUser, UserRole } from '../lib/types';
 
 /**
- * User type for display
+ * Display-only user type for the table view.
+ * Derived from ApiUser via transformUser().
  */
-interface User {
+interface DisplayUser {
   id: string;
   name: string;
   email: string;
-  role: 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER' | 'SUPER_ADMIN';
+  role: UserRole;
   status: 'active' | 'inactive' | 'pending';
   modules: string[];
   lastLogin: string;
@@ -48,7 +50,7 @@ interface User {
 /**
  * Role badge component
  */
-const RoleBadge: React.FC<{ role: User['role'] }> = ({ role }) => {
+const RoleBadge: React.FC<{ role: DisplayUser['role'] }> = ({ role }) => {
   const roleConfig: Record<string, { bg: string; text: string; label: string }> = {
     SUPER_ADMIN: { bg: 'bg-red-100', text: 'text-red-700', label: 'Super Admin' },
     TENANT_ADMIN: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Tenant Admin' },
@@ -69,7 +71,7 @@ const RoleBadge: React.FC<{ role: User['role'] }> = ({ role }) => {
 /**
  * Status badge component
  */
-const StatusBadge: React.FC<{ status: User['status'] }> = ({ status }) => {
+const StatusBadge: React.FC<{ status: DisplayUser['status'] }> = ({ status }) => {
   const statusConfig = {
     active: { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
     inactive: { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> },
@@ -101,22 +103,11 @@ const UserAvatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({ nam
 };
 
 /**
- * Transform API user to display user
+ * Transform API user to display user.
+ * Uses the consolidated User type from lib/types (HIGH-15).
  */
-interface ApiUser {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-  isActive?: boolean;
-  isEmailVerified?: boolean;
-  lastLoginAt?: string;
-  createdAt: string;
-}
-
-function transformUser(apiUser: ApiUser): User {
-  let status: User['status'] = 'active';
+function transformUser(apiUser: ApiUser): DisplayUser {
+  let status: DisplayUser['status'] = 'active';
   if (apiUser.isActive === false) {
     status = 'inactive';
   } else if (!apiUser.isEmailVerified && !apiUser.lastLoginAt) {
@@ -127,7 +118,7 @@ function transformUser(apiUser: ApiUser): User {
     id: apiUser.id,
     name: `${apiUser.firstName || ''} ${apiUser.lastName || ''}`.trim() || apiUser.email.split('@')[0],
     email: apiUser.email,
-    role: apiUser.role as User['role'],
+    role: apiUser.role as DisplayUser['role'],
     status,
     modules: [],
     lastLogin: formatRelativeTime(apiUser.lastLoginAt || null),
@@ -164,10 +155,10 @@ const TenantUsers: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // Edit state
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<DisplayUser | null>(null);
 
   // Delete state
-  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<DisplayUser | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // SEC-011: Bulk deactivation state

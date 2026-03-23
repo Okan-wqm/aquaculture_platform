@@ -138,6 +138,11 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
       errors.lastName = 'Last name is required';
     }
 
+    // HIGH-13: Require role selection for new users
+    if (!isEditing && !formData.roleId) {
+      errors.roleId = 'Please select a role';
+    }
+
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -387,6 +392,11 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                   ))}
                 </div>
               )}
+              {validationErrors.roleId && (
+                <p className="text-xs text-red-500 mt-1">
+                  {validationErrors.roleId}
+                </p>
+              )}
             </div>
 
             {/* Send Invitation Toggle (only for new users) */}
@@ -437,7 +447,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isLoading || (roles.length === 0 && !rolesLoading)}
+                disabled={isLoading || (!isEditing && roles.length === 0 && !rolesLoading)}
                 className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isLoading ? (

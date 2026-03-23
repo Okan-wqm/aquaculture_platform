@@ -105,7 +105,7 @@ export function useDevicePolling(deviceId: string, intervalMs = 5000) {
     queryKey: ['edgeDevice', deviceId],
     queryFn: () => fetchDeviceData(deviceId),
     enabled: !!deviceId,
-    refetchInterval: intervalMs,
+    refetchInterval: deviceId ? intervalMs : false,
     refetchIntervalInBackground: false,
   });
 

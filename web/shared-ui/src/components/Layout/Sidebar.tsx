@@ -244,9 +244,9 @@ const MenuItem: React.FC<{
   const hasAccess = !item.requiredRoles?.length ||
     item.requiredRoles.some((role) => userRoles.includes(role));
 
-  const isActive = item.path === activePath;
+  const isActive = item.path === activePath || (!!item.path && !!activePath && activePath.startsWith(item.path + '/'));
   const isChildActive = item.children?.some(
-    (child) => child.path === activePath
+    (child) => child.path === activePath || (!!child.path && !!activePath && activePath.startsWith(child.path + '/'))
   );
 
   const handleClick = useCallback(() => {

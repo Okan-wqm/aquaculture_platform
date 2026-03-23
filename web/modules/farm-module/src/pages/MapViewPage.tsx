@@ -369,7 +369,8 @@ const MapViewPage: React.FC = () => {
           lat: site.location!.latitude,
           lng: site.location!.longitude,
         },
-        location: [site.address?.city, site.address?.country].filter(Boolean).join(', ') || 'Konum belirtilmemiş',
+        location: [site.address?.city, site.address?.country].filter(Boolean).join(', ')
+          || (site.location ? `${site.location.latitude.toFixed(4)}, ${site.location.longitude.toFixed(4)}` : 'Konum belirtilmemiş'),
       }));
   }, [sites]);
 

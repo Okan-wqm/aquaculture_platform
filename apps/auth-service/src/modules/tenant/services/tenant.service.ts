@@ -641,7 +641,24 @@ export class TenantService {
       .where('user.tenantId = :tenantId', { tenantId });
 
     if (options.status) {
-      query.andWhere('user.status = :status', { status: options.status });
+      // User entity has no "status" column — translate to isActive / isEmailVerified conditions
+      switch (options.status) {
+        case 'active':
+          query.andWhere('user.isActive = :isActive', { isActive: true });
+          break;
+        case 'inactive':
+          query.andWhere('user.isActive = :isActive', { isActive: false });
+          break;
+        case 'pending':
+          // Pending = active but never verified and never logged in
+          query.andWhere('user.isActive = :isActive', { isActive: true });
+          query.andWhere('user.isEmailVerified = :isVerified', { isVerified: false });
+          query.andWhere('user.lastLoginAt IS NULL');
+          break;
+        default:
+          // Unknown status values are ignored to prevent query errors
+          break;
+      }
     }
 
     if (options.role) {

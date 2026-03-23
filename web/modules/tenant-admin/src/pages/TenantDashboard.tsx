@@ -218,7 +218,11 @@ const TenantDashboard: React.FC = () => {
   const activeModules = tenantStats?.activeModules ?? modules.filter(m => m.status === 'active').length;
   const totalModules = tenantStats?.totalModules ?? modules.length;
 
-  const statsData: StatCard[] = [
+  // MED-06: Fix "This Month" card — use monthlyGrowthPercent instead of totalUsers
+  // Also memoize statsData to avoid recreating on every render
+  const monthlyGrowth = tenantStats?.monthlyGrowthPercent ?? 0;
+
+  const statsData: StatCard[] = useMemo(() => [
     {
       id: 'users',
       title: 'Total Users',
@@ -246,13 +250,13 @@ const TenantDashboard: React.FC = () => {
     {
       id: 'growth',
       title: 'This Month',
-      value: totalUsers > 0 ? '+' + totalUsers : '0',
-      change: totalUsers > 0 ? 100 : 0,
-      changeLabel: 'new users',
+      value: monthlyGrowth > 0 ? `+${monthlyGrowth}%` : '0%',
+      change: monthlyGrowth,
+      changeLabel: 'user growth',
       icon: <TrendingUp className="w-6 h-6" />,
       color: 'purple',
     },
-  ];
+  ], [totalUsers, activeUsers, activeModules, totalModules, tenantStats?.activeSessions, monthlyGrowth]);
 
   if (loading) {
     return (

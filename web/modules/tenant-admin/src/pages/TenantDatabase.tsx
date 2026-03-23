@@ -94,6 +94,19 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
 };
 
 /**
+ * PERF-013 / MED-02: Parse size strings (e.g. "1.2 MB") to bytes for numeric comparison.
+ * Extracted as module-level utility so it can be referenced inside useMemo without
+ * being recreated on every render.
+ */
+const parseSize = (s: string): number => {
+  const m = s.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
+  if (!m) return 0;
+  const val = parseFloat(m[1]);
+  const units: Record<string, number> = { B: 1, KB: 1024, MB: 1048576, GB: 1073741824, TB: 1099511627776 };
+  return val * (units[(m[2] || 'B').toUpperCase()] ?? 1);
+};
+
+/**
  * Get module name from table name
  */
 const getModuleFromTableName = (fullTableName: string): string => {
@@ -310,25 +323,21 @@ const TenantDatabase: React.FC = () => {
     return `${days} day${days > 1 ? 's' : ''} ago`;
   };
 
-  // Filter and sort tables
+  // MED-02: Filter and sort tables — memoized to avoid recomputation on unrelated re-renders
   const tables = databaseInfo?.tables || [];
-  const filteredTables = tables
-    .filter((table) =>
-      table.name.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    .sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      if (sortBy === 'rows') return b.rowCount - a.rowCount;
-      // PERF-013: Parse size strings (e.g. "1.2 MB") to bytes for numeric comparison
-      const parseSize = (s: string): number => {
-        const m = s.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
-        if (!m) return 0;
-        const val = parseFloat(m[1]);
-        const units: Record<string, number> = { B: 1, KB: 1024, MB: 1048576, GB: 1073741824, TB: 1099511627776 };
-        return val * (units[(m[2] || 'B').toUpperCase()] ?? 1);
-      };
-      return parseSize(b.size) - parseSize(a.size);
-    });
+  const filteredTables = useMemo(
+    () =>
+      tables
+        .filter((table) =>
+          table.name.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .sort((a, b) => {
+          if (sortBy === 'name') return a.name.localeCompare(b.name);
+          if (sortBy === 'rows') return b.rowCount - a.rowCount;
+          return parseSize(b.size) - parseSize(a.size);
+        }),
+    [tables, searchQuery, sortBy],
+  );
 
   // Group tables by module — preserve the order from filteredTables (BUG-020)
   const groupedTables = useMemo(() => {

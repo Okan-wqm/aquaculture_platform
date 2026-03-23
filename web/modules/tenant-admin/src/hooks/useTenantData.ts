@@ -139,10 +139,10 @@ export function useTenantStats() {
   return useQuery({
     queryKey: tenantKeys.stats(),
     queryFn: getTenantStats,
-    // PERF-005: staleTime < refetchInterval so cached data is served for 30s
-    // while background refetch keeps data fresh every 60s (no race condition)
-    staleTime: 30 * 1000, // 30 seconds
-    refetchInterval: 60 * 1000, // Refetch every minute
+    // MED-24: Replaced constant 60s polling with on-focus refetch to avoid
+    // unnecessary network traffic when the user is on other pages/tabs.
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    refetchOnWindowFocus: true,
   });
 }
 

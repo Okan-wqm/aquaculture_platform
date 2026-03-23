@@ -10,30 +10,39 @@
  * if the shell guard is bypassed or misconfigured.
  */
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthContext } from '@aquaculture/shared-ui';
 
 // Error Boundary
 import { PageErrorBoundary } from './components/ErrorBoundary';
 
-// Pages
-import TenantDashboard from './pages/TenantDashboard';
-import TenantUsers from './pages/TenantUsers';
-import TenantModules from './pages/TenantModules';
-import TenantSettings from './pages/TenantSettings';
-import TenantDatabase from './pages/TenantDatabase';
-import TenantMessagesPage from './pages/TenantMessagesPage';
-import TenantSupportPage from './pages/TenantSupportPage';
-import TenantAnnouncementsPage from './pages/TenantAnnouncementsPage';
-import EdgeDevicesPage from './pages/EdgeDevicesPage';
-import EdgeDeviceDetailPage from './pages/EdgeDeviceDetailPage';
-import TenantRolesPage from './pages/TenantRolesPage';
+// LOW-01: Lazy-loaded pages — each chunk is loaded on-demand to reduce initial bundle size
+const TenantDashboard = React.lazy(() => import('./pages/TenantDashboard'));
+const TenantUsers = React.lazy(() => import('./pages/TenantUsers'));
+const TenantModules = React.lazy(() => import('./pages/TenantModules'));
+const TenantSettings = React.lazy(() => import('./pages/TenantSettings'));
+const TenantDatabase = React.lazy(() => import('./pages/TenantDatabase'));
+const TenantMessagesPage = React.lazy(() => import('./pages/TenantMessagesPage'));
+const TenantSupportPage = React.lazy(() => import('./pages/TenantSupportPage'));
+const TenantAnnouncementsPage = React.lazy(() => import('./pages/TenantAnnouncementsPage'));
+const EdgeDevicesPage = React.lazy(() => import('./pages/EdgeDevicesPage'));
+const EdgeDeviceDetailPage = React.lazy(() => import('./pages/EdgeDeviceDetailPage'));
+const TenantRolesPage = React.lazy(() => import('./pages/TenantRolesPage'));
 
-// Wave 4 Enterprise Pages
-import TenantAuditLogPage from './pages/TenantAuditLogPage';
-import TenantBillingPage from './pages/TenantBillingPage';
-import TenantActivityPage from './pages/TenantActivityPage';
+// Wave 4 Enterprise Pages (lazy)
+const TenantAuditLogPage = React.lazy(() => import('./pages/TenantAuditLogPage'));
+const TenantBillingPage = React.lazy(() => import('./pages/TenantBillingPage'));
+const TenantActivityPage = React.lazy(() => import('./pages/TenantActivityPage'));
+
+/**
+ * Suspense fallback shown while lazy-loaded page chunks are being fetched.
+ */
+const PageLoadingFallback: React.FC = () => (
+  <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+    Loading page...
+  </div>
+);
 
 // ============================================================================
 // Route Guard (SEC-007: defense-in-depth, module-level RBAC)
@@ -86,42 +95,44 @@ const RequireTenantAdmin: React.FC<{ children: React.ReactNode }> = ({ children 
 const TenantAdminModule: React.FC = () => {
   return (
     <RequireTenantAdmin>
-      <Routes>
-        {/* Dashboard - default route */}
-        <Route index element={<PageErrorBoundary pageName="Dashboard"><TenantDashboard /></PageErrorBoundary>} />
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
+          {/* Dashboard - default route */}
+          <Route index element={<PageErrorBoundary pageName="Dashboard"><TenantDashboard /></PageErrorBoundary>} />
 
-        {/* User Management */}
-        <Route path="users" element={<PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary>} />
+          {/* User Management */}
+          <Route path="users" element={<PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary>} />
 
-        {/* Module Management */}
-        <Route path="modules" element={<PageErrorBoundary pageName="Modules"><TenantModules /></PageErrorBoundary>} />
+          {/* Module Management */}
+          <Route path="modules" element={<PageErrorBoundary pageName="Modules"><TenantModules /></PageErrorBoundary>} />
 
-        {/* Communication */}
-        <Route path="messages" element={<PageErrorBoundary pageName="Messages"><TenantMessagesPage /></PageErrorBoundary>} />
-        <Route path="support" element={<PageErrorBoundary pageName="Support"><TenantSupportPage /></PageErrorBoundary>} />
-        <Route path="announcements" element={<PageErrorBoundary pageName="Announcements"><TenantAnnouncementsPage /></PageErrorBoundary>} />
+          {/* Communication */}
+          <Route path="messages" element={<PageErrorBoundary pageName="Messages"><TenantMessagesPage /></PageErrorBoundary>} />
+          <Route path="support" element={<PageErrorBoundary pageName="Support"><TenantSupportPage /></PageErrorBoundary>} />
+          <Route path="announcements" element={<PageErrorBoundary pageName="Announcements"><TenantAnnouncementsPage /></PageErrorBoundary>} />
 
-        {/* Tenant Settings */}
-        <Route path="settings" element={<PageErrorBoundary pageName="Settings"><TenantSettings /></PageErrorBoundary>} />
+          {/* Tenant Settings */}
+          <Route path="settings" element={<PageErrorBoundary pageName="Settings"><TenantSettings /></PageErrorBoundary>} />
 
-        {/* Edge Devices */}
-        <Route path="devices" element={<PageErrorBoundary pageName="Edge Devices"><EdgeDevicesPage /></PageErrorBoundary>} />
-        <Route path="devices/:deviceId" element={<PageErrorBoundary pageName="Device Detail"><EdgeDeviceDetailPage /></PageErrorBoundary>} />
+          {/* Edge Devices */}
+          <Route path="devices" element={<PageErrorBoundary pageName="Edge Devices"><EdgeDevicesPage /></PageErrorBoundary>} />
+          <Route path="devices/:deviceId" element={<PageErrorBoundary pageName="Device Detail"><EdgeDeviceDetailPage /></PageErrorBoundary>} />
 
-        {/* Database View */}
-        <Route path="database" element={<PageErrorBoundary pageName="Database"><TenantDatabase /></PageErrorBoundary>} />
+          {/* Database View */}
+          <Route path="database" element={<PageErrorBoundary pageName="Database"><TenantDatabase /></PageErrorBoundary>} />
 
-        {/* Roles & Permissions */}
-        <Route path="roles" element={<PageErrorBoundary pageName="Roles"><TenantRolesPage /></PageErrorBoundary>} />
+          {/* Roles & Permissions */}
+          <Route path="roles" element={<PageErrorBoundary pageName="Roles"><TenantRolesPage /></PageErrorBoundary>} />
 
-        {/* Wave 4 Enterprise Pages */}
-        <Route path="audit-log" element={<PageErrorBoundary pageName="Audit Log"><TenantAuditLogPage /></PageErrorBoundary>} />
-        <Route path="billing" element={<PageErrorBoundary pageName="Billing"><TenantBillingPage /></PageErrorBoundary>} />
-        <Route path="activity" element={<PageErrorBoundary pageName="Activity"><TenantActivityPage /></PageErrorBoundary>} />
+          {/* Wave 4 Enterprise Pages */}
+          <Route path="audit-log" element={<PageErrorBoundary pageName="Audit Log"><TenantAuditLogPage /></PageErrorBoundary>} />
+          <Route path="billing" element={<PageErrorBoundary pageName="Billing"><TenantBillingPage /></PageErrorBoundary>} />
+          <Route path="activity" element={<PageErrorBoundary pageName="Activity"><TenantActivityPage /></PageErrorBoundary>} />
 
-        {/* Catch-all redirect to dashboard */}
-        <Route path="*" element={<Navigate to="/tenant" replace />} />
-      </Routes>
+          {/* Catch-all redirect to dashboard */}
+          <Route path="*" element={<Navigate to="/tenant" replace />} />
+        </Routes>
+      </Suspense>
     </RequireTenantAdmin>
   );
 };

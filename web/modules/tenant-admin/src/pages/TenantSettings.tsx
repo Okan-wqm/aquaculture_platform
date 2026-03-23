@@ -16,14 +16,14 @@ import {
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { useMyTenant, useUpdateTenantSettings } from '../hooks/useTenantData';
-import { graphqlRequest } from '../services/tenant-api.service';
 import {
-  TENANT_USERS_QUERY,
-  GET_NOTIFICATION_PREFERENCES_QUERY,
-  UPDATE_NOTIFICATION_PREFERENCES_MUTATION,
-  GET_MOBILE_USERS_SETTINGS_QUERY,
-  UPDATE_MOBILE_USER_SETTINGS_MUTATION,
-} from '../graphql';
+  getTenantUsers,
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  getMobileUsersSettings,
+  updateMobileUserSettings,
+} from '../lib/api';
+import type { User, MobileUserSettingsData } from '../lib/types';
 import { logError } from '../utils/error-handling';
 
 /**
@@ -36,32 +36,8 @@ interface SettingsSection {
   icon: React.ReactNode;
 }
 
-/**
- * Mobile user settings from API
- */
-interface MobileUserSettingsData {
-  id: string;
-  userId: string;
-  tenantId: string;
-  isMobileEnabled: boolean;
-  allowedFeatures: {
-    mortality: boolean;
-    cull: boolean;
-    harvest: boolean;
-    feeding: boolean;
-    waterQuality: boolean;
-    tankView: boolean;
-  };
-}
-
-interface TenantUser {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-  isActive: boolean;
-}
+// MobileUserSettingsData and User types imported from lib/types
+type TenantUser = User;
 
 /**
  * Settings sections
@@ -221,11 +197,8 @@ const TenantSettings: React.FC = () => {
   useEffect(() => {
     if (activeSection === 'notifications') {
       setNotifLoading(true);
-      graphqlRequest<{ getMyNotificationPreferences: typeof notifPrefs }>(
-        GET_NOTIFICATION_PREFERENCES_QUERY,
-      )
-        .then((data) => {
-          const p = data.getMyNotificationPreferences;
+      getNotificationPreferences()
+        .then((p) => {
           setNotifPrefs({
             emailEnabled: p.emailEnabled,
             smsEnabled: p.smsEnabled,
@@ -255,18 +228,16 @@ const TenantSettings: React.FC = () => {
     setNotifSaving(true);
     setSaveError(null);
     try {
-      await graphqlRequest(UPDATE_NOTIFICATION_PREFERENCES_MUTATION, {
-        input: {
-          emailEnabled: notifPrefs.emailEnabled,
-          smsEnabled: notifPrefs.smsEnabled,
-          pushEnabled: notifPrefs.pushEnabled,
-          quietHoursStart: notifPrefs.quietHoursStart || null,
-          quietHoursEnd: notifPrefs.quietHoursEnd || null,
-          quietHoursTimezone: notifPrefs.quietHoursTimezone,
-          alertNotifications: notifPrefs.alertNotifications,
-          taskNotifications: notifPrefs.taskNotifications,
-          systemNotifications: notifPrefs.systemNotifications,
-        },
+      await updateNotificationPreferences({
+        emailEnabled: notifPrefs.emailEnabled,
+        smsEnabled: notifPrefs.smsEnabled,
+        pushEnabled: notifPrefs.pushEnabled,
+        quietHoursStart: notifPrefs.quietHoursStart || undefined,
+        quietHoursEnd: notifPrefs.quietHoursEnd || undefined,
+        quietHoursTimezone: notifPrefs.quietHoursTimezone,
+        alertNotifications: notifPrefs.alertNotifications,
+        taskNotifications: notifPrefs.taskNotifications,
+        systemNotifications: notifPrefs.systemNotifications,
       });
       setNotifDirty(false);
       setSaved(true);
@@ -302,15 +273,15 @@ const TenantSettings: React.FC = () => {
     setMobileError(null);
     try {
       // Load users and mobile settings in parallel
-      const [usersData, settingsData] = await Promise.all([
-        graphqlRequest<{ tenantUsers: TenantUser[] }>(TENANT_USERS_QUERY),
-        graphqlRequest<{ getMobileUsersSettings: MobileUserSettingsData[] }>(GET_MOBILE_USERS_SETTINGS_QUERY),
+      const [usersResult, settingsResult] = await Promise.all([
+        getTenantUsers(),
+        getMobileUsersSettings(),
       ]);
 
-      setMobileUsers(usersData.tenantUsers || []);
+      setMobileUsers((usersResult || []) as TenantUser[]);
 
       const settingsMap = new Map<string, MobileUserSettingsData>();
-      for (const s of settingsData.getMobileUsersSettings || []) {
+      for (const s of settingsResult || []) {
         settingsMap.set(s.userId, s);
       }
       setMobileSettings(settingsMap);
@@ -381,17 +352,15 @@ const TenantSettings: React.FC = () => {
       await Promise.all(
         Array.from(dirtyUserIds).map((userId) => {
           const settings = getUserSettings(userId);
-          return graphqlRequest(UPDATE_MOBILE_USER_SETTINGS_MUTATION, {
-            input: {
-              userId,
-              isMobileEnabled: settings.isMobileEnabled,
-              mortality: settings.allowedFeatures.mortality,
-              cull: settings.allowedFeatures.cull,
-              harvest: settings.allowedFeatures.harvest,
-              feeding: settings.allowedFeatures.feeding,
-              waterQuality: settings.allowedFeatures.waterQuality,
-              tankView: settings.allowedFeatures.tankView,
-            },
+          return updateMobileUserSettings({
+            userId,
+            isMobileEnabled: settings.isMobileEnabled,
+            mortality: settings.allowedFeatures.mortality,
+            cull: settings.allowedFeatures.cull,
+            harvest: settings.allowedFeatures.harvest,
+            feeding: settings.allowedFeatures.feeding,
+            waterQuality: settings.allowedFeatures.waterQuality,
+            tankView: settings.allowedFeatures.tankView,
           });
         }),
       );

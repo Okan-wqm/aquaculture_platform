@@ -18,25 +18,20 @@ import {
 import { useAuthContext } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
-import { graphqlRequest } from '../services/tenant-api.service';
+import {
+  getTenantUsers as fetchUsers,
+  updateTenantUser,
+  createTenantUser,
+  deleteTenantUser,
+  deactivateTenantUser,
+} from '../lib/api';
+import type { User as ApiUserType } from '../lib/types';
 import { logError } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
 
-/**
- * API User type
- */
-interface ApiUser {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-  isActive: boolean;
-  isEmailVerified?: boolean;
-  lastLoginAt?: string;
-  createdAt: string;
-}
+// ApiUser = the User type returned by the GraphQL endpoint
+type ApiUser = ApiUserType;
 
 /**
  * User type for display
@@ -130,63 +125,7 @@ function transformUser(apiUser: ApiUser): User {
   };
 }
 
-const TENANT_USERS_QUERY = `
-  query TenantUsers($limit: Int, $offset: Int, $status: String, $role: String) {
-    tenantUsers(limit: $limit, offset: $offset, status: $status, role: $role) {
-      id
-      email
-      firstName
-      lastName
-      role
-      isActive
-      isEmailVerified
-      lastLoginAt
-      createdAt
-    }
-  }
-`;
-
-const UPDATE_USER_MUTATION = `
-  mutation UpdateTenantUser($userId: ID!, $input: UpdateTenantUserInput!) {
-    updateTenantUser(userId: $userId, input: $input) {
-      id
-      email
-      firstName
-      lastName
-      role
-      isActive
-    }
-  }
-`;
-
-const DELETE_USER_MUTATION = `
-  mutation DeleteTenantUser($userId: ID!) {
-    deleteTenantUser(userId: $userId)
-  }
-`;
-
-const CREATE_TENANT_USER_MUTATION = `
-  mutation CreateTenantUser($input: CreateTenantUserInput!) {
-    createTenantUser(input: $input) {
-      userId
-      email
-      firstName
-      lastName
-      roleAssignment { id roleId roleName }
-      invitationSent
-      createdAt
-    }
-  }
-`;
-
-const DEACTIVATE_TENANT_USER_MUTATION = `
-  mutation DeactivateTenantUser($userId: ID!) {
-    deactivateTenantUser(userId: $userId) {
-      id
-      isActive
-    }
-  }
-`;
+// Query strings removed -- now using typed API functions from lib/api
 
 /**
  * TenantUsers Page
@@ -248,18 +187,15 @@ const TenantUsers: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const variables: Record<string, unknown> = {
+      const options: { limit: number; offset: number; status?: string; role?: string } = {
         limit: pageSize,
         offset: page * pageSize,
       };
-      if (statusFilter !== 'all') variables.status = statusFilter;
-      if (roleFilter !== 'all') variables.role = roleFilter;
+      if (statusFilter !== 'all') options.status = statusFilter;
+      if (roleFilter !== 'all') options.role = roleFilter;
 
-      const data = await graphqlRequest<{ tenantUsers: ApiUser[] }>(
-        TENANT_USERS_QUERY,
-        variables,
-      );
-      setUsers((data.tenantUsers || []).map(transformUser));
+      const apiUsers = await fetchUsers(options);
+      setUsers((apiUsers || []).map(transformUser));
     } catch (err) {
       logError('TenantUsers.loadUsers', err);
       setError((err as Error).message);
@@ -280,24 +216,19 @@ const TenantUsers: React.FC = () => {
     try {
       if (editingUser) {
         // Update existing user
-        await graphqlRequest(UPDATE_USER_MUTATION, {
-          userId: editingUser.id,
-          input: {
-            firstName: data.firstName,
-            lastName: data.lastName,
-            roleId: data.roleId,
-          },
+        await updateTenantUser(editingUser.id, {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          roleId: data.roleId,
         });
       } else {
         // Create new user
-        await graphqlRequest(CREATE_TENANT_USER_MUTATION, {
-          input: {
-            firstName: data.firstName,
-            lastName: data.lastName,
-            email: data.email,
-            roleId: data.roleId,
-            sendInvitation: data.sendInvitation ?? true,
-          },
+        await createTenantUser({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email,
+          roleId: data.roleId,
+          sendInvitation: data.sendInvitation ?? true,
         });
       }
 
@@ -320,7 +251,7 @@ const TenantUsers: React.FC = () => {
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      await graphqlRequest(DELETE_USER_MUTATION, { userId: deletingUser.id });
+      await deleteTenantUser(deletingUser.id);
       setDeletingUser(null);
       await loadUsers();
     } catch (err) {
@@ -339,7 +270,7 @@ const TenantUsers: React.FC = () => {
     try {
       await Promise.all(
         selectedUsers.map((userId) =>
-          graphqlRequest(DEACTIVATE_TENANT_USER_MUTATION, { userId })
+          deactivateTenantUser(userId)
         )
       );
       setSelectedUsers([]);

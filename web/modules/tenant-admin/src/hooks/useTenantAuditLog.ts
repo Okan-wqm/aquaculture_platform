@@ -9,8 +9,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useCallback, useMemo } from 'react';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { TENANT_AUDIT_LOGS_QUERY } from '../graphql';
+import { getTenantAuditLogs } from '../lib/api';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -93,11 +92,8 @@ export function useTenantAuditLog(pageSize = 20) {
     queryKey: auditLogKeys.list(filters, page, pageSize),
     queryFn: async (): Promise<AuditLogPage> => {
       try {
-        const data = await graphqlRequest<{ tenantAuditLogs: AuditLogPage }>(
-          TENANT_AUDIT_LOGS_QUERY,
-          variables,
-        );
-        return data.tenantAuditLogs;
+        const result = await getTenantAuditLogs(variables as Record<string, string | number | undefined>);
+        return result as unknown as AuditLogPage;
       } catch (err) {
         logError('useTenantAuditLog', err);
         // Return empty result on error so UI still renders

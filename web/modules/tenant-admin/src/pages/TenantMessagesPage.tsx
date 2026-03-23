@@ -3,6 +3,8 @@
  *
  * Messaging interface for TenantAdmin to communicate with SuperAdmin.
  * Thread-based conversations with read receipts.
+ *
+ * Data layer: GraphQL via graphqlRequest (messaging resolver).
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -20,25 +22,78 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { messagingApi, type MessageThread, type Message } from '../services/tenantApi';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { graphqlRequest } from '../services/tenant-api.service';
+import {
+  MY_THREADS_QUERY,
+  THREAD_MESSAGES_QUERY,
+  MESSAGING_STATS_QUERY,
+  CREATE_THREAD_MUTATION,
+  SEND_MESSAGE_MUTATION,
+  CLOSE_THREAD_MUTATION,
+  REOPEN_THREAD_MUTATION,
+} from '../graphql';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
-// Types
+// Types (aligned with backend GraphQL DTOs)
 // ============================================================================
 
-// Types are imported from tenantApi
+type ThreadStatus = 'open' | 'closed' | 'archived';
+type SenderType = 'super_admin' | 'tenant_admin' | 'system';
+type MessageStatus = 'sent' | 'delivered' | 'read';
+
+interface ThreadListItem {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  subject: string;
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+  unreadCount: number;
+  messageCount: number;
+  status: ThreadStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface MessageItem {
+  id: string;
+  threadId: string;
+  senderId: string;
+  senderType: SenderType;
+  senderName: string;
+  content: string;
+  status: MessageStatus;
+  isInternal: boolean;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    url: string;
+    size: number;
+    mimeType: string;
+  }> | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+interface MessagingStats {
+  totalThreads: number;
+  activeThreads: number;
+  closedThreads: number;
+  totalMessages: number;
+  unreadMessages: number;
+  avgResponseTimeMinutes: number;
+}
 
 // ============================================================================
 // Component
 // ============================================================================
 
 const TenantMessagesPage: React.FC = () => {
-  const { user } = useAuthContext();
-  const [threads, setThreads] = useState<MessageThread[]>([]);
-  const [selectedThread, setSelectedThread] = useState<MessageThread | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [threads, setThreads] = useState<ThreadListItem[]>([]);
+  const [selectedThread, setSelectedThread] = useState<ThreadListItem | null>(null);
+  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [stats, setStats] = useState<MessagingStats | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all');
   const [newMessage, setNewMessage] = useState('');
@@ -49,13 +104,25 @@ const TenantMessagesPage: React.FC = () => {
   const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch threads from backend
+  // Fetch threads and stats from GraphQL
   const fetchThreads = async () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await messagingApi.getThreads();
-      setThreads(result.data || []);
+
+      const statusVar = statusFilter !== 'all' ? statusFilter : undefined;
+      const searchVar = searchQuery.trim() || undefined;
+
+      const [threadsResult, statsResult] = await Promise.all([
+        graphqlRequest<{ myThreads: ThreadListItem[] }>(MY_THREADS_QUERY, {
+          status: statusVar,
+          search: searchVar,
+        }),
+        graphqlRequest<{ messagingStats: MessagingStats }>(MESSAGING_STATS_QUERY),
+      ]);
+
+      setThreads(threadsResult.myThreads || []);
+      setStats(statsResult.messagingStats);
     } catch (err) {
       logError('TenantMessagesPage.fetchThreads', err);
       setError(err instanceof Error ? err.message : 'Failed to load messages');
@@ -65,17 +132,14 @@ const TenantMessagesPage: React.FC = () => {
   };
 
   // Fetch messages for selected thread
-  // PERF-008: Fetch messages and mark-as-read in parallel, then refresh threads
   const fetchMessages = async (threadId: string) => {
     try {
       setMessagesLoading(true);
-      const [msgs] = await Promise.all([
-        messagingApi.getThreadMessages(threadId),
-        messagingApi.markAsRead(threadId).catch(() => null),
-      ]);
-      setMessages(msgs || []);
-      // Refresh threads to update unread count (fire-and-forget)
-      fetchThreads();
+      const result = await graphqlRequest<{ threadMessages: MessageItem[] }>(
+        THREAD_MESSAGES_QUERY,
+        { threadId },
+      );
+      setMessages(result.threadMessages || []);
     } catch (err) {
       logError('TenantMessagesPage.fetchMessages', err);
     } finally {
@@ -85,6 +149,7 @@ const TenantMessagesPage: React.FC = () => {
 
   useEffect(() => {
     fetchThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -102,8 +167,8 @@ const TenantMessagesPage: React.FC = () => {
     if (searchQuery && !thread.subject.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
     }
-    if (statusFilter === 'open' && thread.isClosed) return false;
-    if (statusFilter === 'closed' && !thread.isClosed) return false;
+    if (statusFilter === 'open' && thread.status !== 'open') return false;
+    if (statusFilter === 'closed' && thread.status !== 'closed') return false;
     return true;
   });
 
@@ -112,25 +177,57 @@ const TenantMessagesPage: React.FC = () => {
 
     setSendError(null);
     try {
-      const userName = user?.firstName && user?.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user?.email || 'You';
-
-      await messagingApi.sendMessage(selectedThread.id, newMessage, userName);
+      await graphqlRequest<{ sendMessage: MessageItem }>(SEND_MESSAGE_MUTATION, {
+        input: {
+          threadId: selectedThread.id,
+          content: newMessage.trim(),
+          isInternal: false,
+        },
+      });
       setNewMessage('');
 
-      // Refresh messages and threads in parallel (PERF-008)
+      // Refresh messages and threads in parallel
       await Promise.all([
         fetchMessages(selectedThread.id),
         fetchThreads(),
       ]);
     } catch (err) {
-      // BUG-014: Use inline error state instead of alert()
       setSendError(err instanceof Error ? err.message : 'Failed to send message. Please try again.');
     }
   };
 
-  const formatTime = (dateString: string) => {
+  const handleCloseThread = async (threadId: string) => {
+    try {
+      await graphqlRequest<{ closeThread: { id: string; status: string } }>(
+        CLOSE_THREAD_MUTATION,
+        { threadId },
+      );
+      await fetchThreads();
+      if (selectedThread?.id === threadId) {
+        setSelectedThread(prev => prev ? { ...prev, status: 'closed' as ThreadStatus } : null);
+      }
+    } catch (err) {
+      logError('TenantMessagesPage.closeThread', err);
+    }
+  };
+
+  const handleReopenThread = async (threadId: string) => {
+    try {
+      await graphqlRequest<{ reopenThread: { id: string; status: string } }>(
+        REOPEN_THREAD_MUTATION,
+        { threadId },
+      );
+      await fetchThreads();
+      if (selectedThread?.id === threadId) {
+        setSelectedThread(prev => prev ? { ...prev, status: 'open' as ThreadStatus } : null);
+      }
+    } catch (err) {
+      logError('TenantMessagesPage.reopenThread', err);
+    }
+  };
+
+  const formatTime = (dateString: string | null) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
@@ -174,24 +271,26 @@ const TenantMessagesPage: React.FC = () => {
         <div className="grid grid-cols-4 gap-4 mt-4">
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-sm text-gray-500">Total Threads</div>
-            <div className="text-xl font-semibold text-gray-900">{threads.length}</div>
+            <div className="text-xl font-semibold text-gray-900">
+              {stats?.totalThreads ?? threads.length}
+            </div>
           </div>
           <div className="bg-tenant-50 rounded-lg p-3">
             <div className="text-sm text-tenant-600">Active</div>
             <div className="text-xl font-semibold text-tenant-700">
-              {threads.filter((t) => !t.isClosed).length}
+              {stats?.activeThreads ?? threads.filter((t) => t.status === 'open').length}
             </div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-sm text-gray-500">Closed</div>
             <div className="text-xl font-semibold text-gray-900">
-              {threads.filter((t) => t.isClosed).length}
+              {stats?.closedThreads ?? threads.filter((t) => t.status === 'closed').length}
             </div>
           </div>
           <div className="bg-red-50 rounded-lg p-3">
             <div className="text-sm text-red-600">Unread</div>
             <div className="text-xl font-semibold text-red-700">
-              {threads.reduce((sum, t) => sum + t.unreadCount, 0)}
+              {stats?.unreadMessages ?? threads.reduce((sum, t) => sum + t.unreadCount, 0)}
             </div>
           </div>
         </div>
@@ -284,7 +383,7 @@ const TenantMessagesPage: React.FC = () => {
                     </div>
                   </div>
                     <div className="flex flex-col items-end ml-2">
-                      {thread.isClosed && (
+                      {thread.status === 'closed' && (
                         <span className="text-xs text-gray-500 px-1.5 py-0.5 bg-gray-100 rounded">
                           Closed
                         </span>
@@ -307,7 +406,7 @@ const TenantMessagesPage: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <h2 className="text-lg font-semibold text-gray-900">{selectedThread.subject}</h2>
-                      {selectedThread.isClosed && (
+                      {selectedThread.status === 'closed' && (
                         <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
                           Closed
                         </span>
@@ -315,9 +414,26 @@ const TenantMessagesPage: React.FC = () => {
                     </div>
                     <p className="text-sm text-gray-500">{selectedThread.messageCount} messages</p>
                   </div>
-                  <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
-                    <MoreVertical size={18} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {selectedThread.status === 'open' ? (
+                      <button
+                        onClick={() => handleCloseThread(selectedThread.id)}
+                        className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Close Thread
+                      </button>
+                    ) : selectedThread.status === 'closed' ? (
+                      <button
+                        onClick={() => handleReopenThread(selectedThread.id)}
+                        className="px-3 py-1.5 text-sm text-tenant-600 border border-tenant-300 rounded-lg hover:bg-tenant-50"
+                      >
+                        Reopen
+                      </button>
+                    ) : null}
+                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                      <MoreVertical size={18} />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -382,7 +498,7 @@ const TenantMessagesPage: React.FC = () => {
               </div>
 
               {/* Message Input */}
-              {!selectedThread.isClosed && (
+              {selectedThread.status === 'open' && (
                 <div className="bg-white border-t border-gray-200 p-4">
                   <div className="flex items-end gap-3">
                     <div className="flex-1">
@@ -425,7 +541,7 @@ const TenantMessagesPage: React.FC = () => {
               )}
 
               {/* Closed Thread Notice */}
-              {selectedThread.isClosed && (
+              {selectedThread.status === 'closed' && (
                 <div className="bg-gray-100 border-t border-gray-200 px-6 py-4 text-center">
                   <p className="text-sm text-gray-500">
                     This conversation is closed. Start a new conversation if you need further assistance.
@@ -447,21 +563,22 @@ const TenantMessagesPage: React.FC = () => {
 
       {/* New Thread Modal */}
       {showNewThreadModal && (
-        <NewThreadModal 
+        <NewThreadModal
           onClose={() => setShowNewThreadModal(false)}
           onSubmit={async (subject, content) => {
             try {
-              const userName = user?.firstName && user?.lastName 
-                ? `${user.firstName} ${user.lastName}` 
-                : user?.email || 'User';
-              
-              await messagingApi.createThread(subject, content, userName);
+              await graphqlRequest<{ createThread: { id: string } }>(
+                CREATE_THREAD_MUTATION,
+                {
+                  input: {
+                    subject,
+                    initialMessage: content,
+                  },
+                },
+              );
               setShowNewThreadModal(false);
-
-              // Refresh threads
               await fetchThreads();
             } catch (err) {
-              // Re-throw so NewThreadModal can show inline error
               throw err;
             }
           }}
@@ -492,7 +609,6 @@ const NewThreadModal: React.FC<{
       setSubmitting(true);
       await onSubmit(subject, message);
     } catch (err) {
-      // BUG-014: Show inline error instead of alert()
       setSubmitError(err instanceof Error ? err.message : 'Failed to create conversation. Please try again.');
     } finally {
       setSubmitting(false);

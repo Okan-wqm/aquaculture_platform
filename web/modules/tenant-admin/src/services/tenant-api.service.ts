@@ -41,7 +41,7 @@ export interface Tenant {
   contactPhone?: string;
   address?: string;
   status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
-  plan: 'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE';
+  plan: 'trial' | 'starter' | 'professional' | 'enterprise';
   maxUsers: number;
   settings?: Record<string, unknown>;
   createdAt: string;

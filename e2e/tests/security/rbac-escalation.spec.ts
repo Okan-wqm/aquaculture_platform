@@ -2,7 +2,7 @@
  * RBAC Escalation Prevention Tests
  *
  * Verifies that role-based access control cannot be bypassed:
- * - MODULE_USER cannot call admin-only mutations (createTenantUser, updateTenantSettings)
+ * - MODULE_USER cannot call admin-only mutations (createTenantUser, updateTenant)
  * - MODULE_USER cannot access other users' settings
  * - TENANT_ADMIN cannot call SUPER_ADMIN-only operations (suspendTenant)
  */
@@ -38,8 +38,8 @@ interface SuspendTenantResponse {
   } | null;
 }
 
-interface UpdateTenantSettingsResponse {
-  updateTenantSettings: {
+interface UpdateTenantResponse {
+  updateTenant: {
     id: string;
     name: string;
   } | null;
@@ -188,21 +188,22 @@ test.describe('RBAC Escalation Prevention', () => {
     }
   });
 
-  test('MODULE_USER cannot call updateTenantSettings', async () => {
+  test('MODULE_USER cannot call updateTenant', async () => {
     const moduleUserToken = generateModuleUserToken({
       tenantId: TENANT_ID,
       email: 'user@tenant.com',
     });
 
-    // Attempt to update tenant settings — @TenantAdminOrHigher() operation
-    const response = await client.mutate<UpdateTenantSettingsResponse>(
-      `mutation UpdateSettings($input: UpdateTenantInput!) {
-        updateTenantSettings(input: $input) {
+    // Attempt to update tenant — @TenantAdminOrHigher() operation
+    const response = await client.mutate<UpdateTenantResponse>(
+      `mutation UpdateTenant($id: ID!, $input: UpdateTenantInput!) {
+        updateTenant(id: $id, input: $input) {
           id
           name
         }
       }`,
       {
+        id: TENANT_ID,
         input: {
           name: 'Hacked Tenant Name',
         },
@@ -213,12 +214,12 @@ test.describe('RBAC Escalation Prevention', () => {
       },
     );
 
-    // Must be rejected — updateTenantSettings requires TENANT_ADMIN or higher
+    // Must be rejected — updateTenant requires TENANT_ADMIN or higher
     expectForbiddenOrDenied(response.body.errors, response.status);
 
     // Data must not be returned
     if (response.body.data) {
-      expect(response.body.data.updateTenantSettings).toBeNull();
+      expect(response.body.data.updateTenant).toBeNull();
     }
   });
 });

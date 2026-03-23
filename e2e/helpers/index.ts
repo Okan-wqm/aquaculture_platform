@@ -12,13 +12,21 @@ export {
   generateTokenWithWrongSecret,
   decodeTestToken,
   verifyTestToken,
+  generateModuleUserToken,
+  generateTenantAdminToken,
+  decodeJwt,
+  extractResourcePermissions,
+  createExpiredJwt,
 } from './jwt.helper';
-export type { TestRole, TestTokenOptions, TestJwtPayload } from './jwt.helper';
+export type { TestRole, TestTokenOptions, TestJwtPayload, RoleTokenOptions } from './jwt.helper';
 
 export {
   GraphQLTestClient,
   UnauthenticatedGraphQLTestClient,
   GraphQLTestError,
+  graphqlRequest,
+  graphqlQuery,
+  graphqlMutation,
 } from './graphql-client';
 export type {
   GraphQLError,
@@ -31,3 +39,11 @@ export type { RestResponse, RestRequestOptions } from './rest-client';
 
 export { TestDatabase } from './db.helper';
 export type { UserRow, TenantRow } from './db.helper';
+
+export {
+  generateTenantFixture,
+  loginAsSuperAdmin,
+  loginAs,
+  createTestTenant,
+} from './tenant.fixture';
+export type { TestTenantFixture } from './tenant.fixture';

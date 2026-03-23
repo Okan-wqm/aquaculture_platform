@@ -236,12 +236,6 @@ export async function updateTenant(
   return data.updateTenant;
 }
 
-/**
- * @deprecated Use updateTenant(id, input) instead.
- * Kept for backward compatibility — callers must migrate to pass tenant ID.
- */
-export const updateTenantSettings = updateTenant;
-
 export async function getTableSchema(
   schemaName: string,
   tableName: string,

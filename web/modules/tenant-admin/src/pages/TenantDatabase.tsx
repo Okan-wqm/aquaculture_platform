@@ -29,7 +29,7 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
-import { getModuleCodeForTable } from '../lib/constants';
+
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts

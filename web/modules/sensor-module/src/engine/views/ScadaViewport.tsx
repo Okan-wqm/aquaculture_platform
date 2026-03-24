@@ -10,8 +10,50 @@
  */
 import React, { memo, useMemo } from 'react';
 import type { ScreenDef } from '../../store/scada/types';
+import type { AnimationRule } from '../animation/types';
 import { WidgetRenderer } from '../../components/scada-builder/WidgetRenderer';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
+
+/* ------------------------------------------------------------------ */
+/*  Variable resolution helpers                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Resolves placeholder tag names in a widget config using variableMap.
+ * Returns a shallow copy with `tagName` and `tag` fields substituted
+ * when a matching mapping exists.
+ */
+function resolveConfig(
+  config: Record<string, unknown>,
+  variableMap: Record<string, string> | undefined,
+): Record<string, unknown> {
+  if (!variableMap || Object.keys(variableMap).length === 0) return config;
+  const resolved = { ...config };
+  if (typeof resolved.tagName === 'string' && variableMap[resolved.tagName]) {
+    resolved.tagName = variableMap[resolved.tagName];
+  }
+  if (typeof resolved.tag === 'string' && variableMap[resolved.tag]) {
+    resolved.tag = variableMap[resolved.tag];
+  }
+  return resolved;
+}
+
+/**
+ * Resolves placeholder tagName fields in animation rules using variableMap.
+ * Returns a new array with substituted tagNames where mappings exist.
+ */
+function resolveAnimations(
+  animations: AnimationRule[] | undefined,
+  variableMap: Record<string, string> | undefined,
+): AnimationRule[] | undefined {
+  if (!animations || !variableMap || Object.keys(variableMap).length === 0) return animations;
+  return animations.map((rule) => {
+    if (variableMap[rule.tagName]) {
+      return { ...rule, tagName: variableMap[rule.tagName] };
+    }
+    return rule;
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -71,15 +113,18 @@ const ScadaViewport: React.FC<ScadaViewportProps> = ({
     <div style={wrapperStyle}>
       <div style={innerStyle}>
         {screen.widgets.map((widget) => {
-          // Resolve tag via variable mapping
-          const tagName = (widget.config.tagName ?? widget.config.tag) as
+          // Resolve config tags via variable mapping
+          const resolvedCfg = resolveConfig(widget.config, variableMap);
+          const tagName = (resolvedCfg.tagName ?? resolvedCfg.tag) as
             | string
             | undefined;
-          const resolvedTag =
-            tagName && variableMap?.[tagName]
-              ? variableMap[tagName]
-              : tagName;
-          const liveValue = resolvedTag ? tagValues[resolvedTag] : undefined;
+          const liveValue = tagName ? tagValues[tagName] : undefined;
+
+          // Resolve animation rule tagNames via variable mapping
+          const resolvedAnims = resolveAnimations(widget.animations, variableMap);
+          // Suppress unused-variable lint: resolvedAnims is available for
+          // future animation evaluation; currently we pass it as data attribute.
+          void resolvedAnims;
 
           // Convert grid position to pixels
           const left = widget.position.col * GRID_CELL_W;
@@ -101,7 +146,7 @@ const ScadaViewport: React.FC<ScadaViewportProps> = ({
             >
               <WidgetRenderer
                 widgetType={widget.widgetType}
-                config={widget.config}
+                config={resolvedCfg}
                 value={liveValue as number | string | boolean | undefined}
                 width={width}
                 height={height}

@@ -6,6 +6,7 @@ interface ViewManagerActions {
     screenId: string;
     position?: { x: number; y: number };
     size?: { width: number; height: number };
+    variableMap?: Record<string, string>;
   }) => void;
 }
 
@@ -18,12 +19,14 @@ export function createOverlayHandler(viewManager: ViewManagerActions): EventHand
         screenId: event.params.targetScreenId,
         position: event.mousePosition ?? { x: 300, y: 200 },
         size: { width: event.params.width ?? 400, height: event.params.height ?? 300 },
+        variableMap: event.params.variableMap,
       });
     } else if (event.action === 'openDialog') {
       viewManager.openOverlay({
         type: 'dialog',
         screenId: event.params.targetScreenId,
         size: { width: event.params.width ?? 600, height: event.params.height ?? 450 },
+        variableMap: event.params.variableMap,
       });
     }
   };

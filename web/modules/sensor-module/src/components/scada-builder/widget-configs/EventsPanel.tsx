@@ -155,6 +155,68 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange }) =>
             </div>
           )}
 
+          {/* Variable Mapping for overlay actions */}
+          {(ev.action === 'openCard' || ev.action === 'openDialog') && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] text-gray-500">Variable Mapping</label>
+                <button
+                  onClick={() => {
+                    const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
+                    const map: Record<string, string> = { ...existing };
+                    map[`placeholder_${Object.keys(map).length + 1}`] = '';
+                    updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
+                  }}
+                  className="text-[10px] text-cyan-600 hover:text-cyan-700"
+                >
+                  + Add
+                </button>
+              </div>
+              {Object.entries(((ev.params.variableMap ?? {}) as Record<string, string>)).map(([placeholder, realTag]) => (
+                <div key={placeholder} className="flex items-center gap-1 mb-1">
+                  <input
+                    type="text"
+                    value={placeholder}
+                    onChange={(e) => {
+                      const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
+                      const map: Record<string, string> = { ...existing };
+                      const val = map[placeholder];
+                      delete map[placeholder];
+                      map[e.target.value] = val ?? '';
+                      updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
+                    }}
+                    placeholder="placeholder_tag"
+                    className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                  />
+                  <span className="text-[10px] text-gray-400">{'\u2192'}</span>
+                  <input
+                    type="text"
+                    value={realTag}
+                    onChange={(e) => {
+                      const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
+                      const map: Record<string, string> = { ...existing };
+                      map[placeholder] = e.target.value;
+                      updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
+                    }}
+                    placeholder="real_tag"
+                    className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                  />
+                  <button
+                    onClick={() => {
+                      const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
+                      const map: Record<string, string> = { ...existing };
+                      delete map[placeholder];
+                      updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
+                    }}
+                    className="text-red-400 hover:text-red-600 text-xs px-1"
+                  >
+                    {'\u00d7'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {ev.action === 'setValue' && (
             <>
               <div>

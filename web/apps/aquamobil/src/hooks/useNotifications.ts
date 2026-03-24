@@ -21,10 +21,13 @@ export function useNotifications() {
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  // BUG-09: Track error state so the UI can show an error message
+  const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const result = await graphqlRequest<{ myNotifications: InAppNotification[] }>(
         GET_MY_NOTIFICATIONS,
@@ -33,8 +36,10 @@ export function useNotifications() {
       if (result?.myNotifications) {
         setNotifications(result.myNotifications);
       }
-    } catch {
-      // silently fail
+    } catch (err) {
+      // BUG-09: Capture error state so UI can render an error message
+      const message = err instanceof Error ? err.message : 'Failed to load notifications';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -113,5 +118,5 @@ export function useNotifications() {
     };
   }, [isAuthenticated, refetch]);
 
-  return { notifications, unreadCount, loading, markAsRead, markAllAsRead, refetch };
+  return { notifications, unreadCount, loading, error, markAsRead, markAllAsRead, refetch };
 }

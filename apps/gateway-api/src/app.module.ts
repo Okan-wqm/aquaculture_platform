@@ -343,8 +343,15 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'config',
                 url: configService.get('CONFIG_SERVICE_URL', 'http://localhost:3007/graphql'),
               },
-              // NOTE: notification-service removed — it is event-driven only (no GraphQL endpoint).
-              // Including it causes federation composition to fail at startup.
+              // BUG-4 FIX: notification-service exposes a federation-compatible GraphQL
+              // endpoint (myNotifications, unreadNotificationCount, markNotificationAsRead,
+              // markAllNotificationsAsRead, registerDeviceToken).  It was previously
+              // excluded with an incorrect comment.  The service uses ApolloFederationDriver
+              // and must be included for mobile notification queries to resolve.
+              {
+                name: 'notification',
+                url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:4008/graphql'),
+              },
             ],
             pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
           }),

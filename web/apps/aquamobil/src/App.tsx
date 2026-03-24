@@ -59,6 +59,10 @@ const NotificationsPage = lazy(() =>
 const RecordTransferPage = lazy(() =>
   import('./pages/transfer/RecordTransferPage').then((m) => ({ default: m.RecordTransferPage }))
 );
+// BUG-06: Tank detail page — navigated to from TankCard
+const TankDetailPage2 = lazy(() =>
+  import('./pages/tank/TankDetailPage').then((m) => ({ default: m.TankDetailPage }))
+);
 
 function PageLoader() {
   return (
@@ -122,6 +126,7 @@ export function App() {
                   <Suspense fallback={<PageLoader />}>
                     <Routes>
                       <Route path="/" element={<HomePage />} />
+                      <Route path="/tank/:tankId" element={<TankDetailPage2 />} />
                       <Route path="/record" element={<RecordHubPage />} />
                       <Route
                         path="/tasks"

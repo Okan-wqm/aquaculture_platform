@@ -35,12 +35,15 @@ export function TankCard({ tank }: TankCardProps) {
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden border border-gray-100 dark:border-gray-800">
-      {/* Header */}
-      <div className="px-4 py-3 flex items-center justify-between">
+      {/* BUG-06: Header — clickable to navigate to tank detail */}
+      <button
+        onClick={() => navigate(`/tank/${tank.id}`)}
+        className="w-full px-4 py-3 flex items-center justify-between text-left touch-feedback hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+      >
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
             <h3 className="font-semibold text-gray-900 dark:text-white text-[15px]">{tank.name}</h3>
-            <p className="text-xs text-gray-400 font-medium">{tank.code} &middot; {tank.volume}m&sup3;</p>
+            <p className="text-xs text-gray-400 font-medium">{tank.code} &middot; {tank.volume > 0 ? `${tank.volume}m\u00B3` : 'Not configured'}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -53,8 +56,11 @@ export function TankCard({ tank }: TankCardProps) {
             <span className={clsx('w-2 h-2 rounded-full', status.dot)} />
             {status.label}
           </span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
         </div>
-      </div>
+      </button>
 
       {/* Stats */}
       {hasBatch ? (
@@ -85,17 +91,21 @@ export function TankCard({ tank }: TankCardProps) {
               <div className="text-lg font-bold text-gray-900 dark:text-white">
                 {tank.currentBiomass > 0 ? `${tank.currentBiomass.toFixed(0)}kg` : '--'}
               </div>
-              <div className="text-[11px] text-gray-400 font-medium">Biomass</div>
+              <div className="text-[11px] text-gray-400 font-medium">
+                {tank.currentBiomass > 0 ? 'Biomass' : 'Not configured'}
+              </div>
             </div>
             <div className="px-4 py-3 text-center border-l border-gray-50 dark:border-gray-800">
               <div className="text-lg font-bold text-gray-900 dark:text-white">
                 {tank.maxBiomass > 0 ? `${formatNumber(tank.maxBiomass)}kg` : '--'}
               </div>
-              <div className="text-[11px] text-gray-400 font-medium">Max Capacity</div>
+              <div className="text-[11px] text-gray-400 font-medium">
+                {tank.maxBiomass > 0 ? 'Max Capacity' : 'Not configured'}
+              </div>
             </div>
           </div>
           {tank.status === 'ACTIVE' && (
-            <p className="text-xs text-gray-300 text-center pb-3">No batch assigned</p>
+            <p className="text-xs text-gray-300 text-center pb-3">No active batch</p>
           )}
         </div>
       )}

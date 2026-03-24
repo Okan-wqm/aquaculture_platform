@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Bell, CheckCheck } from 'lucide-react';
+import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
 import { useNotifications } from '@/hooks/useNotifications';
 import { clsx } from 'clsx';
 
@@ -20,7 +20,7 @@ function formatTimeAgo(dateStr: string): string {
 
 export function NotificationsPage() {
   const navigate = useNavigate();
-  const { notifications, loading, markAsRead, markAllAsRead, unreadCount } = useNotifications();
+  const { notifications, loading, error, markAsRead, markAllAsRead, unreadCount, refetch } = useNotifications();
 
   const handleNotificationPress = async (notification: typeof notifications[0]) => {
     if (!notification.isRead) {
@@ -75,10 +75,26 @@ export function NotificationsPage() {
               <div key={i} className="h-20 rounded-2xl skeleton" />
             ))}
           </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <AlertCircle size={48} className="mx-auto mb-3 text-amber-400 opacity-60" />
+            <p className="font-medium text-gray-600 dark:text-gray-300">
+              Notifications are not available yet
+            </p>
+            <p className="text-sm text-gray-400 mt-1">Please try again later</p>
+            <button
+              onClick={() => refetch()}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-ocean-500 text-white rounded-xl text-sm font-semibold touch-feedback"
+            >
+              <RefreshCw size={16} />
+              Retry
+            </button>
+          </div>
         ) : notifications.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
             <Bell size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No notifications</p>
+            <p className="font-medium">No notifications yet</p>
+            <p className="text-sm mt-1">You will see alerts and updates here</p>
           </div>
         ) : (
           notifications.map((notification) => (

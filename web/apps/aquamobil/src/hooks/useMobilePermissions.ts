@@ -52,6 +52,27 @@ const DEFAULT_SETTINGS: MobileSettings = {
   },
 };
 
+// BUG-2/3 FIX: Graceful degradation defaults.  When the backend returns an
+// error (e.g. the row couldn't be created because of the BUG-1 user_id issue),
+// we fall back to a usable set of core features so the mobile app remains
+// functional instead of showing a completely blank screen.
+const FALLBACK_SETTINGS: MobileSettings = {
+  isMobileEnabled: true,
+  allowedFeatures: {
+    mortality: true,
+    cull: true,
+    harvest: true,
+    feeding: true,
+    waterQuality: false,
+    tankView: true,
+    schedule: false,
+    attendance: false,
+    leave: false,
+    tasks: false,
+    transfer: true,
+  },
+};
+
 const GET_MY_MOBILE_SETTINGS_QUERY = `
   query GetMyMobileSettings {
     getMyMobileSettings {
@@ -109,13 +130,35 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
         };
         setSettings(newSettings);
         // SEC-04: Cache under per-user key with 8-hour TTL (one work shift)
-        await set(cacheKey, { settings: newSettings, expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
+        try {
+          await set(cacheKey, { settings: newSettings, expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
+        } catch {
+          // Cache write failed — settings are still applied in memory via setSettings above.
+        }
+      } else if (result.errors) {
+        // BUG-2/3 FIX: Backend returned a GraphQL error (e.g. user_id null
+        // constraint violation). Try cache first, otherwise apply graceful
+        // degradation fallback so the app remains usable.
+        const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+          setSettings(cached.settings);
+        } else {
+          setSettings(FALLBACK_SETTINGS);
+        }
       }
     } catch {
-      // On network error, try to load from per-user cache
-      const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        setSettings(cached.settings);
+      // On network error, try to load from per-user cache, then fallback
+      try {
+        const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
+        if (cached) {
+          setSettings(cached.settings);
+        } else {
+          // BUG-2/3 FIX: No cache available — use fallback so core features work
+          setSettings(FALLBACK_SETTINGS);
+        }
+      } catch {
+        // IndexedDB read also failed — use fallback
+        setSettings(FALLBACK_SETTINGS);
       }
     } finally {
       setIsLoaded(true);
@@ -143,11 +186,16 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
     const cacheKey = getCacheKey(user.id);
 
     (async () => {
-      // Load cached first for instant UI (per-user key)
-      const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        setSettings(cached.settings);
-        setIsLoaded(true);
+      // BUG-07: Load cached first for instant UI (per-user key).
+      // Accept stale cache too — show something immediately while fresh data loads.
+      try {
+        const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
+        if (cached) {
+          setSettings(cached.settings);
+          setIsLoaded(true);
+        }
+      } catch {
+        // IndexedDB read failed — continue to fetch from server
       }
       // Then fetch fresh from server
       await fetchSettingsRef.current();

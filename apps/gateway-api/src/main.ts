@@ -171,6 +171,19 @@ async function bootstrap(): Promise<void> {
     ],
   });
 
+  // BUG-05: HEAD /graphql returns 200 for mobile connectivity probes.
+  // AquaMobil's useNetworkStatus sends HEAD /graphql to detect server
+  // reachability. Without this, NestJS returns 503 because the GraphQL
+  // module only handles POST. This middleware intercepts HEAD before
+  // the GraphQL handler runs.
+  app.use('/graphql', (req: any, res: any, next: any) => {
+    if (req.method === 'HEAD') {
+      res.status(200).end();
+      return;
+    }
+    next();
+  });
+
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 

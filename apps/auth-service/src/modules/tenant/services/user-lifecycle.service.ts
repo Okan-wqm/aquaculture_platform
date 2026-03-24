@@ -17,8 +17,9 @@ import { UserInvitedEvent } from '@platform/event-contracts';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
-import { User } from '../../authentication/entities/user.entity';
+import { User, AccessType } from '../../authentication/entities/user.entity';
 import { Tenant } from '../entities/tenant.entity';
+import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 
 /**
@@ -77,6 +78,8 @@ export class UserLifecycleService {
     private readonly tenantRepository: Repository<Tenant>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(MobileUserSettings)
+    private readonly mobileSettingsRepository: Repository<MobileUserSettings>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
@@ -104,6 +107,7 @@ export class UserLifecycleService {
       email: string;
       password?: string;
       roleId: string;
+      accessType?: AccessType;
       permissionOverrides?: {
         grants: string[];
         revokes: string[];
@@ -148,12 +152,14 @@ export class UserLifecycleService {
       : null;
 
     // Create user in auth.users table
+    const userAccessType = input.accessType ?? AccessType.BOTH;
     const newUser = this.userRepository.create({
       email: input.email.toLowerCase(),
       firstName: input.firstName,
       lastName: input.lastName,
       password: input.password || undefined,
       role: Role.MODULE_USER, // Default global role; tenant role is separate
+      accessType: userAccessType,
       tenantId,
       isActive: true,
       isEmailVerified: false,
@@ -164,6 +170,23 @@ export class UserLifecycleService {
 
     const savedUser = await this.userRepository.save(newUser);
     this.logger.log(`Created user ${savedUser.email} (${savedUser.id}) for tenant ${tenantId}`);
+
+    // Auto-provision mobile_user_settings when user has mobile access
+    if (userAccessType === AccessType.MOBILE_ONLY || userAccessType === AccessType.BOTH) {
+      try {
+        const mobileSettings = this.mobileSettingsRepository.create({
+          userId: savedUser.id,
+          tenantId,
+          allowedFeatures: { ...DEFAULT_MOBILE_FEATURES },
+          isMobileEnabled: true,
+        });
+        await this.mobileSettingsRepository.save(mobileSettings);
+        this.logger.debug(`Auto-provisioned mobile settings for user ${savedUser.id}`);
+      } catch (mobileErr) {
+        // Non-fatal: mobile settings can be created on-demand when user first opens the app
+        this.logger.warn(`Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`);
+      }
+    }
 
     // Create role assignment in tenant schema
     const roleAssignment = await this.createRoleAssignment(

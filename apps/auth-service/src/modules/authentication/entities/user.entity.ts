@@ -19,6 +19,21 @@ registerEnumType(Role, {
 });
 
 /**
+ * AccessType — controls whether the user can access web panel, mobile PWA, or both.
+ * Used during user creation to auto-provision mobile settings when applicable.
+ */
+export enum AccessType {
+  PANEL_ONLY = 'PANEL_ONLY',
+  MOBILE_ONLY = 'MOBILE_ONLY',
+  BOTH = 'BOTH',
+}
+
+registerEnumType(AccessType, {
+  name: 'AccessType',
+  description: 'Controls which platforms the user can access',
+});
+
+/**
  * User Entity
  *
  * Represents a user in the system with role-based access control.
@@ -69,6 +84,18 @@ export class User {
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
+
+  /**
+   * Access type — which platforms this user can access.
+   * When MOBILE_ONLY or BOTH, mobile_user_settings are auto-provisioned on creation.
+   */
+  @Field(() => AccessType)
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: AccessType.BOTH,
+  })
+  accessType!: AccessType;
 
   @Field()
   @Column({ type: 'boolean', default: true })

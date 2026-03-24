@@ -21,12 +21,16 @@ export class MobileSettingsResolver {
 
   /**
    * Get current user's own mobile settings (mobile app use)
+   *
+   * BUG-1 FIX: JWT payload uses `sub` for user ID, not `id`.
+   * Using `currentUser.id` resolved to undefined, causing
+   * "null value in column user_id" on auto-created settings rows.
    */
   @Query(() => MobileUserSettings, { name: 'getMyMobileSettings' })
   async getMyMobileSettings(
-    @CurrentUser() currentUser: { id: string; tenantId: string },
+    @CurrentUser() currentUser: { sub: string; tenantId: string },
   ): Promise<MobileUserSettings> {
-    return this.mobileSettingsService.getByUserId(currentUser.id, currentUser.tenantId);
+    return this.mobileSettingsService.getByUserId(currentUser.sub, currentUser.tenantId);
   }
 
   /**

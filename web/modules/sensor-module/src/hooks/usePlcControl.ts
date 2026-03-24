@@ -416,11 +416,11 @@ export function usePlcConnections(
   return useQuery({
     queryKey: ['plcConnections', filter, pagination],
     queryFn: async () => {
-      const data = await graphqlFetch<{ plcConnections: PlcConnection[] }>(
+      const data = await graphqlFetch<{ plcConnections: { items: PlcConnection[] } }>(
         PLC_CONNECTIONS_QUERY,
         { filter, pagination },
       );
-      return data.plcConnections;
+      return data.plcConnections.items;
     },
     staleTime: 15000,
   });
@@ -594,11 +594,11 @@ export function useFeedingParameters(
   return useQuery({
     queryKey: ['feedingParameters', filter, pagination],
     queryFn: async () => {
-      const data = await graphqlFetch<{ feedingParameters: FeedingParameter[] }>(
+      const data = await graphqlFetch<{ feedingParameters: { items: FeedingParameter[] } }>(
         FEEDING_PARAMETERS_QUERY,
         { filter, pagination },
       );
-      return data.feedingParameters;
+      return data.feedingParameters.items;
     },
     staleTime: 15000,
   });
@@ -746,11 +746,11 @@ export function usePlcAlarms(
   return useQuery({
     queryKey: ['plcAlarms', filter, pagination],
     queryFn: async () => {
-      const data = await graphqlFetch<{ plcAlarms: PlcAlarm[] }>(
+      const data = await graphqlFetch<{ plcAlarms: { items: PlcAlarm[] } }>(
         PLC_ALARMS_QUERY,
         { filter, pagination },
       );
-      return data.plcAlarms;
+      return data.plcAlarms.items;
     },
     staleTime: 10000,
     refetchInterval: 30000,

@@ -119,7 +119,8 @@ export const PLC_CONNECTION_QUERY = `
 export const PLC_CONNECTIONS_QUERY = `
   query PlcConnections($filter: PlcConnectionFilterInput, $pagination: PlcPaginationInput) {
     plcConnections(filter: $filter, pagination: $pagination) {
-      ${PLC_CONNECTION_WITH_TELEMETRY}
+      items { ${PLC_CONNECTION_WITH_TELEMETRY} }
+      total page limit totalPages hasNextPage hasPreviousPage
     }
   }
 `;
@@ -254,12 +255,15 @@ export const FEEDING_PARAMETER_QUERY = `
 export const FEEDING_PARAMETERS_QUERY = `
   query FeedingParameters($filter: FeedingParameterFilterInput, $pagination: PlcPaginationInput) {
     feedingParameters(filter: $filter, pagination: $pagination) {
-      ${FEEDING_PARAMETER_FIELDS}
-      connection {
-        id
-        name
-        status
+      items {
+        ${FEEDING_PARAMETER_FIELDS}
+        connection {
+          id
+          name
+          status
+        }
       }
+      total page limit totalPages hasNextPage hasPreviousPage
     }
   }
 `;
@@ -340,7 +344,8 @@ export const CLONE_FEEDING_PARAMETER_MUTATION = `
 export const PLC_ALARMS_QUERY = `
   query PlcAlarms($filter: PlcAlarmFilterInput, $pagination: PlcPaginationInput) {
     plcAlarms(filter: $filter, pagination: $pagination) {
-      ${PLC_ALARM_FIELDS}
+      items { ${PLC_ALARM_FIELDS} }
+      total page limit totalPages hasNextPage hasPreviousPage
     }
   }
 `;

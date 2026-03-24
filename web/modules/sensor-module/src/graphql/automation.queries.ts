@@ -11,20 +11,23 @@
 export const AUTOMATION_PROGRAMS_QUERY = `
   query AutomationPrograms($filter: ProgramFilterInput, $page: Int, $limit: Int) {
     automationPrograms(filter: $filter, page: $page, limit: $limit) {
-      id
-      programCode
-      programName
-      description
-      version
-      programType
-      status
-      stepCount
-      transitionCount
-      variableCount
-      createdAt
-      updatedAt
-      approvedAt
-      approvedBy
+      items {
+        id
+        programCode
+        programName
+        description
+        version
+        programType
+        status
+        stepCount
+        transitionCount
+        variableCount
+        createdAt
+        updatedAt
+        approvedAt
+        approvedBy
+      }
+      total page limit totalPages hasNextPage hasPreviousPage
     }
     automationProgramStats {
       total

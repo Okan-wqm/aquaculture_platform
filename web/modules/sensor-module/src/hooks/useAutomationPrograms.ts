@@ -30,11 +30,14 @@ interface ProgramWithVariables {
 const PROGRAMS_LIST_QUERY = `
   query AutomationProgramsForBinding($filter: ProgramFilterInput) {
     automationPrograms(filter: $filter, limit: 100) {
-      id
-      programCode
-      programName
-      status
-      variableCount
+      items {
+        id
+        programCode
+        programName
+        status
+        variableCount
+      }
+      total
     }
   }
 `;
@@ -62,12 +65,12 @@ export function useAutomationPrograms() {
   return useQuery({
     queryKey: ['automationProgramsForBinding'],
     queryFn: async () => {
-      const result = await graphqlFetch<{ automationPrograms: AutomationProgramSummary[] }>(
+      const result = await graphqlFetch<{ automationPrograms: { items: AutomationProgramSummary[] } }>(
         PROGRAMS_LIST_QUERY,
         { filter: {} },
       );
       return {
-        automationPrograms: result.automationPrograms,
+        automationPrograms: result.automationPrograms.items,
       };
     },
     staleTime: 30_000,

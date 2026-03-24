@@ -1,0 +1,51 @@
+import React, { createContext, useMemo, useEffect } from 'react';
+import { TagValueBus } from './tags/TagValueBus';
+import { WidgetEventBus } from './events/WidgetEventBus';
+import { createNavigateHandler } from './events/handlers/NavigateHandler';
+import { createOverlayHandler } from './events/handlers/OverlayHandler';
+import { createTagWriteHandler } from './events/handlers/TagWriteHandler';
+import { useScadaStore } from '../store/scada';
+import { AnimationStyles } from './animation/AnimationStyles';
+
+export interface ScadaRuntimeContextValue {
+  tagBus: TagValueBus;
+  eventBus: WidgetEventBus;
+}
+
+export const ScadaRuntimeContext = createContext<ScadaRuntimeContextValue | null>(null);
+
+export const ScadaRuntime: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const tagBus = useMemo(() => new TagValueBus(), []);
+  const eventBus = useMemo(() => new WidgetEventBus(), []);
+
+  const setActiveScreen = useScadaStore((s) => s.setActiveScreen);
+  const openOverlay = useScadaStore((s) => s.openOverlay);
+
+  // Register action handlers
+  useEffect(() => {
+    const unsubs: Array<() => void> = [];
+
+    unsubs.push(eventBus.register('navigate', createNavigateHandler(setActiveScreen)));
+    unsubs.push(eventBus.register('setValue', createTagWriteHandler(tagBus)));
+    unsubs.push(eventBus.register('toggleValue', createTagWriteHandler(tagBus)));
+    unsubs.push(eventBus.register('openCard', createOverlayHandler({ openOverlay })));
+    unsubs.push(eventBus.register('openDialog', createOverlayHandler({ openOverlay })));
+
+    return () => unsubs.forEach((u) => u());
+  }, [eventBus, tagBus, setActiveScreen, openOverlay]);
+
+  // Bridge: simulation store tag values -> TagValueBus
+  const simTagValues = useScadaStore((s) => s.simTagValues);
+  useEffect(() => {
+    tagBus.publishBatch(simTagValues);
+  }, [tagBus, simTagValues]);
+
+  const value = useMemo(() => ({ tagBus, eventBus }), [tagBus, eventBus]);
+
+  return (
+    <ScadaRuntimeContext.Provider value={value}>
+      <AnimationStyles />
+      {children}
+    </ScadaRuntimeContext.Provider>
+  );
+};

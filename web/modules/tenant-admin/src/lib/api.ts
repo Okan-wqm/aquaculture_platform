@@ -448,9 +448,9 @@ export async function getTenantBilling(): Promise<TenantBillingData> {
 
 export async function getMySubscription(): Promise<SubscriptionInfo | null> {
   const data = await apiClient.graphql<{
-    mySubscription: SubscriptionInfo | null;
+    subscription: SubscriptionInfo | null;
   }>(MY_SUBSCRIPTION_QUERY);
-  return data.mySubscription;
+  return data.subscription;
 }
 
 // ============================================================================

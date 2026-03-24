@@ -58,9 +58,14 @@ export const TENANT_BILLING_QUERY = `
 // Subscription (Dashboard)
 // ============================================================================
 
+/**
+ * WHY: Frontend originally called 'mySubscription' which doesn't exist in the
+ * billing-service schema. The correct query name is 'subscription' — it returns
+ * the tenant's active subscription using tenantId from JWT context.
+ */
 export const MY_SUBSCRIPTION_QUERY = `
   query MySubscription {
-    mySubscription {
+    subscription {
       id
       status
       planTier

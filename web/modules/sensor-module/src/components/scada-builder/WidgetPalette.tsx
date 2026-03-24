@@ -27,6 +27,10 @@ import {
   Link2,
   Type,
   GitCommitHorizontal,
+  Shapes,
+  Square,
+  Circle,
+  Minus,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -182,6 +186,15 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     name: 'Piping',
     widgets: [
       { type: 'pipeFlow', label: 'Pipe Flow', icon: <GitCommitHorizontal className="w-4 h-4" /> },
+    ],
+  },
+  {
+    name: 'Shapes',
+    widgets: [
+      { type: 'svgRect', label: 'Rectangle', icon: <Square className="w-4 h-4" /> },
+      { type: 'svgCircle', label: 'Circle', icon: <Circle className="w-4 h-4" /> },
+      { type: 'svgLine', label: 'Line', icon: <Minus className="w-4 h-4" /> },
+      { type: 'svgText', label: 'Text', icon: <Type className="w-4 h-4" /> },
     ],
   },
   {

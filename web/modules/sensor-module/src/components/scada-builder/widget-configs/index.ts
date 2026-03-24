@@ -26,6 +26,7 @@ import { CornellDualDrainConfig } from './CornellDualDrainConfig';
 import { ScreenLinkConfig } from './ScreenLinkConfig';
 import { StaticTextConfig } from './StaticTextConfig';
 import { PipeFlowConfig } from './PipeFlowConfig';
+import { SvgRectConfig, SvgCircleConfig, SvgLineConfig, SvgTextConfig } from './SvgShapeConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -61,4 +62,8 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   screenLink: ScreenLinkConfig,
   staticText: StaticTextConfig,
   pipeFlow: PipeFlowConfig,
+  svgRect: SvgRectConfig,
+  svgCircle: SvgCircleConfig,
+  svgLine: SvgLineConfig,
+  svgText: SvgTextConfig,
 };

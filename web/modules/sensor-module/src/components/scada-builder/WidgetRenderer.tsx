@@ -70,6 +70,10 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   screenLink:        React.lazy(() => import('./widget-renderers/ScreenLinkRenderer')),
   staticText:        React.lazy(() => import('./widget-renderers/StaticTextRenderer')),
   pipeFlow:          React.lazy(() => import('./widget-renderers/PipeFlowRenderer')),
+  svgRect:           React.lazy(() => import('./widget-renderers/SvgRectRenderer')),
+  svgCircle:         React.lazy(() => import('./widget-renderers/SvgCircleRenderer')),
+  svgLine:           React.lazy(() => import('./widget-renderers/SvgLineRenderer')),
+  svgText:           React.lazy(() => import('./widget-renderers/SvgTextRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

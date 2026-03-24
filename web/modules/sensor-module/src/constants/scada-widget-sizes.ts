@@ -100,6 +100,11 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   staticText:        { defaultW: 3, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 4 },
   // Piping
   pipeFlow:          { defaultW: 3, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 2 },
+  // SVG Shapes
+  svgRect:           { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 12, maxH: 8 },
+  svgCircle:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 8,  maxH: 8 },
+  svgLine:           { defaultW: 3, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 8 },
+  svgText:           { defaultW: 2, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 4 },
 };
 
 /* ------------------------------------------------------------------ */

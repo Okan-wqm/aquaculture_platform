@@ -32,7 +32,11 @@ export type ScadaWidgetType =
   | 'cornellDualDrain'
   | 'screenLink'
   | 'staticText'
-  | 'pipeFlow';
+  | 'pipeFlow'
+  | 'svgRect'
+  | 'svgCircle'
+  | 'svgLine'
+  | 'svgText';
 
 /* ------------------------------------------------------------------ */
 /*  Equipment sub-types                                                */

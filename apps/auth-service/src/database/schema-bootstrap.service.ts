@@ -53,6 +53,31 @@ export class AuthSchemaBootstrapService implements OnModuleInit {
         END $$;
       `);
 
+      // WHY: Existing mobile_user_settings rows have JSONB without the new feature keys
+      // (transfer, schedule, attendance, leave, tasks). This backfill merges defaults
+      // into existing rows so current users get the new features immediately.
+      // Uses jsonb_build_object + || merge — idempotent, won't overwrite explicit settings.
+      await queryRunner.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'auth' AND table_name = 'mobile_user_settings'
+          ) THEN
+            UPDATE auth.mobile_user_settings
+            SET allowed_features = allowed_features || jsonb_build_object(
+              'transfer', true,
+              'schedule', true,
+              'attendance', true,
+              'leave', true,
+              'tasks', true,
+              'feeding', true
+            )
+            WHERE NOT (allowed_features ? 'transfer');
+          END IF;
+        END $$;
+      `);
+
       // TypeORM migrations tracking table — ensure it exists for migrationsRun
       await queryRunner.query(`
         CREATE TABLE IF NOT EXISTS auth.migrations (

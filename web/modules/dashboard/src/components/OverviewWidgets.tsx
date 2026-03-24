@@ -139,7 +139,7 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
           </p>
         </div>
         <Badge variant={stats.completionRate > 70 ? 'success' : stats.completionRate > 40 ? 'warning' : 'error'}>
-          %{stats.completionRate.toFixed(0)} tamamlandi
+          %{stats.completionRate.toFixed(0)} tamamlandı
         </Badge>
       </div>
       <ResponsiveContainer width="100%" height={80}>

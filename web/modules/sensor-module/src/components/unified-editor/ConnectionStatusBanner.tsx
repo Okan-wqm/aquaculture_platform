@@ -80,21 +80,21 @@ function getStatusConfig(status: string, isStale: boolean) {
   switch (status) {
     case 'connected':
       return {
-        label: 'Bagli',
+        label: 'Bağlı',
         className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
         dotColor: 'bg-green-500',
         pulse: false,
       };
     case 'connecting':
       return {
-        label: 'Baglaniyor...',
+        label: 'Bağlanıyor...',
         className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
         dotColor: 'bg-yellow-500',
         pulse: true,
       };
     case 'reconnecting':
       return {
-        label: 'Yeniden Baglaniyor...',
+        label: 'Yeniden Bağlanıyor...',
         className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
         dotColor: 'bg-orange-500',
         pulse: true,
@@ -102,7 +102,7 @@ function getStatusConfig(status: string, isStale: boolean) {
     case 'disconnected':
     default:
       return {
-        label: 'Baglanti Kesildi',
+        label: 'Bağlantı Kesildi',
         className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
         dotColor: 'bg-red-500',
         pulse: false,

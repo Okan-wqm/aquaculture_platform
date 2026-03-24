@@ -3,6 +3,7 @@
  * Displays list of feeds with comprehensive feed management form
  */
 import React, { useState, useMemo } from 'react';
+import { formatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import {
   useFeedList,
   useCreateFeed,
@@ -563,7 +564,7 @@ export const FeedsTab: React.FC = () => {
                     )}
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Price</p>
-                      <p className="text-lg font-semibold text-green-600">{feed.pricePerKg?.toFixed(2) || feed.unitPrice?.toFixed(2) || '0.00'} TL</p>
+                      <p className="text-lg font-semibold text-green-600">{formatCurrency(feed.pricePerKg ?? feed.unitPrice ?? 0, DEFAULT_CURRENCY)}</p>
                     </div>
                     <svg
                       className={`w-5 h-5 text-gray-400 transition-transform ${expandedFeed === feed.id ? 'rotate-180' : ''}`}
@@ -1243,7 +1244,7 @@ export const FeedsTab: React.FC = () => {
                   <CollapsibleSection title="Pricing">
                     <div className="grid grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Unit Price (TL)</label>
+                        <label className="block text-sm font-medium text-gray-700">Unit Price ({DEFAULT_CURRENCY})</label>
                         <input
                           type="number"
                           step="0.01"
@@ -1264,7 +1265,7 @@ export const FeedsTab: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Price per Kg (TL)</label>
+                        <label className="block text-sm font-medium text-gray-700">Price per Kg ({DEFAULT_CURRENCY})</label>
                         <input
                           type="number"
                           step="0.01"

@@ -5,12 +5,19 @@
  */
 
 import * as crypto from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan } from 'typeorm';
 import { isValidSchemaName } from '@aquaculture/backend-common';
+
+const execFileAsync = promisify(execFile);
 
 import {
   TenantSchema,
@@ -45,6 +52,7 @@ export class BackupRestoreService {
     private readonly restoreRepository: Repository<SchemaRestore>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {}
 
   // ============================================================================
@@ -108,8 +116,26 @@ export class BackupRestoreService {
     return this.executeBackup(backup, excludeTables);
   }
 
+  // --------------------------------------------------------------------------
+  // pg_dump / pg_restore connection helpers
+  // --------------------------------------------------------------------------
+
+  private getPgConnectionArgs(): { host: string; port: string; user: string; db: string; password: string } {
+    return {
+      host: this.configService.get<string>('DATABASE_HOST', 'localhost'),
+      port: this.configService.get<string>('DATABASE_PORT', '5432'),
+      user: this.configService.get<string>('DATABASE_USER', 'aquaculture'),
+      db: this.configService.get<string>('DATABASE_NAME', 'aquaculture'),
+      password: this.configService.get<string>('DATABASE_PASSWORD', ''),
+    };
+  }
+
+  private getPgEnv(password: string): NodeJS.ProcessEnv {
+    return { ...process.env, PGPASSWORD: password };
+  }
+
   /**
-   * Execute backup process
+   * Execute backup process via pg_dump
    */
   private async executeBackup(
     backup: SchemaBackup,
@@ -119,69 +145,81 @@ export class BackupRestoreService {
     backup.startedAt = new Date();
     await this.backupRepository.save(backup);
 
-    const startTime = Date.now();
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const pg = this.getPgConnectionArgs();
+
+    // Ensure backup directory exists
+    const backupDir = path.join(this.BACKUP_BASE_PATH, backup.schemaName);
+    await fs.promises.mkdir(backupDir, { recursive: true });
+
+    const filePath = path.join(backupDir, backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'));
 
     try {
-      // Get tables in schema
-      const tables = await queryRunner.query(`
-        SELECT tablename
-        FROM pg_tables
-        WHERE schemaname = $1
-          AND tablename NOT IN (${excludeTables.map((_, i) => `$${i + 2}`).join(',') || "''"})
-      `, [backup.schemaName, ...excludeTables]);
-
-      // Get table data (simulated - in production would use pg_dump)
-      const backupData: Record<string, unknown> = {
-        schemaName: backup.schemaName,
-        backupType: backup.backupType,
-        createdAt: new Date().toISOString(),
-        tables: [],
-      };
-
-      let totalRows = 0;
-      for (const table of tables) {
-        const tableName = table.tablename;
-
-        // Get row count
-        const countResult = await queryRunner.query(
-          `SELECT count(*) as count FROM "${backup.schemaName}"."${tableName}"`
-        );
-        const rowCount = parseInt(countResult[0]?.count || '0', 10);
-        totalRows += rowCount;
-
-        // Get table structure
-        const columns = await queryRunner.query(`
-          SELECT column_name, data_type, is_nullable, column_default
-          FROM information_schema.columns
-          WHERE table_schema = $1 AND table_name = $2
-          ORDER BY ordinal_position
-        `, [backup.schemaName, tableName]);
-
-        (backupData.tables as Array<unknown>).push({
-          name: tableName,
-          rowCount,
-          columns,
-        });
+      // SECURITY: validate schema name before passing to pg_dump
+      if (!isValidSchemaName(backup.schemaName)) {
+        throw new BadRequestException(`Invalid schema name: ${backup.schemaName}`);
       }
 
-      // Calculate simulated size
-      const sizeBytes = JSON.stringify(backupData).length * (backup.isCompressed ? 0.3 : 1);
+      // Build pg_dump arguments
+      const args: string[] = [
+        '-h', pg.host,
+        '-p', pg.port,
+        '-U', pg.user,
+        '-d', pg.db,
+        `--schema=${backup.schemaName}`,
+        '--format=custom',
+        `--file=${filePath}`,
+      ];
 
-      // Generate checksum
-      const checksum = crypto
-        .createHash('sha256')
-        .update(JSON.stringify(backupData))
-        .digest('hex');
+      // Exclude tables if specified
+      for (const table of excludeTables) {
+        args.push(`--exclude-table=${backup.schemaName}.${table}`);
+      }
+
+      if (backup.isCompressed) {
+        args.push('--compress=6');
+      }
+
+      await execFileAsync('pg_dump', args, {
+        env: this.getPgEnv(pg.password),
+        timeout: 300_000, // 5 min timeout
+      });
+
+      // Read file stats for size + checksum
+      const stats = await fs.promises.stat(filePath);
+
+      // Generate checksum from actual dump file
+      const fileBuffer = await fs.promises.readFile(filePath);
+      const checksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+      // Gather table count for metadata
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      let tableCount = 0;
+      let totalRows = 0;
+      try {
+        const tables = await queryRunner.query(
+          `SELECT tablename FROM pg_tables WHERE schemaname = $1`,
+          [backup.schemaName],
+        );
+        tableCount = tables.length;
+        for (const table of tables) {
+          const countResult = await queryRunner.query(
+            `SELECT count(*) as count FROM "${backup.schemaName}"."${table.tablename}"`,
+          );
+          totalRows += parseInt(countResult[0]?.count || '0', 10);
+        }
+      } finally {
+        await queryRunner.release();
+      }
 
       // Update backup record
+      backup.filePath = filePath;
       backup.status = 'completed' as BackupStatus;
       backup.completedAt = new Date();
-      backup.sizeBytes = Math.round(sizeBytes);
+      backup.sizeBytes = stats.size;
       backup.checksum = checksum;
       backup.metadata = {
-        tableCount: tables.length,
+        tableCount,
         rowCount: totalRows,
         version: '1.0',
         compressionRatio: backup.isCompressed ? 0.3 : 1,
@@ -197,7 +235,7 @@ export class BackupRestoreService {
         );
       }
 
-      this.logger.log(`Backup completed: ${backup.id} (${backup.sizeBytes} bytes)`);
+      this.logger.log(`Backup completed: ${backup.id} (${backup.sizeBytes} bytes) -> ${filePath}`);
       return backup;
     } catch (err) {
       const error = err as Error;
@@ -206,10 +244,11 @@ export class BackupRestoreService {
       backup.completedAt = new Date();
       await this.backupRepository.save(backup);
 
-      this.logger.error(`Backup failed: ${error.message}`);
+      // Cleanup partial dump file
+      await fs.promises.unlink(filePath).catch(() => {});
+
+      this.logger.error(`Backup failed for schema ${backup.schemaName}: ${error.message}`);
       throw error;
-    } finally {
-      await queryRunner.release();
     }
   }
 
@@ -269,13 +308,17 @@ export class BackupRestoreService {
   }
 
   /**
-   * Delete backup
+   * Delete backup (record + dump file)
    */
   async deleteBackup(backupId: string): Promise<void> {
     const backup = await this.getBackup(backupId);
 
-    // In production, also delete the actual file
-    // await this.deleteBackupFile(backup.filePath);
+    // Delete the actual dump file from disk
+    if (backup.filePath) {
+      await fs.promises.unlink(backup.filePath).catch((err) => {
+        this.logger.warn(`Could not delete backup file ${backup.filePath}: ${err.message}`);
+      });
+    }
 
     await this.backupRepository.delete({ id: backupId });
     this.logger.log(`Backup deleted: ${backupId}`);
@@ -322,7 +365,7 @@ export class BackupRestoreService {
   }
 
   /**
-   * Execute restore process
+   * Execute restore process via pg_restore
    */
   private async executeRestore(
     restore: SchemaRestore,
@@ -334,32 +377,67 @@ export class BackupRestoreService {
     await this.restoreRepository.save(restore);
 
     const startTime = Date.now();
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
 
     try {
-      await queryRunner.startTransaction();
-
-      // SECURITY: Validate schema name before using in SQL (prevents SQL injection)
+      // SECURITY: Validate schema name before using in pg_restore
       if (!isValidSchemaName(restore.targetSchemaName)) {
         throw new BadRequestException('Invalid schema name');
       }
 
-      // Set search path
-      await queryRunner.query(`SET search_path TO "${restore.targetSchemaName}"`);
+      // Resolve backup file path
+      const filePath = backup.filePath || path.join(
+        this.BACKUP_BASE_PATH,
+        backup.schemaName,
+        backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
+      );
 
-      // Simulate restore by creating tables (in production would use pg_restore)
-      const restoredTables: string[] = [];
-
-      // Get tables to restore
-      const allTables = backup.metadata?.tableCount || 0;
-      const tablesToProcess = tablesToRestore || Array.from({ length: allTables }, (_, i) => `table_${i}`);
-
-      for (const tableName of tablesToProcess) {
-        restoredTables.push(tableName);
+      // Verify backup file exists
+      try {
+        await fs.promises.access(filePath, fs.constants.R_OK);
+      } catch {
+        throw new NotFoundException(`Backup file not found: ${filePath}`);
       }
 
-      await queryRunner.commitTransaction();
+      const pg = this.getPgConnectionArgs();
+
+      // Build pg_restore arguments
+      const args: string[] = [
+        '-h', pg.host,
+        '-p', pg.port,
+        '-U', pg.user,
+        '-d', pg.db,
+        `--schema=${backup.schemaName}`,
+        '--clean',
+        '--if-exists',
+      ];
+
+      // Restore specific tables if requested
+      if (tablesToRestore && tablesToRestore.length > 0) {
+        for (const table of tablesToRestore) {
+          args.push(`--table=${table}`);
+        }
+      }
+
+      args.push(filePath);
+
+      await execFileAsync('pg_restore', args, {
+        env: this.getPgEnv(pg.password),
+        timeout: 600_000, // 10 min timeout for restores
+      });
+
+      // Get list of restored tables for metadata
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      let restoredTables: string[] = [];
+      try {
+        const tables = await queryRunner.query(
+          `SELECT tablename FROM pg_tables WHERE schemaname = $1`,
+          [restore.targetSchemaName],
+        );
+        restoredTables = tables.map((t: { tablename: string }) => t.tablename);
+      } finally {
+        await queryRunner.release();
+      }
 
       // Update restore record
       restore.status = 'completed' as RestoreStatus;
@@ -368,11 +446,10 @@ export class BackupRestoreService {
       restore.restoredTables = restoredTables;
       await this.restoreRepository.save(restore);
 
-      this.logger.log(`Restore completed: ${restore.id}`);
+      this.logger.log(`Restore completed: ${restore.id} (${restore.executionTimeMs}ms)`);
       return restore;
     } catch (err) {
       const error = err as Error;
-      await queryRunner.rollbackTransaction();
 
       restore.status = 'failed' as RestoreStatus;
       restore.errorMessage = error.message;
@@ -381,9 +458,6 @@ export class BackupRestoreService {
 
       this.logger.error(`Restore failed: ${error.message}`);
       throw error;
-    } finally {
-      await queryRunner.query('RESET search_path').catch(() => {});
-      await queryRunner.release();
     }
   }
 
@@ -417,14 +491,34 @@ export class BackupRestoreService {
   }
 
   /**
-   * Validate backup integrity
+   * Validate backup integrity by verifying SHA-256 checksum against actual file
    */
   private async validateBackupIntegrity(backup: SchemaBackup): Promise<boolean> {
-    // In production, would verify checksum against actual file
     if (!backup.checksum) {
       throw new BadRequestException('Backup has no checksum for validation');
     }
-    return true;
+
+    const filePath = backup.filePath || path.join(
+      this.BACKUP_BASE_PATH,
+      backup.schemaName,
+      backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
+    );
+
+    try {
+      const fileBuffer = await fs.promises.readFile(filePath);
+      const actualChecksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+      if (actualChecksum !== backup.checksum) {
+        throw new BadRequestException(
+          `Backup integrity check failed: expected ${backup.checksum}, got ${actualChecksum}`,
+        );
+      }
+
+      return true;
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      throw new NotFoundException(`Backup file not found or unreadable: ${filePath}`);
+    }
   }
 
   /**
@@ -524,10 +618,15 @@ export class BackupRestoreService {
 
     for (const backup of expiredBackups) {
       try {
+        // Delete dump file from disk before marking as expired
+        if (backup.filePath) {
+          await fs.promises.unlink(backup.filePath).catch((err) => {
+            this.logger.warn(`Could not delete expired backup file ${backup.filePath}: ${err.message}`);
+          });
+        }
         backup.status = 'expired' as BackupStatus;
         await this.backupRepository.save(backup);
-        // In production, also delete actual backup file
-        this.logger.log(`Marked backup as expired: ${backup.id}`);
+        this.logger.log(`Expired and cleaned backup: ${backup.id}`);
       } catch (err) {
         const error = err as Error;
         this.logger.error(`Failed to expire backup ${backup.id}: ${error.message}`);

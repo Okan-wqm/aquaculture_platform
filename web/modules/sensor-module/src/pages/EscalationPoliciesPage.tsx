@@ -65,10 +65,10 @@ import {
 
 const SEVERITY_OPTIONS: { value: AlertSeverity; label: string; className: string }[] = [
   { value: 'critical', label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200' },
-  { value: 'high', label: 'Yuksek', className: 'bg-orange-100 text-orange-800 border-orange-200' },
+  { value: 'high', label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200' },
   { value: 'warning', label: 'Uyari', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
   { value: 'medium', label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200' },
-  { value: 'low', label: 'Dusuk', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+  { value: 'low', label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200' },
   { value: 'info', label: 'Bilgi', className: 'bg-gray-100 text-gray-800 border-gray-200' },
 ];
 
@@ -76,7 +76,7 @@ const ACTION_OPTIONS: { value: EscalationActionType; label: string }[] = [
   { value: 'NOTIFY', label: 'Bildirim Gonder' },
   { value: 'ASSIGN', label: 'Atama Yap' },
   { value: 'ESCALATE_TO_MANAGER', label: 'Yoneticiye Ilet' },
-  { value: 'CREATE_TICKET', label: 'Bilet Olustur' },
+  { value: 'CREATE_TICKET', label: 'Bilet Oluştur' },
   { value: 'WEBHOOK', label: 'Webhook' },
   { value: 'AUTO_RESOLVE', label: 'Otomatik Cozumle' },
 ];
@@ -332,7 +332,7 @@ const PolicyForm: React.FC<{
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold text-gray-900">
-          {mode === 'create' ? 'Yeni Eskalasyon Politikasi' : 'Politikayi Duzenle'}
+          {mode === 'create' ? 'Yeni Eskalasyon Politikasi' : 'Politikayi Düzenle'}
         </h2>
         <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
           <X className="w-5 h-5" />
@@ -357,7 +357,7 @@ const PolicyForm: React.FC<{
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Aciklama</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
             <input
               type="text"
               value={form.description}
@@ -473,7 +473,7 @@ const PolicyForm: React.FC<{
             disabled={isPending}
             className="px-5 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
           >
-            Iptal
+            İptal
           </button>
           <button
             type="submit"
@@ -481,7 +481,7 @@ const PolicyForm: React.FC<{
             className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50"
           >
             {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-            {mode === 'create' ? 'Olustur' : 'Kaydet'}
+            {mode === 'create' ? 'Oluştur' : 'Kaydet'}
           </button>
         </div>
       </form>
@@ -616,7 +616,7 @@ const SuppressionWindowManager: React.FC<{
               onClick={() => setShowForm(false)}
               className="px-4 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200"
             >
-              Iptal
+              İptal
             </button>
             <button
               type="submit"
@@ -746,7 +746,7 @@ const DeleteDialog: React.FC<{
             disabled={isPending}
             className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
           >
-            Iptal
+            İptal
           </button>
           <button
             onClick={onConfirm}
@@ -801,7 +801,7 @@ const CloneDialog: React.FC<{
             disabled={isPending}
             className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
           >
-            Iptal
+            İptal
           </button>
           <button
             onClick={() => onConfirm(newName)}
@@ -934,7 +934,7 @@ const PolicyCard: React.FC<{
           </button>
           <button
             onClick={() => onEdit(policy)}
-            title="Duzenle"
+            title="Düzenle"
             className="p-2 rounded-lg text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
           >
             <Edit3 className="w-4 h-4" />
@@ -1052,8 +1052,8 @@ const PolicyCard: React.FC<{
 
           {/* Metadata */}
           <div className="text-xs text-gray-400 flex gap-4 flex-wrap">
-            <span>Olusturulma: {new Date(policy.createdAt).toLocaleString('tr-TR')}</span>
-            <span>Guncelleme: {new Date(policy.updatedAt).toLocaleString('tr-TR')}</span>
+            <span>Oluşturulma: {new Date(policy.createdAt).toLocaleString('tr-TR')}</span>
+            <span>Güncelleme: {new Date(policy.updatedAt).toLocaleString('tr-TR')}</span>
             {policy.timezone && <span>Saat dilimi: {policy.timezone}</span>}
             {policy.ruleIds && policy.ruleIds.length > 0 && (
               <span>Kurallar: {policy.ruleIds.length}</span>
@@ -1225,7 +1225,7 @@ const EscalationPoliciesPage: React.FC = () => {
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
-          <p className="text-gray-500">Eskalasyon politikalari yukleniyor...</p>
+          <p className="text-gray-500">Eskalasyon politikalari yükleniyor...</p>
         </div>
       </div>
     );
@@ -1337,25 +1337,25 @@ const EscalationPoliciesPage: React.FC = () => {
       {createMutation.error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Olusturma hatasi: {(createMutation.error as Error).message}</p>
+          <p className="text-sm text-red-700">Oluşturma hatası: {(createMutation.error as Error).message}</p>
         </div>
       )}
       {updateMutation.error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Guncelleme hatasi: {(updateMutation.error as Error).message}</p>
+          <p className="text-sm text-red-700">Güncelleme hatası: {(updateMutation.error as Error).message}</p>
         </div>
       )}
       {deleteMutation.error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Silme hatasi: {(deleteMutation.error as Error).message}</p>
+          <p className="text-sm text-red-700">Silme hatası: {(deleteMutation.error as Error).message}</p>
         </div>
       )}
       {cloneMutation.error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Kopyalama hatasi: {(cloneMutation.error as Error).message}</p>
+          <p className="text-sm text-red-700">Kopyalama hatası: {(cloneMutation.error as Error).message}</p>
         </div>
       )}
 
@@ -1407,7 +1407,7 @@ const EscalationPoliciesPage: React.FC = () => {
           <h3 className="text-lg font-medium text-gray-700 mb-2">Eskalasyon Politikasi Bulunamadi</h3>
           <p className="text-gray-500 text-sm mb-6">
             {filterStatus !== 'all'
-              ? 'Secili filtrelerle eslesen politika bulunamadi. Filtreleri degistirmeyi deneyin.'
+              ? 'Seçili filtrelerle eşleşen politika bulunamadı. Filtreleri değiştirmeyi deneyin.'
               : 'Henuz tanimlanmis eskalasyon politikasi bulunmuyor. Ilk politikayi olusturun.'}
           </p>
           {filterStatus === 'all' && (
@@ -1416,7 +1416,7 @@ const EscalationPoliciesPage: React.FC = () => {
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
-              Ilk Politikayi Olustur
+              Ilk Politikayi Oluştur
             </button>
           )}
         </div>

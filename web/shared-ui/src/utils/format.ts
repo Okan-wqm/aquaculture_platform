@@ -26,8 +26,13 @@ export function formatNumber(
   }).format(value);
 }
 
+/** Default platform currency — should come from tenant settings */
+export const DEFAULT_CURRENCY = 'TRY';
+export const DEFAULT_LOCALE = 'tr-TR';
+
 /**
- * Para birimini formatla
+ * Platform-wide currency formatter.
+ * Uses tenant's currency setting, fallback to TRY.
  *
  * @example
  * formatCurrency(1234.56) // "₺1.234,56"
@@ -35,8 +40,8 @@ export function formatNumber(
  */
 export function formatCurrency(
   value: number,
-  currency: string = 'TRY',
-  locale: string = 'tr-TR'
+  currency: string = DEFAULT_CURRENCY,
+  locale: string = DEFAULT_LOCALE,
 ): string {
   return new Intl.NumberFormat(locale, {
     style: 'currency',
@@ -44,6 +49,25 @@ export function formatCurrency(
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+/**
+ * Compact currency formatter for large amounts.
+ *
+ * @example
+ * formatCompactCurrency(1500000) // "₺1,5 Mn"
+ */
+export function formatCompactCurrency(
+  amount: number,
+  currency: string = DEFAULT_CURRENCY,
+  locale: string = DEFAULT_LOCALE,
+): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(amount);
 }
 
 /**

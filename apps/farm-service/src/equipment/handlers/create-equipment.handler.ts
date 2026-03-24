@@ -303,8 +303,11 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     const waterDepth = specs.waterDepth ?? specs.dimensions?.waterDepth;
     const freeboard = specs.freeboard ?? specs.dimensions?.freeboard;
 
-    // Get capacity limits
+    // Get capacity limits — reject 0 for tank categories (Bug 8 fix)
     const maxBiomass = specs.maxBiomass ?? 0;
+    if (maxBiomass <= 0 && specs.maxBiomass !== undefined) {
+      this.logger.warn(`maxBiomass is ${maxBiomass} for tank equipment "${input.name}" — accepting server-side default`);
+    }
     const maxDensity = specs.maxDensity ?? 30; // Default 30 kg/m3
 
     // Generate tank code

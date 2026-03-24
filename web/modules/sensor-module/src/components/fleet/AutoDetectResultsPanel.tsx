@@ -256,7 +256,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
           <Search className="w-5 h-5 text-cyan-600" />
           <div>
             <h3 className="text-sm font-semibold text-gray-900">
-              I/O Auto-Detection Sonuclari
+              I/O Auto-Detection Sonuçları
             </h3>
             <p className="text-xs text-gray-500">
               {scanResult.totalFound} kanal bulundu
@@ -279,7 +279,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
           <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
           <span className="text-sm text-green-800">
             {importResult.createdCount} kanal eklendi
-            {importResult.skippedCount > 0 && `, ${importResult.skippedCount} atlanildi (duplicate)`}
+            {importResult.skippedCount > 0 && `, ${importResult.skippedCount} atlanıldı (duplicate)`}
           </span>
         </div>
       )}
@@ -303,7 +303,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
           ) : (
             <Square className="w-3.5 h-3.5" />
           )}
-          {allSelected ? 'Hepsini Kaldir' : 'Hepsini Sec'}
+          {allSelected ? 'Hepsini Kaldır' : 'Hepsini Seç'}
         </button>
         <button
           onClick={handleImport}
@@ -444,9 +444,9 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       {scanResult.discoveredChannels.length === 0 && (
         <div className="px-4 py-8 text-center text-gray-500">
           <Search className="w-8 h-8 mx-auto mb-2 text-gray-500" />
-          <p className="text-sm">Hicbir I/O kanali bulunamadi.</p>
+          <p className="text-sm">Hiçbir I/O kanalı bulunamadı.</p>
           <p className="text-xs text-gray-500 mt-1">
-            Cihazda I/O modulleri takildigından emin olun.
+            Cihazda I/O modülleri takıldığından emin olun.
           </p>
         </div>
       )}

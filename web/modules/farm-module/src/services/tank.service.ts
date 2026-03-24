@@ -71,7 +71,7 @@ export interface Tank {
   tankType: string;
   material: string;
   waterType: string;
-  volume: number;
+  volume: number | null;
   waterVolume?: number;
   currentBiomass: number;
   currentCount?: number;
@@ -116,7 +116,7 @@ export interface TankFilterInput {
  */
 export function equipmentToTank(equipment: EquipmentTank): Tank {
   const specs = equipment.specifications || {};
-  const volume = equipment.volume || specs.volume || 0;
+  const volume = equipment.volume || specs.volume || null;
   const waterVolume = specs.waterVolume || specs.dimensions?.waterDepth
     ? calculateWaterVolume(specs)
     : undefined;
@@ -125,7 +125,7 @@ export function equipmentToTank(equipment: EquipmentTank): Tank {
   const maxDensity = specs.maxDensity || 30;
 
   // Calculate capacity info
-  const effectiveVolume = waterVolume || volume || 1;
+  const effectiveVolume = waterVolume || volume || 1; // fallback to 1 to avoid division by zero
   const currentDensity = effectiveVolume > 0 ? currentBiomass / effectiveVolume : 0;
   const utilizationPercent = maxBiomass > 0 ? (currentBiomass / maxBiomass) * 100 : 0;
   const byBiomass = maxBiomass - currentBiomass;

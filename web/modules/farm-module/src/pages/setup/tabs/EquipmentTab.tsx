@@ -411,6 +411,26 @@ export const EquipmentTab: React.FC = () => {
       }
     }
 
+    // Tank/Pond/Cage category: volume must be > 0
+    const TANK_VOLUME_CATEGORIES = ['TANK', 'POND', 'CAGE', 'RACEWAY', 'NET_PEN'];
+    if (TANK_VOLUME_CATEGORIES.includes(formData.selectedCategory?.toUpperCase() ?? '')) {
+      const specs = (formData.specifications || {}) as Record<string, unknown>;
+      const volume = Number(specs.volume) || 0;
+      const dims = specs.dimensions as Record<string, unknown> | undefined;
+      const hasValidDimensions = dims && (
+        (Number(dims.diameter) > 0 && Number(dims.depth) > 0) ||
+        (Number(dims.length) > 0 && Number(dims.width) > 0 && Number(dims.depth) > 0)
+      );
+      if (volume <= 0 && !hasValidDimensions) {
+        toast({
+          title: 'Validation Error',
+          description: 'Tank hacmi 0\'dan buyuk olmalidir veya gecerli boyutlar girilmelidir.',
+          variant: 'error',
+        });
+        return;
+      }
+    }
+
     try {
       if (editingId) {
         await updateEquipment.mutateAsync({

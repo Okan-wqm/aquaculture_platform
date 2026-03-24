@@ -124,7 +124,7 @@ const InfoRow: React.FC<{ label: string; value?: string | number | null; icon?: 
   <div className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
     <span className="text-sm text-gray-500">{label}</span>
     <span className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
-      {icon}{value ?? 'Belirtilmemis'}
+      {icon}{value ?? 'Belirtilmemiş'}
     </span>
   </div>
 );
@@ -269,9 +269,9 @@ function validateAlarmOrder(f: IoFormState): string | null {
   const ll = optNum(f.alarmLL);
 
   // Sadece girilen değerler arasında karşılaştırma yap
-  if (hh != null && h != null && hh <= h) return 'Alarm HH, H\'den buyuk olmalidir';
-  if (h != null && l != null && h <= l) return 'Alarm H, L\'den buyuk olmalidir';
-  if (l != null && ll != null && l <= ll) return 'Alarm L, LL\'den buyuk olmalidir';
+  if (hh != null && h != null && hh <= h) return 'Alarm HH, H\'den büyük olmalıdır';
+  if (h != null && l != null && h <= l) return 'Alarm H, L\'den büyük olmalıdır';
+  if (l != null && ll != null && l <= ll) return 'Alarm L, LL\'den büyük olmalıdır';
   return null;
 }
 
@@ -397,7 +397,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     // Tag name IEC 61131 formatı doğrulama (sadece yeni kayıtta)
     if (!isEdit && !TAG_NAME_REGEX.test(form.tagName.trim())) {
       setValidationError(
-        'Tag adi IEC 61131 formatinda olmalidir: buyuk harf ile baslamali, sadece A-Z, 0-9, _ icermeli (orn: TANK_LEVEL_01)'
+        'Tag adı IEC 61131 formatında olmalıdır: büyük harf ile başlamalı, sadece A-Z, 0-9, _ içermeli (örn: TANK_LEVEL_01)'
       );
       return;
     }
@@ -430,12 +430,12 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
-      aria-label={isEdit ? 'I/O Kanal Duzenle' : 'Yeni I/O Kanal Ekle'}
+      aria-label={isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
     >
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">
-            {isEdit ? 'I/O Kanal Duzenle' : 'Yeni I/O Kanal Ekle'}
+            {isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
           </h3>
           <button
             onClick={onClose}
@@ -467,11 +467,11 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
                 disabled={isEdit}
                 placeholder="TANK_LEVEL_01"
                 pattern="[A-Z][A-Z0-9_]{1,63}"
-                title="Buyuk harf ile baslamali, A-Z, 0-9, _ (maks 64 karakter)"
+                title="Büyük harf ile başlamalı, A-Z, 0-9, _ (maks 64 karakter)"
               />
             </div>
             <div>
-              <label className={labelCls}>Aciklama</label>
+              <label className={labelCls}>Açıklama</label>
               <input
                 className={inputCls}
                 value={form.description}
@@ -715,7 +715,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
             >
-              Iptal
+              İptal
             </button>
             <button
               type="submit"
@@ -723,7 +723,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
               className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
             >
               {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isEdit ? 'Guncelle' : 'Ekle'}
+              {isEdit ? 'Güncelle' : 'Ekle'}
             </button>
           </div>
         </form>
@@ -794,7 +794,7 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
             onClick={onCancel}
             className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
           >
-            Iptal
+            İptal
           </button>
           <button
             onClick={onConfirm}
@@ -1029,7 +1029,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2 max-w-md mx-auto">
               <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
               <span className="text-sm text-red-800">
-                {scanHardware.error instanceof Error ? scanHardware.error.message : 'Donanim taramasi basarisiz oldu'}
+                {scanHardware.error instanceof Error ? scanHardware.error.message : 'Donanim taramasi başarısız oldu'}
               </span>
             </div>
           )}
@@ -1052,7 +1052,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2 max-w-md mx-auto">
               <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
               <span className="text-sm text-red-800">
-                {scanResult.error || 'Donanim taramasi basarisiz oldu'}
+                {scanResult.error || 'Donanim taramasi başarısız oldu'}
               </span>
             </div>
           )}
@@ -1133,7 +1133,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
         <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
           <span className="text-sm text-red-800">
-            {scanResult.error || 'Donanim taramasi basarisiz oldu'}
+            {scanResult.error || 'Donanim taramasi başarısız oldu'}
           </span>
         </div>
       )}
@@ -1143,7 +1143,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
         <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
           <span className="text-sm text-green-800">
-            {'Konfigurasyon cihaza basariyla gonderildi.'}
+            {'Konfigurasyon cihaza başarıyla gönderildi.'}
           </span>
         </div>
       )}
@@ -1153,7 +1153,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
           <span className="text-sm text-red-800">
             {pushMutation.error instanceof Error
               ? pushMutation.error.message
-              : 'Konfigurasyon gonderimi basarisiz oldu.'}
+              : 'Konfigurasyon gonderimi başarısız oldu.'}
           </span>
         </div>
       )}
@@ -1266,7 +1266,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
                       <button
                         onClick={() => openEdit(io)}
                         className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Duzenle"
+                        title="Düzenle"
                         aria-label={`${io.tagName} kanalini duzenle`}
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -1344,7 +1344,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
-          <span className="text-sm text-gray-500">Kurulum komutlari yukleniyor...</span>
+          <span className="text-sm text-gray-500">Kurulum komutlari yükleniyor...</span>
         </div>
       </div>
     );
@@ -1469,7 +1469,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
         <div className="flex items-center gap-2 py-2.5 border-b border-gray-50">
           <Loader2 className="w-4 h-4 animate-spin text-cyan-600" />
           <span className="text-sm text-cyan-700">
-            Guncelleniyor: {device.targetFirmwareVersion}
+            Güncelleniyor: {device.targetFirmwareVersion}
           </span>
         </div>
       )}
@@ -1515,7 +1515,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
           className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors"
         >
           {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-          Guncelle
+          Güncelle
         </button>
       </div>
 
@@ -1526,7 +1526,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
           onClick={(e) => { if (e.target === e.currentTarget) setShowConfirm(false); }}
           role="alertdialog"
           aria-modal="true"
-          aria-label="Firmware Guncelleme Onayi"
+          aria-label="Firmware Güncelleme Onayi"
         >
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <div className="flex items-center gap-3 mb-4">
@@ -1534,7 +1534,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
                 <Upload className={`w-5 h-5 ${isDowngrade ? 'text-orange-600' : 'text-cyan-600'}`} />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Firmware Guncelleme</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Firmware Güncelleme</h3>
                 <p className="text-sm text-gray-500">Bu islem cihaz yeniden baslatilmasina neden olabilir.</p>
               </div>
             </div>
@@ -1548,7 +1548,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
                 onClick={() => setShowConfirm(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
               >
-                Iptal
+                İptal
               </button>
               <button
                 onClick={handleUpdate}
@@ -1570,7 +1570,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
         <div className="mt-3 p-2 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
           <span className="text-xs text-red-800">
-            {updateMutation.error instanceof Error ? updateMutation.error.message : 'Guncelleme basarisiz oldu'}
+            {updateMutation.error instanceof Error ? updateMutation.error.message : 'Güncelleme başarısız oldu'}
           </span>
         </div>
       )}
@@ -1641,7 +1641,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
           <AlertTriangle className="w-5 h-5 text-red-600" />
           <div>
             <p className="text-red-800 font-medium">Edge cihaz yuklenemedi</p>
-            <p className="text-red-600 text-sm">{error instanceof Error ? error.message : 'Cihaz bulunamadi'}</p>
+            <p className="text-red-600 text-sm">{error instanceof Error ? error.message : 'Cihaz bulunamadı'}</p>
           </div>
           <Link to="/sensor/devices" className="ml-auto text-red-600 hover:text-red-800">
             Geri Don
@@ -1956,8 +1956,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Description */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Aciklama</h3>
-            <p className="text-gray-600">{device.description || 'Aciklama eklenmemis.'}</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Açıklama</h3>
+            <p className="text-gray-600">{device.description || 'Açıklama eklenmemis.'}</p>
           </div>
         </div>
       )}

@@ -836,7 +836,7 @@ const DevicesPage: React.FC = () => {
                   className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
                 >
                   <Upload size={16} />
-                  Toplu Firmware Guncelle ({selectedDeviceIds.size})
+                  Toplu Firmware Güncelle ({selectedDeviceIds.size})
                 </button>
               )}
 
@@ -1174,11 +1174,11 @@ const DevicesPage: React.FC = () => {
           onClick={(e) => { if (e.target === e.currentTarget) { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); } }}
           role="dialog"
           aria-modal="true"
-          aria-label="Toplu Firmware Guncelleme"
+          aria-label="Toplu Firmware Güncelleme"
         >
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Toplu Firmware Guncelle</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Toplu Firmware Güncelle</h3>
               <button
                 onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}
                 className="p-1 hover:bg-gray-100 rounded-lg"
@@ -1225,7 +1225,7 @@ const DevicesPage: React.FC = () => {
                       <div className="p-2 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
                         <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
                         <span className="text-sm text-green-800">
-                          {selectedDeviceIds.size - bulkUpdateResult.failed.length} cihaz basarili
+                          {selectedDeviceIds.size - bulkUpdateResult.failed.length} cihaz başarılı
                         </span>
                       </div>
                     )}
@@ -1234,7 +1234,7 @@ const DevicesPage: React.FC = () => {
                         <div className="flex items-center gap-2 mb-1">
                           <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
                           <span className="text-sm font-medium text-red-800">
-                            {bulkUpdateResult.failed.length} cihaz basarisiz
+                            {bulkUpdateResult.failed.length} cihaz başarısız
                           </span>
                         </div>
                         <ul className="text-xs text-red-700 ml-6 list-disc">
@@ -1254,7 +1254,7 @@ const DevicesPage: React.FC = () => {
               <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
                 <span className="text-sm text-red-800">
-                  {bulkFirmwareMutation.error instanceof Error ? bulkFirmwareMutation.error.message : 'Guncelleme basarisiz oldu'}
+                  {bulkFirmwareMutation.error instanceof Error ? bulkFirmwareMutation.error.message : 'Güncelleme başarısız oldu'}
                 </span>
               </div>
             )}
@@ -1265,7 +1265,7 @@ const DevicesPage: React.FC = () => {
                 onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
               >
-                {bulkUpdateResult ? 'Kapat' : 'Iptal'}
+                {bulkUpdateResult ? 'Kapat' : 'İptal'}
               </button>
               {!bulkUpdateResult && (
                 <button

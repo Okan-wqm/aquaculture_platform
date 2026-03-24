@@ -580,8 +580,8 @@ export class TenantService {
       this.dataSource.query<UserStatsRow[]>(
         `SELECT
           COUNT(*) AS total_users,
-          COUNT(*) FILTER (WHERE "isActive" = true AND "invitationToken" IS NULL) AS active_users,
-          COUNT(*) FILTER (WHERE "invitationToken" IS NOT NULL) AS pending_users,
+          COUNT(*) FILTER (WHERE "isActive" = true) AS active_users,
+          COUNT(*) FILTER (WHERE "isActive" = true AND "isEmailVerified" = false AND "lastLoginAt" IS NULL) AS pending_users,
           COUNT(*) FILTER (WHERE "isActive" = false) AS inactive_users
         FROM auth.users WHERE "tenantId" = $1`,
         [tenantId],

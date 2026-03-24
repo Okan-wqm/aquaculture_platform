@@ -121,10 +121,10 @@ export function InstallerCommandModal({
               </div>
               <div>
                 <h2 className="text-xl font-semibold text-white">
-                  Cihaz Basariyla Olusturuldu!
+                  Cihaz Başarıyla Oluşturuldu!
                 </h2>
                 <p className="text-sm text-green-100">
-                  Asagidaki komutu Linux cihazinizda calistirin
+                  Aşağıdaki komutu Linux cihazınızda çalıştırın
                 </p>
               </div>
             </div>
@@ -149,7 +149,7 @@ export function InstallerCommandModal({
                 </div>
                 <div className="flex items-center">
                   <Clock className="w-4 h-4 text-gray-500 mr-1" />
-                  <span className="text-gray-500">Token suresi:</span>
+                  <span className="text-gray-500">Token süresi:</span>
                   <span
                     className={`ml-2 font-medium ${
                       isTokenExpired() ? 'text-red-600' : 'text-green-600'
@@ -166,8 +166,8 @@ export function InstallerCommandModal({
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
                 <span className="text-sm">
-                  Token suresi dolmus. Yeniden olusturmak icin asagidaki dugmeyi
-                  kullanin.
+                  Token süresi dolmuş. Yeniden oluşturmak için aşağıdaki düğmeyi
+                  kullanın.
                 </span>
               </div>
             )}
@@ -206,7 +206,7 @@ export function InstallerCommandModal({
                 </button>
               </div>
               <p className="mt-2 text-xs text-gray-500">
-                Bu komutu Linux terminalinizde root olarak calistirin (sudo ile)
+                Bu komutu Linux terminalinizde root olarak çalıştırın (sudo ile)
               </p>
             </div>
 
@@ -235,12 +235,12 @@ export function InstallerCommandModal({
 
             {/* Steps */}
             <div className="bg-blue-50 rounded-lg p-4">
-              <h3 className="font-medium text-blue-900 mb-3">Kurulum Adimlari</h3>
+              <h3 className="font-medium text-blue-900 mb-3">Kurulum Adımları</h3>
               <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
-                <li>Linux cihaziniza SSH ile baglanin</li>
-                <li>Yukaridaki komutu kopyalayip terminale yapistiirin</li>
-                <li>Kurulum otomatik olarak tamamlanacaktir</li>
-                <li>Cihaz, bu sayfada "Online" olarak gorunecektir</li>
+                <li>Linux cihazınıza SSH ile bağlanın</li>
+                <li>Yukarıdaki komutu kopyalayıp terminale yapıştırın</li>
+                <li>Kurulum otomatik olarak tamamlanacaktır</li>
+                <li>Cihaz, bu sayfada "Online" olarak görünecektir</li>
               </ol>
             </div>
           </div>

@@ -12,6 +12,8 @@ import {
   Badge,
   Spinner,
   Alert,
+  formatCurrency as sharedFormatCurrency,
+  DEFAULT_CURRENCY,
 } from '@aquaculture/shared-ui';
 import {
   useSpareParts,
@@ -269,13 +271,10 @@ export const SparePartsPage: React.FC = () => {
     setPage(1);
   };
 
-  // Format currency
-  const formatCurrency = (value?: number, currency = 'TRY') => {
+  // Format currency — delegates to shared utility
+  const formatCurrency = (value?: number, currency = DEFAULT_CURRENCY) => {
     if (value === undefined) return '-';
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency,
-    }).format(value);
+    return sharedFormatCurrency(value, currency);
   };
 
   if (error) {

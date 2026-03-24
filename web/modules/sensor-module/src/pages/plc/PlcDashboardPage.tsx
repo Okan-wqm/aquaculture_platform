@@ -49,7 +49,7 @@ import {
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.FC<{ className?: string }> }> = {
   ONLINE: { label: 'Online', color: 'text-green-600 bg-green-50 border-green-200', icon: Wifi },
   OFFLINE: { label: 'Offline', color: 'text-gray-500 bg-gray-50 border-gray-200', icon: WifiOff },
-  CONNECTING: { label: 'Baglaniyor', color: 'text-yellow-600 bg-yellow-50 border-yellow-200', icon: Loader2 },
+  CONNECTING: { label: 'Bağlanıyor', color: 'text-yellow-600 bg-yellow-50 border-yellow-200', icon: Loader2 },
   ERROR: { label: 'Hata', color: 'text-red-600 bg-red-50 border-red-200', icon: XCircle },
 };
 
@@ -69,7 +69,7 @@ const StatusSummaryCards: React.FC<{ counts: PlcConnectionCountByStatus }> = ({ 
   const cards = [
     { label: 'Online', value: counts.online, icon: Wifi, color: 'text-green-600 bg-green-50' },
     { label: 'Offline', value: counts.offline, icon: WifiOff, color: 'text-gray-500 bg-gray-50' },
-    { label: 'Baglaniyor', value: counts.connecting, icon: Loader2, color: 'text-yellow-600 bg-yellow-50' },
+    { label: 'Bağlanıyor', value: counts.connecting, icon: Loader2, color: 'text-yellow-600 bg-yellow-50' },
     { label: 'Hata', value: counts.error, icon: XCircle, color: 'text-red-600 bg-red-50' },
   ];
 
@@ -103,7 +103,7 @@ const AlarmStatsBanner: React.FC<{ stats: PlcAlarmStats }> = ({ stats }) => {
           <div>
             <h3 className="font-semibold text-gray-900">Alarm Durumu</h3>
             <p className="text-sm text-gray-600">
-              {stats.totalActive} aktif, {stats.totalUnacknowledged} onaylanmamis
+              {stats.totalActive} aktif, {stats.totalUnacknowledged} onaylanmamış
             </p>
           </div>
         </div>
@@ -118,7 +118,7 @@ const AlarmStatsBanner: React.FC<{ stats: PlcAlarmStats }> = ({ stats }) => {
             <span className="font-medium text-yellow-700">{stats.warningCount} Uyari</span>
           )}
           <Link to="/sensor/plc/alarms" className="flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-800">
-            Tumu <ArrowRight className="h-4 w-4" />
+            Tümü <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
       </div>
@@ -232,7 +232,7 @@ const PlcDashboardPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">PLC Kontrol Paneli</h1>
           <p className="mt-1 text-sm text-gray-500">
-            PLC baglantilari, telemetri ve alarm durumuna genel bakis
+            PLC bağlantıları, telemetri ve alarm durumuna genel bakış
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -268,8 +268,8 @@ const PlcDashboardPage: React.FC = () => {
                 <Server className="h-5 w-5 text-indigo-600" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900">Baglantilar</h3>
-                <p className="text-sm text-gray-500">{connections?.length || 0} PLC baglantisi</p>
+                <h3 className="font-semibold text-gray-900">Bağlantılar</h3>
+                <p className="text-sm text-gray-500">{connections?.length || 0} PLC bağlantısı</p>
               </div>
               <ArrowRight className="ml-auto h-4 w-4 text-gray-400" />
             </Link>
@@ -282,7 +282,7 @@ const PlcDashboardPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">Besleme Parametreleri</h3>
-                <p className="text-sm text-gray-500">Parametre yonetimi ve PLC aktarimi</p>
+                <p className="text-sm text-gray-500">Parametre yönetimi ve PLC aktarımı</p>
               </div>
               <ArrowRight className="ml-auto h-4 w-4 text-gray-400" />
             </Link>
@@ -305,7 +305,7 @@ const PlcDashboardPage: React.FC = () => {
 
           {/* Connections Grid */}
           <div>
-            <h2 className="mb-4 text-lg font-semibold text-gray-900">PLC Baglantilari</h2>
+            <h2 className="mb-4 text-lg font-semibold text-gray-900">PLC Bağlantıları</h2>
             {connections && connections.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {connections.map((conn) => (
@@ -319,15 +319,15 @@ const PlcDashboardPage: React.FC = () => {
             ) : (
               <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
                 <Server className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">PLC baglantisi yok</h3>
+                <h3 className="mt-2 text-sm font-semibold text-gray-900">PLC bağlantısı yok</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  Ilk PLC baglantinizi olusturmak icin Baglantilar sayfasina gidin.
+                  İlk PLC bağlantınızı oluşturmak için Bağlantılar sayfasına gidin.
                 </p>
                 <Link
                   to="/sensor/plc/connections"
                   className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
                 >
-                  Baglanti Olustur
+                  Bağlantı Oluştur
                 </Link>
               </div>
             )}

@@ -184,7 +184,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
       <div className="mx-4 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b px-6 py-4">
           <h2 className="text-lg font-semibold text-gray-900">
-            {connection ? 'PLC Baglantisini Duzenle' : 'Yeni PLC Baglantisi'}
+            {connection ? 'PLC Bağlantısını Düzenle' : 'Yeni PLC Bağlantısı'}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="h-5 w-5" />
@@ -195,7 +195,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
           {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Baglanti Adi *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bağlantı Adı *</label>
               <input
                 type="text"
                 required
@@ -223,20 +223,20 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Aciklama</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
             <textarea
               value={form.description}
               onChange={(e) => updateField('description', e.target.value)}
               maxLength={1000}
               rows={2}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              placeholder="Baglanti aciklamasi..."
+              placeholder="Bağlantı açıklaması..."
             />
           </div>
 
           {/* Connection Settings */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Baglanti Ayarlari</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Bağlantı Ayarları</h3>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL *</label>
@@ -551,7 +551,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               <div className="border-t px-4 py-4 space-y-4">
                 {/* Reconnection */}
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yeniden Baglanti</h4>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yeniden Bağlantı</h4>
                   <div className="space-y-3">
                     <label className="flex items-center gap-2">
                       <input
@@ -638,7 +638,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
 
                 {/* Failover */}
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yedek Baglanti (Failover)</h4>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yedek Bağlantı (Failover)</h4>
                   <input
                     type="text"
                     value={form.failoverEndpointUrl}
@@ -658,7 +658,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               onClick={onClose}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
-              Iptal
+              İptal
             </button>
             <button
               type="submit"
@@ -666,7 +666,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {connection ? 'Guncelle' : 'Olustur'}
+              {connection ? 'Güncelle' : 'Oluştur'}
             </button>
           </div>
         </form>
@@ -687,7 +687,7 @@ const TestResultModal: React.FC<{
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
     <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Baglanti Testi</h3>
+        <h3 className="text-lg font-semibold text-gray-900">Bağlantı Testi</h3>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
           <X className="h-5 w-5" />
         </button>
@@ -701,7 +701,7 @@ const TestResultModal: React.FC<{
         )}
         <h4 className="mt-2 font-semibold text-gray-900">{connectionName}</h4>
         <p className={`text-sm font-medium ${result.success ? 'text-green-600' : 'text-red-600'}`}>
-          {result.success ? 'Baglanti basarili!' : 'Baglanti basarisiz'}
+          {result.success ? 'Bağlantı başarılı!' : 'Bağlantı başarısız'}
         </p>
       </div>
 
@@ -818,7 +818,7 @@ const PlcConnectionsPage: React.FC = () => {
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">PLC Baglantilari</h1>
+          <h1 className="text-2xl font-bold text-gray-900">PLC Bağlantıları</h1>
           <p className="mt-1 text-sm text-gray-500">OPC UA PLC baglantilarini yonetin</p>
         </div>
         <div className="flex items-center gap-3">
@@ -833,7 +833,7 @@ const PlcConnectionsPage: React.FC = () => {
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
           >
             <Plus className="h-4 w-4" />
-            Yeni Baglanti
+            Yeni Bağlantı
           </button>
         </div>
       </div>
@@ -844,7 +844,7 @@ const PlcConnectionsPage: React.FC = () => {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Baglanti ara..."
+            placeholder="Bağlantı ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
@@ -873,11 +873,11 @@ const PlcConnectionsPage: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Baglanti</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Bağlantı</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Endpoint</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Durum</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Guvenlik</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Son Baglanti</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Son Bağlantı</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Aktif</th>
                 <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Islemler</th>
               </tr>
@@ -944,14 +944,14 @@ const PlcConnectionsPage: React.FC = () => {
                               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                             >
                               <Zap className="h-4 w-4" />
-                              Baglanti Test Et
+                              Bağlantı Test Et
                             </button>
                             <button
                               onClick={() => { setEditingConnection(conn); setShowForm(true); setMenuOpenId(null); }}
                               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                             >
                               <Edit className="h-4 w-4" />
-                              Duzenle
+                              Düzenle
                             </button>
                             {conn.isActive ? (
                               <button
@@ -992,7 +992,7 @@ const PlcConnectionsPage: React.FC = () => {
         <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
           <Server className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-semibold text-gray-900">
-            {searchTerm || statusFilter ? 'Sonuc bulunamadi' : 'PLC baglantisi yok'}
+            {searchTerm || statusFilter ? 'Sonuç bulunamadı' : 'PLC bağlantısı yok'}
           </h3>
           <p className="mt-1 text-sm text-gray-500">
             {searchTerm || statusFilter
@@ -1005,7 +1005,7 @@ const PlcConnectionsPage: React.FC = () => {
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             >
               <Plus className="h-4 w-4" />
-              Yeni Baglanti
+              Yeni Bağlantı
             </button>
           )}
         </div>
@@ -1036,7 +1036,7 @@ const PlcConnectionsPage: React.FC = () => {
           <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
             <div className="text-center">
               <AlertTriangle className="mx-auto h-10 w-10 text-red-500" />
-              <h3 className="mt-2 text-lg font-semibold text-gray-900">Baglantiyi Sil</h3>
+              <h3 className="mt-2 text-lg font-semibold text-gray-900">Bağlantıyı Sil</h3>
               <p className="mt-1 text-sm text-gray-500">
                 Bu PLC baglantisini silmek istediginizden emin misiniz? Bu islem geri alinamaz.
               </p>
@@ -1046,7 +1046,7 @@ const PlcConnectionsPage: React.FC = () => {
                 onClick={() => setDeleteConfirm(null)}
                 className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
-                Iptal
+                İptal
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}

@@ -53,10 +53,10 @@ import {
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   DRAFT: { label: 'Taslak', color: 'bg-gray-100 text-gray-700 border-gray-200' },
   PENDING: { label: 'Bekliyor', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-  SENT: { label: 'Gonderildi', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  ACKNOWLEDGED: { label: 'Onaylandi', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+  SENT: { label: 'Gönderildi', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  ACKNOWLEDGED: { label: 'Onaylandı', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
   ACTIVE: { label: 'Aktif', color: 'bg-green-100 text-green-700 border-green-200' },
-  SUPERSEDED: { label: 'Gecersiz', color: 'bg-gray-100 text-gray-500 border-gray-200' },
+  SUPERSEDED: { label: 'Geçersiz', color: 'bg-gray-100 text-gray-500 border-gray-200' },
   ERROR: { label: 'Hata', color: 'bg-red-100 text-red-700 border-red-200' },
 };
 
@@ -165,7 +165,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
       <div className="mx-4 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b px-6 py-4">
           <h2 className="text-lg font-semibold text-gray-900">
-            {parameter ? 'Parametreyi Duzenle' : 'Yeni Besleme Parametresi'}
+            {parameter ? 'Parametreyi Düzenle' : 'Yeni Besleme Parametresi'}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="h-5 w-5" />
@@ -177,14 +177,14 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
           <div className="grid grid-cols-2 gap-4">
             {!parameter && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">PLC Baglanti *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">PLC Bağlantı *</label>
                 <select
                   required
                   value={form.plcConnectionId}
                   onChange={(e) => updateField('plcConnectionId', e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 >
-                  <option value="">Baglanti secin...</option>
+                  <option value="">Bağlantı seçin...</option>
                   {connections.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
@@ -192,7 +192,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Adi *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Adı *</label>
               <input
                 type="text"
                 required
@@ -214,7 +214,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Aciklama</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
             <textarea
               value={form.description}
               onChange={(e) => updateField('description', e.target.value)}
@@ -263,7 +263,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
           {/* Schedule */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-gray-900">Besleme Programi</h3>
+              <h3 className="text-sm font-semibold text-gray-900">Besleme Programı</h3>
               <button
                 type="button"
                 onClick={addScheduleEntry}
@@ -321,7 +321,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
 
           {/* Thresholds */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Esik Degerleri</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Eşik Değerleri</h3>
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">O2 Min (mg/L)</label>
@@ -340,7 +340,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Sicaklik Max (C)</label>
+                <label className="block text-xs text-gray-500 mb-1">Sıcaklık Max (C)</label>
                 <input type="number" min={0} max={50} step={0.1}
                   value={form.thresholds.tempMax}
                   onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
@@ -348,7 +348,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Sicaklik Kritik (C)</label>
+                <label className="block text-xs text-gray-500 mb-1">Sıcaklık Kritik (C)</label>
                 <input type="number" min={0} max={50} step={0.1}
                   value={form.thresholds.tempCritical}
                   onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
@@ -376,10 +376,10 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
 
           {/* VFD Settings */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">VFD Ayarlari</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">VFD Ayarları</h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Blower Min Hiz (%)</label>
+                <label className="block text-xs text-gray-500 mb-1">Blower Min Hız (%)</label>
                 <input type="number" min={0} max={100}
                   value={form.vfdSettings.blowerMinSpeed}
                   onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
@@ -387,7 +387,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Blower Max Hiz (%)</label>
+                <label className="block text-xs text-gray-500 mb-1">Blower Max Hız (%)</label>
                 <input type="number" min={0} max={100}
                   value={form.vfdSettings.blowerMaxSpeed}
                   onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
@@ -395,7 +395,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Doser Min Hiz (%)</label>
+                <label className="block text-xs text-gray-500 mb-1">Doser Min Hız (%)</label>
                 <input type="number" min={0} max={100}
                   value={form.vfdSettings.doserMinSpeed}
                   onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
@@ -403,7 +403,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Doser Max Hiz (%)</label>
+                <label className="block text-xs text-gray-500 mb-1">Doser Max Hız (%)</label>
                 <input type="number" min={0} max={100}
                   value={form.vfdSettings.doserMaxSpeed}
                   onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
@@ -420,7 +420,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
               onClick={onClose}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
-              Iptal
+              İptal
             </button>
             <button
               type="submit"
@@ -428,7 +428,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {parameter ? 'Guncelle' : 'Olustur'}
+              {parameter ? 'Güncelle' : 'Oluştur'}
             </button>
           </div>
         </form>
@@ -517,7 +517,7 @@ const PlcFeedingParamsPage: React.FC = () => {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Besleme Parametreleri</h1>
-          <p className="mt-1 text-sm text-gray-500">Besleme parametre setlerini yonetin ve PLC&apos;ye gonderin</p>
+          <p className="mt-1 text-sm text-gray-500">Besleme parametre setlerini yönetin ve PLC&apos;ye gönderin</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -553,10 +553,10 @@ const PlcFeedingParamsPage: React.FC = () => {
           onChange={(e) => setStatusFilter(e.target.value as ParameterStatus | '')}
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         >
-          <option value="">Tum Durumlar</option>
+          <option value="">Tüm Durumlar</option>
           <option value="DRAFT">Taslak</option>
           <option value="ACTIVE">Aktif</option>
-          <option value="SENT">Gonderildi</option>
+          <option value="SENT">Gönderildi</option>
           <option value="PENDING">Bekliyor</option>
           <option value="ERROR">Hata</option>
         </select>
@@ -565,7 +565,7 @@ const PlcFeedingParamsPage: React.FC = () => {
           onChange={(e) => setConnectionFilter(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         >
-          <option value="">Tum Baglantilar</option>
+          <option value="">Tüm Bağlantılar</option>
           {connections?.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
@@ -627,7 +627,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                       {Number(param.targetDailyFeedKg).toFixed(1)} kg
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {Array.isArray(param.schedule) ? `${param.schedule.length} ogun` : '-'}
+                      {Array.isArray(param.schedule) ? `${param.schedule.length} öğün` : '-'}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {formatDate(param.createdAt)}
@@ -647,7 +647,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                             >
                               <Edit className="h-4 w-4" />
-                              Duzenle
+                              Düzenle
                             </button>
                             <button
                               onClick={() => handleSendToPlc(param.id, param.name)}
@@ -655,7 +655,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               <Send className="h-4 w-4" />
-                              PLC&apos;ye Gonder
+                              PLC&apos;ye Gönder
                             </button>
                             {param.status !== 'ACTIVE' && (
                               <button
@@ -663,7 +663,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
                               >
                                 <PlayCircle className="h-4 w-4" />
-                                Etkinlestir
+                                Etkinleştir
                               </button>
                             )}
                             <button
@@ -695,7 +695,7 @@ const PlcFeedingParamsPage: React.FC = () => {
         <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
           <BarChart3 className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-semibold text-gray-900">Besleme parametresi yok</h3>
-          <p className="mt-1 text-sm text-gray-500">Ilk besleme parametre setinizi olusturun.</p>
+          <p className="mt-1 text-sm text-gray-500">İlk besleme parametre setinizi oluşturun.</p>
           <button
             onClick={() => setShowForm(true)}
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
@@ -734,7 +734,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                 onClick={() => { setCloneDialogId(null); setCloneName(''); }}
                 className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
-                Iptal
+                İptal
               </button>
               <button
                 onClick={handleClone}
@@ -760,7 +760,7 @@ const PlcFeedingParamsPage: React.FC = () => {
             )}
             <h3 className="mt-2 text-lg font-semibold text-gray-900">{sendResult.name}</h3>
             <p className={`text-sm font-medium ${sendResult.success ? 'text-green-600' : 'text-red-600'}`}>
-              {sendResult.success ? 'Parametreler PLC\'ye basariyla gonderildi!' : 'Gonderme basarisiz'}
+              {sendResult.success ? 'Parametreler PLC\'ye başarıyla gönderildi!' : 'Gönderme başarısız'}
             </p>
             {sendResult.error && (
               <p className="mt-2 text-sm text-red-500">{sendResult.error}</p>
@@ -782,14 +782,14 @@ const PlcFeedingParamsPage: React.FC = () => {
             <div className="text-center">
               <AlertTriangle className="mx-auto h-10 w-10 text-red-500" />
               <h3 className="mt-2 text-lg font-semibold text-gray-900">Parametreyi Sil</h3>
-              <p className="mt-1 text-sm text-gray-500">Bu islem geri alinamaz.</p>
+              <p className="mt-1 text-sm text-gray-500">Bu işlem geri alınamaz.</p>
             </div>
             <div className="mt-4 flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
                 className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
-                Iptal
+                İptal
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}

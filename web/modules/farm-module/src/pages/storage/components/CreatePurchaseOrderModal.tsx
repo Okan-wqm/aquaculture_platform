@@ -2,7 +2,7 @@
  * Create Purchase Order Modal
  */
 import React, { useState } from 'react';
-import { useToast } from '@aquaculture/shared-ui';
+import { useToast, formatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import { useCreatePurchaseOrder, PurchaseOrderCategory, CreatePurchaseOrderInput } from '../../../hooks/usePurchaseOrders';
 import { useFeedList } from '../../../hooks/useFeeds';
 import { useChemicalList } from '../../../hooks/useChemicals';
@@ -220,7 +220,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                               className="w-24 border border-gray-300 rounded px-2 py-1 text-sm" />
                           </td>
                           <td className="px-4 py-2 text-sm font-medium">
-                            {item.unitPrice ? new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK' }).format(item.unitPrice * item.quantity) : '-'}
+                            {item.unitPrice ? formatCurrency(item.unitPrice * item.quantity, DEFAULT_CURRENCY) : '-'}
                           </td>
                           <td className="px-4 py-2">
                             <button type="button" onClick={() => removeItem(item.itemId)}
@@ -236,7 +236,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                   </table>
                   {totalAmount > 0 && (
                     <div className="bg-gray-50 px-4 py-2 text-right text-sm font-medium text-gray-900">
-                      Total: {new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK' }).format(totalAmount)}
+                      Total: {formatCurrency(totalAmount, DEFAULT_CURRENCY)}
                     </div>
                   )}
                 </div>

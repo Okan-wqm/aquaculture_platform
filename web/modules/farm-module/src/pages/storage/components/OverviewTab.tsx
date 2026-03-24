@@ -3,15 +3,12 @@
  * and interactive pie/donut charts for category distribution and location fill rates.
  */
 import React, { useState, useMemo } from 'react';
-import { DonutChart } from '@aquaculture/shared-ui';
+import { DonutChart, formatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import { useStorageOverview, useStockMovements, useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 import { usePendingDeliveries, PurchaseOrder } from '../../../hooks/usePurchaseOrders';
 import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
-
-const formatCurrency = (amount: number, currency = 'NOK') =>
-  new Intl.NumberFormat('nb-NO', { style: 'currency', currency }).format(amount);
 
 const movementTypeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
@@ -142,7 +139,7 @@ export const OverviewTab: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 p-5">
           <div className="text-sm font-medium text-gray-500">Total Stock Value</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900">{formatCurrency(overview?.totalStockValue || 0)}</div>
+          <div className="mt-1 text-2xl font-bold text-gray-900">{formatCurrency(overview?.totalStockValue || 0, DEFAULT_CURRENCY)}</div>
           <div className="mt-1 text-xs text-gray-400">{overview?.totalItems || 0} items</div>
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-5">

@@ -3,7 +3,7 @@
  * Application side navigation — menu items, module access
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import type { NavigationItem, UserRole } from '../../types';
 
 // Alias for backward compatibility
@@ -237,7 +237,6 @@ const MenuItem: React.FC<{
   userRoles?: UserRole[];
   theme?: SidebarTheme;
 }> = ({ item, activePath, collapsed, depth = 0, onNavigate, userRoles = [], theme = 'default' }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
   const hasChildren = item.children && item.children.length > 0;
 
   // Access check — computed as a boolean (no useCallback overhead for a sync value)
@@ -248,6 +247,13 @@ const MenuItem: React.FC<{
   const isChildActive = item.children?.some(
     (child) => child.path === activePath || (!!child.path && !!activePath && activePath.startsWith(child.path + '/'))
   );
+
+  // BUG-1 FIX: Auto-expand parent when a child is active
+  const [isExpanded, setIsExpanded] = useState(!!isChildActive);
+
+  useEffect(() => {
+    if (isChildActive) setIsExpanded(true);
+  }, [isChildActive]);
 
   const handleClick = useCallback(() => {
     if (hasChildren) {

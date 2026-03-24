@@ -365,10 +365,37 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
   }
 
   /**
-   * Handle a failed proactive refresh — retry with stored timer or give up.
+   * Handle a failed proactive refresh — if the current token is still valid,
+   * fall back to READY instead of disrupting the user. Only give up when
+   * the token is truly expired AND retries are exhausted.
    */
-  private handleRefreshFailure(): void {
+  private async handleRefreshFailure(): Promise<void> {
     this.refreshRetryCount++;
+
+    // Bug 9 fix: Check if current token is still valid before escalating
+    try {
+      const { getAccessToken } = await import('./api-client');
+      const currentToken = getAccessToken();
+      if (currentToken) {
+        const exp = decodeJwtExp(currentToken);
+        if (exp && exp > Date.now() / 1000 + 30) {
+          // Token still has > 30s of life — stay READY, don't disrupt user
+          if (import.meta.env.DEV) {
+            console.debug(
+              `[TokenLifecycle] Proactive refresh failed but token still valid (exp in ${Math.round(exp - Date.now() / 1000)}s), staying READY`,
+            );
+          }
+          this.transition('READY');
+          try { this.readyResolve?.(); } catch { /* already resolved */ }
+          // Re-schedule with remaining TTL
+          this.scheduleProactiveRefresh(currentToken);
+          return;
+        }
+      }
+    } catch {
+      // Import failed or token unreadable — continue with retry/expiry logic
+    }
+
     if (this.refreshRetryCount < MAX_REFRESH_RETRIES) {
       if (import.meta.env.DEV) {
         console.debug(
@@ -380,7 +407,7 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
       this.refreshTimer = setTimeout(() => this.triggerProactiveRefresh(), 2000);
     } else {
       if (import.meta.env.DEV) {
-        console.warn('[TokenLifecycle] Max refresh retries exceeded, redirecting to /login');
+        console.debug('[TokenLifecycle] Max refresh retries exceeded, redirecting to /login');
       }
       this.transition('EXPIRED');
       this.resolveBarrierAsExpired();

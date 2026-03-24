@@ -19,7 +19,7 @@ import {
   FileText,
   TrendingUp,
 } from 'lucide-react';
-import { cn, useAuth, SearchableSelect } from '@aquaculture/shared-ui';
+import { cn, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -46,14 +46,9 @@ import {
 // Helpers
 // ============================================================================
 
-function formatCurrency(amount: number | undefined | null, currency = 'USD'): string {
+function formatCurrency(amount: number | undefined | null, currency = DEFAULT_CURRENCY): string {
   if (amount == null) return '-';
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  return sharedFormatCurrency(amount, currency);
 }
 
 function formatDate(dateStr: string | undefined | null): string {
@@ -88,7 +83,7 @@ function CreatePayrollModal({
   const [payPeriodType, setPayPeriodType] = useState<PayPeriodType>(PayPeriodType.MONTHLY);
   const [payPeriodStart, setPayPeriodStart] = useState('');
   const [payPeriodEnd, setPayPeriodEnd] = useState('');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
   const [notes, setNotes] = useState('');
 
   // Work hours
@@ -157,7 +152,7 @@ function CreatePayrollModal({
     setPayPeriodType(PayPeriodType.MONTHLY);
     setPayPeriodStart('');
     setPayPeriodEnd('');
-    setCurrency('USD');
+    setCurrency(DEFAULT_CURRENCY);
     setNotes('');
     setRegularHours(160);
     setOvertimeHours(0);

@@ -64,7 +64,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
   const validateForm = useCallback((): boolean => {
     // Device name is optional but if provided should be meaningful
     if (formData.deviceName && formData.deviceName.length < 2) {
-      setError('Cihaz adi en az 2 karakter olmalidir');
+      setError('Cihaz adı en az 2 karakter olmalıdır');
       return false;
     }
     return true;
@@ -90,7 +90,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
       },
       onError: (err) => {
         console.error('Failed to provision edge device:', err);
-        setError(err instanceof Error ? err.message : 'Cihaz olusturulamadi. Lutfen tekrar deneyin.');
+        setError(err instanceof Error ? err.message : 'Cihaz oluşturulamadı. Lütfen tekrar deneyin.');
       },
     });
   }, [formData, validateForm, createDevice, onSuccess]);
@@ -156,8 +156,8 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
             {/* Info Box */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm text-blue-800">
-                Cihaz olusturulduktan sonra size bir kurulum komutu verilecek.
-                Bu komutu Linux cihazinizda calistirarak otomatik kurulum yapabilirsiniz.
+                Cihaz oluşturulduktan sonra size bir kurulum komutu verilecek.
+                Bu komutu Linux cihazınızda çalıştırarak otomatik kurulum yapabilirsiniz.
               </p>
             </div>
 
@@ -171,7 +171,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
                 onChange={handleInputChange('deviceModel')}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white"
               >
-                <option value="">Model secin (opsiyonel)...</option>
+                <option value="">Model seçin (opsiyonel)...</option>
                 {DEVICE_MODELS.map((model) => (
                   <option key={model.value} value={model.value}>
                     {model.label}
@@ -184,7 +184,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cihaz Adi
+                  Cihaz Adı
                 </label>
                 <input
                   type="text"
@@ -193,7 +193,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
                   placeholder="Bodrum RAS Controller"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
-                <p className="mt-1 text-xs text-gray-500">Opsiyonel - otomatik olusturulur</p>
+                <p className="mt-1 text-xs text-gray-500">Opsiyonel - otomatik oluşturulur</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Seri Numarasi</label>
@@ -209,7 +209,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Aciklama (Opsiyonel)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama (Opsiyonel)</label>
               <textarea
                 value={formData.description}
                 onChange={handleInputChange('description')}
@@ -226,7 +226,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
               onClick={handleClose}
               className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors"
             >
-              Iptal
+              İptal
             </button>
             <button
               onClick={handleSubmit}
@@ -236,12 +236,12 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
               {isCreating ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Olusturuluyor...
+                  Oluşturuluyor...
                 </>
               ) : (
                 <>
                   <CheckCircle className="w-4 h-4" />
-                  Cihaz Olustur
+                  Cihaz Oluştur
                 </>
               )}
             </button>

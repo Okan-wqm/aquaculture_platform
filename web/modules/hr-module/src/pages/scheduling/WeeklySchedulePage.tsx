@@ -38,12 +38,12 @@ type ViewMode = 'daily' | 'weekly' | 'monthly';
 // =====================
 
 const DEFAULT_CATEGORIES: ScheduleCategory[] = [
-  { code: 'D', name: 'Calisma', color: '#22C55E', textColor: '#FFFFFF', isWorking: true, hours: 9 },
+  { code: 'D', name: 'Çalışma', color: '#22C55E', textColor: '#FFFFFF', isWorking: true, hours: 9 },
   { code: 'X', name: 'Off', color: '#9CA3AF', textColor: '#FFFFFF', isWorking: false, hours: 0 },
   { code: 'P', name: 'Izin', color: '#3B82F6', textColor: '#FFFFFF', isWorking: false, hours: 0 },
   { code: 'OT', name: 'Fazla Mesai', color: '#F59E0B', textColor: '#FFFFFF', isWorking: true, hours: 4 },
   { code: 'E', name: 'Egitim', color: '#8B5CF6', textColor: '#FFFFFF', isWorking: true, hours: 8 },
-  { code: 'H', name: 'Hastalik', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
+  { code: 'H', name: 'Hastalık', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
 ];
 
 /**
@@ -99,10 +99,10 @@ function saveScheduleData(data: ScheduleStore, tenantId?: string | null, userId?
 // =====================
 
 const DAY_NAMES_TR = ['Pzt', 'Sal', 'Car', 'Per', 'Cum', 'Cts', 'Paz'];
-const DAY_FULL_NAMES_TR = ['Pazartesi', 'Sali', 'Carsamba', 'Persembe', 'Cuma', 'Cumartesi', 'Pazar'];
+const DAY_FULL_NAMES_TR = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
 const MONTH_NAMES_TR = [
-  'Ocak', 'Subat', 'Mart', 'Nisan', 'Mayis', 'Haziran',
-  'Temmuz', 'Agustos', 'Eylul', 'Ekim', 'Kasim', 'Aralik',
+  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
 ];
 
 function getMonday(date: Date): Date {
@@ -443,7 +443,7 @@ export function WeeklySchedulePage() {
             cat ? 'shadow-sm' : weekend ? 'text-gray-300' : 'text-gray-200 hover:bg-gray-100',
           )}
           style={cat ? { backgroundColor: cat.color, color: cat.textColor } : undefined}
-          title={cat ? `${cat.name} (${cat.hours}h)` : 'Tiklayarak ata'}
+          title={cat ? `${cat.name} (${cat.hours}h)` : 'Tıklayarak ata'}
         >
           {cat ? cat.code : weekend ? '-' : '·'}
         </div>
@@ -494,10 +494,10 @@ export function WeeklySchedulePage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Calendar className="h-6 w-6 text-indigo-600" />
-              Is Cizelgesi
+              İş Çizelgesi
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Calisanlarin programlarini planlama ve yonetim
+              Çalışanların programlarını planlama ve yönetim
             </p>
           </div>
 
@@ -515,7 +515,7 @@ export function WeeklySchedulePage() {
                       : 'text-gray-500 hover:text-gray-700',
                   )}
                 >
-                  {mode === 'daily' ? 'Gunluk' : mode === 'weekly' ? 'Haftalik' : 'Aylik'}
+                  {mode === 'daily' ? 'Günlük' : mode === 'weekly' ? 'Haftalık' : 'Aylık'}
                 </button>
               ))}
             </div>
@@ -545,7 +545,7 @@ export function WeeklySchedulePage() {
                 onClick={navigateToday}
                 className="ml-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
               >
-                Bugune Don
+                Bugüne Dön
               </button>
             </div>
 
@@ -603,12 +603,12 @@ export function WeeklySchedulePage() {
           {loadingEmployees ? (
             <div className="p-12 text-center">
               <RefreshCw className="h-8 w-8 text-gray-300 animate-spin mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">Calisanlar yukleniyor...</p>
+              <p className="text-gray-500 text-sm">Çalışanlar yükleniyor...</p>
             </div>
           ) : employees.length === 0 ? (
             <div className="p-12 text-center">
               <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Calisan bulunamadi</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Çalışan bulunamadı</h3>
               <p className="text-gray-500">Aktif calisan kaydolmasi gerekiyor.</p>
             </div>
           ) : (
@@ -617,7 +617,7 @@ export function WeeklySchedulePage() {
                 <tr className="bg-gray-50">
                   {/* Employee column header */}
                   <th className="sticky left-0 z-20 bg-gray-50 border border-gray-200 px-4 py-2 text-left text-xs font-semibold text-gray-600 min-w-[180px]">
-                    Calisan
+                    Çalışan
                   </th>
                   {/* Day columns */}
                   {visibleDates.map((date) => {
@@ -710,7 +710,7 @@ export function WeeklySchedulePage() {
               <tfoot>
                 <tr className="bg-gray-50">
                   <td className="sticky left-0 z-10 bg-gray-50 border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600">
-                    Toplam Calisan
+                    Toplam Çalışan
                   </td>
                   {visibleDates.map((date) => {
                     const dateStr = formatDate(date);

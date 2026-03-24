@@ -2,7 +2,7 @@
  * Tanks & Ponds Analytics Tab
  *
  * KPI cards and charts for tank/pond performance metrics.
- * Uses mock data — will be replaced with GraphQL queries.
+ * Derives all KPIs and chart data from real tankData via useTanksList().
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -13,14 +13,10 @@ import {
   PieChart,
   Pie,
   Cell,
-  ComposedChart,
-  Area,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts';
 import { useTanksList } from '../../../hooks/useTanks';
@@ -44,64 +40,18 @@ const tooltipStyle = {
 };
 
 // ============================================================================
-// Mock Data
+// Status color mapping for pie chart
 // ============================================================================
 
-const biomassByTank = [
-  { tank: 'Tank A1', biomass: 18.5 },
-  { tank: 'Tank A2', biomass: 16.2 },
-  { tank: 'Tank B1', biomass: 15.8 },
-  { tank: 'Pond 1', biomass: 14.3 },
-  { tank: 'Tank B2', biomass: 13.7 },
-  { tank: 'Pond 2', biomass: 12.1 },
-  { tank: 'Tank C1', biomass: 11.4 },
-  { tank: 'Tank C2', biomass: 10.8 },
-  { tank: 'Pond 3', biomass: 9.5 },
-  { tank: 'Tank D1', biomass: 8.2 },
-];
-
-const tankStatusData = [
-  { name: 'Operational', value: 18, color: '#22c55e' },
-  { name: 'Maintenance', value: 3, color: '#f59e0b' },
-  { name: 'Fallow', value: 2, color: '#94a3b8' },
-  { name: 'Quarantine', value: 1, color: '#ef4444' },
-];
-
-const waterTempData = [
-  { date: 'Mar 1', avgTemp: 13.8 },
-  { date: 'Mar 3', avgTemp: 14.0 },
-  { date: 'Mar 5', avgTemp: 13.5 },
-  { date: 'Mar 7', avgTemp: 14.2 },
-  { date: 'Mar 9', avgTemp: 14.5 },
-  { date: 'Mar 11', avgTemp: 14.1 },
-  { date: 'Mar 13', avgTemp: 13.9 },
-  { date: 'Mar 15', avgTemp: 14.3 },
-  { date: 'Mar 17', avgTemp: 14.6 },
-  { date: 'Mar 19', avgTemp: 14.8 },
-  { date: 'Mar 21', avgTemp: 14.4 },
-  { date: 'Mar 23', avgTemp: 14.0 },
-  { date: 'Mar 25', avgTemp: 13.7 },
-  { date: 'Mar 27', avgTemp: 14.1 },
-  { date: 'Mar 29', avgTemp: 14.2 },
-];
-
-const mortalityData = [
-  { date: 'Mar 1', daily: 12, cumulative: 12 },
-  { date: 'Mar 3', daily: 8, cumulative: 20 },
-  { date: 'Mar 5', daily: 15, cumulative: 35 },
-  { date: 'Mar 7', daily: 5, cumulative: 40 },
-  { date: 'Mar 9', daily: 10, cumulative: 50 },
-  { date: 'Mar 11', daily: 7, cumulative: 57 },
-  { date: 'Mar 13', daily: 3, cumulative: 60 },
-  { date: 'Mar 15', daily: 9, cumulative: 69 },
-  { date: 'Mar 17', daily: 6, cumulative: 75 },
-  { date: 'Mar 19', daily: 4, cumulative: 79 },
-  { date: 'Mar 21', daily: 11, cumulative: 90 },
-  { date: 'Mar 23', daily: 8, cumulative: 98 },
-  { date: 'Mar 25', daily: 5, cumulative: 103 },
-  { date: 'Mar 27', daily: 7, cumulative: 110 },
-  { date: 'Mar 29', daily: 3, cumulative: 113 },
-];
+const STATUS_COLORS: Record<string, string> = {
+  operational: '#22c55e',
+  active: '#22c55e',
+  maintenance: '#f59e0b',
+  fallow: '#94a3b8',
+  quarantine: '#ef4444',
+  inactive: '#6b7280',
+  empty: '#d1d5db',
+};
 
 // ============================================================================
 // Component
@@ -111,6 +61,18 @@ interface TanksAnalyticsTabProps {
   dateRange: string;
 }
 
+/**
+ * "No data available" placeholder for charts without real data
+ */
+const NoDataPlaceholder: React.FC<{ label: string }> = ({ label }) => (
+  <div className="flex flex-col items-center justify-center h-[300px] text-gray-400">
+    <svg className="w-12 h-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 12H4M12 4v16" />
+    </svg>
+    <p className="text-sm">{label}</p>
+  </div>
+);
+
 const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateRange }) => {
   // Fetch tank data for chart components
   const { data } = useTanksList();
@@ -119,6 +81,45 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
     if (!data?.items) return [];
     return data.items.map(tankToTankWithBatch);
   }, [data?.items]);
+
+  // BUG-6 FIX: Derive KPIs and chart data from real tankData instead of hardcoded mock
+  const totalTanks = tankData.length;
+  const avgBiomass = useMemo(() => {
+    if (totalTanks === 0) return 0;
+    const sum = tankData.reduce((acc, t) => acc + (t.biomass ?? 0), 0);
+    return Math.round((sum / totalTanks) * 10) / 10;
+  }, [tankData, totalTanks]);
+
+  const avgMortalityRate = useMemo(() => {
+    const tanksWithRate = tankData.filter(t => t.mortalityRate != null);
+    if (tanksWithRate.length === 0) return null;
+    const sum = tanksWithRate.reduce((acc, t) => acc + (t.mortalityRate ?? 0), 0);
+    return Math.round((sum / tanksWithRate.length) * 10) / 10;
+  }, [tankData]);
+
+  // Biomass by tank -- top 10 sorted descending
+  const biomassByTank = useMemo(() =>
+    tankData
+      .filter(t => (t.biomass ?? 0) > 0)
+      .sort((a, b) => (b.biomass ?? 0) - (a.biomass ?? 0))
+      .slice(0, 10)
+      .map(t => ({ tank: t.name, biomass: Math.round((t.biomass ?? 0) * 10) / 10 })),
+    [tankData],
+  );
+
+  // Tank status distribution from real data
+  const tankStatusData = useMemo(() => {
+    const statusMap = new Map<string, number>();
+    for (const t of tankData) {
+      const status = (t.status || 'unknown').toLowerCase();
+      statusMap.set(status, (statusMap.get(status) || 0) + 1);
+    }
+    return Array.from(statusMap.entries()).map(([name, value]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      value,
+      color: STATUS_COLORS[name] || '#6b7280',
+    }));
+  }, [tankData]);
 
   // ============================================================================
   // TENANT-SCOPED STORAGE KEYS
@@ -208,30 +209,26 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
 
   return (
     <div className="space-y-6">
-      {/* KPI Row */}
+      {/* KPI Row -- derived from real tankData */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Total Tanks"
-          value={24}
-          sparklineData={[20, 21, 22, 22, 23, 24]}
+          value={totalTanks}
           variant="primary"
         />
         <KpiCard
           title="Avg. Biomass"
-          value="12.4 t"
-          trend={{ value: 8.2, direction: 'up', isPercentage: true }}
+          value={totalTanks > 0 ? `${avgBiomass} kg` : 'N/A'}
           variant="success"
         />
         <KpiCard
-          title="Avg. Water Temp"
-          value="14.2°C"
-          trend={{ value: 0, direction: 'neutral' }}
+          title="Active Tanks"
+          value={tankData.filter(t => t.isActive).length}
           variant="info"
         />
         <KpiCard
           title="Mortality Rate"
-          value="0.8%"
-          trend={{ value: 0.3, direction: 'down', isPercentage: true }}
+          value={avgMortalityRate != null ? `${avgMortalityRate}%` : 'N/A'}
           variant="warning"
         />
       </div>
@@ -242,18 +239,22 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         <Card>
           <div className="p-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">Biomass by Tank</h2>
-            <p className="text-sm text-gray-500">Top 10 tanks by current biomass (tonnes)</p>
+            <p className="text-sm text-gray-500">Top 10 tanks by current biomass (kg)</p>
           </div>
           <div className="p-4">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={biomassByTank} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" stroke="#6b7280" />
-                <YAxis dataKey="tank" type="category" stroke="#6b7280" width={80} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="biomass" name="Biomass (t)" fill="#0073e6" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {biomassByTank.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={biomassByTank} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis type="number" stroke="#6b7280" />
+                  <YAxis dataKey="tank" type="category" stroke="#6b7280" width={80} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="biomass" name="Biomass (kg)" fill="#0073e6" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <NoDataPlaceholder label="No biomass data available" />
+            )}
           </div>
         </Card>
 
@@ -264,30 +265,34 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
             <p className="text-sm text-gray-500">Current operational status of all tanks</p>
           </div>
           <div className="p-4">
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={tankStatusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {tankStatusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={tooltipStyle} />
-              </PieChart>
-            </ResponsiveContainer>
+            {tankStatusData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={tankStatusData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {tankStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={tooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <NoDataPlaceholder label="No tank status data available" />
+            )}
           </div>
         </Card>
       </div>
 
-      {/* Charts Row 2 */}
+      {/* Charts Row 2 -- No mock data; show placeholder until real time-series APIs are available */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Water Temperature Trend */}
         <Card>
@@ -296,28 +301,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
             <p className="text-sm text-gray-500">Daily average temperature over 30 days</p>
           </div>
           <div className="p-4">
-            <ResponsiveContainer width="100%" height={300}>
-              <ComposedChart data={waterTempData}>
-                <defs>
-                  <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.1} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="date" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" domain={['auto', 'auto']} />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Area
-                  type="monotone"
-                  dataKey="avgTemp"
-                  name="Avg Temp (°C)"
-                  stroke="#06b6d4"
-                  fillOpacity={1}
-                  fill="url(#colorTemp)"
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <NoDataPlaceholder label="No water temperature data available yet" />
           </div>
         </Card>
 
@@ -328,18 +312,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
             <p className="text-sm text-gray-500">Daily mortality count and cumulative total</p>
           </div>
           <div className="p-4">
-            <ResponsiveContainer width="100%" height={300}>
-              <ComposedChart data={mortalityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="date" stroke="#6b7280" />
-                <YAxis yAxisId="left" stroke="#6b7280" />
-                <YAxis yAxisId="right" orientation="right" stroke="#6b7280" />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Legend />
-                <Bar yAxisId="left" dataKey="daily" name="Daily Mortality" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative" stroke="#ef4444" strokeWidth={2} />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <NoDataPlaceholder label="No mortality trend data available yet" />
           </div>
         </Card>
       </div>

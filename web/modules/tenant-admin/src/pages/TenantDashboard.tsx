@@ -16,7 +16,7 @@ import {
 import { getMyModules, getTenantUsers, getMySubscription } from '../lib/api';
 import type { User, MyModule } from '../lib/types';
 import { resolveModuleCode } from '../lib/constants';
-import { useTenantStats } from '../hooks/useTenantData';
+import { useTenantStats, useModuleUsageStats } from '../hooks/useTenantData';
 import { formatRelativeTime, formatDate } from '../utils/date-utils';
 
 /**
@@ -142,6 +142,9 @@ const TenantDashboard: React.FC = () => {
   // Use TanStack Query for stats (PERF-001)
   const { data: tenantStats } = useTenantStats();
 
+  // BUG-4 FIX: Fetch module usage stats for real user counts per module
+  const { data: usageStatsMap } = useModuleUsageStats();
+
   // Modules query
   const modulesQuery = useQuery({
     queryKey: ['dashboard', 'modules'],
@@ -155,7 +158,7 @@ const TenantDashboard: React.FC = () => {
           name: m.name,
           code,
           status: m.isEnabled ? 'active' : 'inactive',
-          users: 0,
+          users: 0, // placeholder — enriched below with usageStatsMap
           lastActivity: 'Active',
           icon: moduleIconMap[code] || m.icon || '📦',
         };
@@ -183,7 +186,15 @@ const TenantDashboard: React.FC = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  const modules = modulesQuery.data ?? [];
+  // BUG-4 FIX: Enrich module list with real user counts from usage stats
+  const modules = useMemo(() => {
+    const rawModules = modulesQuery.data ?? [];
+    if (!usageStatsMap) return rawModules;
+    return rawModules.map(m => ({
+      ...m,
+      users: usageStatsMap[m.code]?.userCount ?? m.users,
+    }));
+  }, [modulesQuery.data, usageStatsMap]);
   const users = usersQuery.data ?? [];
   const subscription = subscriptionQuery.data ?? null;
   const loading = modulesQuery.isLoading || usersQuery.isLoading;

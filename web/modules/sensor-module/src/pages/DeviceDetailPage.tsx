@@ -142,12 +142,12 @@ function formatRelativeTime(dateStr?: string): string {
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
 
-  if (diffMins < 1) return 'Az once';
-  if (diffMins < 60) return `${diffMins} dakika once`;
+  if (diffMins < 1) return 'Az önce';
+  if (diffMins < 60) return `${diffMins} dakika önce`;
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours} saat once`;
+  if (diffHours < 24) return `${diffHours} saat önce`;
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays} gun once`;
+  return `${diffDays} gün önce`;
 }
 
 // H5: Return full Tailwind class strings instead of dynamic construction
@@ -156,13 +156,13 @@ function getStatusInfo(status: string): { label: string; bgClass: string; textCl
   switch (status?.toLowerCase()) {
     case 'active':
     case 'online':
-      return { label: 'Cevrimici', bgClass: 'bg-green-100', textClass: 'text-green-800', icon: <Wifi className="w-3 h-3" /> };
+      return { label: 'Çevrimiçi', bgClass: 'bg-green-100', textClass: 'text-green-800', icon: <Wifi className="w-3 h-3" /> };
     case 'offline':
-      return { label: 'Cevrimdisi', bgClass: 'bg-gray-100', textClass: 'text-gray-800', icon: <WifiOff className="w-3 h-3" /> };
+      return { label: 'Çevrimdışı', bgClass: 'bg-gray-100', textClass: 'text-gray-800', icon: <WifiOff className="w-3 h-3" /> };
     case 'error':
       return { label: 'Hata', bgClass: 'bg-red-100', textClass: 'text-red-800', icon: <AlertCircle className="w-3 h-3" /> };
     case 'maintenance':
-      return { label: 'Bakimda', bgClass: 'bg-yellow-100', textClass: 'text-yellow-800', icon: <Settings className="w-3 h-3" /> };
+      return { label: 'Bakımda', bgClass: 'bg-yellow-100', textClass: 'text-yellow-800', icon: <Settings className="w-3 h-3" /> };
     default:
       return { label: status || 'Bilinmiyor', bgClass: 'bg-gray-100', textClass: 'text-gray-800', icon: <Wifi className="w-3 h-3" /> };
   }
@@ -235,7 +235,7 @@ const VfdPanel: React.FC<{ deviceId: string }> = ({ deviceId }) => {
           )}
           {params.motorSpeed != null && (
             <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Motor Hizi</p>
+              <p className="text-xs text-gray-500">Motor Hızı</p>
               <p className="font-semibold text-gray-900">{Math.round(params.motorSpeed)} RPM</p>
             </div>
           )}
@@ -247,13 +247,13 @@ const VfdPanel: React.FC<{ deviceId: string }> = ({ deviceId }) => {
           )}
           {params.outputPower != null && (
             <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Guc</p>
+              <p className="text-xs text-gray-500">Güç</p>
               <p className="font-semibold text-gray-900">{params.outputPower.toFixed(2)} kW</p>
             </div>
           )}
           {params.driveTemperature != null && (
             <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Surucü Sicakligi</p>
+              <p className="text-xs text-gray-500">Sürücü Sıcaklığı</p>
               <p className="font-semibold text-gray-900">{params.driveTemperature.toFixed(1)} °C</p>
             </div>
           )}
@@ -271,7 +271,7 @@ const VfdPanel: React.FC<{ deviceId: string }> = ({ deviceId }) => {
           )}
           {params.runningHours != null && (
             <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Calisma Saati</p>
+              <p className="text-xs text-gray-500">Çalışma Saati</p>
               <p className="font-semibold text-gray-900">{Math.round(params.runningHours)} h</p>
             </div>
           )}
@@ -290,7 +290,7 @@ const VfdPanel: React.FC<{ deviceId: string }> = ({ deviceId }) => {
           className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
         >
           {cmdLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-          Baslat
+          Başlat
         </button>
         <button
           onClick={stop}
@@ -307,7 +307,7 @@ const VfdPanel: React.FC<{ deviceId: string }> = ({ deviceId }) => {
             className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
           >
             {cmdLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Arizayi Sifirla
+            Arızayı Sıfırla
           </button>
         )}
         <button
@@ -328,7 +328,7 @@ const VfdPanel: React.FC<{ deviceId: string }> = ({ deviceId }) => {
       )}
       {lastResult?.success && (
         <div className="mt-3 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-700">
-          Komut basariyla gonderildi
+          Komut başarıyla gönderildi
         </div>
       )}
     </div>
@@ -398,7 +398,7 @@ const DeviceDetailPage: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (!deviceId || !window.confirm('Bu sensoru silmek istediginizden emin misiniz?')) return;
+    if (!deviceId || !window.confirm('Bu sensörü silmek istediğinizden emin misiniz?')) return;
 
     setDeleting(true);
     try {
@@ -409,7 +409,7 @@ const DeviceDetailPage: React.FC = () => {
       if (result.deleteSensor.success) {
         navigate('/sensor/devices');
       } else {
-        alert(result.deleteSensor.message || 'Silme islemi basarisiz');
+        alert(result.deleteSensor.message || 'Silme işlemi başarısız');
       }
     } catch (err) {
       alert((err as Error).message);
@@ -434,11 +434,11 @@ const DeviceDetailPage: React.FC = () => {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-600" />
           <div>
-            <p className="text-red-800 font-medium">Sensor yuklenemedi</p>
+            <p className="text-red-800 font-medium">Sensör yüklenemedi</p>
             <p className="text-red-600 text-sm">{error || 'Sensor bulunamadi'}</p>
           </div>
           <Link to="/sensor/devices" className="ml-auto text-red-600 hover:text-red-800">
-            Geri Don
+            Geri Dön
           </Link>
         </div>
       </div>
@@ -479,7 +479,7 @@ const DeviceDetailPage: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
           >
             <Edit className="w-4 h-4" />
-            Duzenle
+            Düzenle
           </Link>
         </div>
       </div>
@@ -495,7 +495,7 @@ const DeviceDetailPage: React.FC = () => {
           }`}
         >
           <Activity className="w-4 h-4" />
-          Genel Bakis
+          Genel Bakış
         </button>
         <button
           onClick={() => setActiveTab('channels')}
@@ -537,7 +537,7 @@ const DeviceDetailPage: React.FC = () => {
               <span className="text-gray-500">Site/Departman</span>
               <span className="font-medium text-gray-900 flex items-center gap-1">
                 <MapPin className="w-4 h-4" />
-                {device.siteId || device.departmentId || 'Belirtilmemis'}
+                {device.siteId || device.departmentId || 'Belirtilmemiş'}
               </span>
             </div>
             {device.connectionStatus?.batteryLevel !== undefined && (
@@ -567,7 +567,7 @@ const DeviceDetailPage: React.FC = () => {
               </div>
             )}
             <div className="flex items-center justify-between py-2">
-              <span className="text-gray-500">Son Gorulme</span>
+              <span className="text-gray-500">Son Görülme</span>
               <span className="font-medium text-gray-900 flex items-center gap-1">
                 <Clock className="w-4 h-4" />
                 {formatRelativeTime(lastSeenDate)}
@@ -583,12 +583,12 @@ const DeviceDetailPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Teknik Bilgiler</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-500">Uretici</p>
-                <p className="font-medium text-gray-900">{device.manufacturer || 'Belirtilmemis'}</p>
+                <p className="text-sm text-gray-500">Üretici</p>
+                <p className="font-medium text-gray-900">{device.manufacturer || 'Belirtilmemiş'}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Model</p>
-                <p className="font-medium text-gray-900">{device.model || 'Belirtilmemis'}</p>
+                <p className="font-medium text-gray-900">{device.model || 'Belirtilmemiş'}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Firmware</p>
@@ -607,7 +607,7 @@ const DeviceDetailPage: React.FC = () => {
                 <p className="font-medium text-gray-900">
                   {device.installationDate
                     ? new Date(device.installationDate).toLocaleDateString('tr-TR')
-                    : 'Belirtilmemis'}
+                    : 'Belirtilmemiş'}
                 </p>
               </div>
               <div>
@@ -615,7 +615,7 @@ const DeviceDetailPage: React.FC = () => {
                 <p className="font-medium text-gray-900">
                   {device.lastCalibrationDate
                     ? new Date(device.lastCalibrationDate).toLocaleDateString('tr-TR')
-                    : 'Yapilmadi'}
+                    : 'Yapılmadı'}
                 </p>
               </div>
               <div>
@@ -633,7 +633,7 @@ const DeviceDetailPage: React.FC = () => {
                 to={`/sensor/readings?device=${deviceId}`}
                 className="text-sm text-cyan-600 hover:text-cyan-700"
               >
-                Tumunu Gor
+                Tümünü Gör
               </Link>
             </div>
             <div className="space-y-2">

@@ -245,7 +245,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
               onClick={handleCancel}
               disabled={saving}
               className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Iptal"
+              title="İptal"
             >
               <X className="w-4 h-4" />
             </button>
@@ -255,7 +255,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
             onClick={handleEdit}
             disabled={updating}
             className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-            title="Duzenle"
+            title="Düzenle"
           >
             <Edit className="w-4 h-4" />
           </button>
@@ -302,11 +302,11 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Birim</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Durum</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Aktif</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-cyan-600">Carpan</th>
+              <th className="text-center px-4 py-3 text-sm font-medium text-cyan-600">Çarpan</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-cyan-600">Ofset</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Son Kalibrasyon</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Sonraki</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Islemler</th>
+              <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">İşlemler</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -357,7 +357,7 @@ const CalibrationPage: React.FC = () => {
       <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
           <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
-          <p className="text-gray-500">Kalibrasyon verileri yukleniyor...</p>
+          <p className="text-gray-500">Kalibrasyon verileri yükleniyor...</p>
         </div>
       </div>
     );
@@ -369,7 +369,7 @@ const CalibrationPage: React.FC = () => {
       <div className="p-6">
         <div className="bg-red-50 border border-red-100 rounded-xl p-6 text-center">
           <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-          <h3 className="font-semibold text-red-900 text-lg">Yukleme Hatasi</h3>
+          <h3 className="font-semibold text-red-900 text-lg">Yükleme Hatası</h3>
           <p className="text-sm text-red-600 mt-1">{error}</p>
           <button
             onClick={refetch}
@@ -387,8 +387,8 @@ const CalibrationPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Kalibrasyon Yonetimi</h1>
-          <p className="text-gray-500 mt-1">Sensor kalibrasyon takibi ve ayarlari</p>
+          <h1 className="text-2xl font-bold text-gray-900">Kalibrasyon Yönetimi</h1>
+          <p className="text-gray-500 mt-1">Sensör kalibrasyon takibi ve ayarları</p>
         </div>
         <button
           onClick={refetch}
@@ -443,7 +443,7 @@ const CalibrationPage: React.FC = () => {
             <AlertCircle className="w-7 h-7 text-gray-500" />
             <div>
               <p className="text-2xl font-bold text-gray-700">{stats.neverCalibrated}</p>
-              <p className="text-sm text-gray-500">Hic Kalibre Edilmemis</p>
+              <p className="text-sm text-gray-500">Hiç Kalibre Edilmemiş</p>
             </div>
           </div>
         </div>
@@ -454,11 +454,11 @@ const CalibrationPage: React.FC = () => {
         <div className="flex items-start gap-3">
           <Settings className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
           <div>
-            <h4 className="font-medium text-blue-900">Kalibrasyon Hakkinda</h4>
+            <h4 className="font-medium text-blue-900">Kalibrasyon Hakkında</h4>
             <p className="text-sm text-blue-700 mt-1">
-              Kalibrasyon, sensor ham degerlerini gercek fiziksel degerlere donusturur.
-              Lineer kalibrasyon formulü: <strong className="font-mono">deger = (ham x carpan) + ofset</strong>.
-              Her kanalin kalibrasyon parametrelerini duzenlemek icin kalem ikonuna tiklayin.
+              Kalibrasyon, sensör ham değerlerini gerçek fiziksel değerlere dönüştürür.
+              Lineer kalibrasyon formülü: <strong className="font-mono">değer = (ham x çarpan) + ofset</strong>.
+              Her kanalın kalibrasyon parametrelerini düzenlemek için kalem ikonuna tıklayın.
             </p>
           </div>
         </div>
@@ -468,7 +468,7 @@ const CalibrationPage: React.FC = () => {
       {updateError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Guncelleme hatasi: {updateError}</p>
+          <p className="text-sm text-red-700">Güncelleme hatası: {updateError}</p>
         </div>
       )}
 
@@ -478,7 +478,7 @@ const CalibrationPage: React.FC = () => {
           <Gauge className="w-12 h-12 text-gray-500 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 mb-2">Kalibre Edilecek Kanal Yok</h3>
           <p className="text-gray-500 text-sm">
-            Kalibrasyon ayarlarini duzenlemek icin once sensor kaydedip veri kanallari olusturmaniz gerekiyor.
+            Kalibrasyon ayarlarını düzenlemek için önce sensör kaydedip veri kanalları oluşturmanız gerekiyor.
           </p>
         </div>
       )}

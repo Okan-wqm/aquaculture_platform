@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { overviewStats } from './mock';
+import { useStorageOverview } from '../../hooks/useStorageInventory';
 
 // Tab Components
 import { OverviewTab } from './components/OverviewTab';
@@ -129,6 +129,9 @@ const StoragePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as TabId) || 'overview';
 
+  // BUG-5 FIX: Use real data from GraphQL instead of mock imports
+  const { data: overview, isLoading: overviewLoading } = useStorageOverview();
+
   const handleTabChange = (tabId: TabId) => {
     setSearchParams({ tab: tabId });
   };
@@ -171,7 +174,9 @@ const StoragePage: React.FC = () => {
             </div>
             <div>
               <div className="text-xs text-gray-500">Total Stock Value</div>
-              <div className="text-lg font-bold text-gray-900">{formatCurrency(overviewStats.totalStockValue, overviewStats.currency)}</div>
+              <div className="text-lg font-bold text-gray-900">
+                {overviewLoading ? '...' : formatCurrency(overview?.totalStockValue ?? 0, 'NOK')}
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
@@ -182,7 +187,9 @@ const StoragePage: React.FC = () => {
             </div>
             <div>
               <div className="text-xs text-gray-500">Low Stock Alerts</div>
-              <div className="text-lg font-bold text-red-600">{overviewStats.lowStockAlerts}</div>
+              <div className="text-lg font-bold text-red-600">
+                {overviewLoading ? '...' : (overview?.lowStockAlertCount ?? 0)}
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
@@ -192,8 +199,10 @@ const StoragePage: React.FC = () => {
               </svg>
             </div>
             <div>
-              <div className="text-xs text-gray-500">Pending Orders</div>
-              <div className="text-lg font-bold text-amber-600">{overviewStats.pendingOrders}</div>
+              <div className="text-xs text-gray-500">Total Items</div>
+              <div className="text-lg font-bold text-amber-600">
+                {overviewLoading ? '...' : (overview?.totalItems ?? 0)}
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
@@ -204,7 +213,9 @@ const StoragePage: React.FC = () => {
             </div>
             <div>
               <div className="text-xs text-gray-500">Recent Movements</div>
-              <div className="text-lg font-bold text-gray-900">{overviewStats.recentMovements}</div>
+              <div className="text-lg font-bold text-gray-900">
+                {overviewLoading ? '...' : (overview?.recentMovementsCount ?? 0)}
+              </div>
             </div>
           </div>
         </div>

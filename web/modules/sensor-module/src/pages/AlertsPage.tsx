@@ -53,18 +53,18 @@ type StatusConfig = {
 
 const SEVERITY_CONFIG: Record<AlertSeverity, SeverityConfig> = {
   critical: { label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200', borderClass: 'border-l-red-500' },
-  high: { label: 'Yuksek', className: 'bg-orange-100 text-orange-800 border-orange-200', borderClass: 'border-l-orange-500' },
-  warning: { label: 'Uyari', className: 'bg-yellow-100 text-yellow-800 border-yellow-200', borderClass: 'border-l-yellow-500' },
+  high: { label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200', borderClass: 'border-l-orange-500' },
+  warning: { label: 'Uyarı', className: 'bg-yellow-100 text-yellow-800 border-yellow-200', borderClass: 'border-l-yellow-500' },
   medium: { label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200', borderClass: 'border-l-amber-500' },
-  low: { label: 'Dusuk', className: 'bg-blue-100 text-blue-800 border-blue-200', borderClass: 'border-l-blue-500' },
+  low: { label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200', borderClass: 'border-l-blue-500' },
   info: { label: 'Bilgi', className: 'bg-gray-100 text-gray-800 border-gray-200', borderClass: 'border-l-gray-400' },
 };
 
 const STATUS_TABS: { value: AlertStatusFilter; label: string }[] = [
-  { value: 'all', label: 'Tumu' },
+  { value: 'all', label: 'Tümü' },
   { value: 'active', label: 'Aktif' },
-  { value: 'acknowledged', label: 'Onaylandi' },
-  { value: 'resolved', label: 'Cozuldu' },
+  { value: 'acknowledged', label: 'Onaylandı' },
+  { value: 'resolved', label: 'Çözüldü' },
 ];
 
 // ============================================================================
@@ -83,9 +83,9 @@ const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
 const StatusBadge: React.FC<{ alert: AlertHistoryItem }> = ({ alert }) => {
   let config: StatusConfig;
   if (alert.resolved) {
-    config = { label: 'Cozuldu', icon: CheckCircle, className: 'text-green-600' };
+    config = { label: 'Çözüldü', icon: CheckCircle, className: 'text-green-600' };
   } else if (alert.acknowledged) {
-    config = { label: 'Onaylandi', icon: Clock, className: 'text-yellow-600' };
+    config = { label: 'Onaylandı', icon: Clock, className: 'text-yellow-600' };
   } else {
     config = { label: 'Aktif', icon: AlertTriangle, className: 'text-red-600' };
   }
@@ -190,7 +190,7 @@ const AlertCard: React.FC<{
             ) : (
               <CheckCircle className="w-4 h-4" />
             )}
-            Cozuldu Isaretle
+            Çözüldü İşaretle
           </button>
         </div>
       )}
@@ -233,7 +233,7 @@ const AlertsPage: React.FC = () => {
       <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
           <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
-          <p className="text-gray-500">Uyarilar yukleniyor...</p>
+          <p className="text-gray-500">Uyarılar yükleniyor...</p>
         </div>
       </div>
     );
@@ -245,7 +245,7 @@ const AlertsPage: React.FC = () => {
       <div className="p-6">
         <div className="bg-red-50 border border-red-100 rounded-xl p-6 text-center">
           <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-          <h3 className="font-semibold text-red-900 text-lg">Yukleme Hatasi</h3>
+          <h3 className="font-semibold text-red-900 text-lg">Yükleme Hatası</h3>
           <p className="text-sm text-red-600 mt-1">{error}</p>
           <button
             onClick={refetch}
@@ -263,12 +263,12 @@ const AlertsPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Uyarilar</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Uyarılar</h1>
           <p className="text-gray-500 mt-1">
             {stats.active > 0 ? (
-              <span className="text-red-600 font-medium">{stats.active} aktif uyari</span>
+              <span className="text-red-600 font-medium">{stats.active} aktif uyarı</span>
             ) : (
-              'Aktif uyari yok'
+              'Aktif uyarı yok'
             )}
             {stats.critical > 0 && (
               <span className="text-red-600 font-medium"> ({stats.critical} kritik)</span>
@@ -301,7 +301,7 @@ const AlertsPage: React.FC = () => {
             <AlertTriangle className="w-8 h-8 text-orange-600" />
             <div>
               <p className="text-2xl font-bold text-orange-900">{stats.high}</p>
-              <p className="text-sm text-orange-600">Yuksek</p>
+              <p className="text-sm text-orange-600">Yüksek</p>
             </div>
           </div>
         </div>
@@ -319,7 +319,7 @@ const AlertsPage: React.FC = () => {
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div>
               <p className="text-2xl font-bold text-green-900">{stats.resolved}</p>
-              <p className="text-sm text-green-600">Cozulen</p>
+              <p className="text-sm text-green-600">Çözülen</p>
             </div>
           </div>
         </div>
@@ -357,12 +357,12 @@ const AlertsPage: React.FC = () => {
               }
               className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
-              <option value="all">Tum Onem Dereceleri</option>
+              <option value="all">Tüm Önem Dereceleri</option>
               <option value="critical">Kritik</option>
-              <option value="high">Yuksek</option>
-              <option value="warning">Uyari</option>
+              <option value="high">Yüksek</option>
+              <option value="warning">Uyarı</option>
               <option value="medium">Orta</option>
-              <option value="low">Dusuk</option>
+              <option value="low">Düşük</option>
               <option value="info">Bilgi</option>
             </select>
           </div>
@@ -390,11 +390,11 @@ const AlertsPage: React.FC = () => {
       {alerts.length === 0 && !loading && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
           <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Uyari Bulunamadi</h3>
+          <h3 className="text-lg font-medium text-gray-700 mb-2">Uyarı Bulunamadı</h3>
           <p className="text-gray-500 text-sm">
             {filters.status !== 'all' || filters.severity
-              ? 'Secili filtrelerle eslesen uyari bulunamadi. Filtreleri degistirmeyi deneyin.'
-              : 'Henuz tetiklenmis uyari bulunmuyor.'}
+              ? 'Seçili filtrelerle eşleşen uyarı bulunamadı. Filtreleri değiştirmeyi deneyin.'
+              : 'Henüz tetiklenmiş uyarı bulunmuyor.'}
           </p>
         </div>
       )}
@@ -416,7 +416,7 @@ const AlertsPage: React.FC = () => {
       {alerts.length > 0 && (
         <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-sm text-gray-500">
-            Sayfa {filters.page} - {alerts.length} sonuc gosteriliyor
+            Sayfa {filters.page} - {alerts.length} sonuç gösteriliyor
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -444,7 +444,7 @@ const AlertsPage: React.FC = () => {
       {loading && alerts.length > 0 && (
         <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
           <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
-          <span className="text-sm text-gray-700">Guncelleniyor...</span>
+          <span className="text-sm text-gray-700">Güncelleniyor...</span>
         </div>
       )}
     </div>

@@ -42,7 +42,7 @@ const confidenceConfig = {
   high: {
     bgColor: 'bg-green-100',
     textColor: 'text-green-800',
-    label: 'Yuksek',
+    label: 'Yüksek',
   },
   medium: {
     bgColor: 'bg-yellow-100',
@@ -52,7 +52,7 @@ const confidenceConfig = {
   low: {
     bgColor: 'bg-red-100',
     textColor: 'text-red-800',
-    label: 'Dusuk',
+    label: 'Düşük',
   },
 };
 
@@ -156,7 +156,7 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
           className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-xs font-medium"
         >
           <Edit className="w-3.5 h-3.5" />
-          Duzenle
+          Düzenle
         </button>
         <button
           onClick={onReject}

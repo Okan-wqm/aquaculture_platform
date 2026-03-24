@@ -10,6 +10,7 @@
  * - Create/Edit form with all plan fields
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import { formatCurrency as sharedFormatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
   useHarvestPlanStats,
@@ -272,7 +273,7 @@ const _mockHarvestPlans: HarvestPlan[] = [
       estimatedCost: 30000,
       estimatedProfit: 18000,
       margin: 37.5,
-      currency: 'EUR',
+      currency: DEFAULT_CURRENCY,
     },
     logistics: {
       harvestStartTime: '06:00',
@@ -327,7 +328,7 @@ const _mockHarvestPlans: HarvestPlan[] = [
       estimatedCost: 12000,
       estimatedProfit: 8250,
       margin: 40.7,
-      currency: 'EUR',
+      currency: DEFAULT_CURRENCY,
     },
     createdBy: 'user-1',
     createdAt: '2024-02-05T09:00:00Z',
@@ -586,13 +587,8 @@ const formatNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-const formatCurrency = (amount: number, currency: string = 'EUR'): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
+const formatCurrency = (amount: number, currency: string = DEFAULT_CURRENCY): string => {
+  return sharedFormatCurrency(amount, currency);
 };
 
 // ============================================================================

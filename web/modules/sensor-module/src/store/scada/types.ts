@@ -26,6 +26,7 @@ import type {
   VariableBinding,
 } from '../../types/scada-package.types';
 import type { ScadaEdge, ScadaEdgeData } from '../../types/scada-edge.types';
+import type { OverlayEntry } from '../../engine/views/types';
 
 /* ------------------------------------------------------------------ */
 /*  Re-exports (backward compatibility with old store imports)         */
@@ -321,6 +322,15 @@ export interface SimulationSlice {
   setSimAlarms: (alarms: SimulationSlice['simAlarms']) => void;
 }
 
+// --- View Manager Slice ---
+
+export interface ViewManagerSlice {
+  overlays: OverlayEntry[];
+  openOverlay: (entry: Omit<OverlayEntry, 'id'>) => string;
+  closeOverlay: (id: string) => void;
+  closeAllOverlays: () => void;
+}
+
 // --- Project Slice ---
 
 export interface ProjectSlice {
@@ -376,7 +386,8 @@ export type ScadaStore =
   GroupSlice &
   TemplateSlice &
   ProjectSlice &
-  SimulationSlice;
+  SimulationSlice &
+  ViewManagerSlice;
 
 /* ------------------------------------------------------------------ */
 /*  Slice Creator Helper Type                                          */

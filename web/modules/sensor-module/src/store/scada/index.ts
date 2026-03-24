@@ -26,6 +26,7 @@ export type {
   WidgetTemplate,
   TemplateSlice,
   SimulationSlice,
+  ViewManagerSlice,
   ScadaStore,
 } from './types';
 
@@ -41,6 +42,9 @@ export { alignLeft, alignRight, alignTop, alignBottom, alignCenterH, alignCenter
 
 // Template slice
 export { createTemplateSlice } from './templateSlice';
+
+// View manager slice
+export { createViewManagerSlice } from './viewManagerSlice';
 
 // Screen import/export utilities
 export { exportScreen, importScreen, downloadScreenJSON } from './screenIO';

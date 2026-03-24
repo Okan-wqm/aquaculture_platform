@@ -13,6 +13,7 @@ import { createGroupSlice } from './groupSlice';
 import { createTemplateSlice } from './templateSlice';
 import { createProjectSlice } from './projectSlice';
 import { createSimulationSlice } from './simulationSlice';
+import { createViewManagerSlice } from './viewManagerSlice';
 
 export function createScadaStore() {
   return create<ScadaStore>()(
@@ -29,6 +30,7 @@ export function createScadaStore() {
           ...createTemplateSlice(...args),
           ...createProjectSlice(...args),
           ...createSimulationSlice(...args),
+          ...createViewManagerSlice(...args),
         }))
       ),
       { name: 'ScadaStore', enabled: process.env.NODE_ENV === 'development' }

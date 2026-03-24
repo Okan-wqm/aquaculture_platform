@@ -32,12 +32,17 @@ export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING';
  * previously existed across tenant-api.service.ts, TenantDashboard.tsx,
  * TenantSettings.tsx, and TenantUsers.tsx.
  */
+// WHY: AccessType literal union mirrors the backend enum so the UI
+// can display badges and populate form selectors without a runtime import.
+export type AccessType = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
+
 export interface User {
   id: string;
   email: string;
   firstName?: string;
   lastName?: string;
   role: UserRole | string;
+  accessType?: AccessType;
   status?: UserStatus;
   isActive?: boolean;
   isEmailVerified?: boolean;

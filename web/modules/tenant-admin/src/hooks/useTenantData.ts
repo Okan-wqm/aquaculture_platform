@@ -546,6 +546,8 @@ export function useTenantUsersRaw(options: {
 /**
  * Hook to create a tenant user
  */
+// WHY: Include accessType in mutation input so the form can pass
+// the tenant admin's platform access choice to the API.
 export function useCreateTenantUser() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -555,6 +557,7 @@ export function useCreateTenantUser() {
       email: string;
       roleId?: string;
       sendInvitation?: boolean;
+      accessType?: 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
     }) => createTenantUser(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.users() });
@@ -565,10 +568,11 @@ export function useCreateTenantUser() {
 /**
  * Hook to update a tenant user
  */
+// WHY: Include accessType in update mutation so edit form can change platform access.
 export function useUpdateTenantUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, input }: { userId: string; input: { firstName?: string; lastName?: string; roleId?: string } }) =>
+    mutationFn: ({ userId, input }: { userId: string; input: { firstName?: string; lastName?: string; roleId?: string; accessType?: 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH' } }) =>
       updateTenantUserApi(userId, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.users() });

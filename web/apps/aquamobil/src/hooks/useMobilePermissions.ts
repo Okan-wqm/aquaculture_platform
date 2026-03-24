@@ -183,6 +183,14 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
       return;
     }
 
+    // WHY: If accessType is PANEL_ONLY, this user should never have mobile access.
+    // Short-circuit to fail-closed defaults without making a network request.
+    if ((user as { accessType?: string }).accessType === 'PANEL_ONLY') {
+      setSettings({ ...DEFAULT_SETTINGS, isMobileEnabled: false });
+      setIsLoaded(true);
+      return;
+    }
+
     const cacheKey = getCacheKey(user.id);
 
     (async () => {

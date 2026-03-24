@@ -23,12 +23,15 @@ import { DeleteConfirmModal } from '../components/common';
 // Types & helpers
 // ---------------------------------------------------------------------------
 
+// WHY: accessType field added so the user list can display platform access badges
+// and pass the value to the edit modal for pre-populating the form.
 interface ApiUser {
   id: string;
   email: string;
   firstName?: string;
   lastName?: string;
   role: string;
+  accessType?: 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
   isActive?: boolean;
   isEmailVerified?: boolean;
   lastLoginAt?: string;
@@ -48,6 +51,9 @@ function transformUser(apiUser: ApiUser): DisplayUser {
     name: `${apiUser.firstName || ''} ${apiUser.lastName || ''}`.trim() || apiUser.email.split('@')[0],
     email: apiUser.email,
     role: apiUser.role,
+    // WHY: Carry accessType through to DisplayUser so both the table badge
+    // and the edit modal can read it without a separate API call.
+    accessType: apiUser.accessType || 'BOTH',
     status,
     lastLogin: formatRelativeTime(apiUser.lastLoginAt || null),
   };
@@ -136,17 +142,21 @@ const TenantUsers: React.FC = () => {
     setSaveError(null);
     try {
       if (editingUser) {
+        // WHY: Pass accessType on update so tenant admin can change platform access.
         await updateUserMutation.mutateAsync({
           userId: editingUser.id,
-          input: { firstName: data.firstName, lastName: data.lastName, roleId: data.roleId },
+          input: { firstName: data.firstName, lastName: data.lastName, roleId: data.roleId, accessType: data.accessType },
         });
       } else {
+        // WHY: Pass accessType on create so backend sets correct access level
+        // and auto-provisions mobile settings when applicable.
         await createUserMutation.mutateAsync({
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email,
           roleId: data.roleId || '',
           sendInvitation: data.sendInvitation ?? true,
+          accessType: data.accessType,
         });
       }
       setIsModalOpen(false);

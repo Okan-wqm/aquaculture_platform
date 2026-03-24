@@ -164,12 +164,15 @@ export async function getTenantUsers(options?: {
   return data.tenantUsers;
 }
 
+// WHY: accessType parameter lets the frontend pass the tenant admin's
+// platform access choice through to the backend during user creation.
 export async function createTenantUser(input: {
   firstName: string;
   lastName: string;
   email: string;
   roleId?: string;
   sendInvitation?: boolean;
+  accessType?: 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
 }): Promise<{
   userId: string;
   email: string;
@@ -193,12 +196,14 @@ export async function createTenantUser(input: {
   return data.createTenantUser;
 }
 
+// WHY: accessType in update lets the tenant admin change platform access after creation.
 export async function updateTenantUser(
   userId: string,
   input: {
     firstName?: string;
     lastName?: string;
     roleId?: string;
+    accessType?: 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
   },
 ): Promise<User> {
   const data = await apiClient.graphql<{ updateTenantUser: User }>(

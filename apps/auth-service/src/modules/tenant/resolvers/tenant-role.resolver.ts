@@ -292,6 +292,8 @@ export class TenantRoleResolver {
       throw new BadRequestException('First name, last name, and email are required');
     }
 
+    // WHY: Pass accessType through to the service layer so UserLifecycleService
+    // can set the correct platform access level and auto-provision mobile settings.
     const result = await this.tenantUserManagementService.createTenantUser(
       validTenantId,
       {
@@ -301,6 +303,7 @@ export class TenantRoleResolver {
         password: input.password,
         roleId: validRoleId,
         permissionOverrides: input.permissionOverrides,
+        accessType: input.accessType,
       },
       validUserId,
       input.sendInvitation !== false, // Default to true
@@ -339,6 +342,8 @@ export class TenantRoleResolver {
     const sanitizedFirstName = sanitizeString(input.firstName);
     const sanitizedLastName = sanitizeString(input.lastName);
 
+    // WHY: Pass accessType so tenant admin can change platform access level on edit.
+    // Service layer handles mobile settings provisioning/deactivation accordingly.
     return this.tenantUserManagementService.updateTenantUser(
       validTenantId,
       validTargetUserId,
@@ -346,6 +351,7 @@ export class TenantRoleResolver {
         firstName: sanitizedFirstName,
         lastName: sanitizedLastName,
         roleId: validRoleId,
+        accessType: input.accessType,
       },
       validUserId,
     );

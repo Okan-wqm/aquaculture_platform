@@ -2,6 +2,10 @@
 // AquaMobil Type Definitions
 // ============================================================================
 
+// WHY: AccessType determines platform access — PANEL_ONLY users are blocked from
+// the mobile app at login time, before any feature check occurs.
+export type AccessType = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
+
 // Auth types
 export interface User {
   id: string;
@@ -9,6 +13,7 @@ export interface User {
   name: string;
   role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER';
   tenantId: string | null;
+  accessType?: AccessType;
   // BUG-11: employeeId is the HR employee identifier, distinct from the auth user id.
   // When present, it must be used for schedule queries instead of user.id.
   employeeId?: string;

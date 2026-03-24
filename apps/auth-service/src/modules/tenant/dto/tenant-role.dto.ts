@@ -1,7 +1,12 @@
 import { InputType, Field, ObjectType, ID, Int, registerEnumType } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsUUID, IsInt, Min, Max, IsBoolean, IsArray, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsUUID, IsInt, Min, Max, IsBoolean, IsEnum, IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import GraphQLJSON from 'graphql-type-json';
+
+// WHY: Import AccessType enum so CreateTenantUserInput and UpdateTenantUserInput
+// can expose platform-access control to the GraphQL schema. Tenant admins
+// decide per-user whether they can use web panel, mobile PWA, or both.
+import { AccessType } from '../../authentication/entities/user.entity';
 
 /**
  * Permission Action
@@ -401,6 +406,20 @@ export class CreateTenantUserInput {
   @IsOptional()
   @IsBoolean()
   sendInvitation?: boolean;
+
+  /**
+   * Controls which platforms this user can access.
+   * Tenant admin decides per-user access level.
+   * When MOBILE_ONLY or BOTH, mobile_user_settings are auto-provisioned.
+   */
+  @Field(() => AccessType, {
+    nullable: true,
+    defaultValue: AccessType.BOTH,
+    description: 'Platform access type: PANEL_ONLY, MOBILE_ONLY, or BOTH',
+  })
+  @IsOptional()
+  @IsEnum(AccessType)
+  accessType?: AccessType;
 }
 
 /**
@@ -450,6 +469,18 @@ export class UpdateTenantUserInput {
   @IsOptional()
   @IsUUID()
   roleId?: string;
+
+  /**
+   * WHY: Allows tenant admins to change a user's platform access after creation.
+   * Changing to/from MOBILE triggers mobile_user_settings provisioning/deactivation.
+   */
+  @Field(() => AccessType, {
+    nullable: true,
+    description: 'Platform access type: PANEL_ONLY, MOBILE_ONLY, or BOTH',
+  })
+  @IsOptional()
+  @IsEnum(AccessType)
+  accessType?: AccessType;
 }
 
 /**

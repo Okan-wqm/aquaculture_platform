@@ -34,6 +34,12 @@ export interface UserModule {
 /**
  * User entity from backend
  */
+/**
+ * WHY: accessType field lets frontend enforce platform access restrictions.
+ * PANEL_ONLY users are blocked from mobile app, MOBILE_ONLY from web panel.
+ */
+export type AccessType = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -41,6 +47,7 @@ export interface AuthUser {
   lastName?: string | null;
   role: UserRole;
   tenantId?: string | null;
+  accessType?: AccessType | null;
   isActive: boolean;
 }
 
@@ -210,6 +217,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     redirectPath: string;
   } | null> => {
     try {
+      // WHY: Fetch accessType so frontend can enforce platform access restrictions
+      // (block PANEL_ONLY users from mobile, MOBILE_ONLY users from web panel).
       const ME_QUERY = `
         query Me {
           me {
@@ -220,6 +229,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
               lastName
               role
               tenantId
+              accessType
               isActive
             }
             modules {
@@ -308,6 +318,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     dispatch({ type: 'AUTH_START' });
 
     try {
+      // WHY: Fetch accessType on login so platform access guard can be enforced
+      // immediately without waiting for a separate me() query.
       const LOGIN_MUTATION = `
         mutation Login($input: LoginInput!) {
           login(input: $input) {
@@ -323,6 +335,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
               lastName
               role
               tenantId
+              accessType
               isActive
             }
           }
@@ -410,6 +423,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
               lastName
               role
               tenantId
+              accessType
               isActive
             }
           }

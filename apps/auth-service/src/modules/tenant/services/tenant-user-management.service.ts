@@ -16,8 +16,11 @@ import { UserInvitedEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
-import { User } from '../../authentication/entities/user.entity';
+// WHY: Import AccessType so createTenantUser and updateTenantUser can accept and
+// persist the platform access level chosen by the tenant admin.
+import { User, AccessType } from '../../authentication/entities/user.entity';
 import { Tenant } from '../entities/tenant.entity';
+import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 
 /**
@@ -84,6 +87,10 @@ export class TenantUserManagementService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
+    // WHY: MobileUserSettings repository needed for auto-provisioning/deactivating
+    // mobile settings when accessType changes (MOBILE_ONLY, BOTH, PANEL_ONLY).
+    @InjectRepository(MobileUserSettings)
+    private readonly mobileSettingsRepository: Repository<MobileUserSettings>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
@@ -103,6 +110,9 @@ export class TenantUserManagementService {
       email: string;
       password?: string;
       roleId: string;
+      // WHY: accessType lets the tenant admin control which platforms a new user
+      // can access. Defaults to BOTH for backward compatibility.
+      accessType?: AccessType;
       permissionOverrides?: {
         grants: string[];
         revokes: string[];
@@ -147,6 +157,10 @@ export class TenantUserManagementService {
       ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
       : null;
 
+    // WHY: Resolve accessType with BOTH as default for backward compatibility.
+    // Tenant admin can override to PANEL_ONLY or MOBILE_ONLY per user.
+    const userAccessType = input.accessType ?? AccessType.BOTH;
+
     // Create user in auth.users table
     const newUser = this.userRepository.create({
       email: input.email.toLowerCase(),
@@ -154,6 +168,7 @@ export class TenantUserManagementService {
       lastName: input.lastName,
       password: input.password || undefined,
       role: Role.MODULE_USER, // Default global role; tenant role is separate
+      accessType: userAccessType,
       tenantId,
       isActive: true,
       isEmailVerified: false,
@@ -164,6 +179,24 @@ export class TenantUserManagementService {
 
     const savedUser = await this.userRepository.save(newUser);
     this.logger.log(`Created user ${savedUser.email} (${savedUser.id}) for tenant ${tenantId}`);
+
+    // WHY: Auto-provision mobile_user_settings when user has mobile access.
+    // Without this, mobile app would show "no settings" for new mobile users.
+    if (userAccessType === AccessType.MOBILE_ONLY || userAccessType === AccessType.BOTH) {
+      try {
+        const mobileSettings = this.mobileSettingsRepository.create({
+          userId: savedUser.id,
+          tenantId,
+          allowedFeatures: { ...DEFAULT_MOBILE_FEATURES },
+          isMobileEnabled: true,
+        });
+        await this.mobileSettingsRepository.save(mobileSettings);
+        this.logger.debug(`Auto-provisioned mobile settings for user ${savedUser.id}`);
+      } catch (mobileErr) {
+        // Non-fatal: mobile settings can be created on-demand when user first opens the app
+        this.logger.warn(`Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`);
+      }
+    }
 
     // Create role assignment in tenant schema
     const roleAssignment = await this.createRoleAssignment(
@@ -203,6 +236,9 @@ export class TenantUserManagementService {
       firstName?: string;
       lastName?: string;
       roleId?: string;
+      // WHY: accessType in update allows tenant admin to change platform access
+      // after user creation. Service handles mobile settings lifecycle.
+      accessType?: AccessType;
     },
     updatedBy: string,
   ): Promise<User> {
@@ -226,6 +262,52 @@ export class TenantUserManagementService {
     if (input.lastName !== undefined) {
       user.lastName = input.lastName;
       profileChanged = true;
+    }
+
+    // WHY: Process accessType change separately from profile fields because it
+    // triggers side effects (mobile settings provisioning/deactivation).
+    if (input.accessType !== undefined && input.accessType !== user.accessType) {
+      const oldAccessType = user.accessType;
+      user.accessType = input.accessType;
+      profileChanged = true;
+
+      const hadMobileAccess = oldAccessType === AccessType.MOBILE_ONLY || oldAccessType === AccessType.BOTH;
+      const hasMobileAccess = input.accessType === AccessType.MOBILE_ONLY || input.accessType === AccessType.BOTH;
+
+      if (!hadMobileAccess && hasMobileAccess) {
+        // WHY: User gained mobile access — auto-provision mobile settings if they don't exist.
+        try {
+          const existing = await this.mobileSettingsRepository.findOne({ where: { userId, tenantId } });
+          if (existing) {
+            // Re-enable existing settings
+            existing.isMobileEnabled = true;
+            await this.mobileSettingsRepository.save(existing);
+          } else {
+            const mobileSettings = this.mobileSettingsRepository.create({
+              userId,
+              tenantId,
+              allowedFeatures: { ...DEFAULT_MOBILE_FEATURES },
+              isMobileEnabled: true,
+            });
+            await this.mobileSettingsRepository.save(mobileSettings);
+          }
+          this.logger.debug(`Provisioned mobile settings for user ${userId} (accessType -> ${input.accessType})`);
+        } catch (mobileErr) {
+          this.logger.warn(`Failed to provision mobile settings for ${userId}: ${(mobileErr as Error).message}`);
+        }
+      } else if (hadMobileAccess && !hasMobileAccess) {
+        // WHY: User lost mobile access — deactivate mobile settings to enforce access restriction.
+        try {
+          const existing = await this.mobileSettingsRepository.findOne({ where: { userId, tenantId } });
+          if (existing) {
+            existing.isMobileEnabled = false;
+            await this.mobileSettingsRepository.save(existing);
+            this.logger.debug(`Deactivated mobile settings for user ${userId} (accessType -> PANEL_ONLY)`);
+          }
+        } catch (mobileErr) {
+          this.logger.warn(`Failed to deactivate mobile settings for ${userId}: ${(mobileErr as Error).message}`);
+        }
+      }
     }
 
     if (profileChanged) {

@@ -11,6 +11,8 @@ import {
   Mail,
   Phone,
   Shield,
+  Monitor,
+  Smartphone,
   RefreshCw,
   Check,
   AlertCircle,
@@ -22,12 +24,17 @@ import { useFocusTrap } from '../../hooks';
 // Types
 // ============================================================================
 
+// WHY: accessType field lets the tenant admin choose which platforms
+// (web panel, mobile PWA, or both) the user can access.
+export type AccessTypeValue = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
+
 export interface UserFormData {
   email: string;
   firstName: string;
   lastName: string;
   phoneNumber?: string;
   roleId?: string;
+  accessType: AccessTypeValue;
   sendInvitation: boolean;
 }
 
@@ -41,6 +48,7 @@ interface AddEditUserModalProps {
     lastName?: string;
     phoneNumber?: string;
     roleId?: string;
+    accessType?: AccessTypeValue;
   } | null;
   roles: TenantRole[];
   rolesLoading?: boolean;
@@ -78,13 +86,14 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
     restoreFocus: true,
   });
 
-  // Form state
+  // Form state — accessType defaults to BOTH (full access) for new users
   const [formData, setFormData] = useState<UserFormData>({
     email: '',
     firstName: '',
     lastName: '',
     phoneNumber: '',
     roleId: '',
+    accessType: 'BOTH',
     sendInvitation: true,
   });
 
@@ -102,6 +111,9 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
           lastName: user.lastName || '',
           phoneNumber: user.phoneNumber || '',
           roleId: user.roleId || '',
+          // WHY: Populate accessType from existing user data so the edit form
+          // shows the current access level rather than defaulting to BOTH.
+          accessType: user.accessType || 'BOTH',
           sendInvitation: false,
         });
       } else {
@@ -113,6 +125,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
           lastName: '',
           phoneNumber: '',
           roleId: defaultRole?.id || '',
+          accessType: 'BOTH',
           sendInvitation: true,
         });
       }
@@ -397,6 +410,94 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                   {validationErrors.roleId}
                 </p>
               )}
+            </div>
+
+            {/* Platform Access Control — determines which interfaces this user can access */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <Monitor className="w-4 h-4 inline mr-1" />
+                Platform Access
+              </label>
+              <div className="space-y-2">
+                <label
+                  className={`
+                    flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer
+                    transition-all hover:border-blue-300
+                    ${formData.accessType === 'BOTH' ? 'border-blue-500 bg-blue-50' : 'border-gray-100 bg-white'}
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="accessType"
+                    value="BOTH"
+                    checked={formData.accessType === 'BOTH'}
+                    onChange={() => setFormData((prev) => ({ ...prev, accessType: 'BOTH' }))}
+                    className="sr-only"
+                  />
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-100">
+                    <Monitor className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">Full Access</p>
+                    <p className="text-xs text-gray-500">Web panel + Mobile app</p>
+                  </div>
+                  {formData.accessType === 'BOTH' && (
+                    <Check className="w-5 h-5 text-blue-600" />
+                  )}
+                </label>
+                <label
+                  className={`
+                    flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer
+                    transition-all hover:border-gray-300
+                    ${formData.accessType === 'PANEL_ONLY' ? 'border-gray-500 bg-gray-50' : 'border-gray-100 bg-white'}
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="accessType"
+                    value="PANEL_ONLY"
+                    checked={formData.accessType === 'PANEL_ONLY'}
+                    onChange={() => setFormData((prev) => ({ ...prev, accessType: 'PANEL_ONLY' }))}
+                    className="sr-only"
+                  />
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-100">
+                    <Monitor className="w-4 h-4 text-gray-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">Panel Only</p>
+                    <p className="text-xs text-gray-500">Web panel access only</p>
+                  </div>
+                  {formData.accessType === 'PANEL_ONLY' && (
+                    <Check className="w-5 h-5 text-gray-600" />
+                  )}
+                </label>
+                <label
+                  className={`
+                    flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer
+                    transition-all hover:border-green-300
+                    ${formData.accessType === 'MOBILE_ONLY' ? 'border-green-500 bg-green-50' : 'border-gray-100 bg-white'}
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="accessType"
+                    value="MOBILE_ONLY"
+                    checked={formData.accessType === 'MOBILE_ONLY'}
+                    onChange={() => setFormData((prev) => ({ ...prev, accessType: 'MOBILE_ONLY' }))}
+                    className="sr-only"
+                  />
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100">
+                    <Smartphone className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">Mobile Only</p>
+                    <p className="text-xs text-gray-500">Mobile app access only</p>
+                  </div>
+                  {formData.accessType === 'MOBILE_ONLY' && (
+                    <Check className="w-5 h-5 text-green-600" />
+                  )}
+                </label>
+              </div>
             </div>
 
             {/* Send Invitation Toggle (only for new users) */}

@@ -26,7 +26,8 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// GraphQL login mutation - use LoginInput and firstName + lastName
+// WHY: Fetch accessType on login so the mobile app can immediately enforce
+// platform access restrictions without a separate mobile-settings round-trip.
 const LOGIN_MUTATION = `
   mutation Login($input: LoginInput!) {
     login(input: $input) {
@@ -39,6 +40,7 @@ const LOGIN_MUTATION = `
         lastName
         role
         tenantId
+        accessType
       }
     }
   }
@@ -55,6 +57,7 @@ const REFRESH_MUTATION = `
         lastName
         role
         tenantId
+        accessType
       }
     }
   }
@@ -191,7 +194,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { accessToken, user } = result.data.login;
       // refreshToken is now in httpOnly cookie, not in response body
 
-      // Check if user has mobile access enabled
+      // WHY: Check accessType first — PANEL_ONLY users are forbidden from mobile
+      // entirely, regardless of mobile_user_settings. This is a hard block.
+      if (user.accessType === 'PANEL_ONLY') {
+        setIsMobileDisabled(true);
+        throw new Error('Mobile access is not enabled for your account. Please contact your administrator.');
+      }
+
+      // Check if user has mobile access enabled (mobile_user_settings granular check)
       const mobileEnabled = await checkMobileEnabled(accessToken);
       if (!mobileEnabled) {
         setIsMobileDisabled(true);

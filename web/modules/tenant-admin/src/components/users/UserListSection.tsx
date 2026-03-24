@@ -1,14 +1,36 @@
 import React from 'react';
-import { Users, Edit, Trash2, MoreVertical } from 'lucide-react';
+import { Users, Edit, Trash2, MoreVertical, Monitor, Smartphone } from 'lucide-react';
 import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
+
+// WHY: AccessType badge colors provide quick visual identification:
+// BOTH=blue (full), PANEL_ONLY=gray (restricted), MOBILE_ONLY=green (field worker)
+type AccessTypeValue = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
+
+const ACCESS_TYPE_CONFIG: Record<AccessTypeValue, { label: string; bg: string; text: string; icon: typeof Monitor }> = {
+  BOTH: { label: 'Full Access', bg: 'bg-blue-50', text: 'text-blue-700', icon: Monitor },
+  PANEL_ONLY: { label: 'Panel Only', bg: 'bg-gray-50', text: 'text-gray-700', icon: Monitor },
+  MOBILE_ONLY: { label: 'Mobile Only', bg: 'bg-green-50', text: 'text-green-700', icon: Smartphone },
+};
+
+function AccessTypeBadge({ accessType }: { accessType?: AccessTypeValue }) {
+  const config = ACCESS_TYPE_CONFIG[accessType || 'BOTH'];
+  const Icon = config.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+      <Icon className="w-3 h-3" />
+      {config.label}
+    </span>
+  );
+}
 
 export interface DisplayUser {
   id: string;
   name: string;
   email: string;
   role: string;
+  accessType?: AccessTypeValue;
   status: string;
   lastLogin: string;
 }
@@ -67,6 +89,8 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+              {/* WHY: Access column shows platform access type badge for quick identification */}
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Access</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Login</th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -94,6 +118,9 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
                 </td>
                 <td className="px-6 py-4">
                   <RoleBadge role={user.role} />
+                </td>
+                <td className="px-6 py-4">
+                  <AccessTypeBadge accessType={user.accessType} />
                 </td>
                 <td className="px-6 py-4">
                   <StatusBadge status={user.status} />

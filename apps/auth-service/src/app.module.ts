@@ -11,6 +11,7 @@ import { join } from 'path';
 import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
+import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
 import { AuditModule } from './audit/audit.module';
 import { SECURITY_CONSTANTS } from './constants/auth.constants';
 import { HealthModule } from './health/health.module';
@@ -90,6 +91,10 @@ import { TenantModule } from './modules/tenant/tenant.module';
       };
       },
     }),
+
+    // Schema bootstrap — MUST be before any module that queries auth.users
+    // Ensures new columns (like accessType) exist before SeedService runs
+    AuthSchemaBootstrapModule,
 
     // GraphQL Federation
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({

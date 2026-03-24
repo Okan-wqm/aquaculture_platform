@@ -11,6 +11,12 @@ import GraphQLJSON from 'graphql-type-json';
 /**
  * Allowed mobile features configuration
  */
+/**
+ * WHY: Explicit GraphQL ObjectType ensures the mobile app receives a strongly-typed
+ * feature map. Each boolean flag controls a specific mobile app capability.
+ * New features (transfer, schedule, attendance, leave, tasks) were added to support
+ * the complete field worker workflow — from tank operations to HR self-service.
+ */
 @ObjectType('MobileAllowedFeatures')
 export class MobileAllowedFeatures {
   @Field(() => Boolean)
@@ -30,18 +36,45 @@ export class MobileAllowedFeatures {
 
   @Field(() => Boolean)
   tankView!: boolean;
+
+  /** WHY: Transfer between tanks is a core field operation alongside mortality/harvest */
+  @Field(() => Boolean, { defaultValue: true })
+  transfer!: boolean;
+
+  /** WHY: Field workers need their shift schedule on mobile */
+  @Field(() => Boolean, { defaultValue: true })
+  schedule!: boolean;
+
+  /** WHY: Clock-in/out is the primary reason field workers open the app daily */
+  @Field(() => Boolean, { defaultValue: true })
+  attendance!: boolean;
+
+  /** WHY: Leave requests from the field prevent unnecessary office visits */
+  @Field(() => Boolean, { defaultValue: true })
+  leave!: boolean;
+
+  /** WHY: Task assignments drive daily operational workflow on-site */
+  @Field(() => Boolean, { defaultValue: true })
+  tasks!: boolean;
 }
 
 /**
- * Default features for new mobile users
+ * WHY: All core operational features enabled by default for new users.
+ * Tenant admin can restrict per-user via the AccessType settings UI.
+ * waterQuality remains false — it requires specialized sensor training.
  */
 export const DEFAULT_MOBILE_FEATURES: MobileAllowedFeatures = {
   mortality: true,
   cull: true,
   harvest: true,
-  feeding: false,
+  feeding: true,
   waterQuality: false,
   tankView: true,
+  transfer: true,
+  schedule: true,
+  attendance: true,
+  leave: true,
+  tasks: true,
 };
 
 /**

@@ -27,6 +27,7 @@ import { ScreenLinkConfig } from './ScreenLinkConfig';
 import { StaticTextConfig } from './StaticTextConfig';
 import { PipeFlowConfig } from './PipeFlowConfig';
 import { SvgRectConfig, SvgCircleConfig, SvgLineConfig, SvgTextConfig } from './SvgShapeConfig';
+import { CustomSvgConfig } from './CustomSvgConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -66,4 +67,5 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   svgCircle: SvgCircleConfig,
   svgLine: SvgLineConfig,
   svgText: SvgTextConfig,
+  customSvg: CustomSvgConfig,
 };

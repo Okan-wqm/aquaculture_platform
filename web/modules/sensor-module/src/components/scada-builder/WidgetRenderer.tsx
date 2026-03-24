@@ -74,6 +74,8 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   svgCircle:         React.lazy(() => import('./widget-renderers/SvgCircleRenderer')),
   svgLine:           React.lazy(() => import('./widget-renderers/SvgLineRenderer')),
   svgText:           React.lazy(() => import('./widget-renderers/SvgTextRenderer')),
+  customSvg:         React.lazy(() => import('./widget-renderers/CustomSvgRenderer')),
+  scheduler:         React.lazy(() => import('./widget-renderers/SchedulerRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

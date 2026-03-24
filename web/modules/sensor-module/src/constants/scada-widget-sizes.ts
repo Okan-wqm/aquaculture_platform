@@ -105,6 +105,10 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   svgCircle:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 8,  maxH: 8 },
   svgLine:           { defaultW: 3, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 8 },
   svgText:           { defaultW: 2, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 4 },
+  // Custom SVG import
+  customSvg:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 12, maxH: 12 },
+  // Automation
+  scheduler:         { defaultW: 4, defaultH: 3, minW: 3, minH: 2, maxW: 12, maxH: 8 },
 };
 
 /* ------------------------------------------------------------------ */

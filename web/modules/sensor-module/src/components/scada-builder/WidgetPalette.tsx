@@ -31,6 +31,8 @@ import {
   Square,
   Circle,
   Minus,
+  FileImage,
+  Calendar,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -195,6 +197,7 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'svgCircle', label: 'Circle', icon: <Circle className="w-4 h-4" /> },
       { type: 'svgLine', label: 'Line', icon: <Minus className="w-4 h-4" /> },
       { type: 'svgText', label: 'Text', icon: <Type className="w-4 h-4" /> },
+      { type: 'customSvg', label: 'Custom SVG', icon: <FileImage className="w-4 h-4" /> },
     ],
   },
   {

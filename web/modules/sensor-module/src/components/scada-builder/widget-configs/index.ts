@@ -28,6 +28,7 @@ import { StaticTextConfig } from './StaticTextConfig';
 import { PipeFlowConfig } from './PipeFlowConfig';
 import { SvgRectConfig, SvgCircleConfig, SvgLineConfig, SvgTextConfig } from './SvgShapeConfig';
 import { CustomSvgConfig } from './CustomSvgConfig';
+import { SchedulerConfig } from './SchedulerConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -68,4 +69,5 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   svgLine: SvgLineConfig,
   svgText: SvgTextConfig,
   customSvg: CustomSvgConfig,
+  scheduler: SchedulerConfig,
 };

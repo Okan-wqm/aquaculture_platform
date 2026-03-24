@@ -201,6 +201,12 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     ],
   },
   {
+    name: 'Automation',
+    widgets: [
+      { type: 'scheduler', label: 'Scheduler', icon: <Calendar className="w-4 h-4" /> },
+    ],
+  },
+  {
     name: 'Process Equipment',
     widgets: [
       { type: 'feeder' as ScadaWidgetType, label: 'Feeder', icon: FEEDER_ICON },

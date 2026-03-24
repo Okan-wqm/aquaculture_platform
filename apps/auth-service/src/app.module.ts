@@ -54,6 +54,9 @@ import { TenantModule } from './modules/tenant/tenant.module';
         schema: configService.get('DATABASE_SCHEMA', 'auth'),
         autoLoadEntities: true,
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+        // Enterprise: Run pending migrations on startup (idempotent, safe for multi-replica)
+        migrationsRun: true,
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // Connection pool configuration
         extra: {

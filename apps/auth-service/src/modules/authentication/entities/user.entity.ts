@@ -90,12 +90,19 @@ export class User {
    * When MOBILE_ONLY or BOTH, mobile_user_settings are auto-provisioned on creation.
    */
   @Field(() => AccessType)
+  /**
+   * Controls which platforms the user can access (web panel, mobile PWA, or both).
+   * Added via migration AddUserAccessType1711700000000.
+   * Nullable for backward compatibility with pre-existing rows — defaults to BOTH
+   * at the application level when null.
+   */
   @Column({
     type: 'varchar',
     length: 20,
-    default: AccessType.BOTH,
+    nullable: true,
+    default: 'BOTH',
   })
-  accessType!: AccessType;
+  accessType?: AccessType | null;
 
   @Field()
   @Column({ type: 'boolean', default: true })

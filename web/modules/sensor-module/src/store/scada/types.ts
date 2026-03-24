@@ -72,6 +72,10 @@ export interface ScreenDef {
   parentId?: string | null;
   /** Display order among siblings. */
   sortOrder?: number;
+  /** Optional background image URL for the screen canvas. */
+  backgroundImage?: string | null;
+  /** Background image opacity (0-1). */
+  backgroundOpacity?: number;
 }
 
 export interface AlarmRuleDef {
@@ -119,10 +123,14 @@ export interface ScreenJSON {
     config?: Record<string, unknown>;
     groupId?: string | null;
     locked?: boolean;
+    animations?: ScreenWidget['animations'];
+    events?: ScreenWidget['events'];
   }>;
   edges?: ScadaEdge[];
   parentId?: string | null;
   sortOrder?: number;
+  backgroundImage?: string | null;
+  backgroundOpacity?: number;
 }
 
 export interface AlarmRuleJSON {

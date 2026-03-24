@@ -1,4 +1,6 @@
 import type { ScadaEdge } from './scada-edge.types';
+import type { AnimationRule } from '../engine/animation/types';
+import type { WidgetEventDef } from '../engine/events/types';
 
 export type ScadaPackageStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
@@ -20,6 +22,10 @@ export interface ScreenWidget {
   groupId?: string | null;
   /** When true, widget cannot be dragged or resized. */
   locked?: boolean;
+  /** Tag-driven animation rules evaluated at runtime. */
+  animations?: AnimationRule[];
+  /** Widget event definitions (click, dblclick, etc.). */
+  events?: WidgetEventDef[];
 }
 
 export interface Screen {
@@ -95,7 +101,7 @@ export interface ScadaPackage {
 }
 
 // ---------------------------------------------------------------------------
-// Automation Binding (SCADA ↔ Otomasyon Program entegrasyonu)
+// Automation Binding (SCADA <-> Otomasyon Program entegrasyonu)
 // ---------------------------------------------------------------------------
 
 export interface VariableBinding {

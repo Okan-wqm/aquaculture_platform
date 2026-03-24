@@ -12,6 +12,8 @@
  */
 
 import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
+import { ScadaRuntime } from '../../engine/ScadaRuntime';
+import { OverlayStack } from '../../engine/views/OverlayStack';
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -891,8 +893,11 @@ interface ScreenCanvasProps {
 
 export const ScreenCanvas: React.FC<ScreenCanvasProps> = ({ isPreview, deviceCode }) => {
   return (
-    <ReactFlowProvider>
-      <CanvasInner isPreview={isPreview} deviceCode={deviceCode} />
-    </ReactFlowProvider>
+    <ScadaRuntime>
+      <ReactFlowProvider>
+        <CanvasInner isPreview={isPreview} deviceCode={deviceCode} />
+      </ReactFlowProvider>
+      <OverlayStack />
+    </ScadaRuntime>
   );
 };

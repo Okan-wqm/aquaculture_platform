@@ -227,6 +227,8 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
           config: w.config,
           ...(w.groupId != null ? { groupId: w.groupId } : {}),
           ...(w.locked ? { locked: w.locked } : {}),
+          ...(w.animations && w.animations.length > 0 ? { animations: w.animations } : {}),
+          ...(w.events && w.events.length > 0 ? { events: w.events } : {}),
         })),
         ...(s.edges.length > 0 ? { edges: s.edges } : {}),
         ...(s.parentId != null ? { parentId: s.parentId } : {}),
@@ -266,6 +268,8 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
         config: (w.config || {}) as Record<string, unknown>,
         groupId: w.groupId ?? null,
         locked: w.locked ?? false,
+        animations: w.animations,
+        events: w.events,
       })),
       edges: (s.edges || [])
         .filter(

@@ -31,7 +31,8 @@ export type ScadaWidgetType =
   | 'hepaFilter'
   | 'cornellDualDrain'
   | 'screenLink'
-  | 'staticText';
+  | 'staticText'
+  | 'pipeFlow';
 
 /* ------------------------------------------------------------------ */
 /*  Equipment sub-types                                                */

@@ -24,6 +24,10 @@ import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
 import { useScadaPackageStore } from '../../../store/scadaPackageStore';
+import { useScadaRuntime } from '../../../engine/useScadaRuntime';
+import { useAnimationState } from '../../../engine/animation/useAnimationState';
+import { useWidgetEvents } from '../../../engine/events/useWidgetEvents';
+import type { AnimationState } from '../../../engine/animation/types';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -133,6 +137,30 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     const w = screen?.widgets.find((wgt) => wgt.id === id);
     return w?.position ?? { col: 0, row: 0, w: 1, h: 1 };
   });
+
+  /* ---------- Animation + Event engine hooks --------------------------- */
+  const widgetAnimations = useScadaPackageStore((s) => {
+    const screen = s.screens.find((scr) => scr.id === data.screenId);
+    return screen?.widgets.find((wgt) => wgt.id === id)?.animations;
+  });
+  const widgetEvents = useScadaPackageStore((s) => {
+    const screen = s.screens.find((scr) => scr.id === data.screenId);
+    return screen?.widgets.find((wgt) => wgt.id === id)?.events;
+  });
+
+  // Use engine hooks (ScadaRuntime may not be mounted yet)
+  let runtimeAvailable = false;
+  let animationState: AnimationState | undefined;
+  let eventHandlers: Record<string, (e: React.MouseEvent) => void> = {};
+  try {
+    const { tagBus, eventBus } = useScadaRuntime();
+    runtimeAvailable = true;
+    const tagSnapshot = tagBus.getSnapshot();
+    animationState = useAnimationState(widgetAnimations, tagSnapshot);
+    eventHandlers = useWidgetEvents(id, data.screenId, widgetEvents, eventBus);
+  } catch {
+    // ScadaRuntime not mounted yet — gracefully degrade
+  }
 
   /* ---------- Runtime command dispatch -------------------------------- */
   const tagName = (data.config?.tagName || data.config?.tag) as string | undefined;
@@ -307,6 +335,28 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     userSelect: 'none' as const,
   }), [size.width, size.height, selected]);
 
+  const animatedContainerStyle = useMemo(() => {
+    if (!animationState || !runtimeAvailable) return containerStyle;
+    const style = { ...containerStyle } as Record<string, unknown>;
+
+    if (!animationState.visible) {
+      style.opacity = 0;
+      style.pointerEvents = 'none';
+    }
+    if (animationState.rotating) {
+      style.animation = `scada-rotate-${animationState.rotationDirection} ${animationState.rotationSpeed}ms linear infinite`;
+      style.transformOrigin = 'center center';
+    }
+    if (animationState.blinking) {
+      style.animation = `scada-blink ${animationState.blinkInterval}ms ease-in-out infinite`;
+    }
+    if (animationState.translateX || animationState.translateY) {
+      style.transform = `translate(${animationState.translateX}px, ${animationState.translateY}px)`;
+      style.transition = `transform ${animationState.transitionDuration}ms ease`;
+    }
+    return style as React.CSSProperties;
+  }, [containerStyle, animationState, runtimeAvailable]);
+
   /* ---------- Connection handles for all widget types --------------- */
   const connectionHandles = useMemo(() => {
     const lookupKey = data.widgetType === 'equipment'
@@ -348,12 +398,14 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   /* ---------- Render ---------------------------------------------- */
   return (
     <div
-      style={containerStyle}
+      style={animatedContainerStyle}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onMouseEnter={onMouseEnterNode}
       onMouseMove={onMouseMoveNode}
       onMouseLeave={onMouseLeaveNode}
+      onClick={(e) => { eventHandlers.onClick?.(e); }}
+      onDoubleClick={(e) => { eventHandlers.onDoubleClick?.(e); }}
     >
       {/* TODO: Move this to canvas level so it's injected once, not per node */}
       <style>{HANDLE_HOVER_CSS}</style>
@@ -396,6 +448,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
           height={size.height}
           isEditing={!data.isPreview}
           onCommand={handleCommand}
+          animationState={animationState}
         />
       </div>
 

@@ -348,7 +348,7 @@ export interface ProjectSlice {
   targetDeviceId: string | null;
   automationBindings: AutomationBinding[];
   isDirty: boolean;
-  rightPanelTab: 'widget' | 'alarms' | 'controls' | 'trends' | 'automation';
+  rightPanelTab: 'widget' | 'alarms' | 'controls' | 'trends' | 'automation' | 'events' | 'animations';
 
   setPackageId: (id: string | null) => void;
   setPackageName: (name: string) => void;

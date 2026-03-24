@@ -282,6 +282,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
       id: widget.id,
       type: widget.widgetType,
       config: widget.config,
+      events: widget.events,
+      animations: widget.animations,
     };
   }, [selectedWidgetId, activeScreenId, screens]);
 
@@ -297,6 +299,26 @@ const ScadaPackageBuilderPage: React.FC = () => {
       state.updateWidget(state.activeScreenId, widgetId, {
         config: { ...widget.config, ...updates },
       });
+    },
+    [],
+  );
+
+  // Widget events change handler
+  const handleWidgetEventsChange = useCallback(
+    (widgetId: string, events: import('../../engine/events/types').WidgetEventDef[]) => {
+      const state = useScadaPackageStore.getState();
+      if (!state.activeScreenId) return;
+      state.updateWidget(state.activeScreenId, widgetId, { events });
+    },
+    [],
+  );
+
+  // Widget animations change handler
+  const handleWidgetAnimationsChange = useCallback(
+    (widgetId: string, animations: import('../../engine/animation/types').AnimationRule[]) => {
+      const state = useScadaPackageStore.getState();
+      if (!state.activeScreenId) return;
+      state.updateWidget(state.activeScreenId, widgetId, { animations });
     },
     [],
   );
@@ -688,6 +710,8 @@ const ScadaPackageBuilderPage: React.FC = () => {
           onEdgeDataChange={handleEdgeDataChange}
           onEdgeTypeChange={handleEdgeTypeChange}
           onEdgeDelete={handleEdgeDelete}
+          onWidgetEventsChange={handleWidgetEventsChange}
+          onWidgetAnimationsChange={handleWidgetAnimationsChange}
         />}
       </div>
 

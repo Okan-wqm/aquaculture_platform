@@ -1,14 +1,19 @@
 /**
  * SCADA Builder Properties Panel
- * Right sidebar with tabbed interface for widget config, alarms, controls, and trends.
+ * Right sidebar with tabbed interface for widget config, alarms, controls, trends,
+ * events, and animations.
  */
 
 import React, { useState } from 'react';
 import { Settings, Plus, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
+import { EventsPanel } from './widget-configs/EventsPanel';
+import { AnimationsPanel } from './widget-configs/AnimationsPanel';
 import { AutomationBindingPanel } from './AutomationBindingPanel';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdge, ScadaEdgeType, ScadaEdgeData } from '../../types/scada-edge.types';
+import type { WidgetEventDef } from '../../engine/events/types';
+import type { AnimationRule } from '../../engine/animation/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,64 +51,77 @@ interface TrendConfig {
 interface SelectedWidget {
   id: string;
   type: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
+  events?: WidgetEventDef[];
+  animations?: AnimationRule[];
 }
 
 interface PropertiesPanelProps {
-  selectedWidget: SelectedWidget | null;
-  onWidgetConfigChange: (widgetId: string, updates: Record<string, any>) => void;
-  alarmRules: AlarmRule[];
-  onAlarmRulesChange: (rules: AlarmRule[]) => void;
-  controlSecurity: ControlSecurityConfig;
-  onControlSecurityChange: (config: ControlSecurityConfig) => void;
-  emergencyStop: EmergencyStopConfig;
-  onEmergencyStopChange: (config: EmergencyStopConfig) => void;
-  trendConfig: TrendConfig;
-  onTrendConfigChange: (config: TrendConfig) => void;
+  selectedWidget?: SelectedWidget | null;
+  onWidgetConfigChange?: (widgetId: string, updates: Record<string, unknown>) => void;
+  alarmRules?: AlarmRule[];
+  onAlarmRulesChange?: (rules: AlarmRule[]) => void;
+  controlSecurity?: ControlSecurityConfig;
+  onControlSecurityChange?: (config: ControlSecurityConfig) => void;
+  emergencyStop?: EmergencyStopConfig;
+  onEmergencyStopChange?: (config: EmergencyStopConfig) => void;
+  trendConfig?: TrendConfig;
+  onTrendConfigChange?: (config: TrendConfig) => void;
   deviceId?: string | null;
   selectedEdge?: ScadaEdge | null;
   onEdgeDataChange?: (edgeId: string, updates: Partial<ScadaEdgeData>) => void;
   onEdgeTypeChange?: (edgeId: string, type: ScadaEdgeType) => void;
   onEdgeDelete?: (edgeId: string) => void;
+  onWidgetEventsChange?: (widgetId: string, events: WidgetEventDef[]) => void;
+  onWidgetAnimationsChange?: (widgetId: string, animations: AnimationRule[]) => void;
 }
 
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
 
-type TabId = 'widget' | 'alarms' | 'control' | 'trend' | 'automation';
+type TabId = 'widget' | 'alarms' | 'control' | 'trend' | 'automation' | 'events' | 'animations';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'widget', label: 'Widget' },
   { id: 'alarms', label: 'Alarms' },
   { id: 'control', label: 'Control' },
   { id: 'trend', label: 'Trend' },
-  { id: 'automation', label: 'Automation' },
+  { id: 'automation', label: 'Auto' },
+  { id: 'events', label: 'Events' },
+  { id: 'animations', label: 'Anim' },
 ];
 
 const CONDITIONS = ['>', '<', '>=', '<=', '==', '!='];
 const SEVERITIES = ['critical', 'high', 'warning', 'info'];
+
+const DEFAULT_ALARM_RULES: AlarmRule[] = [];
+const DEFAULT_CONTROL_SECURITY: ControlSecurityConfig = { none: [], confirm: [], pin: [] };
+const DEFAULT_EMERGENCY_STOP: EmergencyStopConfig = { holdDuration: 3000, affectedTags: [], resetRequiresPin: false };
+const DEFAULT_TREND_CONFIG: TrendConfig = { retentionDays: 30, sampleIntervalSec: 60, tags: [] };
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
-  selectedWidget,
+  selectedWidget = null,
   onWidgetConfigChange,
-  alarmRules,
+  alarmRules = DEFAULT_ALARM_RULES,
   onAlarmRulesChange,
-  controlSecurity,
+  controlSecurity = DEFAULT_CONTROL_SECURITY,
   onControlSecurityChange,
-  emergencyStop,
+  emergencyStop = DEFAULT_EMERGENCY_STOP,
   onEmergencyStopChange,
-  trendConfig,
+  trendConfig = DEFAULT_TREND_CONFIG,
   onTrendConfigChange,
   deviceId,
   selectedEdge,
   onEdgeDataChange,
   onEdgeTypeChange,
   onEdgeDelete,
+  onWidgetEventsChange,
+  onWidgetAnimationsChange,
 }) => {
   const [activeTab, setActiveTab] = useState<TabId>('widget');
 
@@ -117,22 +135,22 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
       severity: 'warning',
       message: '',
     };
-    onAlarmRulesChange([...alarmRules, rule]);
+    onAlarmRulesChange?.([...alarmRules, rule]);
   };
 
-  const updateAlarmRule = (id: string, field: string, value: any) => {
-    onAlarmRulesChange(
+  const updateAlarmRule = (id: string, field: string, value: string | number | undefined) => {
+    onAlarmRulesChange?.(
       alarmRules.map((r) => (r.id === id ? { ...r, [field]: value } : r)),
     );
   };
 
   const removeAlarmRule = (id: string) => {
-    onAlarmRulesChange(alarmRules.filter((r) => r.id !== id));
+    onAlarmRulesChange?.(alarmRules.filter((r) => r.id !== id));
   };
 
   // --- Control helpers -----------------------------------------------------
   const addTagToLevel = (level: keyof ControlSecurityConfig) => {
-    onControlSecurityChange({
+    onControlSecurityChange?.({
       ...controlSecurity,
       [level]: [...controlSecurity[level], ''],
     });
@@ -140,11 +158,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   const updateTagInLevel = (level: keyof ControlSecurityConfig, index: number, value: string) => {
     const updated = controlSecurity[level].map((t, i) => (i === index ? value : t));
-    onControlSecurityChange({ ...controlSecurity, [level]: updated });
+    onControlSecurityChange?.({ ...controlSecurity, [level]: updated });
   };
 
   const removeTagFromLevel = (level: keyof ControlSecurityConfig, index: number) => {
-    onControlSecurityChange({
+    onControlSecurityChange?.({
       ...controlSecurity,
       [level]: controlSecurity[level].filter((_, i) => i !== index),
     });
@@ -152,7 +170,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   // --- Emergency stop helpers ----------------------------------------------
   const addAffectedTag = () => {
-    onEmergencyStopChange({
+    onEmergencyStopChange?.({
       ...emergencyStop,
       affectedTags: [...emergencyStop.affectedTags, ''],
     });
@@ -160,11 +178,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   const updateAffectedTag = (index: number, value: string) => {
     const updated = emergencyStop.affectedTags.map((t, i) => (i === index ? value : t));
-    onEmergencyStopChange({ ...emergencyStop, affectedTags: updated });
+    onEmergencyStopChange?.({ ...emergencyStop, affectedTags: updated });
   };
 
   const removeAffectedTag = (index: number) => {
-    onEmergencyStopChange({
+    onEmergencyStopChange?.({
       ...emergencyStop,
       affectedTags: emergencyStop.affectedTags.filter((_, i) => i !== index),
     });
@@ -172,16 +190,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
   // --- Trend tag helpers ---------------------------------------------------
   const addTrendTag = () => {
-    onTrendConfigChange({ ...trendConfig, tags: [...trendConfig.tags, ''] });
+    onTrendConfigChange?.({ ...trendConfig, tags: [...trendConfig.tags, ''] });
   };
 
   const updateTrendTag = (index: number, value: string) => {
     const updated = trendConfig.tags.map((t, i) => (i === index ? value : t));
-    onTrendConfigChange({ ...trendConfig, tags: updated });
+    onTrendConfigChange?.({ ...trendConfig, tags: updated });
   };
 
   const removeTrendTag = (index: number) => {
-    onTrendConfigChange({
+    onTrendConfigChange?.({
       ...trendConfig,
       tags: trendConfig.tags.filter((_, i) => i !== index),
     });
@@ -193,12 +211,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   return (
     <div className="w-80 bg-white border-l border-gray-200 flex flex-col h-full">
       {/* Tab Header */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex border-b border-gray-200 overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 px-2 py-2.5 text-xs font-medium transition-colors ${
+            className={`flex-1 px-1.5 py-2.5 text-[10px] font-medium transition-colors whitespace-nowrap ${
               activeTab === tab.id
                 ? 'text-cyan-700 border-b-2 border-cyan-600 bg-cyan-50'
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
@@ -214,14 +232,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         {/* ===== Widget Tab ===== */}
         {activeTab === 'widget' && (
           <>
-            {selectedWidget && ConfigComponent ? (
+            {selectedWidget && ConfigComponent && onWidgetConfigChange ? (
               <div>
                 <h4 className="text-sm font-medium text-gray-700 mb-3 capitalize">
                   {selectedWidget.type.replace(/([A-Z])/g, ' $1').trim()}
                 </h4>
                 <ConfigComponent
                   config={selectedWidget.config}
-                  onChange={(updates) => onWidgetConfigChange(selectedWidget.id, updates)}
+                  onChange={(updates: Record<string, unknown>) => onWidgetConfigChange(selectedWidget.id, updates)}
                   deviceId={deviceId}
                 />
               </div>
@@ -474,7 +492,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   min={500}
                   step={100}
                   value={emergencyStop.holdDuration}
-                  onChange={(e) => onEmergencyStopChange({ ...emergencyStop, holdDuration: Number(e.target.value) })}
+                  onChange={(e) => onEmergencyStopChange?.({ ...emergencyStop, holdDuration: Number(e.target.value) })}
                   className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
               </div>
@@ -508,7 +526,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   type="checkbox"
                   id="resetRequiresPin"
                   checked={emergencyStop.resetRequiresPin}
-                  onChange={(e) => onEmergencyStopChange({ ...emergencyStop, resetRequiresPin: e.target.checked })}
+                  onChange={(e) => onEmergencyStopChange?.({ ...emergencyStop, resetRequiresPin: e.target.checked })}
                   className="text-cyan-600 rounded focus:ring-cyan-500"
                 />
                 <label htmlFor="resetRequiresPin" className="text-xs text-gray-700">
@@ -529,7 +547,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 type="number"
                 min={1}
                 value={trendConfig.retentionDays}
-                onChange={(e) => onTrendConfigChange({ ...trendConfig, retentionDays: Number(e.target.value) })}
+                onChange={(e) => onTrendConfigChange?.({ ...trendConfig, retentionDays: Number(e.target.value) })}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
             </div>
@@ -539,7 +557,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 type="number"
                 min={1}
                 value={trendConfig.sampleIntervalSec}
-                onChange={(e) => onTrendConfigChange({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })}
+                onChange={(e) => onTrendConfigChange?.({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })}
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
             </div>
@@ -578,6 +596,38 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
         {/* ===== Automation Tab ===== */}
         {activeTab === 'automation' && <AutomationBindingPanel />}
+
+        {/* ===== Events Tab ===== */}
+        {activeTab === 'events' && (
+          selectedWidget && onWidgetEventsChange ? (
+            <EventsPanel
+              events={selectedWidget.events ?? []}
+              onChange={(events) => onWidgetEventsChange(selectedWidget.id, events)}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
+              <Settings className="w-10 h-10 mb-3 text-gray-500" />
+              <p className="text-sm">Select a widget</p>
+              <p className="text-xs mt-1">Select a widget to configure events</p>
+            </div>
+          )
+        )}
+
+        {/* ===== Animations Tab ===== */}
+        {activeTab === 'animations' && (
+          selectedWidget && onWidgetAnimationsChange ? (
+            <AnimationsPanel
+              animations={selectedWidget.animations ?? []}
+              onChange={(animations) => onWidgetAnimationsChange(selectedWidget.id, animations)}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
+              <Settings className="w-10 h-10 mb-3 text-gray-500" />
+              <p className="text-sm">Select a widget</p>
+              <p className="text-xs mt-1">Select a widget to configure animations</p>
+            </div>
+          )
+        )}
       </div>
     </div>
   );

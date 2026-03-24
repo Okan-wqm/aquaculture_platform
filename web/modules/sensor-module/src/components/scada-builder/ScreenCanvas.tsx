@@ -162,6 +162,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
     updateEdgeType: storeUpdateEdgeType,
     saveScreenViewport,
     getScreenViewport,
+    updateScreen,
   } = useScadaPackageStore(useShallow((s) => ({
     activeScreenId: s.activeScreenId,
     screens: s.screens,
@@ -180,6 +181,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
     updateEdgeType: s.updateEdgeType,
     saveScreenViewport: s.saveScreenViewport,
     getScreenViewport: s.getScreenViewport,
+    updateScreen: s.updateScreen,
   })));
 
   const activeScreen = screens.find((s) => s.id === activeScreenId);
@@ -847,6 +849,23 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
           />
         )}
 
+        {/* Background Image Layer */}
+        {activeScreen?.backgroundImage && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 0,
+              backgroundImage: `url(${activeScreen.backgroundImage})`,
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              opacity: activeScreen.backgroundOpacity ?? 0.3,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+
         {/* Canvas Settings */}
         {!isPreview && (
           <CanvasSettings
@@ -857,6 +876,18 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
             zoom={currentZoom}
             onZoomChange={(z) => rfInstance.setViewport({ ...rfInstance.getViewport(), zoom: z })}
             onFitView={() => rfInstance.fitView({ padding: 0.1, duration: 200 })}
+            backgroundImage={activeScreen?.backgroundImage}
+            backgroundOpacity={activeScreen?.backgroundOpacity}
+            onBackgroundImageChange={(dataUrl) => {
+              if (activeScreenId) {
+                updateScreen(activeScreenId, { backgroundImage: dataUrl });
+              }
+            }}
+            onBackgroundOpacityChange={(opacity) => {
+              if (activeScreenId) {
+                updateScreen(activeScreenId, { backgroundOpacity: opacity });
+              }
+            }}
           />
         )}
 

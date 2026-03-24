@@ -65,29 +65,37 @@ const GearPumpSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={2.5}
         />
 
-        {/* Left gear circle */}
-        <circle
-          cx={40}
-          cy={50}
-          r={10}
-          fill="none"
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
-        {/* Left gear teeth */}
-        <GearTeeth cx={40} cy={50} r={10} teeth={6} stroke={colors.stroke} />
+        {/* Left gear — spinning when running */}
+        <g
+          className={state === 'running' ? 'scada-pump-spinning' : undefined}
+          style={state === 'running' ? { transformOrigin: '40px 50px' } as React.CSSProperties : undefined}
+        >
+          <circle
+            cx={40}
+            cy={50}
+            r={10}
+            fill="none"
+            stroke={colors.stroke}
+            strokeWidth={1.5}
+          />
+          <GearTeeth cx={40} cy={50} r={10} teeth={6} stroke={colors.stroke} />
+        </g>
 
-        {/* Right gear circle */}
-        <circle
-          cx={60}
-          cy={50}
-          r={10}
-          fill="none"
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
-        {/* Right gear teeth */}
-        <GearTeeth cx={60} cy={50} r={10} teeth={6} stroke={colors.stroke} />
+        {/* Right gear — spinning when running */}
+        <g
+          className={state === 'running' ? 'scada-pump-spinning' : undefined}
+          style={state === 'running' ? { transformOrigin: '60px 50px' } as React.CSSProperties : undefined}
+        >
+          <circle
+            cx={60}
+            cy={50}
+            r={10}
+            fill="none"
+            stroke={colors.stroke}
+            strokeWidth={1.5}
+          />
+          <GearTeeth cx={60} cy={50} r={10} teeth={6} stroke={colors.stroke} />
+        </g>
 
         {/* Gear center dots */}
         <circle cx={40} cy={50} r={2.5} fill={colors.stroke} fillOpacity={0.6} />

@@ -26,6 +26,7 @@ import {
   Droplets,
   Link2,
   Type,
+  GitCommitHorizontal,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -175,6 +176,12 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     widgets: [
       { type: 'screenLink', label: 'Screen Link', icon: <Link2 className="w-4 h-4" /> },
       { type: 'staticText', label: 'Text Label', icon: <Type className="w-4 h-4" /> },
+    ],
+  },
+  {
+    name: 'Piping',
+    widgets: [
+      { type: 'pipeFlow', label: 'Pipe Flow', icon: <GitCommitHorizontal className="w-4 h-4" /> },
     ],
   },
   {

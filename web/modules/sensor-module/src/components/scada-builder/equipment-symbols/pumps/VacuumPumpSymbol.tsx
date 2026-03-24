@@ -36,7 +36,15 @@ const VacuumPumpSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Vacuum symbol — inward pointing arrows forming V shape */}
         {state === 'running' ? (
-          <g stroke={colors.stroke} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <g
+            className="scada-pump-spinning"
+            style={{ transformOrigin: '50px 55px' } as React.CSSProperties}
+            stroke={colors.stroke}
+            strokeWidth={2}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             {/* V shape — suction symbol */}
             <polyline points="36,42 50,62 64,42" />
             {/* Inward arrow heads at the top of V arms */}

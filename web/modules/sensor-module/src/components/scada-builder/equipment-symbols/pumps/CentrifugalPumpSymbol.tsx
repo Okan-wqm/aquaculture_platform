@@ -46,7 +46,13 @@ const CentrifugalPumpSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Impeller blades inside the circle — 3 curved lines (fan blade effect) */}
         {state === 'running' ? (
-          <g stroke={colors.stroke} strokeWidth={1.5} fill="none">
+          <g
+            className="scada-pump-spinning"
+            style={{ transformOrigin: '45px 50px' } as React.CSSProperties}
+            stroke={colors.stroke}
+            strokeWidth={1.5}
+            fill="none"
+          >
             {/* Blade 1 — top-left curve */}
             <path d="M 45 22 C 55 30, 55 40, 45 50" />
             {/* Blade 2 — bottom-left curve */}

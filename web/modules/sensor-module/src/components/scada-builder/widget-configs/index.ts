@@ -25,6 +25,7 @@ import { HepaFilterConfig } from './HepaFilterConfig';
 import { CornellDualDrainConfig } from './CornellDualDrainConfig';
 import { ScreenLinkConfig } from './ScreenLinkConfig';
 import { StaticTextConfig } from './StaticTextConfig';
+import { PipeFlowConfig } from './PipeFlowConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -59,4 +60,5 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   cornellDualDrain: CornellDualDrainConfig,
   screenLink: ScreenLinkConfig,
   staticText: StaticTextConfig,
+  pipeFlow: PipeFlowConfig,
 };

@@ -81,7 +81,13 @@ const SubmersiblePumpSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Impeller indication at motor-body junction */}
         {state === 'running' ? (
-          <g stroke={colors.stroke} strokeWidth={1.5} fill="none">
+          <g
+            className="scada-pump-spinning"
+            style={{ transformOrigin: '50px 68px' } as React.CSSProperties}
+            stroke={colors.stroke}
+            strokeWidth={1.5}
+            fill="none"
+          >
             {/* Spinning impeller arcs */}
             <path d="M 42 68 C 44 72, 48 72, 50 68" />
             <path d="M 50 68 C 52 72, 56 72, 58 68" />

@@ -98,6 +98,8 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   // Navigation & annotation
   screenLink:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4, maxH: 3 },
   staticText:        { defaultW: 3, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 4 },
+  // Piping
+  pipeFlow:          { defaultW: 3, defaultH: 1, minW: 1, minH: 1, maxW: 12, maxH: 2 },
 };
 
 /* ------------------------------------------------------------------ */

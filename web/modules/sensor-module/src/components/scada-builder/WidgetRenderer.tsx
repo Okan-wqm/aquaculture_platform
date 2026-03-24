@@ -8,6 +8,7 @@
  */
 
 import React, { Suspense, useMemo, Component, ErrorInfo } from 'react';
+import type { AnimationState } from '../../engine/animation/types';
 
 /* ------------------------------------------------------------------ */
 /*  Shared severity color palette for alarm widgets                    */
@@ -34,6 +35,7 @@ export interface WidgetRendererProps {
   onCommand?: (command: string, value?: unknown) => void;
   tagName?: string;
   label?: string;
+  animationState?: AnimationState;
 }
 
 /* ------------------------------------------------------------------ */
@@ -67,6 +69,7 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   cornellDualDrain:    React.lazy(() => import('./widget-renderers/CornellDualDrainRenderer')),
   screenLink:        React.lazy(() => import('./widget-renderers/ScreenLinkRenderer')),
   staticText:        React.lazy(() => import('./widget-renderers/StaticTextRenderer')),
+  pipeFlow:          React.lazy(() => import('./widget-renderers/PipeFlowRenderer')),
 };
 
 /* ------------------------------------------------------------------ */
@@ -186,7 +189,7 @@ export interface WidgetRendererContainerProps extends WidgetRendererProps {
 }
 
 export const WidgetRenderer: React.FC<WidgetRendererContainerProps> = React.memo(
-  ({ widgetType, config, value, width, height, isEditing, onCommand }) => {
+  ({ widgetType, config, value, width, height, isEditing, onCommand, animationState }) => {
     const LazyComponent = useMemo(() => lazyMap[widgetType], [widgetType]);
 
     if (!LazyComponent) {
@@ -203,6 +206,7 @@ export const WidgetRenderer: React.FC<WidgetRendererContainerProps> = React.memo
             height={height}
             isEditing={isEditing}
             onCommand={onCommand}
+            animationState={animationState}
           />
         </Suspense>
       </WidgetErrorBoundary>

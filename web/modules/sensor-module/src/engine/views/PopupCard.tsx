@@ -7,6 +7,8 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { useScadaStore } from '../../store/scada';
+import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
+import ScadaViewport from './ScadaViewport';
 import type { OverlayEntry } from './types';
 
 interface PopupCardProps {
@@ -16,6 +18,7 @@ interface PopupCardProps {
 export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
   const screens = useScadaStore((s) => s.screens);
   const closeOverlay = useScadaStore((s) => s.closeOverlay);
+  const simTagValues = useScadaStore((s) => s.simTagValues);
 
   const screen = useMemo(
     () => screens.find((s) => s.id === overlay.screenId),
@@ -49,7 +52,15 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
   }, [handleClose]);
 
   const screenName = screen?.name ?? 'Unknown';
-  const widgetCount = screen?.widgets.length ?? 0;
+
+  // Calculate scale to fit the target screen canvas into the overlay content area
+  const contentPadding = 12;
+  const headerHeight = 40;
+  const contentWidth = width - contentPadding * 2;
+  const contentHeight = height - headerHeight - contentPadding * 2;
+  const canvasW = (screen?.layout.cols ?? 12) * GRID_CELL_W;
+  const canvasH = (screen?.layout.rows ?? 8) * GRID_CELL_H;
+  const viewportScale = Math.min(contentWidth / canvasW, contentHeight / canvasH, 1);
 
   return (
     <div
@@ -108,13 +119,25 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
       <div
         style={{
           flex: 1,
-          padding: 16,
-          overflow: 'auto',
-          fontSize: 13,
-          color: '#374151',
+          padding: contentPadding,
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'center',
         }}
       >
-        Screen: {screenName} ({widgetCount} widgets)
+        {screen ? (
+          <ScadaViewport
+            screen={screen}
+            scale={viewportScale}
+            tagValues={simTagValues as Record<string, unknown>}
+            variableMap={overlay.variableMap}
+          />
+        ) : (
+          <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', paddingTop: 40 }}>
+            Screen not found
+          </div>
+        )}
       </div>
     </div>
   );

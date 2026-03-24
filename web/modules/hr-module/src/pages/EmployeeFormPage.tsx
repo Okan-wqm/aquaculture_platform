@@ -553,24 +553,37 @@ const EmployeeFormPage: React.FC = () => {
               <label className={labelClass}>
                 Department
               </label>
-              <select
-                name="departmentHrId"
-                value={formData.departmentHrId}
-                onChange={handleDepartmentChange}
-                disabled={isEditing}
-                className={isEditing ? inputDisabledClass : inputClass}
-              >
-                <option value="">
-                  {loadingDepartments ? 'Loading departments...' : 'Select department'}
-                </option>
-                {(departments || [])
-                  .filter((d) => d.isActive)
-                  .map((dept) => (
-                    <option key={dept.id} value={dept.id}>
-                      {dept.name} ({dept.code})
-                    </option>
-                  ))}
-              </select>
+              {/* WHY: Guard against empty department list — new tenants won't have departments yet.
+                  Show a helpful message instead of a broken empty dropdown that confuses users
+                  into thinking the form is broken. */}
+              {!loadingDepartments && (!departments || departments.filter(d => d.isActive).length === 0) ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
+                  No departments found. Please create a department first in the{' '}
+                  <a href="/hr/departments" className="font-medium underline hover:no-underline">
+                    Departments
+                  </a>{' '}
+                  page.
+                </div>
+              ) : (
+                <select
+                  name="departmentHrId"
+                  value={formData.departmentHrId}
+                  onChange={handleDepartmentChange}
+                  disabled={isEditing}
+                  className={isEditing ? inputDisabledClass : inputClass}
+                >
+                  <option value="">
+                    {loadingDepartments ? 'Loading departments...' : 'Select department'}
+                  </option>
+                  {(departments || [])
+                    .filter((d) => d.isActive)
+                    .map((dept) => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name} ({dept.code})
+                      </option>
+                    ))}
+                </select>
+              )}
             </div>
             <div>
               <label className={labelClass}>Position</label>

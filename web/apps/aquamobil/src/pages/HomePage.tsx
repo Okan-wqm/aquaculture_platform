@@ -6,6 +6,7 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useMyTasks } from '@/hooks/useMyTasks';
 import { TankCard } from '@/components/cards/TankCard';
+import { AiInsightsCard } from '@/components/ai';
 import { NotificationBell } from '@/components/NotificationBell';
 import { clsx } from 'clsx';
 
@@ -278,6 +279,14 @@ export function HomePage() {
           </div>
         </div>
       )}
+
+      {/* WHY: AI insights card on home dashboard gives the farm manager an at-a-glance
+          intelligence summary without navigating to individual tanks. Positioned after
+          the Farm Summary and before the Tanks list — supplementary AI intelligence
+          above the primary operational data. */}
+      <div className="px-5 pt-4">
+        <AiInsightsCard />
+      </div>
 
       {/* Tanks */}
       <div className="px-5 pt-5">

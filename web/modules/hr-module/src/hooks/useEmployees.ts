@@ -81,23 +81,25 @@ export const organizationKeys = {
 // Employee Queries
 // =====================
 
+// WHY: Backend employees resolver accepts filter and pagination as SEPARATE GraphQL arguments.
+// EmployeeFilterInput does not contain limit/page — those belong in EmployeePaginationInput.
+// Merging them into a single object caused GraphQL validation 400 errors.
 export function useEmployees(
   filter?: EmployeeFilterInput,
   pagination?: { limit?: number; page?: number }
 ) {
   const client = useGraphQLClient();
-  // Merge pagination into filter since backend EmployeeFilterInput includes limit/page
-  const mergedFilter = pagination
-    ? { ...filter, limit: pagination.limit, page: pagination.page }
-    : filter;
 
   return useQuery({
-    queryKey: employeeKeys.list(mergedFilter),
+    queryKey: employeeKeys.list({ ...filter, ...pagination }),
     queryFn: () =>
       graphqlRequest<{ employees: PaginatedResponse<Employee> }, unknown>(
         client,
         GET_EMPLOYEES,
-        { filter: mergedFilter }
+        {
+          filter: filter || undefined,
+          pagination: pagination || undefined,
+        }
       ),
     select: (data) => data.employees,
   });

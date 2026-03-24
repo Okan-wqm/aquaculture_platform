@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Droplets, Fish, Activity, BarChart3, AlertTriangle } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
+import { TankRiskBadge, GrowthPredictionCard, FeedingAdviceCard } from '@/components/ai';
 import { clsx } from 'clsx';
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
@@ -220,6 +221,15 @@ export function TankDetailPage() {
             <p className="text-sm mt-1">Assign a batch to this tank to see metrics</p>
           </div>
         )}
+      </div>
+
+      {/* WHY: AI risk assessment shown on tank detail provides actionable intelligence
+          where the user needs it most — when inspecting a specific tank's status.
+          Components gracefully degrade to null when MCP is disabled or unavailable. */}
+      <div className="px-4">
+        <TankRiskBadge tankId={tank.id} />
+        {hasBatch && <GrowthPredictionCard batchId={metrics?.batchId} />}
+        <FeedingAdviceCard tankId={tank.id} />
       </div>
 
       {/* Current Biomass (when no batch but has biomass data) */}

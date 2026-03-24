@@ -19,20 +19,25 @@ interface DepartmentFormModalProps {
   onClose: () => void;
 }
 
-const DEPARTMENT_TYPES: { value: DepartmentType; label: string }[] = [
-  { value: 'general' as DepartmentType, label: 'General' },
-  { value: 'operations' as DepartmentType, label: 'Operations' },
-  { value: 'maintenance' as DepartmentType, label: 'Maintenance' },
-  { value: 'feeding' as DepartmentType, label: 'Feeding' },
-  { value: 'quality_control' as DepartmentType, label: 'Quality Control' },
-  { value: 'administration' as DepartmentType, label: 'Administration' },
-  { value: 'management' as DepartmentType, label: 'Management' },
-  { value: 'logistics' as DepartmentType, label: 'Logistics' },
-  { value: 'security' as DepartmentType, label: 'Security' },
-  { value: 'hatchery' as DepartmentType, label: 'Hatchery' },
-  { value: 'grow_out' as DepartmentType, label: 'Grow Out' },
-  { value: 'processing' as DepartmentType, label: 'Processing' },
-  { value: 'laboratory' as DepartmentType, label: 'Laboratory' },
+// WHY: GraphQL enum values must match the backend schema exactly (UPPERCASE keys).
+// NestJS registerEnumType registers DepartmentType with UPPERCASE keys (GENERAL, OPERATIONS, etc.)
+// even though the TypeORM DB column stores lowercase values. The GraphQL transport layer
+// expects the enum KEY, not the DB value. Using lowercase here silently causes
+// "Value 'general' does not exist in 'HRDepartmentType' enum" 400 errors on mutations.
+const DEPARTMENT_TYPES: { value: string; label: string }[] = [
+  { value: 'GENERAL', label: 'General' },
+  { value: 'OPERATIONS', label: 'Operations' },
+  { value: 'MAINTENANCE', label: 'Maintenance' },
+  { value: 'FEEDING', label: 'Feeding' },
+  { value: 'QUALITY_CONTROL', label: 'Quality Control' },
+  { value: 'ADMINISTRATION', label: 'Administration' },
+  { value: 'MANAGEMENT', label: 'Management' },
+  { value: 'LOGISTICS', label: 'Logistics' },
+  { value: 'SECURITY', label: 'Security' },
+  { value: 'HATCHERY', label: 'Hatchery' },
+  { value: 'GROW_OUT', label: 'Grow Out' },
+  { value: 'PROCESSING', label: 'Processing' },
+  { value: 'LABORATORY', label: 'Laboratory' },
 ];
 
 const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, onClose }) => {
@@ -42,7 +47,12 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
 
   const [name, setName] = useState(department?.name || '');
   const [code, setCode] = useState(department?.code || '');
-  const [type, setType] = useState<string>(department?.type || 'general');
+  // WHY: Default must be the UPPERCASE GraphQL enum key, not the lowercase DB value.
+  // When editing, the backend returns the lowercase DB value — map it to UPPERCASE
+  // so the dropdown selection matches and re-submission sends the correct enum key.
+  const [type, setType] = useState<string>(
+    department?.type ? department.type.toUpperCase() : 'GENERAL'
+  );
   const [description, setDescription] = useState(department?.description || '');
   const [budgetCode, setBudgetCode] = useState(department?.budgetCode || '');
   const [costCenter, setCostCenter] = useState(department?.costCenter || '');
@@ -223,6 +233,8 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
 // Department Type Badge
 // ============================================================================
 
+// WHY: Backend returns type values in lowercase (DB column value).
+// Normalise to lowercase for color lookup so both old and new data renders correctly.
 const TYPE_COLORS: Record<string, string> = {
   operations: '#6366f1',
   maintenance: '#f59e0b',
@@ -263,8 +275,10 @@ const DepartmentsPage: React.FC = () => {
     setEditingDepartment(null);
   };
 
+  // WHY: Backend may return the type as lowercase (DB value) or uppercase (enum key).
+  // Normalise to lowercase for reliable color lookup.
   const getColorForType = (type?: string): string => {
-    return TYPE_COLORS[type || 'general'] || '#6366f1';
+    return TYPE_COLORS[(type || 'general').toLowerCase()] || '#6366f1';
   };
 
   return (
@@ -334,9 +348,10 @@ const DepartmentsPage: React.FC = () => {
                         </h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
                           {department.code}
-                          {department.type && department.type !== 'general' && (
+                          {/* WHY: Backend returns lowercase type values; compare case-insensitively */}
+                          {department.type && department.type.toLowerCase() !== 'general' && (
                             <span className="ml-2 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                              {department.type.replace(/_/g, ' ')}
+                              {department.type.toLowerCase().replace(/_/g, ' ')}
                             </span>
                           )}
                         </p>

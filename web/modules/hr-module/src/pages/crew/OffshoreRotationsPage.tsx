@@ -281,14 +281,17 @@ export function OffshoreRotationsPage() {
     {
       key: 'status',
       header: 'Status',
+      // WHY: GraphQL returns UPPERCASE enum keys (IN_PROGRESS, SCHEDULED, etc.)
+      // not lowercase DB values. The status lookup map must use UPPERCASE keys.
       accessor: (row) => {
         const statusConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }> = {
-          in_progress: { label: 'Active', variant: 'success' },
-          scheduled: { label: 'Scheduled', variant: 'warning' },
-          completed: { label: 'Completed', variant: 'neutral' },
-          cancelled: { label: 'Cancelled', variant: 'error' },
+          IN_PROGRESS: { label: 'Active', variant: 'success' },
+          SCHEDULED: { label: 'Scheduled', variant: 'warning' },
+          COMPLETED: { label: 'Completed', variant: 'neutral' },
+          CANCELLED: { label: 'Cancelled', variant: 'error' },
+          EXTENDED: { label: 'Extended', variant: 'warning' },
         };
-        const config = statusConfig[row.status] || statusConfig.scheduled;
+        const config = statusConfig[row.status] || statusConfig.SCHEDULED;
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
     },
@@ -428,17 +431,19 @@ export function OffshoreRotationsPage() {
         <div className="space-y-4">
           {/* Filters */}
           <div className="flex items-center gap-4">
+            {/* WHY: GraphQL RotationType enum values are UPPERCASE keys.
+                Using lowercase values causes the filter query to return a 400 error. */}
             <select
               value={rotationFilter}
               onChange={(e) => setRotationFilter(e.target.value as RotationType | '')}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
             >
               <option value="">All Rotation Types</option>
-              <option value="offshore">Offshore</option>
-              <option value="onshore">Onshore</option>
-              <option value="field">Field</option>
-              <option value="vessel">Vessel</option>
-              <option value="mixed">Mixed</option>
+              <option value="OFFSHORE">Offshore</option>
+              <option value="ONSHORE">Onshore</option>
+              <option value="FIELD">Field</option>
+              <option value="VESSEL">Vessel</option>
+              <option value="MIXED">Mixed</option>
             </select>
           </div>
 

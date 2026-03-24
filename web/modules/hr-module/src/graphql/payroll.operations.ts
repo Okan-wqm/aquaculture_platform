@@ -36,9 +36,12 @@ export const GET_PAYROLLS = gql`
   ${PAYROLL_FRAGMENT}
 `;
 
+// WHY: Backend pendingPayrolls resolver accepts (limit: Int, page: Int), not offset.
+// Sending an unknown `offset` variable causes a GraphQL validation 400 error.
+// Match the backend resolver signature exactly.
 export const GET_PENDING_PAYROLLS = gql`
-  query GetPendingPayrolls($limit: Int, $offset: Int) {
-    pendingPayrolls(limit: $limit, offset: $offset) {
+  query GetPendingPayrolls($limit: Int, $page: Int) {
+    pendingPayrolls(limit: $limit, page: $page) {
       ...PayrollFields
     }
   }

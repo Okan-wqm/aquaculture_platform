@@ -17,9 +17,12 @@ import {
  * List query uses EMPLOYEE_LIST_FRAGMENT (no PII fields).
  * SEC-002: prevents bulk PII transmission on every list load.
  */
+// WHY: Backend employees resolver accepts (filter: EmployeeFilterInput, pagination: EmployeePaginationInput)
+// as two separate arguments. Sending limit/page inside the filter object causes GraphQL validation
+// errors because EmployeeFilterInput does not define those fields. Pass pagination separately.
 export const GET_EMPLOYEES = gql`
-  query GetEmployees($filter: EmployeeFilterInput) {
-    employees(filter: $filter) {
+  query GetEmployees($filter: EmployeeFilterInput, $pagination: EmployeePaginationInput) {
+    employees(filter: $filter, pagination: $pagination) {
       items {
         ...EmployeeList
       }
@@ -80,9 +83,10 @@ export const GET_EMPLOYEE_BY_NUMBER = gql`
 
 // NOTE: searchEmployees query not yet implemented in backend.
 // Using activeEmployees as a workaround for search functionality.
+// WHY: Backend activeEmployees resolver accepts (limit: Int, page: Int), not offset.
 export const SEARCH_EMPLOYEES = gql`
-  query SearchEmployees($limit: Int, $offset: Int) {
-    activeEmployees(limit: $limit, offset: $offset) {
+  query SearchEmployees($limit: Int, $page: Int) {
+    activeEmployees(limit: $limit, page: $page) {
       ...EmployeeBasic
       department
       position
@@ -111,9 +115,10 @@ export const GET_DEPARTMENTS = gql`
 `;
 
 // NOTE: No separate department entity. Use employeesByDepartment to get employees by department enum.
+// WHY: Backend employeesByDepartment resolver accepts (limit: Int, page: Int), not offset.
 export const GET_DEPARTMENT = gql`
-  query GetDepartment($department: Department!, $limit: Int, $offset: Int) {
-    employeesByDepartment(department: $department, limit: $limit, offset: $offset) {
+  query GetDepartment($department: Department!, $limit: Int, $page: Int) {
+    employeesByDepartment(department: $department, limit: $limit, page: $page) {
       ...EmployeeBasic
       department
       position
@@ -123,9 +128,10 @@ export const GET_DEPARTMENT = gql`
 `;
 
 // NOTE: Position is a string field in the backend. No separate Position entity.
+// WHY: pagination is a separate argument, not part of filter.
 export const GET_POSITIONS = gql`
   query GetPositions {
-    employees(filter: { limit: 0 }) {
+    employees(pagination: { limit: 1 }) {
       total
     }
   }
@@ -133,9 +139,10 @@ export const GET_POSITIONS = gql`
 
 // NOTE: organizationTree query not yet implemented in backend.
 // Using employees query as a workaround.
+// WHY: pagination is a separate argument, not part of filter.
 export const GET_ORGANIZATION_TREE = gql`
   query GetOrganizationTree {
-    employees(filter: { limit: 100 }) {
+    employees(pagination: { limit: 100 }) {
       items {
         id
         firstName
@@ -153,9 +160,10 @@ export const GET_ORGANIZATION_TREE = gql`
 
 // NOTE: directReports query not yet implemented in backend.
 // Filter employees by supervisorId on the client side.
+// WHY: Backend activeEmployees resolver accepts (limit: Int, page: Int), not offset.
 export const GET_DIRECT_REPORTS = gql`
-  query GetDirectReports($limit: Int, $offset: Int) {
-    activeEmployees(limit: $limit, offset: $offset) {
+  query GetDirectReports($limit: Int, $page: Int) {
+    activeEmployees(limit: $limit, page: $page) {
       ...EmployeeBasic
       department
       position

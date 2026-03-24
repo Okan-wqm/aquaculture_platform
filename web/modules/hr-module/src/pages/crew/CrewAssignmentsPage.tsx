@@ -155,6 +155,18 @@ export function CrewAssignmentsPage() {
   const offshoreList = employees?.items?.filter((e) => e.personnelCategory === ('OFFSHORE' as PersonnelCategory)) || [];
   const onshoreList = employees?.items?.filter((e) => e.personnelCategory === ('ONSHORE' as PersonnelCategory)) || [];
 
+  // WHY: Enrich crew assignments with work area data for display.
+  // Backend CrewAssignment DTO returns flat scalars (workAreaName, not nested workArea object).
+  // Join with the workAreas list client-side so columns can access workArea fields.
+  const enrichedAssignments = useMemo(() => {
+    if (!crewAssignments) return [];
+    const waMap = new Map((workAreas || []).map((wa) => [wa.id, wa]));
+    return crewAssignments.map((a) => ({
+      ...a,
+      workArea: waMap.get(a.workAreaId),
+    }));
+  }, [crewAssignments, workAreas]);
+
   // PERF-004: memoize so the column array reference is stable across renders
   const assignmentColumns: Column<CrewAssignment>[] = useMemo(() => [
     {
@@ -169,8 +181,9 @@ export function CrewAssignmentsPage() {
             <Building2 className="h-4 w-4 text-green-500" />
           )}
           <div>
-            <p className="font-medium text-gray-900 dark:text-white">{row.workArea?.name}</p>
-            <p className="text-sm text-gray-500 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ')}</p>
+            {/* WHY: Use workAreaName from the flat DTO as primary, fall back to enriched workArea */}
+            <p className="font-medium text-gray-900 dark:text-white">{row.workAreaName || row.workArea?.name}</p>
+            <p className="text-sm text-gray-500 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ') || ''}</p>
           </div>
         </div>
       ),
@@ -235,12 +248,13 @@ export function CrewAssignmentsPage() {
 
   // BUG-008: crewAssignments is a flat array; DataTable doesn't slice internally,
   // so paginate client-side by slicing the array ourselves.
+  // WHY: Use enrichedAssignments (which includes joined workArea data) for display.
   const pageSize = pagination.limit || 20;
   const currentPage = pagination.page || 1;
   const currentOffset = (currentPage - 1) * pageSize;
   const pagedAssignments = useMemo(
-    () => (crewAssignments || []).slice(currentOffset, currentOffset + pageSize),
-    [crewAssignments, currentOffset, pageSize]
+    () => enrichedAssignments.slice(currentOffset, currentOffset + pageSize),
+    [enrichedAssignments, currentOffset, pageSize]
   );
 
   const isLoading = loadingEmployees || loadingWorkAreas || loadingOffshore;
@@ -430,15 +444,17 @@ export function CrewAssignmentsPage() {
               />
             </div>
             <div className="flex items-center gap-2">
+              {/* WHY: GraphQL PersonnelCategory enum values are UPPERCASE keys.
+                  Using lowercase values causes the filter to silently fail. */}
               <select
                 value={personnelFilter}
                 onChange={(e) => setPersonnelFilter(e.target.value as PersonnelCategory | '')}
                 className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
               >
                 <option value="">All Categories</option>
-                <option value="offshore">Offshore</option>
-                <option value="onshore">Onshore</option>
-                <option value="hybrid">Hybrid</option>
+                <option value="OFFSHORE">Offshore</option>
+                <option value="ONSHORE">Onshore</option>
+                <option value="HYBRID">Hybrid</option>
               </select>
             </div>
           </div>
@@ -450,7 +466,7 @@ export function CrewAssignmentsPage() {
             keyExtractor={assignmentKeyExtractor}
             isLoading={loadingAssignments}
             emptyMessage="No crew assignments found"
-            total={crewAssignments?.length}
+            total={enrichedAssignments.length}
             page={Math.floor(currentOffset / pageSize) + 1}
             pageSize={pageSize}
             onPageChange={handlePageChange}
@@ -483,13 +499,14 @@ export function CrewAssignmentsPage() {
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* WHY: Use enrichedAssignments for employee counts since it has the same workAreaId keys */}
               {workAreas?.map((workArea) => (
                 <WorkAreaCard
                   key={workArea.id}
                   workArea={workArea}
                   employeeCount={
-                    crewAssignments?.filter((a) => a.workAreaId === workArea.id)
-                      .length || 0
+                    enrichedAssignments.find((a) => a.workAreaId === workArea.id)
+                      ?.currentCount || 0
                   }
                 />
               ))}

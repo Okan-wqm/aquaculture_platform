@@ -8,20 +8,25 @@ import type { Employee } from './employee.types';
 // Enums
 // =====================
 
+// WHY: GraphQL enums registered via NestJS registerEnumType use the TypeScript enum KEYS
+// as the GraphQL enum values. The backend stores lowercase values in the DB column, but
+// the GraphQL transport layer expects UPPERCASE keys (DRAFT, PENDING_APPROVAL, etc.).
+// Using lowercase values here caused silent 400 errors on any query or mutation that
+// includes a PayrollStatus or PayPeriodType enum variable.
 export enum PayrollStatus {
-  DRAFT = 'draft',
-  PENDING_APPROVAL = 'pending_approval',
-  APPROVED = 'approved',
-  PROCESSING = 'processing',
-  PAID = 'paid',
-  CANCELLED = 'cancelled',
+  DRAFT = 'DRAFT',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  APPROVED = 'APPROVED',
+  PROCESSING = 'PROCESSING',
+  PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
 }
 
 export enum PayPeriodType {
-  WEEKLY = 'weekly',
-  BI_WEEKLY = 'bi_weekly',
-  SEMI_MONTHLY = 'semi_monthly',
-  MONTHLY = 'monthly',
+  WEEKLY = 'WEEKLY',
+  BI_WEEKLY = 'BI_WEEKLY',
+  SEMI_MONTHLY = 'SEMI_MONTHLY',
+  MONTHLY = 'MONTHLY',
 }
 
 // =====================

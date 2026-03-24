@@ -94,13 +94,20 @@ export interface SafetyTrainingRecord extends BaseEntity {
   notes?: string;
 }
 
+// WHY: Backend CrewAssignment DTO is a flat structure with scalar fields only.
+// It does NOT include nested workArea or assignedEmployees objects —
+// those caused GraphQL 400 errors when requested. The UI must join
+// work area data client-side using the workAreaId if needed.
 export interface CrewAssignment {
   workAreaId: string;
-  workArea: WorkArea;
-  assignedEmployees: Employee[];
+  workAreaName: string;
+  assignedEmployeeIds: string[];
   currentCount: number;
   maxCapacity: number;
   occupancyRate: number;
+  // WHY: Optional enriched fields populated client-side by joining with workAreas data.
+  // Not from the backend GraphQL response.
+  workArea?: WorkArea;
 }
 
 export interface OffshoreStatus {

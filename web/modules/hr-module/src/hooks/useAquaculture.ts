@@ -187,13 +187,17 @@ export function useAllWorkAreaOccupancies(date: string) {
 // Work Rotation Queries
 // =====================
 
+// WHY: Backend workRotations query returns a paginated WorkRotationConnection
+// (with items, total, page, etc.), not a flat array. The previous implementation
+// expected WorkRotation[] which caused a shape mismatch and silent data loss.
+// Extract .items from the paginated response so downstream consumers get the array they expect.
 export function useWorkRotations(filter?: WorkRotationFilterInput) {
   const client = useGraphQLClient();
 
   return useQuery({
     queryKey: rotationKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ workRotations: WorkRotation[] }, unknown>(
+      graphqlRequest<{ workRotations: { items: WorkRotation[]; total: number } }, unknown>(
         client,
         GET_WORK_ROTATIONS,
         {
@@ -203,7 +207,7 @@ export function useWorkRotations(filter?: WorkRotationFilterInput) {
           status: filter?.status,
         }
       ),
-    select: (data) => data.workRotations,
+    select: (data) => data.workRotations?.items ?? [],
   });
 }
 

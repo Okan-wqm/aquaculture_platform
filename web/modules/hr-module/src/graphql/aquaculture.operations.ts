@@ -160,9 +160,10 @@ export const GET_WORK_ROTATION = gql`
   ${WORK_ROTATION_FRAGMENT}
 `;
 
+// WHY: Backend myWorkRotations resolver accepts (limit: Int, page: Int), not offset.
 export const GET_MY_ROTATIONS = gql`
-  query GetMyRotations($status: RotationStatus, $limit: Int, $offset: Int) {
-    myWorkRotations(status: $status, limit: $limit, offset: $offset) {
+  query GetMyRotations($status: RotationStatus, $limit: Int, $page: Int) {
+    myWorkRotations(status: $status, limit: $limit, page: $page) {
       ...WorkRotationFull
     }
   }
@@ -282,29 +283,22 @@ export const GET_ROTATION_CHANGEOVERS = gql`
 // Crew Assignment Queries
 // =====================
 
+// WHY: Backend CrewAssignment DTO only exposes flat scalar fields
+// (workAreaId, workAreaName, assignedEmployeeIds, currentCount, maxCapacity, occupancyRate).
+// Requesting nested `workArea { ... }` or `assignedEmployees { ... }` objects that do not exist
+// in the backend schema causes GraphQL validation 400 errors.
+// Query only the fields the backend actually provides.
 export const GET_CREW_ASSIGNMENTS = gql`
   query GetCrewAssignments {
     crewAssignments {
       workAreaId
-      workArea {
-        id
-        code
-        name
-        workAreaType
-        isOffshore
-        maxCapacity
-      }
-      assignedEmployees {
-        ...EmployeeBasic
-        personnelCategory
-        seaWorthy
-      }
+      workAreaName
+      assignedEmployeeIds
       currentCount
       maxCapacity
       occupancyRate
     }
   }
-  ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
 // NOTE: seaLandSplit query does not exist in backend.

@@ -399,7 +399,7 @@ describe('useMobilePermissions', () => {
       expect(result.current.canAccess('mortality')).toBe(true);
     });
 
-    it('should use fail-closed defaults when no cache and network error', async () => {
+    it('should use graceful-degradation fallback when no cache and network error', async () => {
       // No cache exists
       mockFetch.mockRejectedValue(new Error('Network error'));
 
@@ -409,10 +409,14 @@ describe('useMobilePermissions', () => {
 
       await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
-      // Should be all false — fail-closed
-      expect(result.current.isMobileEnabled).toBe(false);
-      expect(result.current.canAccess('mortality')).toBe(false);
-      expect(result.current.canAccess('tasks')).toBe(false);
+      // WHY: When authenticated but settings endpoint is unreachable AND no cache exists,
+      // use FALLBACK_SETTINGS (graceful degradation) so core features remain usable.
+      // This prevents a completely blank mobile app during backend outages.
+      expect(result.current.isMobileEnabled).toBe(true);
+      expect(result.current.canAccess('mortality')).toBe(true);
+      expect(result.current.canAccess('attendance')).toBe(true);
+      expect(result.current.canAccess('leave')).toBe(true);
+      expect(result.current.canAccess('tasks')).toBe(true);
     });
   });
 

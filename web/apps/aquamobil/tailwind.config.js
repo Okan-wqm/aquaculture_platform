@@ -72,10 +72,14 @@ export default konstaConfig({
         'card': '0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.06)',
         'card-hover': '0 4px 16px rgba(0,0,0,0.1)',
         'elevated': '0 8px 30px rgba(0,0,0,0.12)',
+        // WHY: Glow shadows provide a colored halo on selected/active elements — reinforces
+        // the status color coding system (ocean=info, red=mortality, orange=cull, etc.)
         'glow-ocean': '0 4px 24px rgba(0,115,230,0.25)',
         'glow-red': '0 4px 20px rgba(220,38,38,0.2)',
         'glow-orange': '0 4px 20px rgba(234,88,12,0.2)',
         'glow-purple': '0 4px 20px rgba(124,58,237,0.2)',
+        'glow-green': '0 4px 20px rgba(34,197,94,0.2)',
+        'glow-blue': '0 4px 20px rgba(59,130,246,0.2)',
         'inner-glow': 'inset 0 1px 0 rgba(255,255,255,0.1)',
       },
       borderRadius: {

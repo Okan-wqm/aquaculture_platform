@@ -4,7 +4,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* iOS safe area utilities */
+/* WHY: iOS safe area utilities ensure content is not hidden behind the notch, home indicator,
+   or rounded corners on modern smartphones. env() values are provided by the browser. */
 @layer utilities {
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
@@ -12,38 +13,48 @@
   .pt-safe {
     padding-top: env(safe-area-inset-top);
   }
+  .pt-safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
   .min-h-screen-safe {
     min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
 }
 
-/* Touch feedback */
+/* WHY: Touch feedback class provides haptic-like visual response on tap — the scale-down effect
+   mimics iOS/Android native button behavior, improving perceived responsiveness. */
 @layer components {
   .touch-feedback {
     @apply active:scale-[0.97] active:opacity-80 transition-all duration-150 ease-out;
   }
 }
 
-/* Prevent pull-to-refresh on mobile */
+/* WHY: Prevent pull-to-refresh — PWA apps need to handle their own refresh logic
+   via the sync system, not the browser's default pull-to-refresh gesture. */
 html {
   overscroll-behavior-y: contain;
 }
 
+/* WHY: System font stack with DM Sans primary — provides consistent typography across
+   iOS (SF Pro fallback) and Android (Roboto fallback) while maintaining brand identity. */
 body {
   @apply bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* WHY: Touch-action manipulation prevents 300ms tap delay on mobile browsers */
+  touch-action: manipulation;
 }
 
-/* Konsta UI overrides — ocean blue branding */
+/* WHY: Konsta UI overrides align the component library's primary color with our ocean-blue brand */
 :root {
   --k-color-primary: #0073e6;
   --k-color-primary-tint: #3080ff;
   --k-color-primary-shade: #0f5bcc;
 }
 
-/* Custom scrollbar for webkit browsers */
+/* WHY: Thin scrollbar — on mobile WebViews, visible scrollbars compete with content.
+   3px width is visible enough for orientation but doesn't consume layout space. */
 ::-webkit-scrollbar {
   width: 3px;
   height: 3px;
@@ -57,7 +68,8 @@ body {
   @apply bg-gray-300 dark:bg-gray-700 rounded-full;
 }
 
-/* Loading skeleton animation */
+/* WHY: Shimmer animation provides a loading skeleton effect that signals content is arriving.
+   The ocean-blue tint maintains brand consistency even during loading states. */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -74,7 +86,8 @@ body {
   animation: shimmer 1.5s infinite;
 }
 
-/* Offline indicator pulse */
+/* WHY: Offline pulse animation draws attention to the offline indicator without being distracting.
+   The 2-second cycle is slow enough to not cause motion sickness in sensitive users. */
 @keyframes pulse-offline {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -84,7 +97,7 @@ body {
   animation: pulse-offline 2s ease-in-out infinite;
 }
 
-/* Gradient text utility */
+/* WHY: Gradient text utility for hero sections — used sparingly for visual emphasis */
 .text-gradient-ocean {
   background: linear-gradient(135deg, #0073e6, #3080ff);
   -webkit-background-clip: text;
@@ -92,7 +105,8 @@ body {
   background-clip: text;
 }
 
-/* Glass card effect */
+/* WHY: Glass morphism effect for floating elements (modals, toasts) — provides visual depth
+   while maintaining readability of content behind the overlay. */
 .glass {
   background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(12px);
@@ -105,7 +119,8 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Slide up animation for install prompt */
+/* WHY: Slide up animation for install prompts and bottom sheets — follows Material Design
+   motion guidelines for surface elevation changes (entering from below). */
 @keyframes slide-up {
   from { transform: translateY(100%); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
@@ -113,4 +128,45 @@ body {
 
 .animate-slide-up {
   animation: slide-up 0.4s ease-out;
+}
+
+/* WHY: Bounce-once animation for success checkmarks — a single bounce draws attention
+   to the success state without the infinite looping that causes visual fatigue. */
+@keyframes bounce-once {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.1); }
+  70% { transform: scale(0.95); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-bounce-once {
+  animation: bounce-once 0.5s ease-out;
+}
+
+/* WHY: Green glow shadow for feeding-related selected states — maintains visual consistency
+   with the red/orange/purple glow shadows already defined in the tailwind config. */
+@layer utilities {
+  .shadow-glow-green {
+    box-shadow: 0 4px 20px rgba(34, 197, 94, 0.2);
+  }
+}
+
+/* WHY: Tabular-nums ensures number columns align vertically — critical for data-heavy
+   interfaces like fish counts and biomass where users compare values across rows. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* WHY: Selection color matches brand — when users long-press to select text,
+   the highlight color should be consistent with the app's color scheme. */
+::selection {
+  background: rgba(0, 115, 230, 0.2);
+}
+
+/* WHY: Input focus styles override browser defaults with our brand color —
+   consistent focus indicators improve accessibility and brand cohesion. */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #0073e6 !important;
+  box-shadow: 0 0 0 3px rgba(0, 115, 230, 0.1) !important;
 }

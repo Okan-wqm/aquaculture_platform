@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks } from 'lucide-react';
+import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -18,6 +18,8 @@ interface QuickAction {
   iconColor: string;
 }
 
+// WHY: Quick actions are the primary CTA grid — each maps to a high-frequency field operation.
+// Only permitted features are shown, so the grid density adapts to the user's role.
 const allQuickActions: QuickAction[] = [
   {
     feature: 'feeding',
@@ -63,8 +65,16 @@ const allQuickActions: QuickAction[] = [
     feature: 'attendance',
     path: '/attendance',
     icon: MapPin,
-    label: 'Attendance',
-    gradient: 'from-green-500 to-emerald-600',
+    label: 'Clock In',
+    gradient: 'from-emerald-500 to-emerald-600',
+    iconColor: 'text-white',
+  },
+  {
+    feature: 'leave',
+    path: '/leave',
+    icon: CalendarOff,
+    label: 'Leave',
+    gradient: 'from-indigo-500 to-indigo-600',
     iconColor: 'text-white',
   },
 ];
@@ -84,20 +94,27 @@ export function HomePage() {
 
   const pendingTaskCount = todayTasks.length;
 
+  // WHY: Aggregate stats give managers a quick operational pulse without scrolling through individual tanks.
+  const totalFish = activeTanks.reduce((sum, t) => sum + (t.batchMetrics?.pieces ?? 0), 0);
+  const totalBiomass = activeTanks.reduce((sum, t) => sum + (t.batchMetrics?.biomass ?? t.currentBiomass ?? 0), 0);
+  const overCapacityCount = activeTanks.filter((t) => t.batchMetrics?.isOverCapacity).length;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header with gradient */}
+      {/* WHY: Gradient header with decorative circles creates visual depth and brand consistency.
+          The ocean-blue gradient is the app's primary brand color from the design system. */}
       <div className="bg-gradient-to-br from-ocean-700 via-ocean-600 to-ocean-500 text-white relative overflow-hidden">
         {/* Decorative elements */}
-        <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/4" />
-        <div className="absolute bottom-0 left-0 w-24 h-24 rounded-full bg-white/5 translate-y-1/2 -translate-x-1/4" />
+        <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/4" />
+        <div className="absolute bottom-4 left-0 w-28 h-28 rounded-full bg-white/5 translate-y-1/2 -translate-x-1/4" />
+        <div className="absolute top-1/2 right-1/4 w-16 h-16 rounded-full bg-white/3" />
 
         <div className="relative z-10 px-5 pt-safe-top">
           {/* Top bar */}
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                <Fish size={22} className="text-white" />
+              <div className="w-11 h-11 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-inner-glow">
+                <Fish size={24} className="text-white" />
               </div>
               <div>
                 <h1 className="text-lg font-bold tracking-tight">AquaMobil</h1>
@@ -112,23 +129,30 @@ export function HomePage() {
             </div>
           </div>
 
-          {/* Stats row */}
-          <div className="grid grid-cols-3 gap-3 pb-5">
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
-              <div className="text-2xl font-bold">{allTanks.length}</div>
-              <div className="text-ocean-200 text-[11px] font-medium">Total Tanks</div>
+          {/* WHY: Four-column stats row provides an operational dashboard at the top of the home screen.
+              Pending sync count uses a warning color to draw attention when offline operations are queued. */}
+          <div className="grid grid-cols-4 gap-2.5 pb-5">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+              <div className="text-xl font-bold tabular-nums">{allTanks.length}</div>
+              <div className="text-ocean-200 text-[10px] font-semibold">Tanks</div>
             </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
-              <div className="text-2xl font-bold">{activeTanks.length}</div>
-              <div className="text-ocean-200 text-[11px] font-medium">With Batch</div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+              <div className="text-xl font-bold tabular-nums">{activeTanks.length}</div>
+              <div className="text-ocean-200 text-[10px] font-semibold">Batches</div>
+            </div>
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+              <div className="text-xl font-bold tabular-nums">
+                {totalFish >= 1000 ? `${(totalFish / 1000).toFixed(0)}K` : totalFish}
+              </div>
+              <div className="text-ocean-200 text-[10px] font-semibold">Total Fish</div>
             </div>
             <div className={clsx(
-              'rounded-xl p-3 text-center backdrop-blur-sm',
+              'rounded-xl p-2.5 text-center backdrop-blur-sm',
               pendingCount > 0 ? 'bg-coral-500/30' : 'bg-sea-500/20'
             )}>
-              <div className="text-2xl font-bold">{pendingCount}</div>
+              <div className="text-xl font-bold tabular-nums">{pendingCount}</div>
               <div className={clsx(
-                'text-[11px] font-medium',
+                'text-[10px] font-semibold',
                 pendingCount > 0 ? 'text-coral-200' : 'text-sea-200'
               )}>
                 Pending
@@ -145,6 +169,24 @@ export function HomePage() {
         </div>
       </div>
 
+      {/* WHY: Alert banners for critical conditions — over-capacity tanks need immediate attention,
+          so they appear prominently between the header and content. */}
+      {overCapacityCount > 0 && (
+        <div className="px-5 pt-4">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-3.5 flex items-center gap-3">
+            <div className="w-9 h-9 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+              <AlertTriangle size={18} className="text-red-500" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-700 dark:text-red-300">
+                {overCapacityCount} tank{overCapacityCount > 1 ? 's' : ''} over capacity
+              </p>
+              <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">Consider harvesting or transferring</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Task Alert Banner */}
       {canAccess('tasks') && pendingTaskCount > 0 && (
         <div className="px-5 pt-4">
@@ -157,9 +199,9 @@ export function HomePage() {
             </div>
             <div className="flex-1 text-left">
               <p className="text-white font-bold text-sm">
-                {pendingTaskCount} tasks waiting for you today
+                {pendingTaskCount} task{pendingTaskCount > 1 ? 's' : ''} waiting for you today
               </p>
-              <p className="text-amber-100 text-xs mt-0.5">View Tasks</p>
+              <p className="text-amber-100 text-xs mt-0.5">Tap to view</p>
             </div>
             <div className="text-white/70">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -173,12 +215,12 @@ export function HomePage() {
       {/* Quick Actions */}
       {visibleActions.length > 0 && (
         <div className="px-5 pt-4">
-          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
             Quick Actions
           </h2>
           {/* PERF-09: Use a static lookup map instead of a template literal so Tailwind's
               JIT/PurgeCSS can detect the complete class strings at build time. */}
-          <div className={({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-3', 6: 'grid-cols-3' } as Record<number, string>)[Math.min(visibleActions.length, 6)] + ' grid gap-3'}>
+          <div className={({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-3', 6: 'grid-cols-3', 7: 'grid-cols-4' } as Record<number, string>)[Math.min(visibleActions.length, 7)] + ' grid gap-2.5'}>
             {visibleActions.map((action) => {
               const Icon = action.icon;
               return (
@@ -186,15 +228,53 @@ export function HomePage() {
                   key={action.feature}
                   onClick={() => navigate(action.path)}
                   className={clsx(
-                    'flex flex-col items-center p-4 rounded-2xl touch-feedback shadow-card',
+                    'flex flex-col items-center p-3.5 rounded-2xl touch-feedback shadow-card transition-all active:scale-[0.95]',
                     `bg-gradient-to-br ${action.gradient}`
                   )}
                 >
-                  <Icon className={`${action.iconColor} mb-2`} size={26} />
-                  <span className="text-sm font-semibold text-white">{action.label}</span>
+                  <Icon className={`${action.iconColor} mb-1.5`} size={24} />
+                  <span className="text-[11px] font-bold text-white">{action.label}</span>
                 </button>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* WHY: Biomass summary bar — provides aggregate farm-level KPI without needing to open reports.
+          Field managers use this to track overall farm health between formal reporting periods. */}
+      {activeTanks.length > 0 && (
+        <div className="px-5 pt-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Activity size={14} className="text-ocean-500" />
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Farm Summary</h3>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+                  {totalFish >= 1000000 ? `${(totalFish / 1000000).toFixed(1)}M` : totalFish >= 1000 ? `${(totalFish / 1000).toFixed(1)}K` : totalFish}
+                </div>
+                <div className="text-[10px] text-gray-400 font-semibold">Total Fish</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+                  {totalBiomass >= 1000 ? `${(totalBiomass / 1000).toFixed(1)}t` : `${totalBiomass.toFixed(0)}kg`}
+                </div>
+                <div className="text-[10px] text-gray-400 font-semibold">Biomass</div>
+              </div>
+              <div className="text-center">
+                <div className={clsx(
+                  'text-lg font-bold tabular-nums',
+                  overCapacityCount > 0 ? 'text-red-500' : 'text-emerald-500',
+                )}>
+                  {overCapacityCount > 0 ? overCapacityCount : 'OK'}
+                </div>
+                <div className="text-[10px] text-gray-400 font-semibold">
+                  {overCapacityCount > 0 ? 'Over Cap' : 'Capacity'}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -203,8 +283,8 @@ export function HomePage() {
       <div className="px-5 pt-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Waves size={16} className="text-ocean-500" />
-            <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            <Waves size={14} className="text-ocean-500" />
+            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
               Tanks ({allTanks.length})
             </h2>
           </div>
@@ -220,7 +300,7 @@ export function HomePage() {
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-28 rounded-2xl skeleton" />
+              <div key={i} className="h-32 rounded-2xl skeleton" />
             ))}
           </div>
         ) : allTanks.length === 0 ? (

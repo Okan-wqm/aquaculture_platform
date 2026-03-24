@@ -222,6 +222,8 @@ export function RecordFeedingPage() {
       )}
 
       {/* Tank Selector */}
+      {/* WHY: Only tanks with active batches are selectable — feeding requires a batch context
+          to look up the daily feeding plan and match to the correct feed program. */}
       {!tankId && (
         <>
           <BlockTitle>Select Tank</BlockTitle>
@@ -231,6 +233,11 @@ export function RecordFeedingPage() {
               {tanks?.filter((t) => t.batchMetrics).map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name} ({t.code})
+                </option>
+              ))}
+              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
+                <option key={t.id} value="" disabled>
+                  {t.name} (No active batch)
                 </option>
               ))}
             </ListInput>

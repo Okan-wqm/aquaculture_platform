@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Skull, CheckCircle, AlertCircle, Minus, Plus } from 'lucide-react';
+import { ArrowLeft, Skull, CheckCircle, AlertCircle, Minus, Plus, ChevronRight } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { MortalityReason } from '@/types';
@@ -31,6 +31,10 @@ interface FormErrors {
   general?: string;
 }
 
+// WHY: Multi-step form with confirmation — prevents accidental submissions of mortality records,
+// which directly affect inventory counts and cannot be easily undone in aquaculture operations.
+type FormStep = 'entry' | 'confirm';
+
 export function RecordMortalityPage() {
   const navigate = useNavigate();
   const { tankId } = useParams<{ tankId?: string }>();
@@ -44,10 +48,12 @@ export function RecordMortalityPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [step, setStep] = useState<FormStep>('entry');
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
   const metrics = selectedTank?.batchMetrics;
   const maxQuantity = metrics?.pieces || 1000;
+  const selectedReason = MORTALITY_REASONS.find((r) => r.value === reason);
 
   useEffect(() => {
     if (tankId) setSelectedTankId(tankId);
@@ -63,6 +69,11 @@ export function RecordMortalityPage() {
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }, [selectedTankId, metrics, quantity, maxQuantity]);
+
+  const handleReview = () => {
+    if (!validateForm()) return;
+    setStep('confirm');
+  };
 
   const handleSubmit = async () => {
     if (!validateForm()) return;
@@ -86,6 +97,7 @@ export function RecordMortalityPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to record mortality';
       setErrors({ general: message });
+      setStep('entry');
     } finally {
       setIsSubmitting(false);
     }
@@ -105,18 +117,115 @@ export function RecordMortalityPage() {
     setNotes(e.target.value);
   };
 
+  // WHY: Success screen with checkmark animation provides clear feedback that the operation
+  // was queued. "Queued for sync" is always accurate because all submissions go through offline queue.
   if (showSuccess) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-sea-50 dark:bg-sea-900/10">
-        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4">
+        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4 animate-bounce-once">
           <CheckCircle size={48} className="text-sea-600" />
         </div>
         <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
-        {/* BUG-08: All submissions go through the offline queue regardless of online
-            status. "Queued for sync" is always accurate. */}
         <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
           Queued for sync
         </p>
+      </div>
+    );
+  }
+
+  // WHY: Confirmation step — shows a summary card of the mortality record before final submission.
+  // Prevents accidental double-taps and lets users verify the data before it hits the queue.
+  if (step === 'confirm') {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+        <div className="bg-gradient-to-r from-red-600 to-red-500 text-white">
+          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
+            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+              <ArrowLeft size={22} />
+            </button>
+            <div className="flex items-center gap-2.5">
+              <Skull size={22} />
+              <h1 className="text-lg font-bold">Confirm Record</h1>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 mt-5">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <div className="bg-red-50 dark:bg-red-900/20 p-4 border-b border-red-100 dark:border-red-800/50">
+              <h3 className="text-sm font-bold text-red-700 dark:text-red-300 uppercase tracking-wider">Mortality Summary</h3>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Tank</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{selectedTank?.name}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Batch</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{metrics?.batchNumber ?? '--'}</span>
+              </div>
+              <div className="h-px bg-gray-100 dark:bg-gray-800" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Dead Fish</span>
+                <span className="text-2xl font-bold text-red-600">{quantity}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Reason</span>
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {selectedReason?.emoji} {selectedReason?.label}
+                </span>
+              </div>
+              {notes.trim() && (
+                <>
+                  <div className="h-px bg-gray-100 dark:bg-gray-800" />
+                  <div>
+                    <span className="text-sm text-gray-500">Notes</span>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{notes}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {errors.general && (
+          <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
+            <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+            <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
+          </div>
+        )}
+
+        <div className="px-4 mt-6 space-y-3 pb-28">
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="w-full py-4 bg-gradient-to-r from-red-600 to-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                Recording...
+              </>
+            ) : (
+              <>
+                <Skull size={20} />
+                Confirm & Record
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setStep('entry')}
+            disabled={isSubmitting}
+            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
+          >
+            Go Back & Edit
+          </button>
+          {!isOnline && (
+            <p className="text-center text-amber-500 text-sm font-medium">
+              Offline -- will sync when connected
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -143,7 +252,7 @@ export function RecordMortalityPage() {
             <div className="w-11 h-11 bg-red-50 dark:bg-red-900/20 rounded-xl flex items-center justify-center">
               <Skull className="text-mortality" size={22} />
             </div>
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
               <p className="text-sm text-gray-500">
                 {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
@@ -165,6 +274,8 @@ export function RecordMortalityPage() {
       {!tankId && (
         <>
           <BlockTitle>Select Tank</BlockTitle>
+          {/* WHY: Only tanks with active batches are selectable — mortality records require a batch context.
+              Tanks without batches are shown as disabled so users understand why they cannot be selected. */}
           <List strongIos insetIos>
             <ListInput type="select" value={selectedTankId} onChange={handleTankChange} error={errors.tank}>
               <option value="">-- Select Tank --</option>
@@ -173,15 +284,22 @@ export function RecordMortalityPage() {
                   {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
                 </option>
               ))}
+              {/* WHY: Show batchless tanks as disabled options so users know the tank exists but cannot record against it */}
+              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
+                <option key={t.id} value="" disabled>
+                  {t.name} (No active batch)
+                </option>
+              ))}
             </ListInput>
           </List>
           {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
         </>
       )}
 
-      {/* Quantity */}
+      {/* WHY: Large touch-friendly quantity stepper — field workers use this with wet/gloved hands.
+          The 56px hit target exceeds WCAG 2.2 minimum of 44px for touch targets. */}
       <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Dead Fish Count</h3>
+        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Dead Fish Count</h3>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
           <div className="flex items-center justify-center gap-5">
             <button
@@ -213,16 +331,16 @@ export function RecordMortalityPage() {
 
       {/* Reason Selector */}
       <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Cause of Death</h3>
+        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Cause of Death</h3>
         <div className="grid grid-cols-4 gap-2">
           {MORTALITY_REASONS.map((r) => (
             <button
               key={r.value}
               onClick={() => setReason(r.value)}
               className={clsx(
-                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
+                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
                 reason === r.value
-                  ? 'border-mortality bg-red-50 dark:bg-red-900/20 shadow-glow-red'
+                  ? 'border-mortality bg-red-50 dark:bg-red-900/20 shadow-glow-red scale-[1.02]'
                   : 'border-gray-100 dark:border-gray-800'
               )}
             >
@@ -245,28 +363,21 @@ export function RecordMortalityPage() {
         />
       </List>
 
-      {/* Submit Button */}
+      {/* WHY: "Review" button instead of direct submit — adds a confirmation step to prevent
+          accidental mortality records that would corrupt batch inventory data. */}
       <div className="px-4 pb-28">
         <button
-          onClick={handleSubmit}
-          disabled={!selectedTankId || !metrics?.batchId || quantity < 1 || isSubmitting}
+          onClick={handleReview}
+          disabled={!selectedTankId || !metrics?.batchId || quantity < 1}
           className="w-full py-4 bg-gradient-to-r from-red-600 to-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
         >
-          {isSubmitting ? (
-            <>
-              <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-              Recording...
-            </>
-          ) : (
-            <>
-              <Skull size={20} />
-              Record {quantity} Dead Fish
-            </>
-          )}
+          <Skull size={20} />
+          Review {quantity} Dead Fish
+          <ChevronRight size={18} className="ml-1" />
         </button>
         {!isOnline && (
           <p className="text-center text-amber-500 text-sm mt-3 font-medium">
-            Offline - will sync when connected
+            Offline -- will sync when connected
           </p>
         )}
       </div>

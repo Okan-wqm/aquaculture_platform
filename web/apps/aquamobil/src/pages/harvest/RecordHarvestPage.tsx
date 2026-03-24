@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Package, CheckCircle, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Package, CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { QualityGrade } from '@/types';
@@ -38,6 +38,9 @@ export function RecordHarvestPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
+  // WHY: Confirmation step prevents accidental harvest records — harvesting is the highest-value
+  // operation in aquaculture and directly impacts financial reporting.
+  const [step, setStep] = useState<'entry' | 'confirm'>('entry');
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
   const metrics = selectedTank?.batchMetrics;
@@ -71,6 +74,11 @@ export function RecordHarvestPage() {
     return Object.keys(newErrors).length === 0;
   }, [selectedTankId, metrics, quantityNum, avgWeightNum, maxQuantity]);
 
+  const handleReview = () => {
+    if (!validateForm()) return;
+    setStep('confirm');
+  };
+
   const handleSubmit = async () => {
     if (!validateForm() || !metrics?.batchId) return;
 
@@ -96,6 +104,7 @@ export function RecordHarvestPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to record harvest';
       setErrors({ general: message });
+      setStep('entry');
     } finally {
       setIsSubmitting(false);
     }
@@ -135,7 +144,7 @@ export function RecordHarvestPage() {
   if (showSuccess) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-sea-50 dark:bg-sea-900/10">
-        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4">
+        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4 animate-bounce-once">
           <CheckCircle size={48} className="text-sea-600" />
         </div>
         <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
@@ -143,6 +152,112 @@ export function RecordHarvestPage() {
         <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
           Queued for sync
         </p>
+      </div>
+    );
+  }
+
+  // WHY: Harvest confirmation step — harvest is the most financially significant operation,
+  // so users must review quantity, weight, grade, and estimated value before submitting.
+  if (step === 'confirm') {
+    const gradeLabel = QUALITY_GRADES.find((g) => g.value === qualityGrade)?.label ?? qualityGrade;
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+        <div className="bg-gradient-to-r from-violet-700 to-harvest text-white">
+          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
+            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+              <ArrowLeft size={22} />
+            </button>
+            <div className="flex items-center gap-2.5">
+              <Package size={22} />
+              <h1 className="text-lg font-bold">Confirm Harvest</h1>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 mt-5">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <div className="bg-purple-50 dark:bg-purple-900/20 p-4 border-b border-purple-100 dark:border-purple-800/50">
+              <h3 className="text-sm font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Harvest Summary</h3>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Tank</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{selectedTank?.name}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Batch</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{metrics?.batchNumber ?? '--'}</span>
+              </div>
+              <div className="h-px bg-gray-100 dark:bg-gray-800" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Quantity</span>
+                <span className="text-xl font-bold text-harvest">{quantityNum.toLocaleString()} fish</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Avg Weight</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{avgWeightNum}g</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Total Biomass</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{totalBiomass.toFixed(1)} kg</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Quality</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{gradeLabel}</span>
+              </div>
+              {estimatedValue > 0 && (
+                <>
+                  <div className="h-px bg-gray-100 dark:bg-gray-800" />
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-500">Est. Value</span>
+                    <span className="text-xl font-bold text-sea-600">
+                      {estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {errors.general && (
+          <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
+            <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+            <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
+          </div>
+        )}
+
+        <div className="px-4 mt-6 space-y-3 pb-28">
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="w-full py-4 bg-gradient-to-r from-violet-700 to-harvest text-white font-bold rounded-2xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                Recording...
+              </>
+            ) : (
+              <>
+                <Package size={20} />
+                Confirm & Record Harvest
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => setStep('entry')}
+            disabled={isSubmitting}
+            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
+          >
+            Go Back & Edit
+          </button>
+          {!isOnline && (
+            <p className="text-center text-amber-500 text-sm font-medium">
+              Offline -- will sync when connected
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -188,6 +303,7 @@ export function RecordHarvestPage() {
       )}
 
       {/* Tank Selector */}
+      {/* WHY: Only tanks with active batches are selectable — you can only harvest fish from a batch */}
       {!tankId && (
         <>
           <BlockTitle>Select Tank</BlockTitle>
@@ -197,6 +313,11 @@ export function RecordHarvestPage() {
               {tanks?.filter((t) => t.batchMetrics).map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                </option>
+              ))}
+              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
+                <option key={t.id} value="" disabled>
+                  {t.name} (No active batch)
                 </option>
               ))}
             </ListInput>
@@ -242,7 +363,7 @@ export function RecordHarvestPage() {
 
       {/* Quality Grade */}
       <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Quality Grade</h3>
+        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Quality Grade</h3>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {QUALITY_GRADES.map((g) => (
             <button
@@ -282,28 +403,21 @@ export function RecordHarvestPage() {
         </div>
       )}
 
-      {/* Submit Button */}
+      {/* WHY: "Review" button instead of direct submit — harvest is the most valuable operation and
+          needs confirmation of quantity, weight, grade, and estimated value before committing. */}
       <div className="px-4 pt-5 pb-28">
         <button
-          onClick={handleSubmit}
-          disabled={!selectedTankId || !metrics?.batchId || quantityNum < 1 || avgWeightNum < 1 || isSubmitting}
+          onClick={handleReview}
+          disabled={!selectedTankId || !metrics?.batchId || quantityNum < 1 || avgWeightNum < 1}
           className="w-full py-4 bg-gradient-to-r from-violet-700 to-harvest text-white font-bold rounded-2xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
         >
-          {isSubmitting ? (
-            <>
-              <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-              Recording...
-            </>
-          ) : (
-            <>
-              <Package size={20} />
-              Record Harvest
-            </>
-          )}
+          <Package size={20} />
+          Review Harvest
+          <ChevronRight size={18} className="ml-1" />
         </button>
         {!isOnline && (
           <p className="text-center text-amber-500 text-sm mt-3 font-medium">
-            Offline - will sync when connected
+            Offline -- will sync when connected
           </p>
         )}
       </div>

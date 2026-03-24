@@ -66,6 +66,12 @@ import { WeatherModule } from './weather/weather.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { EventListenersModule } from './events/event-listeners.module';
 import { TaskModule } from './task/task.module';
+/**
+ * WHY: AiInsightsModule integrates the MCP Farm Intelligence server with the
+ * farm service, providing AI-powered risk assessment, anomaly detection, growth
+ * prediction, and feeding advice via GraphQL queries.
+ */
+import { AiInsightsModule } from './ai-insights/ai-insights.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { GraphQLContextFactory } from './common/graphql-context.factory';
 import { GraphQLContextModule } from './common/graphql-context.module';
@@ -265,6 +271,8 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
     SchedulerModule,
     EventListenersModule,
     TaskModule,
+    // WHY: AI insights module — MCP Farm Intelligence integration
+    AiInsightsModule,
   ],
   providers: [
     // Global exception filter

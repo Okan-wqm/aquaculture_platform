@@ -56,6 +56,10 @@ const DEFAULT_SETTINGS: MobileSettings = {
 // error (e.g. the row couldn't be created because of the BUG-1 user_id issue),
 // we fall back to a usable set of core features so the mobile app remains
 // functional instead of showing a completely blank screen.
+// WHY: HR features (attendance, leave, schedule) are included in fallback because
+// field workers rely on clock-in/out and leave requests even when the permission
+// endpoint is temporarily unavailable. Denying these during an outage causes
+// payroll discrepancies and forces manual paper-based tracking.
 const FALLBACK_SETTINGS: MobileSettings = {
   isMobileEnabled: true,
   allowedFeatures: {
@@ -65,10 +69,10 @@ const FALLBACK_SETTINGS: MobileSettings = {
     feeding: true,
     waterQuality: false,
     tankView: true,
-    schedule: false,
-    attendance: false,
-    leave: false,
-    tasks: false,
+    schedule: true,
+    attendance: true,
+    leave: true,
+    tasks: true,
     transfer: true,
   },
 };

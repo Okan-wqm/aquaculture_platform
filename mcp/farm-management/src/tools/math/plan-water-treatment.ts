@@ -88,6 +88,10 @@ export const inputSchema = z.object({
   hasCO2Line: z.boolean().default(false).describe('CO₂ dozlama hattı var mı?'),
   hasDegassing: z.boolean().default(false).describe('Degassing (CO₂ giderme) ünitesi var mı?'),
 
+  // Tedavi parametreleri
+  availableReagents: z.array(z.string()).optional().describe('Kullanılabilir kimyasallar listesi'),
+  minAlkalinityMgL: z.number().min(0).optional().describe('Minimum alkalinite hedefi (mg/L CaCO₃)'),
+
   // Hedef (opsiyonel)
   targetPH: z.number().min(4).max(12).optional().describe('Hedef pH (belirtilmezse güvenli aralığın ortası)'),
 });

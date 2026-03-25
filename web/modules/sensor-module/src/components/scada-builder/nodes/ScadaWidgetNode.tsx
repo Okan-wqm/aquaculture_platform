@@ -22,6 +22,12 @@ import { WidgetTooltip } from '../WidgetTooltip';
 import type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
+import {
+  buildTransformCSS,
+  buildTransformOrigin,
+  DEFAULT_SVG_TRANSFORM,
+} from '../../../types/scada-transform.types';
+import type { SvgTransform } from '../../../types/scada-transform.types';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
 import { useScadaPackageStore } from '../../../store/scadaPackageStore';
 // FIX: useScadaRuntime throw eder — doğrudan context kullanarak Rules of Hooks ihlalini önlüyoruz
@@ -210,6 +216,13 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     }
   }, [tagName]);
 
+  /* ---------- SVG Transform (applied on container div) ------------- */
+  // Compute CSS transform from widget config — allows rotation, scale, skew
+  // on any widget type without modifying individual renderers.
+  const widgetTransform: SvgTransform = (data.config?.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
+  const svgTransformCSS = useMemo(() => buildTransformCSS(widgetTransform), [widgetTransform]);
+  const svgTransformOrigin = useMemo(() => buildTransformOrigin(widgetTransform), [widgetTransform]);
+
   /* ---------- Equipment aspect ratio ------------------------------ */
   const isEquipment = data.widgetType === 'equipment';
 
@@ -392,10 +405,13 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     background: 'transparent',
     overflow: 'visible' as const,
     userSelect: 'none' as const,
-  }), [size.width, size.height, selected]);
+    // SVG transform applied at container level — benefits all widget types
+    // without touching individual renderers
+    transform: svgTransformCSS || undefined,
+    transformOrigin: svgTransformOrigin,
+  }), [size.width, size.height, selected, svgTransformCSS, svgTransformOrigin]);
 
   const animatedContainerStyle = useMemo(() => {
-    // Runtime yokken animasyon uygulanmaz — varsayilan gorunum korunur
     // No animations applied without runtime — preserves default appearance
     if (!runtimeAvailable) return containerStyle;
     const style = { ...containerStyle } as Record<string, unknown>;
@@ -412,11 +428,15 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
       style.animation = `scada-blink ${animationState.blinkInterval}ms ease-in-out infinite`;
     }
     if (animationState.translateX || animationState.translateY) {
-      style.transform = `translate(${animationState.translateX}px, ${animationState.translateY}px)`;
+      // Compose SVG transform with animation translate so both apply simultaneously
+      const translatePart = `translate(${animationState.translateX}px, ${animationState.translateY}px)`;
+      style.transform = svgTransformCSS
+        ? `${svgTransformCSS} ${translatePart}`
+        : translatePart;
       style.transition = `transform ${animationState.transitionDuration}ms ease`;
     }
     return style as React.CSSProperties;
-  }, [containerStyle, animationState, runtimeAvailable]);
+  }, [containerStyle, animationState, runtimeAvailable, svgTransformCSS]);
 
   /* ---------- Connection handles for all widget types --------------- */
   const connectionHandles = useMemo(() => {

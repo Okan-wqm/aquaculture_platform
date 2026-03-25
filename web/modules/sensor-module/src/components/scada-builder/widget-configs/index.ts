@@ -31,6 +31,9 @@ import { CustomSvgConfig } from './CustomSvgConfig';
 import { SchedulerConfig } from './SchedulerConfig';
 import { VideoStreamConfig } from './VideoStreamConfig';
 import { MapViewConfig } from './MapViewConfig';
+import { SvgEllipseConfig } from './SvgEllipseConfig';
+import { SvgPathConfig } from './SvgPathConfig';
+import { RasterImageConfig } from './RasterImageConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- legacy config components use any
@@ -74,4 +77,7 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   scheduler: SchedulerConfig,
   videoStream: VideoStreamConfig,
   mapView: MapViewConfig,
+  svgEllipse: SvgEllipseConfig,
+  svgPath: SvgPathConfig,
+  rasterImage: RasterImageConfig,
 };

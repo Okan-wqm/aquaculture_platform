@@ -78,6 +78,9 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   scheduler:         React.lazy(() => import('./widget-renderers/SchedulerRenderer')),
   videoStream:       React.lazy(() => import('./widget-renderers/VideoStreamRenderer')),
   mapView:           React.lazy(() => import('./widget-renderers/MapViewRenderer')),
+  svgEllipse:        React.lazy(() => import('./widget-renderers/SvgEllipseRenderer')),
+  svgPath:           React.lazy(() => import('./widget-renderers/SvgPathRenderer')),
+  rasterImage:       React.lazy(() => import('./widget-renderers/RasterImageRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

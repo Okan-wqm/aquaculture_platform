@@ -39,6 +39,9 @@ export type ScadaWidgetType =
   | 'svgText'
   | 'scheduler'
   | 'customSvg'
+  | 'svgEllipse'
+  | 'svgPath'
+  | 'rasterImage'
   | 'videoStream'
   | 'mapView';
 

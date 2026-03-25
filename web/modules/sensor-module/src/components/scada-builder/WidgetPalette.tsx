@@ -35,6 +35,9 @@ import {
   Calendar,
   Video,
   MapPinned,
+  Ellipsis,
+  Spline,
+  Image,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -200,6 +203,8 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'svgLine', label: 'Line', icon: <Minus className="w-4 h-4" /> },
       { type: 'svgText', label: 'Text', icon: <Type className="w-4 h-4" /> },
       { type: 'customSvg', label: 'Custom SVG', icon: <FileImage className="w-4 h-4" /> },
+      { type: 'svgEllipse', label: 'Ellipse', icon: <Ellipsis className="w-4 h-4" /> },
+      { type: 'svgPath', label: 'Path', icon: <Spline className="w-4 h-4" /> },
     ],
   },
   {
@@ -213,6 +218,7 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     widgets: [
       { type: 'videoStream', label: 'Video Stream', icon: <Video className="w-4 h-4" /> },
       { type: 'mapView', label: 'Map View', icon: <MapPinned className="w-4 h-4" /> },
+      { type: 'rasterImage', label: 'Image', icon: <Image className="w-4 h-4" /> },
     ],
   },
   {

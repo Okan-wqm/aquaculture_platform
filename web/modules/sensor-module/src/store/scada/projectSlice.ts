@@ -29,6 +29,7 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
   processId: null,
   targetDeviceId: null,
   automationBindings: [],
+  scripts: [],
   isDirty: false,
   rightPanelTab: 'widget' as const,
 
@@ -61,6 +62,12 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
   setRightPanelTab: (tab) =>
     set((state) => {
       state.rightPanelTab = tab;
+    }),
+
+  setScripts: (scripts) =>
+    set((state) => {
+      state.scripts = scripts;
+      state.isDirty = true;
     }),
 
   // Mimari tutarlılık: isDirty flag'i named action ile temizlenir
@@ -255,6 +262,8 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       })),
       controlPermissions: state.controlPermissions,
       trendConfig: state.trendConfig,
+      // Only include scripts in JSON when there are scripts to save
+      ...(state.scripts.length > 0 ? { scripts: state.scripts } : {}),
     };
   },
 
@@ -322,6 +331,7 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
         screens.find((s) => s.isDefault)?.id || screens[0]?.id || '';
       state.alarmRules = alarmRules;
       state.automationBindings = json.meta?.automationBindings || [];
+      state.scripts = json.scripts || [];
       state.controlPermissions = json.controlPermissions || {
         ...DEFAULT_CONTROL_PERMISSIONS,
         securityLevels: { ...DEFAULT_CONTROL_PERMISSIONS.securityLevels },
@@ -393,6 +403,7 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       state.activeScreenId = '';
       state.alarmRules = [];
       state.automationBindings = [];
+      state.scripts = [];
       state.controlPermissions = {
         ...DEFAULT_CONTROL_PERMISSIONS,
         securityLevels: { ...DEFAULT_CONTROL_PERMISSIONS.securityLevels },

@@ -1,6 +1,6 @@
 import type { ScadaEdge } from './scada-edge.types';
 import type { AnimationRule } from '../engine/animation/types';
-import type { WidgetEventDef } from '../engine/events/types';
+import type { WidgetEventDef, ScadaScript } from '../engine/events/types';
 import type { WidgetPermissions } from './scada-widget.types';
 
 export type ScadaPackageStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
@@ -99,6 +99,8 @@ export interface ScadaPackageData {
   alarmRules: AlarmRule[];
   controlPermissions: ControlPermissions;
   trendConfig: TrendConfig;
+  /** Package-level scripts for client-side automation (Phase 5B). */
+  scripts?: ScadaScript[];
 }
 
 export interface ScadaPackage {

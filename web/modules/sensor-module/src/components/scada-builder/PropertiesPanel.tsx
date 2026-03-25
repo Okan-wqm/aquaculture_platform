@@ -11,10 +11,11 @@ import { GeneralPropertiesSection } from './widget-configs/GeneralPropertiesSect
 import { WidgetPermissionsSection } from './widget-configs/WidgetPermissionsSection';
 import { EventsPanel } from './widget-configs/EventsPanel';
 import { AnimationsPanel } from './widget-configs/AnimationsPanel';
+import { ScriptsPanel } from './widget-configs/ScriptsPanel';
 import { AutomationBindingPanel } from './AutomationBindingPanel';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdge, ScadaEdgeType, ScadaEdgeData } from '../../types/scada-edge.types';
-import type { WidgetEventDef } from '../../engine/events/types';
+import type { WidgetEventDef, ScadaScript } from '../../engine/events/types';
 import type { AnimationRule } from '../../engine/animation/types';
 import type { ScreenWidget, WidgetPosition } from '../../types/scada-package.types';
 import type { WidgetPermissions } from '../../types/scada-widget.types';
@@ -90,13 +91,17 @@ interface PropertiesPanelProps {
   onEdgeDelete?: (edgeId: string) => void;
   onWidgetEventsChange?: (widgetId: string, events: WidgetEventDef[]) => void;
   onWidgetAnimationsChange?: (widgetId: string, animations: AnimationRule[]) => void;
+  /** Package-level scripts for the Scripts tab and runScript action selector. */
+  scripts?: ScadaScript[];
+  onScriptsChange?: (scripts: ScadaScript[]) => void;
+  onTestScript?: (scriptId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
 
-type TabId = 'widget' | 'alarms' | 'control' | 'trend' | 'automation' | 'events' | 'animations';
+type TabId = 'widget' | 'alarms' | 'control' | 'trend' | 'automation' | 'events' | 'animations' | 'scripts';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'widget', label: 'Widget' },
@@ -106,6 +111,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'automation', label: 'Auto' },
   { id: 'events', label: 'Events' },
   { id: 'animations', label: 'Anim' },
+  { id: 'scripts', label: 'Scripts' },
 ];
 
 const CONDITIONS = ['>', '<', '>=', '<=', '==', '!='];
@@ -139,6 +145,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onEdgeDelete,
   onWidgetEventsChange,
   onWidgetAnimationsChange,
+  scripts = [],
+  onScriptsChange,
+  onTestScript,
 }) => {
   const [activeTab, setActiveTab] = useState<TabId>('widget');
 
@@ -652,6 +661,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               events={selectedWidget.events ?? []}
               onChange={(events) => onWidgetEventsChange(selectedWidget.id, events)}
               deviceId={deviceId}
+              scripts={scripts}
             />
           ) : (
             <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
@@ -677,6 +687,21 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <p className="text-xs mt-1">Select a widget to configure animations</p>
             </div>
           )
+        )}
+
+        {/* ===== Scripts Tab =====
+         *
+         * Package-level script management. Unlike widget-scoped tabs,
+         * scripts belong to the entire SCADA package and can be referenced
+         * by any widget's runScript event action. No widget selection required.
+         */}
+        {activeTab === 'scripts' && onScriptsChange && (
+          <ScriptsPanel
+            scripts={scripts}
+            onChange={onScriptsChange}
+            onTestScript={onTestScript ?? (() => {})}
+            deviceId={deviceId}
+          />
         )}
       </div>
     </div>

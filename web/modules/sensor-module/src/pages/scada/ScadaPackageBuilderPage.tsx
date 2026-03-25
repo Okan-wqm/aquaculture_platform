@@ -110,6 +110,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const removeEdge = useScadaPackageStore((s) => s.removeEdge);
   const reset = useScadaPackageStore((s) => s.reset);
   const setSimulationMode = useScadaPackageStore((s) => s.setSimulationMode);
+  const setScripts = useScadaPackageStore((s) => s.setScripts);
   // Mimari tutarlılık: isDirty'yi named action üzerinden temizle
   // Architectural consistency: clear isDirty via named action for devtools/middleware visibility
   const markClean = useScadaPackageStore((s) => s.markClean);
@@ -140,11 +141,12 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
   // Properties panel state — sadece sag panel acikken gerekli
   // Properties panel state — only needed when the right panel is open
-  const { alarmRules, controlPermissions, trendConfig } = useScadaPackageStore(
+  const { alarmRules, controlPermissions, trendConfig, scripts } = useScadaPackageStore(
     useShallow((s) => ({
       alarmRules: s.alarmRules,
       controlPermissions: s.controlPermissions,
       trendConfig: s.trendConfig,
+      scripts: s.scripts,
     })),
   );
 
@@ -763,6 +765,13 @@ const ScadaPackageBuilderPage: React.FC = () => {
           onEdgeDelete={handleEdgeDelete}
           onWidgetEventsChange={handleWidgetEventsChange}
           onWidgetAnimationsChange={handleWidgetAnimationsChange}
+          scripts={scripts}
+          onScriptsChange={setScripts}
+          onTestScript={(scriptId) => {
+            // Phase 5B placeholder: the ScriptExecutor sandbox from Phase 5A
+            // will handle actual execution. For now, log to console.
+            console.log('[SCADA] Test script:', scriptId);
+          }}
         />}
       </div>
 

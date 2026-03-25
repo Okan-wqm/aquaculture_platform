@@ -35,6 +35,7 @@ export type {
   ScadaWidgetType,
   ScadaEdge,
   ScadaEdgeData,
+  ScadaScript,
   HistoryEntry,
   ClipboardData,
   SimulationSlice,

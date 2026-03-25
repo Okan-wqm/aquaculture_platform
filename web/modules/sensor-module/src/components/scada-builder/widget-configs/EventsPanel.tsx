@@ -5,27 +5,92 @@
  * plain text inputs. This ensures tag names are valid, discoverable,
  * and consistent with the device's actual tag inventory.
  * The deviceId comes from the SCADA package's target edge device.
+ *
+ * Phase 5B: runScript and openUrl actions are now enabled. runScript
+ * references a package-level script by ID. openUrl validates that the
+ * URL uses https:// protocol on the main thread before opening.
  */
 
-import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
-import type { WidgetEventDef, EventTrigger, EventAction } from '../../../engine/events/types';
+import React, { useState } from 'react';
+import { Plus, Trash2, AlertTriangle } from 'lucide-react';
+import type { WidgetEventDef, EventTrigger, EventAction, ScadaScript } from '../../../engine/events/types';
 import { useScadaStore } from '../../../store/scada';
 import { TagBrowser } from '../TagBrowser';
 
 const TRIGGERS: EventTrigger[] = ['click', 'dblclick', 'mousedown', 'mouseup', 'mouseover', 'mouseout'];
 
-// Security: removed unsafe actions until proper sandboxing is implemented
-const ACTIONS: EventAction[] = ['navigate', 'openCard', 'openDialog', 'setValue', 'toggleValue'];
+/**
+ * All available event actions including sandbox-backed runScript and openUrl.
+ * These were re-enabled in Phase 5B now that the Web Worker sandbox provides
+ * secure execution isolation for scripts and URL validation for openUrl.
+ */
+const ACTIONS: EventAction[] = [
+  'navigate',
+  'openCard',
+  'openDialog',
+  'setValue',
+  'toggleValue',
+  'runScript',
+  'openUrl',
+];
+
+/** Human-readable labels for actions in the dropdown. */
+const ACTION_LABELS: Record<EventAction, string> = {
+  navigate: 'Navigate',
+  openCard: 'Open Card',
+  openDialog: 'Open Dialog',
+  setValue: 'Set Value',
+  toggleValue: 'Toggle Value',
+  runScript: 'Run Script',
+  openUrl: 'Open URL',
+};
 
 interface EventsPanelProps {
   events: WidgetEventDef[];
   onChange: (events: WidgetEventDef[]) => void;
   /** Edge device ID for tag discovery via TagBrowser */
   deviceId?: string | null;
+  /** Package-level scripts for runScript action's script selector */
+  scripts?: ScadaScript[];
 }
 
-export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, deviceId }) => {
+/**
+ * Inline URL input with https:// protocol validation.
+ * Validates on every keystroke and shows a warning for non-https URLs
+ * to prevent javascript: injection and open-redirect attacks.
+ */
+const OpenUrlConfig: React.FC<{ url: string; onChange: (url: string) => void }> = ({
+  url,
+  onChange,
+}) => {
+  const isValid = url === '' || /^https:\/\/.+/.test(url);
+
+  return (
+    <div data-testid="openurl-config">
+      <label className="block text-xs text-gray-500 mb-1">URL (https:// only)</label>
+      <input
+        type="url"
+        value={url}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="https://example.com/dashboard"
+        className={`w-full px-2 py-1.5 text-xs border rounded-lg focus:ring-2 focus:border-cyan-500 ${
+          !isValid
+            ? 'border-red-300 focus:ring-red-500 bg-red-50'
+            : 'border-gray-300 focus:ring-cyan-500'
+        }`}
+        data-testid="openurl-input"
+      />
+      {!isValid && url !== '' && (
+        <div className="flex items-center gap-1 mt-1 text-[10px] text-red-600" data-testid="openurl-error">
+          <AlertTriangle className="w-3 h-3" />
+          Only https:// URLs are allowed for security.
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, deviceId, scripts = [] }) => {
   const screens = useScadaStore((s) => s.screens);
 
   const addEvent = () => {
@@ -113,7 +178,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
               className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             >
               {ACTIONS.map((a) => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a} value={a}>{ACTION_LABELS[a]}</option>
               ))}
             </select>
           </div>
@@ -262,7 +327,42 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
             </div>
           )}
 
-          {/* openUrl ve runScript Phase 5'te sandboxed olarak eklenecek */}
+          {/* runScript: Select a script from the package's script list.
+             The script executes via the ScriptExecutor sandbox when the event fires. */}
+          {ev.action === 'runScript' && (
+            <div data-testid="runscript-config">
+              <label className="block text-xs text-gray-500 mb-1">Script</label>
+              {scripts.length > 0 ? (
+                <select
+                  value={(ev.params.scriptId as string) || ''}
+                  onChange={(e) => updateEventParams(ev.id, { scriptId: e.target.value || undefined })}
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  data-testid="runscript-select"
+                >
+                  <option value="">Select script...</option>
+                  {scripts.filter((s) => s.enabled).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-1.5 rounded-lg">
+                  No scripts defined. Add scripts in the Scripts tab first.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* openUrl: Opens a URL in a new tab after validating the protocol.
+             Only https:// URLs are allowed to prevent javascript: injection
+             and other open-redirect / SSRF attacks. */}
+          {ev.action === 'openUrl' && (
+            <OpenUrlConfig
+              url={(ev.params.url as string) || ''}
+              onChange={(url) => updateEventParams(ev.id, { url })}
+            />
+          )}
         </div>
       ))}
     </div>

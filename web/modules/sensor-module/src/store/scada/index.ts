@@ -19,6 +19,7 @@ export type {
   ScadaWidgetType,
   ScadaEdge,
   ScadaEdgeData,
+  ScadaScript,
   // New types
   HistoryEntry,
   ClipboardData,

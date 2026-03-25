@@ -27,6 +27,7 @@ import type {
 } from '../../types/scada-package.types';
 import type { ScadaEdge, ScadaEdgeData } from '../../types/scada-edge.types';
 import type { OverlayEntry } from '../../engine/views/types';
+import type { ScadaScript } from '../../engine/events/types';
 
 /* ------------------------------------------------------------------ */
 /*  Re-exports (backward compatibility with old store imports)         */
@@ -40,6 +41,7 @@ export type {
 } from '../../types/scada-package.types';
 export type { ScadaWidgetType, WidgetPermissions } from '../../types/scada-widget.types';
 export type { ScadaEdge, ScadaEdgeData } from '../../types/scada-edge.types';
+export type { ScadaScript } from '../../engine/events/types';
 
 /* ------------------------------------------------------------------ */
 /*  Domain Types                                                       */
@@ -164,6 +166,8 @@ export interface ScadaPackageJSON {
   alarmRules?: AlarmRuleJSON[];
   controlPermissions?: ControlPermissionsDef;
   trendConfig?: TrendConfigDef;
+  /** Package-level scripts for client-side automation (Phase 5B). */
+  scripts?: ScadaScript[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -378,8 +382,10 @@ export interface ProjectSlice {
   processId: string | null;
   targetDeviceId: string | null;
   automationBindings: AutomationBinding[];
+  /** Package-level scripts for client-side SCADA automation. */
+  scripts: ScadaScript[];
   isDirty: boolean;
-  rightPanelTab: 'widget' | 'alarms' | 'controls' | 'trends' | 'automation' | 'events' | 'animations';
+  rightPanelTab: 'widget' | 'alarms' | 'controls' | 'trends' | 'automation' | 'events' | 'animations' | 'scripts';
 
   setPackageId: (id: string | null) => void;
   setPackageName: (name: string) => void;
@@ -404,6 +410,9 @@ export interface ProjectSlice {
   bindVariableToWidgetAndSetTag: (programId: string, variableId: string, widgetId: string, tag: string) => void;
   unbindVariable: (programId: string, variableId: string) => void;
   autoBindByTag: () => { matched: number; unmatched: number };
+
+  /** Replace the entire scripts array (used by ScriptsPanel onChange). */
+  setScripts: (scripts: ScadaScript[]) => void;
 
   /**
    * Mimari tutarlılık: isDirty'yi named action üzerinden temizler.

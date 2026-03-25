@@ -39,6 +39,10 @@ const CSS = `
 @keyframes scada-blink { 0%,100%{opacity:1} 50%{opacity:0.12} }
 @keyframes scada-pipe-flow { from{stroke-dashoffset:24} to{stroke-dashoffset:0} }
 @keyframes scada-pipe-flow-rev { from{stroke-dashoffset:0} to{stroke-dashoffset:24} }
+@keyframes scada-piston {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(var(--piston-distance, -20px)); }
+}
 @keyframes scada-fade-in { from{opacity:0;transform:scale(.96)} to{opacity:1;transform:scale(1)} }
 @keyframes handle-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
@@ -48,6 +52,7 @@ const CSS = `
 .scada-blinking { animation: scada-blink var(--scada-blink-interval, 1s) ease-in-out infinite; }
 .scada-pipe-flowing { animation: scada-pipe-flow var(--scada-flow-speed, 0.6s) linear infinite; }
 .scada-pipe-flowing-rev { animation: scada-pipe-flow-rev var(--scada-flow-speed, 0.6s) linear infinite; }
+.scada-pistoning { animation: scada-piston var(--piston-duration, 1s) ease-in-out infinite; }
 .react-flow__handle:hover {
   transform: scale(1.5);
   box-shadow: 0 0 6px 2px rgba(6, 182, 212, 0.5);

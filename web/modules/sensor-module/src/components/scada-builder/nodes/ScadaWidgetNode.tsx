@@ -457,6 +457,34 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
         : translatePart;
       style.transition = `transform ${animationState.transitionDuration}ms ease`;
     }
+
+    // valueMappedRotation — static angle proportional to tag value.
+    // Appends to any existing transform (SVG transform, translate, etc.)
+    if (animationState.mappedRotation !== undefined) {
+      const existing = typeof style.transform === 'string' ? style.transform : '';
+      style.transform = `${existing} rotate(${animationState.mappedRotation}deg)`.trim();
+    }
+
+    // piston — vertical oscillation via CSS keyframe animation.
+    // Sets CSS custom property for the keyframe's translateY distance.
+    if (animationState.pistoning) {
+      style.animation = `scada-piston ${animationState.pistonDuration}ms ease-in-out infinite`;
+      style['--piston-distance'] = `${-(animationState.pistonDistance ?? 20)}px`;
+    }
+
+    // recursiveColor — CSS custom properties that cascade to SVG children.
+    // Widgets use var(--scada-fill) and var(--scada-stroke) internally.
+    if (animationState.cssVariables) {
+      Object.assign(style, animationState.cssVariables);
+    }
+
+    // scale — proportional scaling from tag value.
+    // Appends to any existing transform chain.
+    if (animationState.mappedScale !== undefined) {
+      const existing = typeof style.transform === 'string' ? style.transform : '';
+      style.transform = `${existing} scale(${animationState.mappedScale})`.trim();
+    }
+
     return style as React.CSSProperties;
   }, [containerStyle, animationState, runtimeAvailable, svgTransformCSS]);
 

@@ -4,32 +4,109 @@
  * Animation rules bind to device tags for real-time value-driven animations.
  * TagBrowser integration replaces error-prone manual tag name entry
  * with validated selection from the device's tag inventory.
+ *
+ * Supports 12 animation types covering FUXA-parity features:
+ * - Original 7: colorRange, rotate, blink, hide, show, fillLevel, move
+ * - Extended 5: valueMappedRotation, piston, imageAlongPath, recursiveColor, scale
+ *
+ * Preview mode allows operators to test animations in-place by injecting
+ * synthetic tag values through the TagValueBus without entering simulation mode.
  */
 
-import React, { useState } from 'react';
-import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Plus, Trash2, ChevronDown, ChevronRight, Play, Pause } from 'lucide-react';
 import type { AnimationRule, AnimationRuleType, AnimationOptions, ColorRange } from '../../../engine/animation/types';
 import { TagBrowser } from '../TagBrowser';
+import { RangeColorMapping } from './RangeColorMapping';
+import { TagValueBus } from '../../../engine/tags/TagValueBus';
 
-const ANIMATION_TYPES: AnimationRuleType[] = [
-  'colorRange',
-  'rotate',
-  'blink',
-  'hide',
-  'show',
-  'fillLevel',
-  'move',
+/**
+ * Animation type options extended with FUXA-parity types.
+ * Each option includes a descriptive label that helps operators
+ * understand the visual effect without needing documentation.
+ */
+const ANIMATION_TYPE_OPTIONS: Array<{ value: AnimationRuleType; label: string }> = [
+  { value: 'colorRange', label: 'Color Range' },
+  { value: 'rotate', label: 'Continuous Rotation' },
+  { value: 'blink', label: 'Blink' },
+  { value: 'hide', label: 'Hide When In Range' },
+  { value: 'show', label: 'Show When In Range' },
+  { value: 'fillLevel', label: 'Fill Level' },
+  { value: 'move', label: 'Move To Position' },
+  { value: 'valueMappedRotation', label: 'Value-Mapped Rotation' },
+  { value: 'piston', label: 'Piston (Vertical Oscillation)' },
+  { value: 'imageAlongPath', label: 'Image Along Path' },
+  { value: 'recursiveColor', label: 'Recursive Color (CSS Variables)' },
+  { value: 'scale', label: 'Value-Mapped Scale' },
 ];
+
+/** Shared CSS class strings to keep JSX clean and consistent */
+const INPUT_CLASS =
+  'w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 interface AnimationsPanelProps {
   animations: AnimationRule[];
   onChange: (animations: AnimationRule[]) => void;
   /** Edge device ID for tag discovery via TagBrowser */
   deviceId?: string | null;
+  /**
+   * Optional TagValueBus instance for preview mode.
+   * When provided, the preview slider publishes synthetic tag values
+   * through this bus, driving the animation engine in real time.
+   * Typically supplied by the ScadaRuntimeContext when available.
+   */
+  tagBus?: TagValueBus | null;
 }
 
-export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, onChange, deviceId }) => {
+export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
+  animations,
+  onChange,
+  deviceId,
+  tagBus,
+}) => {
   const [expandedBitmask, setExpandedBitmask] = useState<Record<string, boolean>>({});
+  const [previewActive, setPreviewActive] = useState(false);
+  const [previewValue, setPreviewValue] = useState(50);
+
+  /**
+   * Reference to the currently expanded/focused animation rule ID.
+   * Preview slider drives this specific rule's tag when active.
+   */
+  const [focusedAnimId, setFocusedAnimId] = useState<string | null>(null);
+
+  /**
+   * Publish synthetic preview value to TagValueBus whenever the slider
+   * changes or preview mode toggles. This feeds the normal animation
+   * pipeline (TagValueBus -> AnimationEngine -> ScadaWidgetNode) without
+   * requiring a separate rendering path.
+   */
+  const publishPreviewRef = useRef<((value: number) => void) | null>(null);
+
+  useEffect(() => {
+    if (!previewActive || !tagBus || !focusedAnimId) {
+      publishPreviewRef.current = null;
+      return;
+    }
+    const anim = animations.find((a) => a.id === focusedAnimId);
+    if (!anim?.tagName) {
+      publishPreviewRef.current = null;
+      return;
+    }
+    const tagName = anim.tagName;
+    publishPreviewRef.current = (val: number) => {
+      tagBus.publish(tagName, val);
+    };
+    // Publish the current slider value immediately when preview starts
+    tagBus.publish(tagName, previewValue);
+  }, [previewActive, tagBus, focusedAnimId, animations, previewValue]);
+
+  const handlePreviewSliderChange = useCallback(
+    (value: number) => {
+      setPreviewValue(value);
+      publishPreviewRef.current?.(value);
+    },
+    [],
+  );
 
   const addAnimation = () => {
     const newRule: AnimationRule = {
@@ -60,10 +137,11 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
 
   const removeAnimation = (id: string) => {
     onChange(animations.filter((anim) => anim.id !== id));
+    if (focusedAnimId === id) setFocusedAnimId(null);
   };
 
   const handleTypeChange = (id: string, type: AnimationRuleType) => {
-    // Reset options when type changes
+    // Reset options when type changes to avoid stale config leaking between types
     updateAnimation(id, { type, options: {} });
   };
 
@@ -71,7 +149,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
     setExpandedBitmask((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Color range helpers
+  // Color range helpers (used by the inline colorRange type)
   const addColorRange = (animId: string, currentRanges: ColorRange[]) => {
     const newRange: ColorRange = { min: 0, max: 100, fill: '#22c55e' };
     updateAnimationOptions(animId, { ranges: [...currentRanges, newRange] });
@@ -88,25 +166,97 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
     updateAnimationOptions(animId, { ranges: ranges.filter((_, i) => i !== index) });
   };
 
+  /** Resolve range bounds for the focused animation (used by preview slider) */
+  const getFocusedRange = (): { min: number; max: number } => {
+    if (!focusedAnimId) return { min: 0, max: 100 };
+    const anim = animations.find((a) => a.id === focusedAnimId);
+    return anim?.range ?? { min: 0, max: 100 };
+  };
+
+  const focusedRange = getFocusedRange();
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700">Animations</h4>
-        <button
-          onClick={addAnimation}
-          className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
-        >
-          <Plus className="w-3 h-3" />
-          Add Animation
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Preview toggle — only visible when there are animations to preview */}
+          {animations.length > 0 && (
+            <button
+              onClick={() => setPreviewActive((prev) => !prev)}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
+                previewActive
+                  ? 'bg-cyan-100 text-cyan-700 border border-cyan-300'
+                  : 'text-gray-500 hover:text-gray-700 border border-gray-200'
+              }`}
+              data-testid="preview-toggle"
+              title={previewActive ? 'Stop animation preview' : 'Start animation preview'}
+            >
+              {previewActive ? (
+                <Pause className="w-3 h-3" />
+              ) : (
+                <Play className="w-3 h-3" />
+              )}
+              Preview
+            </button>
+          )}
+          <button
+            onClick={addAnimation}
+            className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
+          >
+            <Plus className="w-3 h-3" />
+            Add Animation
+          </button>
+        </div>
       </div>
+
+      {/* Preview slider — appears when preview is active and an animation is focused */}
+      {previewActive && focusedAnimId && (
+        <div
+          className="px-3 py-2 bg-cyan-50 border border-cyan-200 rounded-lg space-y-1"
+          data-testid="preview-slider-container"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-cyan-700 uppercase">
+              Preview Value
+            </span>
+            <span className="text-xs text-cyan-600 font-mono">{previewValue}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-cyan-600 min-w-[2rem] text-right">
+              {focusedRange.min}
+            </span>
+            <input
+              type="range"
+              min={focusedRange.min}
+              max={focusedRange.max}
+              step={(focusedRange.max - focusedRange.min) / 100 || 1}
+              value={previewValue}
+              onChange={(e) => handlePreviewSliderChange(Number(e.target.value))}
+              className="flex-1 accent-cyan-600"
+              data-testid="preview-slider"
+            />
+            <span className="text-[10px] text-cyan-600 min-w-[2rem]">
+              {focusedRange.max}
+            </span>
+          </div>
+        </div>
+      )}
 
       {animations.length === 0 && (
         <p className="text-xs text-gray-500 py-4 text-center">No animations configured.</p>
       )}
 
       {animations.map((anim) => (
-        <div key={anim.id} className="p-3 bg-gray-50 rounded-lg space-y-2 border border-gray-100">
+        <div
+          key={anim.id}
+          className={`p-3 bg-gray-50 rounded-lg space-y-2 border transition-colors ${
+            previewActive && focusedAnimId === anim.id
+              ? 'border-cyan-300 ring-1 ring-cyan-200'
+              : 'border-gray-100'
+          }`}
+          onClick={() => setFocusedAnimId(anim.id)}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-gray-400 uppercase">Animation</span>
             <button
@@ -136,7 +286,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                 type="number"
                 value={anim.range.min}
                 onChange={(e) => updateAnimation(anim.id, { range: { ...anim.range, min: Number(e.target.value) } })}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className={INPUT_CLASS}
               />
             </div>
             <div>
@@ -145,7 +295,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                 type="number"
                 value={anim.range.max}
                 onChange={(e) => updateAnimation(anim.id, { range: { ...anim.range, max: Number(e.target.value) } })}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className={INPUT_CLASS}
               />
             </div>
           </div>
@@ -156,17 +306,20 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
             <select
               value={anim.type}
               onChange={(e) => handleTypeChange(anim.id, e.target.value as AnimationRuleType)}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className={INPUT_CLASS}
+              data-testid="animation-type-select"
             >
-              {ANIMATION_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
+              {ANIMATION_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>
 
-          {/* Conditional options based on type */}
+          {/* ============================================================ */}
+          {/*  Type-specific configuration inputs                           */}
+          {/* ============================================================ */}
 
-          {/* rotate */}
+          {/* rotate — continuous rotation driven by tag threshold */}
           {anim.type === 'rotate' && (
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -176,7 +329,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                   value={anim.options.rotationSpeed ?? 2000}
                   onChange={(e) => updateAnimationOptions(anim.id, { rotationSpeed: Number(e.target.value) })}
                   min={100}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className={INPUT_CLASS}
                 />
               </div>
               <div>
@@ -184,7 +337,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                 <select
                   value={anim.options.direction ?? 'cw'}
                   onChange={(e) => updateAnimationOptions(anim.id, { direction: e.target.value as 'cw' | 'ccw' })}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className={INPUT_CLASS}
                 >
                   <option value="cw">Clockwise</option>
                   <option value="ccw">Counter-CW</option>
@@ -193,7 +346,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
             </div>
           )}
 
-          {/* blink */}
+          {/* blink — alternating colors when tag is in range */}
           {anim.type === 'blink' && (
             <div className="space-y-2">
               <div>
@@ -203,7 +356,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                   value={anim.options.blinkInterval ?? 1000}
                   onChange={(e) => updateAnimationOptions(anim.id, { blinkInterval: Number(e.target.value) })}
                   min={100}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className={INPUT_CLASS}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -245,7 +398,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
             </div>
           )}
 
-          {/* colorRange */}
+          {/* colorRange — value-to-color mapping with inline editor */}
           {anim.type === 'colorRange' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -290,7 +443,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
             </div>
           )}
 
-          {/* fillLevel */}
+          {/* fillLevel — tank/vessel fill visualization */}
           {anim.type === 'fillLevel' && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
@@ -300,7 +453,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                     type="number"
                     value={anim.options.fillMin ?? 0}
                     onChange={(e) => updateAnimationOptions(anim.id, { fillMin: Number(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className={INPUT_CLASS}
                   />
                 </div>
                 <div>
@@ -309,7 +462,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                     type="number"
                     value={anim.options.fillMax ?? 100}
                     onChange={(e) => updateAnimationOptions(anim.id, { fillMax: Number(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className={INPUT_CLASS}
                   />
                 </div>
               </div>
@@ -322,7 +475,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                     onChange={(e) => updateAnimationOptions(anim.id, { fillWarningThreshold: Number(e.target.value) })}
                     min={0}
                     max={100}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className={INPUT_CLASS}
                   />
                 </div>
                 <div>
@@ -333,14 +486,14 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                     onChange={(e) => updateAnimationOptions(anim.id, { fillCriticalThreshold: Number(e.target.value) })}
                     min={0}
                     max={100}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className={INPUT_CLASS}
                   />
                 </div>
               </div>
             </div>
           )}
 
-          {/* move */}
+          {/* move — translate widget position based on tag value */}
           {anim.type === 'move' && (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
@@ -350,7 +503,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                     type="number"
                     value={anim.options.toX ?? 0}
                     onChange={(e) => updateAnimationOptions(anim.id, { toX: Number(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className={INPUT_CLASS}
                   />
                 </div>
                 <div>
@@ -359,7 +512,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                     type="number"
                     value={anim.options.toY ?? 0}
                     onChange={(e) => updateAnimationOptions(anim.id, { toY: Number(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className={INPUT_CLASS}
                   />
                 </div>
               </div>
@@ -370,13 +523,176 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                   value={anim.options.duration ?? 1000}
                   onChange={(e) => updateAnimationOptions(anim.id, { duration: Number(e.target.value) })}
                   min={100}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className={INPUT_CLASS}
                 />
               </div>
             </div>
           )}
 
-          {/* Bitmask (collapsible) */}
+          {/* valueMappedRotation — linear mapping from tag value range to angle range */}
+          {anim.type === 'valueMappedRotation' && (
+            <div className="space-y-2" data-testid="value-mapped-rotation-config">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Min Angle</label>
+                  <input
+                    type="number"
+                    value={anim.options.minAngle ?? 0}
+                    onChange={(e) => updateAnimationOptions(anim.id, { minAngle: Number(e.target.value) })}
+                    min={-360}
+                    max={360}
+                    className={INPUT_CLASS}
+                    data-testid="min-angle-input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Max Angle</label>
+                  <input
+                    type="number"
+                    value={anim.options.maxAngle ?? 360}
+                    onChange={(e) => updateAnimationOptions(anim.id, { maxAngle: Number(e.target.value) })}
+                    min={-360}
+                    max={360}
+                    className={INPUT_CLASS}
+                    data-testid="max-angle-input"
+                  />
+                </div>
+              </div>
+              {/* Visual hint: SVG needle showing rotation range */}
+              <div className="flex justify-center py-2">
+                <svg width="64" height="64" viewBox="0 0 64 64" className="opacity-40">
+                  <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 2" />
+                  <line
+                    x1="32" y1="32"
+                    x2={32 + 20 * Math.cos(((anim.options.minAngle ?? 0) - 90) * Math.PI / 180)}
+                    y2={32 + 20 * Math.sin(((anim.options.minAngle ?? 0) - 90) * Math.PI / 180)}
+                    stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"
+                  />
+                  <line
+                    x1="32" y1="32"
+                    x2={32 + 24 * Math.cos(((anim.options.maxAngle ?? 360) - 90) * Math.PI / 180)}
+                    y2={32 + 24 * Math.sin(((anim.options.maxAngle ?? 360) - 90) * Math.PI / 180)}
+                    stroke="#0891b2" strokeWidth="2" strokeLinecap="round"
+                  />
+                  <circle cx="32" cy="32" r="3" fill="#0891b2" />
+                </svg>
+              </div>
+            </div>
+          )}
+
+          {/* piston — vertical oscillation for pump/compressor symbols */}
+          {anim.type === 'piston' && (
+            <div className="grid grid-cols-2 gap-2" data-testid="piston-config">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Distance (px)</label>
+                <input
+                  type="number"
+                  value={anim.options.pistonDistance ?? 20}
+                  onChange={(e) => updateAnimationOptions(anim.id, { pistonDistance: Number(e.target.value) })}
+                  min={5}
+                  max={100}
+                  className={INPUT_CLASS}
+                  data-testid="piston-distance-input"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Duration (ms)</label>
+                <input
+                  type="number"
+                  value={anim.options.pistonDuration ?? 1000}
+                  onChange={(e) => updateAnimationOptions(anim.id, { pistonDuration: Number(e.target.value) })}
+                  min={100}
+                  max={5000}
+                  className={INPUT_CLASS}
+                  data-testid="piston-duration-input"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* imageAlongPath — image traveling along SVG path for flow visualization */}
+          {anim.type === 'imageAlongPath' && (
+            <div className="space-y-2" data-testid="image-along-path-config">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Motion Path (SVG d-attribute)</label>
+                <textarea
+                  value={anim.options.motionPath ?? ''}
+                  onChange={(e) => updateAnimationOptions(anim.id, { motionPath: e.target.value })}
+                  placeholder="M 0,50 C 25,0 75,100 100,50"
+                  rows={3}
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono resize-y"
+                  data-testid="motion-path-textarea"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Duration (ms)</label>
+                <input
+                  type="number"
+                  value={anim.options.motionDuration ?? 3000}
+                  onChange={(e) => updateAnimationOptions(anim.id, { motionDuration: Number(e.target.value) })}
+                  min={500}
+                  max={30000}
+                  className={INPUT_CLASS}
+                  data-testid="motion-duration-input"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* recursiveColor — CSS custom property cascading to all SVG children */}
+          {anim.type === 'recursiveColor' && (
+            <div className="space-y-2" data-testid="recursive-color-config">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">CSS Variable Name</label>
+                <input
+                  type="text"
+                  value={anim.options.colorVariable ?? '--scada-fill'}
+                  onChange={(e) => updateAnimationOptions(anim.id, { colorVariable: e.target.value })}
+                  placeholder="--scada-fill"
+                  className={INPUT_CLASS}
+                  data-testid="color-variable-input"
+                />
+              </div>
+              <RangeColorMapping
+                ranges={anim.options.ranges ?? []}
+                onChange={(ranges) => updateAnimationOptions(anim.id, { ranges })}
+              />
+            </div>
+          )}
+
+          {/* scale — tag value to scale factor mapping */}
+          {anim.type === 'scale' && (
+            <div className="grid grid-cols-2 gap-2" data-testid="scale-config">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Min Scale</label>
+                <input
+                  type="number"
+                  value={anim.options.minScale ?? 0.5}
+                  onChange={(e) => updateAnimationOptions(anim.id, { minScale: Number(e.target.value) })}
+                  min={0.1}
+                  max={5}
+                  step={0.1}
+                  className={INPUT_CLASS}
+                  data-testid="min-scale-input"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Max Scale</label>
+                <input
+                  type="number"
+                  value={anim.options.maxScale ?? 2.0}
+                  onChange={(e) => updateAnimationOptions(anim.id, { maxScale: Number(e.target.value) })}
+                  min={0.1}
+                  max={5}
+                  step={0.1}
+                  className={INPUT_CLASS}
+                  data-testid="max-scale-input"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Bitmask (collapsible) — optional bitwise filter for multi-flag tags */}
           <div className="pt-1 border-t border-gray-200">
             <button
               onClick={() => toggleBitmask(anim.id)}
@@ -400,7 +716,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
                     })
                   }
                   placeholder="Bitmask value"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className={INPUT_CLASS}
                 />
               </div>
             )}

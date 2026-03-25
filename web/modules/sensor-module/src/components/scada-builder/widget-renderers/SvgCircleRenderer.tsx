@@ -4,19 +4,38 @@
  * Renders a circle when width === height, otherwise an ellipse.
  * Supports fill, stroke, opacity, label, and animation state for
  * color, rotation, blink, and visibility.
+ *
+ * Phase 6: Supports gradient fill and SVG filter effects via per-widget
+ * <defs> blocks. When a gradient is active, it overrides the flat fill color.
  */
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
+import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
 
 const SvgCircleRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
 }) => {
-  const fill = (animationState?.fill ?? config.fill ?? '#3b82f6') as string;
+  const flatFill = (animationState?.fill ?? config.fill ?? '#3b82f6') as string;
   const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;
+  const widgetId = (config._widgetId ?? 'circle-0') as string;
+
+  // Gradient and filter configs
+  const fillGradient = (config.fillGradient as GradientConfig) ?? DEFAULT_GRADIENT;
+  const filterConfig = (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
+
+  const useGradient = fillGradient.type !== 'none';
+  const fillValue = useGradient
+    ? `url(#${buildGradientId(widgetId, 'fill')})`
+    : flatFill;
+
+  const useFilter = filterConfig.type !== 'none';
+  const filterAttr = useFilter ? `url(#${buildFilterId(widgetId)})` : undefined;
 
   // Visibility from animation
   if (animationState && !animationState.visible) {
@@ -41,15 +60,21 @@ const SvgCircleRenderer: React.FC<WidgetRendererProps> = ({
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={style}>
+      <SvgGradientDefs
+        widgetId={widgetId}
+        fillGradient={fillGradient}
+        filter={filterConfig}
+      />
       <ellipse
         cx={cx}
         cy={cy}
         rx={rx}
         ry={ry}
-        fill={fill}
-        fillOpacity={opacity}
+        fill={fillValue}
+        fillOpacity={useGradient ? undefined : opacity}
         stroke={stroke}
         strokeWidth={strokeWidth}
+        filter={filterAttr}
       />
       {label && (
         <text

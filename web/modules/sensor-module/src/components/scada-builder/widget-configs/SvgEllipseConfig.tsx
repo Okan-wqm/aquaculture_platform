@@ -3,14 +3,22 @@
  * Follows the same pattern as SvgRectConfig/SvgCircleConfig but
  * for ellipses, which have independent rx/ry radii.
  *
+ * Phase 6: Added GradientEditor and SvgFilterEditor for gradient fill
+ * and visual filter effects. ColorAlphaInput replaces the separate
+ * fill color picker + opacity slider for a more compact UI.
+ *
  * Includes fill/stroke controls, label, and shared panels
- * for StrokeConfig and TransformConfig.
+ * for StrokeConfig, TransformConfig, GradientEditor, and SvgFilterEditor.
  */
 
 import React from 'react';
 import { StrokeConfig } from './StrokeConfig';
 import { TransformConfig } from './TransformConfig';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin } from '../../../types/scada-svg-properties.types';
+import { GradientEditor } from './GradientEditor';
+import { SvgFilterEditor } from './SvgFilterEditor';
+import { ColorAlphaInput } from './ColorAlphaInput';
+import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 
@@ -25,38 +33,25 @@ const INPUT_CLASS =
 
 export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
   const transform = (config.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
+  const fillGradient = (config.fillGradient as GradientConfig) ?? DEFAULT_GRADIENT;
+  const filterConfig = (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
 
   return (
     <div className="space-y-3">
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Fill</label>
-          <input
-            type="color"
-            value={(config.fill as string) || '#3b82f6'}
-            onChange={(e) => onChange({ fill: e.target.value })}
-            className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
-            aria-label="Fill color"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Fill Opacity</label>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={(config.fillOpacity as number) ?? 1}
-            onChange={(e) => onChange({ fillOpacity: Number(e.target.value) })}
-            className="w-full"
-            aria-label="Fill opacity"
-          />
-          <div className="text-xs text-gray-400 text-right">
-            {Math.round(((config.fillOpacity as number) ?? 1) * 100)}%
-          </div>
-        </div>
-      </div>
+      <ColorAlphaInput
+        color={(config.fill as string) || '#3b82f6'}
+        alpha={(config.fillOpacity as number) ?? 1}
+        onChange={(color, alpha) => onChange({ fill: color, fillOpacity: alpha })}
+        label="Fill Color"
+      />
+
+      {/* Gradient editor -- overrides flat fill when type is not 'none' */}
+      <GradientEditor
+        gradient={fillGradient}
+        onChange={(gradient) => onChange({ fillGradient: gradient })}
+        widgetId={(config._widgetId as string) ?? 'ellipse-0'}
+      />
 
       {/* Stroke section -- delegated to shared StrokeConfig */}
       <StrokeConfig
@@ -81,6 +76,13 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           aria-label="Widget label"
         />
       </div>
+
+      {/* SVG filter effects -- blur, shadow, glow */}
+      <SvgFilterEditor
+        filter={filterConfig}
+        onChange={(filter) => onChange({ filter })}
+        widgetId={(config._widgetId as string) ?? 'ellipse-0'}
+      />
 
       {/* Transform section -- shared across all widget types */}
       <TransformConfig

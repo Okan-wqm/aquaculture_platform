@@ -2,19 +2,27 @@
  * SvgShapeConfig - Shared config panels for SVG shape widgets.
  *
  * Renders different fields based on the current widget type:
- * - svgRect:   fill, stroke (via StrokeConfig), cornerRadius, opacity, label, transform
- * - svgCircle: fill, stroke (via StrokeConfig), opacity, label, transform
+ * - svgRect:   fill, gradient, filter, stroke (via StrokeConfig), cornerRadius, opacity, label, transform
+ * - svgCircle: fill, gradient, filter, stroke (via StrokeConfig), opacity, label, transform
  * - svgLine:   lineDirection, stroke (via StrokeConfig), transform
  * - svgText:   text, fontSize, fontWeight, color, textAlign, showValue, transform
  *
- * All shape configs now use the shared StrokeConfig and TransformConfig panels
- * for consistent UI and richer stroke/transform controls.
+ * Phase 6: Added GradientEditor and SvgFilterEditor sections for shapes
+ * that support fill (svgRect, svgCircle). ColorAlphaInput is used for
+ * fill colors to provide per-color opacity control.
+ *
+ * All shape configs use the shared StrokeConfig, TransformConfig,
+ * GradientEditor, and SvgFilterEditor panels for consistent UI.
  */
 
 import React from 'react';
 import { StrokeConfig } from './StrokeConfig';
 import { TransformConfig } from './TransformConfig';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin } from '../../../types/scada-svg-properties.types';
+import { GradientEditor } from './GradientEditor';
+import { SvgFilterEditor } from './SvgFilterEditor';
+import { ColorAlphaInput } from './ColorAlphaInput';
+import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 
@@ -42,6 +50,16 @@ function makeTransformOnChange(
   };
 }
 
+/** Extract gradient config with fallback to defaults */
+function getGradient(config: Record<string, unknown>): GradientConfig {
+  return (config.fillGradient as GradientConfig) ?? DEFAULT_GRADIENT;
+}
+
+/** Extract filter config with fallback to defaults */
+function getFilter(config: Record<string, unknown>): SvgFilterConfig {
+  return (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
+}
+
 /* ------------------------------------------------------------------ */
 /*  svgRect config                                                     */
 /* ------------------------------------------------------------------ */
@@ -50,14 +68,12 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
   <div className="space-y-3">
     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
     <div className="grid grid-cols-2 gap-2">
-      <div>
-        <label className="block text-xs text-gray-500 mb-1">Fill</label>
-        <input
-          type="color"
-          value={(config.fill as string) || '#3b82f6'}
-          onChange={(e) => onChange({ fill: e.target.value })}
-          className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
-          aria-label="Fill color"
+      <div className="col-span-2">
+        <ColorAlphaInput
+          color={(config.fill as string) || '#3b82f6'}
+          alpha={(config.opacity as number) ?? 1}
+          onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })}
+          label="Fill Color"
         />
       </div>
       <div>
@@ -73,20 +89,13 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
         />
       </div>
     </div>
-    <div>
-      <label className="block text-xs text-gray-500 mb-1">Opacity</label>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.05}
-        value={(config.opacity as number) ?? 1}
-        onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-        className="w-full"
-        aria-label="Fill opacity"
-      />
-      <div className="text-xs text-gray-400 text-right">{((config.opacity as number) ?? 1).toFixed(2)}</div>
-    </div>
+
+    {/* Gradient editor -- overrides flat fill when type is not 'none' */}
+    <GradientEditor
+      gradient={getGradient(config)}
+      onChange={(gradient) => onChange({ fillGradient: gradient })}
+      widgetId={(config._widgetId as string) ?? 'rect-0'}
+    />
 
     {/* Stroke -- delegated to shared StrokeConfig panel */}
     <StrokeConfig
@@ -110,6 +119,13 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
         aria-label="Widget label"
       />
     </div>
+
+    {/* SVG filter effects -- blur, shadow, glow */}
+    <SvgFilterEditor
+      filter={getFilter(config)}
+      onChange={(filter) => onChange({ filter })}
+      widgetId={(config._widgetId as string) ?? 'rect-0'}
+    />
 
     {/* Transform -- shared across all widget types */}
     <TransformConfig
@@ -126,30 +142,19 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
 export const SvgCircleConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => (
   <div className="space-y-3">
     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
-    <div>
-      <label className="block text-xs text-gray-500 mb-1">Fill</label>
-      <input
-        type="color"
-        value={(config.fill as string) || '#3b82f6'}
-        onChange={(e) => onChange({ fill: e.target.value })}
-        className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
-        aria-label="Fill color"
-      />
-    </div>
-    <div>
-      <label className="block text-xs text-gray-500 mb-1">Opacity</label>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.05}
-        value={(config.opacity as number) ?? 1}
-        onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-        className="w-full"
-        aria-label="Fill opacity"
-      />
-      <div className="text-xs text-gray-400 text-right">{((config.opacity as number) ?? 1).toFixed(2)}</div>
-    </div>
+    <ColorAlphaInput
+      color={(config.fill as string) || '#3b82f6'}
+      alpha={(config.opacity as number) ?? 1}
+      onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })}
+      label="Fill Color"
+    />
+
+    {/* Gradient editor -- overrides flat fill when type is not 'none' */}
+    <GradientEditor
+      gradient={getGradient(config)}
+      onChange={(gradient) => onChange({ fillGradient: gradient })}
+      widgetId={(config._widgetId as string) ?? 'circle-0'}
+    />
 
     {/* Stroke -- delegated to shared StrokeConfig panel */}
     <StrokeConfig
@@ -173,6 +178,13 @@ export const SvgCircleConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
         aria-label="Widget label"
       />
     </div>
+
+    {/* SVG filter effects */}
+    <SvgFilterEditor
+      filter={getFilter(config)}
+      onChange={(filter) => onChange({ filter })}
+      widgetId={(config._widgetId as string) ?? 'circle-0'}
+    />
 
     {/* Transform -- shared across all widget types */}
     <TransformConfig

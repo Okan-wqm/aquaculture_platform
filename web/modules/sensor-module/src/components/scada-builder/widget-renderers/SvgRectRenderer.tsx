@@ -4,20 +4,42 @@
  * Renders a configurable rectangle with fill, stroke, corner radius,
  * opacity, and optional label. Supports animation state for color,
  * rotation, blink, and visibility.
+ *
+ * Phase 6: Supports gradient fill and SVG filter effects via per-widget
+ * <defs> blocks. When a gradient is active, it overrides the flat fill color.
+ * Filter effects (blur, shadow, glow) are applied via SVG filter attribute.
  */
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
+import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
 
 const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
 }) => {
-  const fill = (animationState?.fill ?? config.fill ?? '#3b82f6') as string;
+  const flatFill = (animationState?.fill ?? config.fill ?? '#3b82f6') as string;
   const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const rx = (config.cornerRadius ?? 0) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;
+  const widgetId = (config._widgetId ?? 'rect-0') as string;
+
+  // Gradient and filter configs -- fall back to defaults when absent
+  const fillGradient = (config.fillGradient as GradientConfig) ?? DEFAULT_GRADIENT;
+  const filterConfig = (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
+
+  // Determine the fill value: gradient URL takes precedence over flat color
+  const useGradient = fillGradient.type !== 'none';
+  const fillValue = useGradient
+    ? `url(#${buildGradientId(widgetId, 'fill')})`
+    : flatFill;
+
+  // Determine whether to apply a filter
+  const useFilter = filterConfig.type !== 'none';
+  const filterAttr = useFilter ? `url(#${buildFilterId(widgetId)})` : undefined;
 
   // Visibility from animation
   if (animationState && !animationState.visible) {
@@ -37,6 +59,11 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={style}>
+      <SvgGradientDefs
+        widgetId={widgetId}
+        fillGradient={fillGradient}
+        filter={filterConfig}
+      />
       <rect
         x={strokeWidth / 2}
         y={strokeWidth / 2}
@@ -44,10 +71,11 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
         height={height - strokeWidth}
         rx={rx}
         ry={rx}
-        fill={fill}
-        fillOpacity={opacity}
+        fill={fillValue}
+        fillOpacity={useGradient ? undefined : opacity}
         stroke={stroke}
         strokeWidth={strokeWidth}
+        filter={filterAttr}
       />
       {label && (
         <text

@@ -1,5 +1,6 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { ExpressionBindingSection } from './ExpressionBindingSection';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -34,6 +35,18 @@ export const GaugeConfig: React.FC<WidgetConfigProps> = ({ config, onChange, dev
           placeholder="Select tag..."
         />
       </div>
+
+      {/*
+       * Expression binding allows computed gauge values (e.g., unit conversion,
+       * averaging, threshold detection) without server-side tag configuration.
+       * The expression result feeds into the gauge's value display.
+       */}
+      <ExpressionBindingSection
+        expression={config.expression as string | undefined}
+        onChange={(expr) => onChange({ expression: expr })}
+        deviceId={deviceId}
+      />
+
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Min</label>

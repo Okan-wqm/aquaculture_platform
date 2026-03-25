@@ -38,7 +38,7 @@ export type {
   AutomationBinding,
   VariableBinding,
 } from '../../types/scada-package.types';
-export type { ScadaWidgetType } from '../../types/scada-widget.types';
+export type { ScadaWidgetType, WidgetPermissions } from '../../types/scada-widget.types';
 export type { ScadaEdge, ScadaEdgeData } from '../../types/scada-edge.types';
 
 /* ------------------------------------------------------------------ */
@@ -121,8 +121,16 @@ export interface ScreenJSON {
     widgetType?: string;
     position?: Partial<WidgetPosition>;
     config?: Record<string, unknown>;
+    /** Human-readable widget name for layers panel. */
+    name?: string;
     groupId?: string | null;
     locked?: boolean;
+    /** When false, widget is hidden on canvas and at runtime. */
+    visible?: boolean;
+    /** Z-index for layer ordering (sparse integer). */
+    zIndex?: number;
+    /** Per-widget role-based access control. */
+    permissions?: ScreenWidget['permissions'];
     animations?: ScreenWidget['animations'];
     events?: ScreenWidget['events'];
   }>;
@@ -236,9 +244,24 @@ export interface WidgetSlice {
   removeWidget: (screenId: string, widgetId: string) => void;
   updateWidget: (screenId: string, widgetId: string, updates: Partial<ScreenWidget>) => void;
   updateWidgetPosition: (screenId: string, widgetId: string, position: WidgetPosition) => void;
+  /**
+   * Layer management actions implementing 4-level z-order control.
+   * Uses sparse z-index values to avoid O(n) renumbering on every operation.
+   *
+   * bringToFront: Sets z-index to max(all widgets) + 10
+   * sendToBack:   Sets z-index to min(all widgets) - 10
+   * bringForward:  Swaps z-index with the next widget above
+   * sendBackward:  Swaps z-index with the next widget below
+   */
   bringToFront: (screenId: string, widgetId: string) => void;
   sendToBack: (screenId: string, widgetId: string) => void;
+  bringForward: (screenId: string, widgetId: string) => void;
+  sendBackward: (screenId: string, widgetId: string) => void;
+  /** Direct z-index assignment for drag-and-drop reordering in the layers panel. */
+  setWidgetZIndex: (screenId: string, widgetId: string, zIndex: number) => void;
   toggleWidgetLock: (screenId: string, widgetId: string) => void;
+  /** Toggle layer visibility without deleting the widget. */
+  toggleWidgetVisibility: (screenId: string, widgetId: string) => void;
 }
 
 // --- Edge Slice (operates on screens[].edges) ---
@@ -257,6 +280,12 @@ export interface SelectionSlice {
   selectedWidgetIds: string[];
   selectedEdgeId: string | null;
   clipboard: ClipboardData | null;
+  /**
+   * Widget ID currently hovered in the Layers panel.
+   * Used to show a non-interactive highlight outline on the canvas
+   * so users can identify which canvas widget corresponds to a layer row.
+   */
+  highlightedWidgetId: string | null;
 
   setSelectedWidget: (id: string | null) => void;
   setSelectedEdge: (id: string | null) => void;
@@ -268,6 +297,8 @@ export interface SelectionSlice {
   cutSelectedWidgets: () => void;
   pasteWidgets: (targetScreenId?: string) => void;
   clearClipboard: () => void;
+  /** Set highlighted widget ID (from Layers panel hover). null clears highlight. */
+  setHighlightedWidget: (id: string | null) => void;
 }
 
 // --- History Slice ---

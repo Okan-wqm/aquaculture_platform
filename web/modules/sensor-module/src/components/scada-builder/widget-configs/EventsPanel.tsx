@@ -1,24 +1,31 @@
 /**
  * EventsPanel — UI for adding/editing/removing WidgetEventDef[] on a widget.
+ *
+ * Tag selection uses the device-aware TagBrowser component instead of
+ * plain text inputs. This ensures tag names are valid, discoverable,
+ * and consistent with the device's actual tag inventory.
+ * The deviceId comes from the SCADA package's target edge device.
  */
 
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { WidgetEventDef, EventTrigger, EventAction } from '../../../engine/events/types';
 import { useScadaStore } from '../../../store/scada';
+import { TagBrowser } from '../TagBrowser';
 
 const TRIGGERS: EventTrigger[] = ['click', 'dblclick', 'mousedown', 'mouseup', 'mouseover', 'mouseout'];
 
-// Guvenlik: runScript ve openUrl kaldirildi -- Phase 5'te sandboxed olarak donecek
 // Security: removed unsafe actions until proper sandboxing is implemented
 const ACTIONS: EventAction[] = ['navigate', 'openCard', 'openDialog', 'setValue', 'toggleValue'];
 
 interface EventsPanelProps {
   events: WidgetEventDef[];
   onChange: (events: WidgetEventDef[]) => void;
+  /** Edge device ID for tag discovery via TagBrowser */
+  deviceId?: string | null;
 }
 
-export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange }) => {
+export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, deviceId }) => {
   const screens = useScadaStore((s) => s.screens);
 
   const addEvent = () => {
@@ -223,12 +230,11 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange }) =>
             <>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Target Tag</label>
-                <input
-                  type="text"
+                <TagBrowser
+                  deviceId={deviceId ?? null}
                   value={(ev.params.targetTag as string) || ''}
-                  onChange={(e) => updateEventParams(ev.id, { targetTag: e.target.value })}
-                  placeholder="sensor.tag"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  onChange={(tag) => updateEventParams(ev.id, { targetTag: tag })}
+                  placeholder="Select target tag..."
                 />
               </div>
               <div>
@@ -247,12 +253,11 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange }) =>
           {ev.action === 'toggleValue' && (
             <div>
               <label className="block text-xs text-gray-500 mb-1">Toggle Tag</label>
-              <input
-                type="text"
+              <TagBrowser
+                deviceId={deviceId ?? null}
                 value={(ev.params.toggleTag as string) || ''}
-                onChange={(e) => updateEventParams(ev.id, { toggleTag: e.target.value })}
-                placeholder="sensor.tag"
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                onChange={(tag) => updateEventParams(ev.id, { toggleTag: tag })}
+                placeholder="Select toggle tag..."
               />
             </div>
           )}

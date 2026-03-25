@@ -130,6 +130,14 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     return screen?.widgets.find((w) => w.id === id)?.locked ?? false;
   });
 
+  /* ---------- Highlight state from layers panel hover --------------- */
+  /**
+   * Highlight border shown when a widget is hovered in the Layers panel.
+   * Uses a non-interactive CSS outline (not border, to avoid layout shift)
+   * with a distinct color from the selection highlight.
+   */
+  const isHighlighted = useScadaPackageStore((s) => s.highlightedWidgetId === id);
+
   /* ---------- Grid position from store (for tooltip) -------------------- */
   const gridPosition = useScadaPackageStore((s) => {
     const screen = s.screens.find((scr) => scr.id === data.screenId);
@@ -390,11 +398,19 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   }, [data]);
 
   /* ---------- Memoized styles ------------------------------------- */
+  /**
+   * Z-index applied from the widget's stored layer order.
+   * ReactFlow nodes have a base z-index from selection state;
+   * we add the widget's z-index on top to maintain layer ordering
+   * independent of selection.
+   */
+  const widgetZIndex = data.zIndex ?? 0;
+
   const containerStyle = useMemo(() => ({
     width: size.width,
     height: size.height,
     position: 'relative' as const,
-    zIndex: 500,
+    zIndex: 500 + widgetZIndex,
     borderRadius: 4,
     border: selected
       ? '2px solid #06b6d4'
@@ -402,6 +418,12 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     boxShadow: selected
       ? '0 0 0 2px rgba(6,182,212,0.35)'
       : 'none',
+    // Highlight outline from Layers panel hover — uses outline instead of border
+    // to avoid layout shift when hovering layer rows
+    outline: isHighlighted && !selected
+      ? '2px dashed #3b82f6'
+      : undefined,
+    outlineOffset: isHighlighted && !selected ? 2 : undefined,
     background: 'transparent',
     overflow: 'visible' as const,
     userSelect: 'none' as const,
@@ -409,7 +431,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     // without touching individual renderers
     transform: svgTransformCSS || undefined,
     transformOrigin: svgTransformOrigin,
-  }), [size.width, size.height, selected, svgTransformCSS, svgTransformOrigin]);
+  }), [size.width, size.height, selected, isHighlighted, widgetZIndex, svgTransformCSS, svgTransformOrigin]);
 
   const animatedContainerStyle = useMemo(() => {
     // No animations applied without runtime — preserves default appearance

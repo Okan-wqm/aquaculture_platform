@@ -4,9 +4,11 @@
  * events, and animations.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Settings, Plus, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
+import { GeneralPropertiesSection } from './widget-configs/GeneralPropertiesSection';
+import { WidgetPermissionsSection } from './widget-configs/WidgetPermissionsSection';
 import { EventsPanel } from './widget-configs/EventsPanel';
 import { AnimationsPanel } from './widget-configs/AnimationsPanel';
 import { AutomationBindingPanel } from './AutomationBindingPanel';
@@ -14,6 +16,8 @@ import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTy
 import type { ScadaEdge, ScadaEdgeType, ScadaEdgeData } from '../../types/scada-edge.types';
 import type { WidgetEventDef } from '../../engine/events/types';
 import type { AnimationRule } from '../../engine/animation/types';
+import type { ScreenWidget, WidgetPosition } from '../../types/scada-package.types';
+import type { WidgetPermissions } from '../../types/scada-widget.types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +56,16 @@ interface SelectedWidget {
   id: string;
   type: string;
   config: Record<string, unknown>;
+  /** Human-readable name for identification in layers panel. */
+  name?: string;
+  /** Grid position and size. */
+  position: WidgetPosition;
+  /** When true the widget cannot be moved or resized. */
+  locked?: boolean;
+  /** When false the widget is hidden on canvas and at runtime. Defaults true. */
+  visible?: boolean;
+  /** Per-widget role-based access control (ISA-101). */
+  permissions?: WidgetPermissions;
   events?: WidgetEventDef[];
   animations?: AnimationRule[];
 }
@@ -59,6 +73,8 @@ interface SelectedWidget {
 interface PropertiesPanelProps {
   selectedWidget?: SelectedWidget | null;
   onWidgetConfigChange?: (widgetId: string, updates: Record<string, unknown>) => void;
+  /** Updates top-level ScreenWidget fields (name, position, locked, visible, permissions). */
+  onWidgetUpdate?: (widgetId: string, updates: Partial<ScreenWidget>) => void;
   alarmRules?: AlarmRule[];
   onAlarmRulesChange?: (rules: AlarmRule[]) => void;
   controlSecurity?: ControlSecurityConfig;
@@ -107,6 +123,7 @@ const DEFAULT_TREND_CONFIG: TrendConfig = { retentionDays: 30, sampleIntervalSec
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   selectedWidget = null,
   onWidgetConfigChange,
+  onWidgetUpdate,
   alarmRules = DEFAULT_ALARM_RULES,
   onAlarmRulesChange,
   controlSecurity = DEFAULT_CONTROL_SECURITY,
@@ -229,19 +246,50 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {/* ===== Widget Tab ===== */}
+        {/* ===== Widget Tab =====
+         *
+         * The Widget tab now has a 3-layer sandwich structure:
+         * 1. GeneralPropertiesSection (name, position, size, lock, visible)
+         * 2. Per-widget ConfigComponent (from widgetConfigMap)
+         * 3. WidgetPermissionsSection (role-based show/enable)
+         *
+         * This ensures every widget type gets general + permission controls
+         * without modifying any individual config component.
+         */}
         {activeTab === 'widget' && (
           <>
             {selectedWidget && ConfigComponent && onWidgetConfigChange ? (
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3 capitalize">
-                  {selectedWidget.type.replace(/([A-Z])/g, ' $1').trim()}
-                </h4>
+                {/* Layer 1: General properties (identity + spatial) */}
+                {onWidgetUpdate && (
+                  <GeneralPropertiesSection
+                    widgetId={selectedWidget.id}
+                    widgetType={selectedWidget.type}
+                    name={selectedWidget.name ?? ''}
+                    x={selectedWidget.position.col}
+                    y={selectedWidget.position.row}
+                    w={selectedWidget.position.w}
+                    h={selectedWidget.position.h}
+                    locked={selectedWidget.locked ?? false}
+                    visible={selectedWidget.visible ?? true}
+                    onUpdate={(updates) => onWidgetUpdate(selectedWidget.id, updates)}
+                  />
+                )}
+
+                {/* Layer 2: Per-widget type-specific config */}
                 <ConfigComponent
                   config={selectedWidget.config}
                   onChange={(updates: Record<string, unknown>) => onWidgetConfigChange(selectedWidget.id, updates)}
                   deviceId={deviceId}
                 />
+
+                {/* Layer 3: Per-widget permissions (ISA-101 RBAC) */}
+                {onWidgetUpdate && (
+                  <WidgetPermissionsSection
+                    permissions={selectedWidget.permissions ?? { showRoles: [], enableRoles: [] }}
+                    onChange={(permissions) => onWidgetUpdate(selectedWidget.id, { permissions })}
+                  />
+                )}
               </div>
             ) : selectedEdge && onEdgeDataChange ? (
               <div className="space-y-4">
@@ -603,6 +651,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             <EventsPanel
               events={selectedWidget.events ?? []}
               onChange={(events) => onWidgetEventsChange(selectedWidget.id, events)}
+              deviceId={deviceId}
             />
           ) : (
             <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
@@ -619,6 +668,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             <AnimationsPanel
               animations={selectedWidget.animations ?? []}
               onChange={(animations) => onWidgetAnimationsChange(selectedWidget.id, animations)}
+              deviceId={deviceId}
             />
           ) : (
             <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">

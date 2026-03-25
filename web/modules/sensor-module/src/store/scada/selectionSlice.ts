@@ -7,6 +7,7 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
   selectedWidgetIds: [],
   selectedEdgeId: null,
   clipboard: null,
+  highlightedWidgetId: null,
 
   // --- Selection (mutual exclusion) ---
 
@@ -183,5 +184,10 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
   clearClipboard: () =>
     set((state) => {
       state.clipboard = null;
+    }),
+
+  setHighlightedWidget: (id) =>
+    set((state) => {
+      state.highlightedWidgetId = id;
     }),
 });

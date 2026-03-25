@@ -1,6 +1,7 @@
 import type { ScadaEdge } from './scada-edge.types';
 import type { AnimationRule } from '../engine/animation/types';
 import type { WidgetEventDef } from '../engine/events/types';
+import type { WidgetPermissions } from './scada-widget.types';
 
 export type ScadaPackageStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
@@ -18,10 +19,25 @@ export interface ScreenWidget {
   widgetType: string;
   position: WidgetPosition;
   config: Record<string, unknown>;
+  /** Human-readable name for identification in the layers panel and scene tree. */
+  name?: string;
   /** Widgets sharing the same groupId are in a group. */
   groupId?: string | null;
   /** When true, widget cannot be dragged or resized. */
   locked?: boolean;
+  /** When false, widget is hidden on canvas and at runtime. Defaults to true. */
+  visible?: boolean;
+  /**
+   * Z-index for layer ordering on the SCADA canvas.
+   * Stored as a sparse integer -- widgets only need relative ordering,
+   * not consecutive indices. This avoids expensive renumbering when
+   * a widget moves one layer up/down.
+   *
+   * Default: 0. Higher values render on top. Managed by widgetSlice layer actions.
+   */
+  zIndex?: number;
+  /** Per-widget role-based access control (ISA-101). */
+  permissions?: WidgetPermissions;
   /** Tag-driven animation rules evaluated at runtime. */
   animations?: AnimationRule[];
   /** Widget event definitions (click, dblclick, etc.). */

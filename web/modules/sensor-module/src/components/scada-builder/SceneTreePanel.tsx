@@ -432,7 +432,7 @@ export const SceneTreePanel: React.FC = () => {
   const isLastScreen = screens.length <= 1;
 
   return (
-    <div className="w-48 h-full flex flex-col border-r border-gray-200 bg-white select-none">
+    <div className="w-full h-full flex flex-col bg-white select-none">
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-2 border-b border-gray-200">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">

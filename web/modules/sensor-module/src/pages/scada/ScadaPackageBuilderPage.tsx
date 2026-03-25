@@ -35,6 +35,7 @@ import { PropertiesPanel } from '../../components/scada-builder/PropertiesPanel'
 import { DeployScadaDialog } from '../../components/scada-builder/DeployScadaDialog';
 import ScreenTabBar from '../../components/scada-builder/ScreenTabBar';
 import { SceneTreePanel } from '../../components/scada-builder/SceneTreePanel';
+import { LayersPanel } from '../../components/scada-builder/LayersPanel';
 import { ScreenBreadcrumb } from '../../components/scada-builder/ScreenBreadcrumb';
 import { GlobalAlarmBanner } from '../../components/scada-builder/GlobalAlarmBanner';
 import { WidgetSearchPanel } from '../../components/scada-builder/WidgetSearchPanel';
@@ -277,7 +278,9 @@ const ScadaPackageBuilderPage: React.FC = () => {
     setShowDeployDialog(true);
   }, [effectivePackageId, isDirty, handleSave]);
 
-  // Find selected widget for PropertiesPanel
+  // Find selected widget for PropertiesPanel.
+  // Includes all top-level ScreenWidget fields needed by the 3-layer
+  // sandwich (GeneralProperties + Config + Permissions).
   const selectedWidget = useMemo(() => {
     if (!selectedWidgetId || !activeScreenId) return null;
     const screen = screens.find((s) => s.id === activeScreenId);
@@ -288,6 +291,11 @@ const ScadaPackageBuilderPage: React.FC = () => {
       id: widget.id,
       type: widget.widgetType,
       config: widget.config,
+      name: widget.name,
+      position: widget.position,
+      locked: widget.locked,
+      visible: widget.visible,
+      permissions: widget.permissions,
       events: widget.events,
       animations: widget.animations,
     };
@@ -305,6 +313,17 @@ const ScadaPackageBuilderPage: React.FC = () => {
       state.updateWidget(state.activeScreenId, widgetId, {
         config: { ...widget.config, ...updates },
       });
+    },
+    [],
+  );
+
+  // Widget top-level field update handler (name, position, locked, visible, permissions).
+  // Distinct from handleWidgetConfigChange which merges into the nested config object.
+  const handleWidgetUpdate = useCallback(
+    (widgetId: string, updates: Partial<import('../../types/scada-package.types').ScreenWidget>) => {
+      const state = useScadaPackageStore.getState();
+      if (!state.activeScreenId) return;
+      state.updateWidget(state.activeScreenId, widgetId, updates);
     },
     [],
   );
@@ -670,8 +689,21 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Scene Tree Panel (hidden in preview/simulation) */}
-        {mode === 'edit' && <SceneTreePanel />}
+        {/* Scene Tree + Layers Panel (hidden in preview/simulation) */}
+        {mode === 'edit' && (
+          <div className="w-48 flex flex-col border-r border-gray-200 bg-white">
+            {/**
+             * Layers panel added as a collapsible section below the scene tree.
+             * When expanded, it shows all widgets in the active screen sorted by
+             * z-index. This provides a non-canvas way to select, reorder, and
+             * manage widget visibility/locking.
+             */}
+            <div className="flex-1 overflow-hidden">
+              <SceneTreePanel />
+            </div>
+            <LayersPanel />
+          </div>
+        )}
 
         {/* Left Panel - Widget Palette (hidden in preview/simulation) */}
         {mode === 'edit' && <WidgetPalette />}
@@ -711,6 +743,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
         {mode === 'edit' && <PropertiesPanel
           selectedWidget={selectedWidget}
           onWidgetConfigChange={handleWidgetConfigChange}
+          onWidgetUpdate={handleWidgetUpdate}
           alarmRules={alarmRules}
           onAlarmRulesChange={handleAlarmRulesChange}
           controlSecurity={controlPermissions.securityLevels}

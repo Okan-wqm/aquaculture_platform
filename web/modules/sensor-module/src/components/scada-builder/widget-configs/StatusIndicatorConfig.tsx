@@ -1,5 +1,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { RangeColorMapping } from './RangeColorMapping';
+import type { ColorRange } from '../../../engine/animation/types';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -96,6 +98,16 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
+      </div>
+
+      {/* Value-driven color ranges for analog tag values */}
+      <div className="pt-2 border-t border-gray-100">
+        <RangeColorMapping
+          ranges={(config.colorRanges as ColorRange[]) || []}
+          onChange={(colorRanges) => onChange({ colorRanges })}
+          showLabel
+          maxRanges={8}
+        />
       </div>
     </div>
   );

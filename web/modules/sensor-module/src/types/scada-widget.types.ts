@@ -93,6 +93,25 @@ export interface EquipmentConnectionPoint {
   direction: 'in' | 'out' | 'inout';
 }
 
+/* ------------------------------------------------------------------ */
+/*  Per-widget permissions (ISA-101 security model)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Per-widget role-based access control following ISA-101 HMI security guidelines.
+ * Separates visibility from interactivity -- an operator may see a valve
+ * but not be allowed to operate it without supervisor authorization.
+ *
+ * Roles are string IDs matching the tenant's role definitions from auth-service.
+ * Empty arrays mean "visible/enabled for all roles" (default open).
+ */
+export interface WidgetPermissions {
+  /** Role IDs that can see this widget. Empty = visible to all. */
+  showRoles: string[];
+  /** Role IDs that can interact with this widget. Empty = enabled for all. */
+  enableRoles: string[];
+}
+
 export interface ScadaWidgetNodeData {
   widgetType: ScadaWidgetType;
   config: Record<string, unknown>;
@@ -108,4 +127,9 @@ export interface ScadaWidgetNodeData {
   isPreview?: boolean;
   /** Group ID from ScreenWidget, passed through for tooltip display. */
   groupId?: string | null;
+  /**
+   * Z-index for layer ordering. Passed from ScreenWidget.zIndex
+   * so the node renderer can apply it to the container style.
+   */
+  zIndex?: number;
 }

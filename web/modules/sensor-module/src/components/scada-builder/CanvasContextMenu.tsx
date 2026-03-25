@@ -6,6 +6,8 @@ import {
   Trash2,
   ArrowUpToLine,
   ArrowDownToLine,
+  ArrowUp,
+  ArrowDown,
   MousePointer,
   Group,
   Ungroup,
@@ -191,6 +193,22 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     onClose();
   };
 
+  const handleBringForward = () => {
+    const store = useScadaStore.getState();
+    if (store.activeScreenId && store.selectedWidgetId) {
+      store.bringForward(store.activeScreenId, store.selectedWidgetId);
+    }
+    onClose();
+  };
+
+  const handleSendBackward = () => {
+    const store = useScadaStore.getState();
+    if (store.activeScreenId && store.selectedWidgetId) {
+      store.sendBackward(store.activeScreenId, store.selectedWidgetId);
+    }
+    onClose();
+  };
+
   const handleGroup = () => {
     const store = useScadaStore.getState();
     if (store.activeScreenId && store.selectedWidgetIds.length >= 2) {
@@ -262,6 +280,16 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
             icon={<ArrowUpToLine className="h-4 w-4" />}
             label="Bring to Front"
             onClick={handleBringToFront}
+          />
+          <MenuItem
+            icon={<ArrowUp className="h-4 w-4" />}
+            label="Bring Forward"
+            onClick={handleBringForward}
+          />
+          <MenuItem
+            icon={<ArrowDown className="h-4 w-4" />}
+            label="Send Backward"
+            onClick={handleSendBackward}
           />
           <MenuItem
             icon={<ArrowDownToLine className="h-4 w-4" />}

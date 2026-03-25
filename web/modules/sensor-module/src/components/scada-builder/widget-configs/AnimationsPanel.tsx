@@ -1,10 +1,15 @@
 /**
  * AnimationsPanel — UI for adding/editing/removing AnimationRule[] on a widget.
+ *
+ * Animation rules bind to device tags for real-time value-driven animations.
+ * TagBrowser integration replaces error-prone manual tag name entry
+ * with validated selection from the device's tag inventory.
  */
 
 import React, { useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AnimationRule, AnimationRuleType, AnimationOptions, ColorRange } from '../../../engine/animation/types';
+import { TagBrowser } from '../TagBrowser';
 
 const ANIMATION_TYPES: AnimationRuleType[] = [
   'colorRange',
@@ -19,9 +24,11 @@ const ANIMATION_TYPES: AnimationRuleType[] = [
 interface AnimationsPanelProps {
   animations: AnimationRule[];
   onChange: (animations: AnimationRule[]) => void;
+  /** Edge device ID for tag discovery via TagBrowser */
+  deviceId?: string | null;
 }
 
-export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, onChange }) => {
+export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, onChange, deviceId }) => {
   const [expandedBitmask, setExpandedBitmask] = useState<Record<string, boolean>>({});
 
   const addAnimation = () => {
@@ -110,15 +117,14 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({ animations, on
             </button>
           </div>
 
-          {/* Tag Name */}
+          {/* Tag Name — uses TagBrowser for validated device tag selection */}
           <div>
             <label className="block text-xs text-gray-500 mb-1">Tag Name</label>
-            <input
-              type="text"
+            <TagBrowser
+              deviceId={deviceId ?? null}
               value={anim.tagName}
-              onChange={(e) => updateAnimation(anim.id, { tagName: e.target.value })}
-              placeholder="sensor.tag"
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              onChange={(tag) => updateAnimation(anim.id, { tagName: tag })}
+              placeholder="Select tag..."
             />
           </div>
 

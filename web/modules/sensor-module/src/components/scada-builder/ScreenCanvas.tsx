@@ -233,7 +233,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
   // drag positions). Selection is handled by ReactFlow internally via
   // applyNodeChanges in onNodesChange.
   const storeNodes: Node<ScadaWidgetNodeData>[] = useMemo(() => {
-    return widgets.map((w) => {
+    // Filter out hidden widgets (visible === false) so they don't appear on the canvas.
+    // Widgets with visible === undefined or true are shown.
+    return widgets.filter((w) => w.visible !== false).map((w) => {
       const px = gridToPixel(w.position);
       // Resolve live tag value in preview mode
       const tagName = (w.config?.tagName || w.config?.tag) as string | undefined;
@@ -259,6 +261,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
           },
           isPreview,
           groupId: w.groupId,
+          zIndex: w.zIndex,
         },
         draggable: !w.locked,
         dragHandle: undefined,

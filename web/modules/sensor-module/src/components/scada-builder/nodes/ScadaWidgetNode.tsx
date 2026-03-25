@@ -35,20 +35,25 @@ import { useScadaPackageStore } from '../../../store/scadaPackageStore';
 import { ScadaRuntimeContext } from '../../../engine/ScadaRuntime';
 import { useAnimationState } from '../../../engine/animation/useAnimationState';
 import { useWidgetEvents } from '../../../engine/events/useWidgetEvents';
-import { WidgetEventBus } from '../../../engine/events/WidgetEventBus';
+import type { WidgetEventBus } from '../../../engine/events/WidgetEventBus';
 import type { AnimationState } from '../../../engine/animation/types';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
-/*  Module-level noop singleton: all builder-mode widgets share one    */
-/*  WidgetEventBus instance instead of each creating its own via       */
-/*  useMemo.  This fixes two problems:                                 */
-/*  1. Per-widget allocation waste (65+ widgets × 1 bus each)          */
-/*  2. Vite minification timing: a module-level `new` executes after   */
-/*     the class module is fully initialized, avoiding the             */
-/*     "qn is not a constructor" error seen in production builds.      */
+/*  Noop event bus singleton: zero-import stub that satisfies the      */
+/*  WidgetEventBus interface without importing the actual class.       */
+/*  This avoids Vite code-split timing issues where the class          */
+/*  reference is undefined during module evaluation (manifests as      */
+/*  "Sn/qn is not a constructor" in minified production builds).       */
+/*                                                                      */
+/*  The WidgetEventBus API surface is: register(), dispatch(), clear() */
+/*  In builder edit-mode, no events fire so all methods are no-ops.    */
 /* ------------------------------------------------------------------ */
-const NOOP_EVENT_BUS = new WidgetEventBus();
+const NOOP_EVENT_BUS: WidgetEventBus = {
+  register: () => () => {},
+  dispatch: () => {},
+  clear: () => {},
+} as WidgetEventBus;
 
 /* ------------------------------------------------------------------ */
 /*  Size constraints per widget type (from centralized constants)      */
@@ -193,8 +198,8 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   const safeAnimationRules = runtimeCtx ? widgetAnimations : undefined;
   const animationState = useAnimationState(safeAnimationRules, tagSnapshot);
 
-  // useWidgetEvents bir WidgetEventBus instance'i gerektirir — module singleton kullan
-  // useWidgetEvents requires a WidgetEventBus instance — module singleton when absent
+  // useWidgetEvents bir WidgetEventBus instance'i gerektirir — noop stub kullan
+  // useWidgetEvents requires a WidgetEventBus instance — noop stub when absent
   const safeEventBus = runtimeCtx ? runtimeCtx.eventBus : NOOP_EVENT_BUS;
   const safeWidgetEvents = runtimeCtx ? widgetEvents : undefined;
   const eventHandlers = useWidgetEvents(id, data.screenId, safeWidgetEvents, safeEventBus);

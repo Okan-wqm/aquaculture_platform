@@ -1,13 +1,38 @@
 /**
  * CustomSvgRenderer - Renders user-uploaded SVG content as a SCADA widget
  *
- * Accepts raw SVG markup via `config.svgContent`, sanitises it by stripping
- * `<script>` tags and inline event handlers, then renders via `dangerouslySetInnerHTML`.
+ * Accepts raw SVG markup via `config.svgContent`, sanitises it using DOMPurify
+ * with a strict SVG-only whitelist, then renders via `dangerouslySetInnerHTML`.
  * Supports animation state (visibility, rotation, blink) and an optional label overlay.
  */
 
 import React, { memo, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+
+// SVG sanitizasyon konfigurasyonu -- XSS vektorlerini engeller
+// Security config: foreignObject, script, iframe gibi tehlikeli tag'lar yasakli
+// FORBID_ATTR: xlink:href data-URI injection, formaction hijacking onler
+const DOMPURIFY_CONFIG: DOMPurify.Config = {
+  USE_PROFILES: { svg: true, svgFilters: true },
+  FORBID_TAGS: ['foreignObject', 'script', 'iframe', 'embed', 'object', 'base', 'form'],
+  FORBID_ATTR: ['xlink:href', 'formaction', 'action', 'srcdoc'],
+  ADD_TAGS: [
+    'use', 'symbol', 'defs', 'clipPath', 'mask', 'pattern', 'marker',
+    'linearGradient', 'radialGradient', 'stop', 'filter',
+    'feGaussianBlur', 'feOffset', 'feMerge', 'feMergeNode', 'feFlood',
+    'feComposite', 'feBlend', 'feColorMatrix',
+  ],
+  ALLOW_DATA_ATTR: false,
+};
+
+/**
+ * DOMPurify ile SVG icerigini temizler -- regex yerine DOM-tabanli sanitizasyon
+ * Enterprise-grade: DOMPurify DOM parser kullanir, regex bypass edilemez
+ */
+function sanitizeSvg(raw: string): string {
+  return DOMPurify.sanitize(raw, DOMPURIFY_CONFIG);
+}
 
 const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
@@ -42,12 +67,9 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
     style.animation = `scada-blink ${animationState.blinkInterval}ms ease-in-out infinite`;
   }
 
-  // Sanitize: strip script tags and inline event handlers for safety
-  const safeSvg = useMemo(() => {
-    return svgContent
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '');
-  }, [svgContent]);
+  // DOMPurify tabanli sanitizasyon -- regex bypass'larina karsi korunakli
+  // Security: memoize edilerek her render'da tekrar sanitize edilmez
+  const safeSvg = useMemo(() => sanitizeSvg(svgContent), [svgContent]);
 
   return (
     <div style={style}>

@@ -43,7 +43,8 @@ export type VariableScope =
   | 'OUTPUT'
   | 'INOUT'
   | 'RETAIN'
-  | 'CONSTANT';
+  | 'CONSTANT'
+  | 'global';
 
 /**
  * A single variable extracted from ST code.
@@ -106,7 +107,9 @@ function mapScope(
     case 'VAR_IN_OUT':
       return 'INOUT';
     case 'VAR_GLOBAL':
-      return 'LOCAL';
+      // VAR_GLOBAL blokları 'global' scope döner — IEC 61131-3 global değişken semantiği
+      // VAR_GLOBAL blocks return 'global' scope — IEC 61131-3 global variable semantics
+      return 'global';
     case 'VAR_TEMP':
       return 'LOCAL';
     case 'VAR_EXTERNAL':

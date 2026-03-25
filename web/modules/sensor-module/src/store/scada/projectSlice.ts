@@ -63,6 +63,15 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       state.rightPanelTab = tab;
     }),
 
+  // Mimari tutarlılık: isDirty flag'i named action ile temizlenir
+  // Middleware (devtools, undo/redo) doğrudan setState'i yakalayamaz
+  // Architectural consistency: isDirty cleared via named action so
+  // devtools and undo/redo middleware can observe the transition
+  markClean: () =>
+    set((state) => {
+      state.isDirty = false;
+    }),
+
   // ----------------------------------------------------------------
   //  Automation Binding Actions
   // ----------------------------------------------------------------

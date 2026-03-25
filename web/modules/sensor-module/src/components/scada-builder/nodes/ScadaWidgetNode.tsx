@@ -13,7 +13,7 @@
  * - Widget-type badge shown in edit mode (top-left corner)
  */
 
-import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { memo, useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import type { NodeProps } from 'reactflow';
 import { Handle, Position } from 'reactflow';
 import { Lock } from 'lucide-react';
@@ -24,9 +24,12 @@ import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
 import { useScadaPackageStore } from '../../../store/scadaPackageStore';
-import { useScadaRuntime } from '../../../engine/useScadaRuntime';
+// FIX: useScadaRuntime throw eder — doğrudan context kullanarak Rules of Hooks ihlalini önlüyoruz
+// FIX: useScadaRuntime throws — use context directly to prevent Rules of Hooks violation
+import { ScadaRuntimeContext } from '../../../engine/ScadaRuntime';
 import { useAnimationState } from '../../../engine/animation/useAnimationState';
 import { useWidgetEvents } from '../../../engine/events/useWidgetEvents';
+import { WidgetEventBus } from '../../../engine/events/WidgetEventBus';
 import type { AnimationState } from '../../../engine/animation/types';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
@@ -99,24 +102,14 @@ const CONTENT_STYLE: React.CSSProperties = {
 };
 
 /**
- * CSS for handle hover/pulse effects.
- * TODO: Inject this once at the canvas level (e.g. in ScreenCanvas) instead of
- * rendering a <style> tag inside every ScadaWidgetNode instance.
+ * Handle hover CSS is now injected globally via AnimationStyles (injectAnimationStyles).
+ * No longer rendered per-widget — prevents DOM bloat on 100+ widget canvases.
+ *
+ * Handle hover CSS artik AnimationStyles uzerinden global inject ediliyor.
+ * Her widget icin ayri <style> tag'i render etmek yerine tek global injection kullanilir.
+ *
+ * @see /engine/animation/AnimationStyles.ts
  */
-export const HANDLE_HOVER_CSS = `
-  .react-flow__handle:hover {
-    transform: scale(1.5);
-    box-shadow: 0 0 6px 2px rgba(6, 182, 212, 0.5);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-  .react-flow__handle.connecting {
-    animation: handle-pulse 1s ease-in-out infinite;
-  }
-  @keyframes handle-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
-    50% { box-shadow: 0 0 0 6px rgba(6, 182, 212, 0); }
-  }
-`;
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -148,19 +141,39 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     return screen?.widgets.find((wgt) => wgt.id === id)?.events;
   });
 
-  // Use engine hooks (ScadaRuntime may not be mounted yet)
-  let runtimeAvailable = false;
-  let animationState: AnimationState | undefined;
-  let eventHandlers: Record<string, (e: React.MouseEvent) => void> = {};
-  try {
-    const { tagBus, eventBus } = useScadaRuntime();
-    runtimeAvailable = true;
-    const tagSnapshot = tagBus.getSnapshot();
-    animationState = useAnimationState(widgetAnimations, tagSnapshot);
-    eventHandlers = useWidgetEvents(id, data.screenId, widgetEvents, eventBus);
-  } catch {
-    // ScadaRuntime not mounted yet — gracefully degrade
-  }
+  // ---------- CRITICAL FIX: React Hook kuralları ihlalini düzeltme ----------
+  // BEFORE: useScadaRuntime() try/catch icinde cagriliyordu. Throw ettiginde
+  //   useAnimationState ve useWidgetEvents atlaniyordu → hook sayisi degisiyor → crash.
+  // AFTER: useContext dogrudan kullaniliyor — null doner, throw etmez.
+  //   Tum hook'lar her render'da kosulsuz olarak cagrilir (Rules of Hooks).
+  //
+  // CRITICAL FIX: Prevent Rules of Hooks violation
+  // BEFORE: useScadaRuntime() was called inside try/catch. When it threw,
+  //   useAnimationState and useWidgetEvents were skipped → hook count changes → crash.
+  // AFTER: useContext returns null (never throws). All hooks are called
+  //   unconditionally on every render (Rules of Hooks compliance).
+  // -------------------------------------------------------------------------
+  const runtimeCtx = useContext(ScadaRuntimeContext);
+  const runtimeAvailable = runtimeCtx !== null;
+
+  // Runtime varsa gercek tag snapshot'ini al, yoksa bos obje kullan
+  // If runtime exists use real tag snapshot, otherwise use empty object
+  const tagSnapshot = useMemo(
+    () => (runtimeCtx ? runtimeCtx.tagBus.getSnapshot() : {}),
+    [runtimeCtx],
+  );
+
+  // Hook'lar her zaman cagrilir — runtime yoksa bos kurallar/eventler gonderilir
+  // Hooks are always called — when no runtime, empty rules/events are passed
+  const safeAnimationRules = runtimeCtx ? widgetAnimations : undefined;
+  const animationState = useAnimationState(safeAnimationRules, tagSnapshot);
+
+  // useWidgetEvents bir WidgetEventBus instance'i gerektirir — no-op sentinel kullan
+  // useWidgetEvents requires a WidgetEventBus instance — use no-op sentinel when absent
+  const noopEventBus = useMemo(() => new WidgetEventBus(), []);
+  const safeEventBus = runtimeCtx ? runtimeCtx.eventBus : noopEventBus;
+  const safeWidgetEvents = runtimeCtx ? widgetEvents : undefined;
+  const eventHandlers = useWidgetEvents(id, data.screenId, safeWidgetEvents, safeEventBus);
 
   /* ---------- Runtime command dispatch -------------------------------- */
   const tagName = (data.config?.tagName || data.config?.tag) as string | undefined;
@@ -197,16 +210,38 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     }
   }, [tagName]);
 
+  /* ---------- Equipment aspect ratio ------------------------------ */
+  const isEquipment = data.widgetType === 'equipment';
+
+  /** SVG viewBox aspect ratio — used to lock equipment resize to avoid letterboxing */
+  const svgAspectRatio = useMemo(() => {
+    if (!isEquipment) return 0;
+    const subType = (data.config.equipmentSubType as string) || '';
+    const vb = EQUIPMENT_VIEWBOX[subType];
+    if (!vb) return 0;
+    return vb.width / vb.height;
+  }, [isEquipment, data.config.equipmentSubType]);
+
   const [size, setSize] = useState({
     width: data.width ?? constraints.defaultW,
     height: data.height ?? constraints.defaultH,
   });
 
-  // Sync if parent pushes new dimensions via data
+  // Sync if parent pushes new dimensions via data (equipment: maintain aspect ratio)
   useEffect(() => {
-    if (data.width != null) setSize((s) => ({ ...s, width: data.width! }));
-    if (data.height != null) setSize((s) => ({ ...s, height: data.height! }));
-  }, [data.width, data.height]);
+    if (data.width != null && data.height != null) {
+      if (isEquipment && svgAspectRatio > 0) {
+        // Maintain aspect ratio from the width
+        setSize({ width: data.width, height: Math.round(data.width / svgAspectRatio) });
+      } else {
+        setSize({ width: data.width, height: data.height });
+      }
+    } else if (data.width != null) {
+      setSize((s) => ({ ...s, width: data.width! }));
+    } else if (data.height != null) {
+      setSize((s) => ({ ...s, height: data.height! }));
+    }
+  }, [data.width, data.height, isEquipment, svgAspectRatio]);
 
   /* ---------- Resize logic ---------------------------------------- */
   const dragRef = useRef<{
@@ -256,11 +291,37 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   useEffect(() => { sizeRef.current = size; }, [size]);
 
   const clamp = useCallback(
-    (w: number, h: number) => ({
-      width: Math.max(constraints.minW, Math.min(constraints.maxW, w)),
-      height: Math.max(constraints.minH, Math.min(constraints.maxH, h)),
-    }),
-    [constraints],
+    (w: number, h: number, dir?: HandleDir) => {
+      let cw = Math.max(constraints.minW, Math.min(constraints.maxW, w));
+      let ch = Math.max(constraints.minH, Math.min(constraints.maxH, h));
+
+      // Equipment widgets: lock aspect ratio to viewBox so SVG never letterboxes
+      if (isEquipment && svgAspectRatio > 0) {
+        const isHorizontalDrag = dir && (dir.includes('e') || dir.includes('w')) && !dir.includes('n') && !dir.includes('s');
+        const isVerticalDrag = dir && (dir.includes('n') || dir.includes('s')) && !dir.includes('e') && !dir.includes('w');
+
+        if (isHorizontalDrag) {
+          ch = Math.round(cw / svgAspectRatio);
+        } else if (isVerticalDrag) {
+          cw = Math.round(ch * svgAspectRatio);
+        } else {
+          // Corner drag: constrain to whichever dimension is smaller relative to ratio
+          const newAR = cw / ch;
+          if (newAR > svgAspectRatio) {
+            cw = Math.round(ch * svgAspectRatio);
+          } else {
+            ch = Math.round(cw / svgAspectRatio);
+          }
+        }
+
+        // Re-clamp after ratio adjustment
+        cw = Math.max(constraints.minW, Math.min(constraints.maxW, cw));
+        ch = Math.max(constraints.minH, Math.min(constraints.maxH, ch));
+      }
+
+      return { width: cw, height: ch };
+    },
+    [constraints, isEquipment, svgAspectRatio],
   );
 
   const onPointerDown = useCallback(
@@ -300,7 +361,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
       if (dir.includes('s')) h = startH + dy;
       if (dir.includes('n')) h = startH - dy;
 
-      setSize(clamp(w, h));
+      setSize(clamp(w, h, dragRef.current.dir));
     },
     [clamp],
   );
@@ -316,8 +377,6 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   }, [data]);
 
   /* ---------- Memoized styles ------------------------------------- */
-  const isEquipment = data.widgetType === 'equipment';
-
   const containerStyle = useMemo(() => ({
     width: size.width,
     height: size.height,
@@ -336,7 +395,9 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   }), [size.width, size.height, selected]);
 
   const animatedContainerStyle = useMemo(() => {
-    if (!animationState || !runtimeAvailable) return containerStyle;
+    // Runtime yokken animasyon uygulanmaz — varsayilan gorunum korunur
+    // No animations applied without runtime — preserves default appearance
+    if (!runtimeAvailable) return containerStyle;
     const style = { ...containerStyle } as Record<string, unknown>;
 
     if (!animationState.visible) {
@@ -367,30 +428,10 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     return points;
   }, [data.widgetType, data.config.equipmentSubType]);
 
-  /* ---------- SVG render rect for handle alignment --------------- */
-  const svgRect = useMemo(() => {
-    if (data.widgetType !== 'equipment') return null;
-    const subType = (data.config.equipmentSubType as string) || '';
-    const vb = EQUIPMENT_VIEWBOX[subType];
-    if (!vb) return null;
-    const containerW = size.width;
-    const containerH = size.height;
-    const containerAR = containerW / containerH;
-    const svgAR = vb.width / vb.height;
-    let renderW: number, renderH: number;
-    if (containerAR > svgAR) {
-      renderH = containerH; renderW = containerH * svgAR;
-    } else {
-      renderW = containerW; renderH = containerW / svgAR;
-    }
-    return {
-      x: (containerW - renderW) / 2,
-      y: (containerH - renderH) / 2,
-      width: renderW,
-      height: renderH,
-    };
-    // For non-equipment widgets, return null so handles use simple percentage offsets
-  }, [data.widgetType, data.config.equipmentSubType, size.width, size.height]);
+  /* ---------- SVG render rect removed (ADR-010) -------------------- */
+  // Equipment widgets now maintain their viewBox aspect ratio via the clamp
+  // function, so the SVG never letterboxes and handles can use simple
+  // percentage offsets without compensation.
 
   /* ---------- Derived tooltip flag --------------------------------- */
   const showTooltip = tooltipVisible && isHovered && !data.isPreview && !dragRef.current;
@@ -407,8 +448,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
       onClick={(e) => { eventHandlers.onClick?.(e); }}
       onDoubleClick={(e) => { eventHandlers.onDoubleClick?.(e); }}
     >
-      {/* TODO: Move this to canvas level so it's injected once, not per node */}
-      <style>{HANDLE_HOVER_CSS}</style>
+      {/* Handle hover CSS is now injected globally via AnimationStyles — no per-widget <style> needed */}
 
       {/* Widget type badge (edit mode only, top-left) */}
       {!data.isPreview && (
@@ -488,20 +528,13 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
         };
         const position = posMap[pt.side] || Position.Left;
 
-        // Calculate offset — use SVG render rect for proper alignment
+        // Simple percentage offset — equipment widgets maintain their aspect
+        // ratio via clamp so SVG never letterboxes; no compensation needed.
         const posStyle: React.CSSProperties = {};
-        if (svgRect) {
-          if (pt.side === 'top' || pt.side === 'bottom') {
-            posStyle.left = `${((svgRect.x + pt.offset * svgRect.width) / size.width) * 100}%`;
-          } else {
-            posStyle.top = `${((svgRect.y + pt.offset * svgRect.height) / size.height) * 100}%`;
-          }
+        if (pt.side === 'top' || pt.side === 'bottom') {
+          posStyle.left = `${pt.offset * 100}%`;
         } else {
-          if (pt.side === 'top' || pt.side === 'bottom') {
-            posStyle.left = `${pt.offset * 100}%`;
-          } else {
-            posStyle.top = `${pt.offset * 100}%`;
-          }
+          posStyle.top = `${pt.offset * 100}%`;
         }
 
         const color = CONNECTION_POINT_COLORS[pt.direction];

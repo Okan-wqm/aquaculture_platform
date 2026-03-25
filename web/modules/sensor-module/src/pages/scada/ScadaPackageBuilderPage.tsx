@@ -23,10 +23,12 @@ import {
   Bookmark,
   Zap,
   Pencil,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useScadaPackageStore, type ScadaPackageJSON } from '../../store/scadaPackageStore';
+import type { ScadaEdgeType } from '../../types/scada-edge.types';
 import { WidgetPalette } from '../../components/scada-builder/WidgetPalette';
 import { ScreenCanvas } from '../../components/scada-builder/ScreenCanvas';
 import { PropertiesPanel } from '../../components/scada-builder/PropertiesPanel';
@@ -38,6 +40,7 @@ import { GlobalAlarmBanner } from '../../components/scada-builder/GlobalAlarmBan
 import { WidgetSearchPanel } from '../../components/scada-builder/WidgetSearchPanel';
 import { WidgetTemplatePanel } from '../../components/scada-builder/WidgetTemplatePanel';
 import { UndoRedoToolbar } from '../../components/scada-builder/UndoRedoToolbar';
+import { CsvTagDialog } from '../../components/scada-builder/CsvTagDialog';
 import {
   useScadaPackageById,
   useCreateScadaPackage,
@@ -70,78 +73,79 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const [mode, setMode] = useState<'edit' | 'preview' | 'simulation'>('edit');
   const [showSearch, setShowSearch] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showCsvDialog, setShowCsvDialog] = useState(false);
   const deployParam = searchParams.get('deploy');
 
+  // ---------------------------------------------------------------------------
+  // Performans: 30+ property'li tek selector yerine amac bazli kucuk selector'lar
+  // simTagValues gibi sik degisen state, toolbar gibi nadir degisen state'i
+  // gereksiz render etmez. Action'lar hic degismez, selector'a gerek yok.
+  //
+  // Performance: purpose-based small selectors instead of a single 30+ property selector.
+  // Frequently changing state (e.g. simTagValues) no longer triggers re-renders
+  // for rarely changing UI state (toolbar, screens). Actions never change — no selector needed.
+  // ---------------------------------------------------------------------------
+
+  // Stable action references — bunlar Zustand store icinde fonksiyon oldugundan
+  // hic degismez, useShallow'a dahil etmek gereksiz karsilastirma maliyeti ekler.
+  // Stable action references — these are functions inside Zustand store and never change.
+  // Including them in useShallow adds unnecessary comparison overhead.
+  const setPackageName = useScadaPackageStore((s) => s.setPackageName);
+  const setPackageId = useScadaPackageStore((s) => s.setPackageId);
+  const setProcessId = useScadaPackageStore((s) => s.setProcessId);
+  const loadFromJSON = useScadaPackageStore((s) => s.loadFromJSON);
+  const importProcessAsWidget = useScadaPackageStore((s) => s.importProcessAsWidget);
+  const toScadaPackageJSON = useScadaPackageStore((s) => s.toScadaPackageJSON);
+  const addAlarmRule = useScadaPackageStore((s) => s.addAlarmRule);
+  const removeAlarmRule = useScadaPackageStore((s) => s.removeAlarmRule);
+  const updateAlarmRule = useScadaPackageStore((s) => s.updateAlarmRule);
+  const updateControlPermissions = useScadaPackageStore((s) => s.updateControlPermissions);
+  const updateTrendConfig = useScadaPackageStore((s) => s.updateTrendConfig);
+  const updateWidget = useScadaPackageStore((s) => s.updateWidget);
+  const setTargetDeviceId = useScadaPackageStore((s) => s.setTargetDeviceId);
+  const addScreen = useScadaPackageStore((s) => s.addScreen);
+  const updateEdgeData = useScadaPackageStore((s) => s.updateEdgeData);
+  const updateEdgeType = useScadaPackageStore((s) => s.updateEdgeType);
+  const removeEdge = useScadaPackageStore((s) => s.removeEdge);
+  const reset = useScadaPackageStore((s) => s.reset);
+  const setSimulationMode = useScadaPackageStore((s) => s.setSimulationMode);
+  // Mimari tutarlılık: isDirty'yi named action üzerinden temizle
+  // Architectural consistency: clear isDirty via named action for devtools/middleware visibility
+  const markClean = useScadaPackageStore((s) => s.markClean);
+
+  // UI state — nadir degisir (screen switch, mode change, save durumu)
+  // UI state — changes rarely (screen switch, mode change, save status)
   const {
     packageId: storePackageId,
     packageName,
-    setPackageName,
-    setPackageId,
-    setProcessId,
     screens,
     activeScreenId,
     selectedWidgetId,
     isDirty,
-    loadFromJSON,
-    importProcessAsWidget,
-    toScadaPackageJSON,
-    // Alarm & control & trend state
-    alarmRules,
-    controlPermissions,
-    trendConfig,
-    // Alarm actions
-    addAlarmRule,
-    removeAlarmRule,
-    updateAlarmRule,
-    // Control & trend actions
-    updateControlPermissions,
-    updateTrendConfig,
-    // Widget actions
-    updateWidget,
-    // Target device
     targetDeviceId,
-    setTargetDeviceId,
-    // Screen actions
-    addScreen,
-    // Edge state + actions
     selectedEdgeId,
-    updateEdgeData,
-    updateEdgeType,
-    removeEdge,
-    reset,
-    setSimulationMode,
-  } = useScadaPackageStore(useShallow((s) => ({
-    packageId: s.packageId,
-    packageName: s.packageName,
-    setPackageName: s.setPackageName,
-    setPackageId: s.setPackageId,
-    setProcessId: s.setProcessId,
-    screens: s.screens,
-    activeScreenId: s.activeScreenId,
-    selectedWidgetId: s.selectedWidgetId,
-    isDirty: s.isDirty,
-    loadFromJSON: s.loadFromJSON,
-    importProcessAsWidget: s.importProcessAsWidget,
-    toScadaPackageJSON: s.toScadaPackageJSON,
-    alarmRules: s.alarmRules,
-    controlPermissions: s.controlPermissions,
-    trendConfig: s.trendConfig,
-    addAlarmRule: s.addAlarmRule,
-    removeAlarmRule: s.removeAlarmRule,
-    updateAlarmRule: s.updateAlarmRule,
-    updateControlPermissions: s.updateControlPermissions,
-    updateTrendConfig: s.updateTrendConfig,
-    updateWidget: s.updateWidget,
-    targetDeviceId: s.targetDeviceId,
-    setTargetDeviceId: s.setTargetDeviceId,
-    addScreen: s.addScreen,
-    selectedEdgeId: s.selectedEdgeId,
-    updateEdgeData: s.updateEdgeData,
-    updateEdgeType: s.updateEdgeType,
-    removeEdge: s.removeEdge,
-    reset: s.reset,
-    setSimulationMode: s.setSimulationMode,
-  })));
+  } = useScadaPackageStore(
+    useShallow((s) => ({
+      packageId: s.packageId,
+      packageName: s.packageName,
+      screens: s.screens,
+      activeScreenId: s.activeScreenId,
+      selectedWidgetId: s.selectedWidgetId,
+      isDirty: s.isDirty,
+      targetDeviceId: s.targetDeviceId,
+      selectedEdgeId: s.selectedEdgeId,
+    })),
+  );
+
+  // Properties panel state — sadece sag panel acikken gerekli
+  // Properties panel state — only needed when the right panel is open
+  const { alarmRules, controlPermissions, trendConfig } = useScadaPackageStore(
+    useShallow((s) => ({
+      alarmRules: s.alarmRules,
+      controlPermissions: s.controlPermissions,
+      trendConfig: s.trendConfig,
+    })),
+  );
 
   // Effective packageId (from route or store)
   const effectivePackageId = routePackageId && routePackageId !== 'new' ? routePackageId : storePackageId;
@@ -244,7 +248,9 @@ const ScadaPackageBuilderPage: React.FC = () => {
         navigate(`/sensor/scada-builder/${result.id}`, { replace: true });
       }
       // Mark store as clean after successful save
-      useScadaPackageStore.setState({ isDirty: false });
+      // Named action: devtools ve middleware isDirty geçişini izleyebilir
+      // Named action: devtools and middleware can observe isDirty transition
+      markClean();
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
@@ -254,7 +260,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
-  }, [packageName, effectivePackageId, toScadaPackageJSON, updateMutation, createMutation, processId, setPackageId, navigate]);
+  }, [packageName, effectivePackageId, toScadaPackageJSON, updateMutation, createMutation, processId, setPackageId, navigate, markClean]);
 
   // Keyboard shortcuts (Ctrl+Z/Y, Ctrl+C/V/X, Del, Ctrl+S, Esc)
   useScadaKeyboardShortcuts({
@@ -342,7 +348,9 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const handleEdgeTypeChange = useCallback(
     (edgeId: string, newType: string) => {
       if (!activeScreenId) return;
-      updateEdgeType(activeScreenId, edgeId, newType as any);
+      // Tip güvenliği: ScadaEdgeType union ile doğru tipleme sağlanır
+      // Type safety: proper typing via ScadaEdgeType union
+      updateEdgeType(activeScreenId, edgeId, newType as ScadaEdgeType);
     },
     [activeScreenId, updateEdgeType],
   );
@@ -562,6 +570,16 @@ const ScadaPackageBuilderPage: React.FC = () => {
             )}
           </div>
 
+          {/* CSV Tag Import/Export */}
+          <button
+            onClick={() => setShowCsvDialog(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="CSV Tag Import/Export"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            CSV
+          </button>
+
           <button
             onClick={handleSave}
             disabled={isSaving || !packageName.trim()}
@@ -758,6 +776,9 @@ const ScadaPackageBuilderPage: React.FC = () => {
           onClose={() => setShowDeployDialog(false)}
         />
       )}
+
+      {/* CSV Tag Import/Export Dialog */}
+      <CsvTagDialog open={showCsvDialog} onClose={() => setShowCsvDialog(false)} />
     </div>
   );
 };

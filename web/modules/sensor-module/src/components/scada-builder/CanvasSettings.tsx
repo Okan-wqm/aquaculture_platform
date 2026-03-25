@@ -1,5 +1,6 @@
-import React, { useRef } from 'react';
-import { Grid3X3, Magnet, ZoomIn, ZoomOut, Maximize2, Image, X } from 'lucide-react';
+import React, { useRef, useState, useCallback } from 'react';
+import { Grid3X3, Magnet, ZoomIn, ZoomOut, Maximize2, Image, X, Moon, Sun } from 'lucide-react';
+import { useThemeSafe } from '../../engine/theme/useThemeSafe';
 
 interface CanvasSettingsProps {
   snapEnabled: boolean;
@@ -50,9 +51,44 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Theme toggle — useThemeSafe returns null when ThemeProvider is not mounted
+  const theme = useThemeSafe();
+  const [fallbackMode, setFallbackMode] = useState<'light' | 'dark'>('light');
+
+  const isDark = theme ? theme.resolvedMode === 'dark' : fallbackMode === 'dark';
+
+  const handleThemeToggle = useCallback(() => {
+    if (theme) {
+      theme.toggle();
+    } else {
+      // Fallback when ThemeProvider is not mounted
+      const next = fallbackMode === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-scada-theme', next);
+      setFallbackMode(next);
+    }
+  }, [theme, fallbackMode]);
+
+  // Performans: Base64 encode 33% buyutur -- 5MB dosya ~6.7MB string olur
+  // Store'da ve API save'de asiri buyuk payload onlenir
+  // Security: prevents oversized base64 payloads in SCADA package JSON
+  const MAX_BG_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+
+  const [bgError, setBgError] = useState<string | null>(null);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onBackgroundImageChange) return;
+
+    setBgError(null);
+
+    // Guvenlik: Dosya boyutu kontrolu -- buyuk gorseller package payload'unu patlatir
+    // Security: reject images exceeding 5MB to prevent oversized base64 in store
+    if (file.size > MAX_BG_IMAGE_SIZE) {
+      setBgError(`File too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum: 5MB`);
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
@@ -124,6 +160,18 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         </button>
       </span>
 
+      {/* Theme Toggle */}
+      <div className="w-px h-5 bg-gray-200 mx-1" />
+      <button
+        onClick={handleThemeToggle}
+        className="flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-150"
+        title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      >
+        {isDark
+          ? <Sun className="w-3.5 h-3.5" />
+          : <Moon className="w-3.5 h-3.5" />}
+      </button>
+
       {/* Background Image Controls */}
       {onBackgroundImageChange && (
         <>
@@ -168,6 +216,12 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 <X className="w-3.5 h-3.5" />
               </button>
             </>
+          )}
+          {/* Arkaplan gorseli hata mesaji -- dosya boyutu asiminda gosterilir */}
+          {bgError && (
+            <span className="text-red-500 text-[10px] ml-1" title={bgError}>
+              {bgError}
+            </span>
           )}
         </>
       )}

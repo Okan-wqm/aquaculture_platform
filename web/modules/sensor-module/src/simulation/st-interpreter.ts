@@ -627,7 +627,12 @@ export class StInterpreter {
       case '-': return l - r;
       case '*': return l * r;
       case '/':
-        if (r === 0) return 0; // Division by zero → 0
+        // IEEE 754 uyumu: sıfıra bölme Infinity/-Infinity döner, 0/0 ise 0 döner
+        // IEEE 754 compliance: division by zero returns Infinity/-Infinity, 0/0 returns 0
+        if (r === 0) {
+          if (l === 0) return 0;        // 0/0 → 0 (indeterminate, return 0 for PLC safety)
+          return l > 0 ? Infinity : -Infinity;
+        }
         return l / r;
       case 'MOD':
         if (r === 0) return 0; // Mod by zero → 0
@@ -706,7 +711,9 @@ export class StInterpreter {
       return builtin(evaluatedArgs);
     }
 
-    console.warn(`ST Interpreter: unknown function '${name}', returning 0`);
+    // Bilinmeyen fonksiyon uyarısı — "Unknown function" büyük harfle başlamalı (test beklentisi)
+    // Unknown function warning — must start with capital "Unknown function" to match test expectations
+    console.warn(`ST Interpreter: Unknown function '${name}', returning 0`);
     return 0;
   }
 

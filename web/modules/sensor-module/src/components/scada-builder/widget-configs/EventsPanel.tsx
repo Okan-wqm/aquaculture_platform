@@ -9,7 +9,9 @@ import { useScadaStore } from '../../../store/scada';
 
 const TRIGGERS: EventTrigger[] = ['click', 'dblclick', 'mousedown', 'mouseup', 'mouseover', 'mouseout'];
 
-const ACTIONS: EventAction[] = ['navigate', 'openCard', 'openDialog', 'setValue', 'toggleValue', 'openUrl'];
+// Guvenlik: runScript ve openUrl kaldirildi -- Phase 5'te sandboxed olarak donecek
+// Security: removed unsafe actions until proper sandboxing is implemented
+const ACTIONS: EventAction[] = ['navigate', 'openCard', 'openDialog', 'setValue', 'toggleValue'];
 
 interface EventsPanelProps {
   events: WidgetEventDef[];
@@ -255,18 +257,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange }) =>
             </div>
           )}
 
-          {ev.action === 'openUrl' && (
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">URL</label>
-              <input
-                type="text"
-                value={(ev.params.url as string) || ''}
-                onChange={(e) => updateEventParams(ev.id, { url: e.target.value })}
-                placeholder="https://..."
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              />
-            </div>
-          )}
+          {/* openUrl ve runScript Phase 5'te sandboxed olarak eklenecek */}
         </div>
       ))}
     </div>

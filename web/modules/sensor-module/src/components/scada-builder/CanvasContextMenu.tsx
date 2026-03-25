@@ -164,34 +164,45 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     onClose();
   };
 
+  /**
+   * Tip güvenliği düzeltmesi: `as any` cast'leri kaldırıldı.
+   * ScadaStore tipi bu action'ları zaten içerir (WidgetSlice, GroupSlice,
+   * TemplateSlice). Runtime "in" kontrolü gereksiz — tip sistemi garantiyi sağlar.
+   *
+   * Type safety fix: removed `as any` casts.
+   * ScadaStore type already includes these actions (WidgetSlice, GroupSlice,
+   * TemplateSlice). Runtime "in" checks are unnecessary — the type system
+   * provides the guarantee.
+   */
+
   const handleBringToFront = () => {
     const store = useScadaStore.getState();
-    if ('bringToFront' in store) {
-      (store as any).bringToFront(store.activeScreenId, store.selectedWidgetId);
+    if (store.activeScreenId && store.selectedWidgetId) {
+      store.bringToFront(store.activeScreenId, store.selectedWidgetId);
     }
     onClose();
   };
 
   const handleSendToBack = () => {
     const store = useScadaStore.getState();
-    if ('sendToBack' in store) {
-      (store as any).sendToBack(store.activeScreenId, store.selectedWidgetId);
+    if (store.activeScreenId && store.selectedWidgetId) {
+      store.sendToBack(store.activeScreenId, store.selectedWidgetId);
     }
     onClose();
   };
 
   const handleGroup = () => {
     const store = useScadaStore.getState();
-    if ('groupWidgets' in store && store.activeScreenId) {
-      (store as any).groupWidgets(store.activeScreenId, store.selectedWidgetIds);
+    if (store.activeScreenId && store.selectedWidgetIds.length >= 2) {
+      store.groupWidgets(store.activeScreenId, store.selectedWidgetIds);
     }
     onClose();
   };
 
   const handleUngroup = () => {
     const store = useScadaStore.getState();
-    if ('ungroupWidgets' in store && store.activeScreenId && currentGroupId) {
-      (store as any).ungroupWidgets(store.activeScreenId, currentGroupId);
+    if (store.activeScreenId && currentGroupId) {
+      store.ungroupWidgets(store.activeScreenId, currentGroupId);
     }
     onClose();
   };
@@ -203,20 +214,16 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     const widget = screen?.widgets.find((w) => w.id === store.selectedWidgetId);
     if (!widget) { onClose(); return; }
 
-    // Use widget type as default name, could be enhanced with a dialog later
     const name = (widget.config?.label as string) || widget.widgetType;
     const category = widget.widgetType;
-
-    if ('saveAsTemplate' in store) {
-      (store as any).saveAsTemplate(name, category, widget);
-    }
+    store.saveAsTemplate(name, category, widget);
     onClose();
   };
 
   const handleToggleLock = () => {
     const store = useScadaStore.getState();
-    if ('toggleWidgetLock' in store && store.activeScreenId && store.selectedWidgetId) {
-      (store as any).toggleWidgetLock(store.activeScreenId, store.selectedWidgetId);
+    if (store.activeScreenId && store.selectedWidgetId) {
+      store.toggleWidgetLock(store.activeScreenId, store.selectedWidgetId);
     }
     onClose();
   };

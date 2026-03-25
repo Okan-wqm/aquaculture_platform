@@ -88,28 +88,82 @@ const SchedulerRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
                   width: 1, background: '#e5e7eb',
                 }} />
               ))}
-              {/* Schedule blocks */}
-              {(entryMap.get(dayIdx) ?? []).map((entry) => (
-                <div
-                  key={entry.id}
-                  style={{
-                    position: 'absolute',
-                    left: entry.startHour * cellW,
-                    width: (entry.endHour - entry.startHour) * cellW,
-                    top: 2, bottom: 2,
-                    background: entry.color || '#3b82f6',
-                    borderRadius: 3,
-                    opacity: 0.85,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 8, color: '#fff', fontWeight: 500,
-                    overflow: 'hidden', whiteSpace: 'nowrap',
-                    cursor: isEditing ? 'default' : 'pointer',
-                  }}
-                  title={`${entry.label} (${entry.startHour}:00-${entry.endHour}:00)`}
-                >
-                  {cellW * (entry.endHour - entry.startHour) > 30 ? entry.label : ''}
-                </div>
-              ))}
+              {/* Schedule blocks — gece vardiyası desteği dahil */}
+              {/* Schedule blocks — includes overnight shift support */}
+              {(entryMap.get(dayIdx) ?? []).map((entry) => {
+                /**
+                 * Gece vardiyası desteği: 22:00-06:00 gibi gün aşan schedule'lar
+                 * negatif genişlik üretirdi. endHour < startHour durumunda iki
+                 * ayrı blok render edilir: (startHour → 24:00) ve (00:00 → endHour).
+                 *
+                 * Overnight shift support: schedules like 22:00-06:00 that cross
+                 * midnight would produce negative width. When endHour < startHour
+                 * two blocks are rendered: (startHour → 24:00) and (00:00 → endHour).
+                 */
+                const isOvernight = entry.endHour < entry.startHour;
+
+                // Ana blok: startHour'dan ya endHour'a ya da 24'e kadar
+                // Main block: from startHour to either endHour or midnight
+                const mainWidth = isOvernight
+                  ? (24 - entry.startHour) * cellW
+                  : (entry.endHour - entry.startHour) * cellW;
+
+                // Negatif veya sıfır genişlik koruması
+                // Guard against negative or zero width
+                const safeMainWidth = Math.max(mainWidth, 0);
+
+                const blockStyle = {
+                  position: 'absolute' as const,
+                  top: 2, bottom: 2,
+                  background: entry.color || '#3b82f6',
+                  borderRadius: 3,
+                  opacity: 0.85,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 8, color: '#fff', fontWeight: 500,
+                  overflow: 'hidden' as const, whiteSpace: 'nowrap' as const,
+                  cursor: isEditing ? 'default' : 'pointer',
+                };
+
+                const displayWidth = isOvernight
+                  ? safeMainWidth + entry.endHour * cellW
+                  : safeMainWidth;
+
+                return (
+                  <React.Fragment key={entry.id}>
+                    {/* Birinci blok: startHour'dan gece yarısına (veya endHour'a) */}
+                    {/* First block: startHour to midnight (or endHour) */}
+                    <div
+                      style={{
+                        ...blockStyle,
+                        left: entry.startHour * cellW,
+                        width: safeMainWidth,
+                        // Gece vardiyasının ilk bloğu: sağ köşe düz
+                        // Overnight first block: flat right corner
+                        borderRadius: isOvernight ? '3px 0 0 3px' : 3,
+                      }}
+                      title={`${entry.label} (${entry.startHour}:00-${entry.endHour}:00)`}
+                    >
+                      {displayWidth > 30 ? entry.label : ''}
+                    </div>
+                    {/* İkinci blok: gece yarısından endHour'a (sadece gece vardiyası) */}
+                    {/* Second block: midnight to endHour (overnight only) */}
+                    {isOvernight && entry.endHour > 0 && (
+                      <div
+                        style={{
+                          ...blockStyle,
+                          left: 0,
+                          width: entry.endHour * cellW,
+                          // İkinci blok: sol köşe düz
+                          // Second block: flat left corner
+                          borderRadius: '0 3px 3px 0',
+                          opacity: 0.7,
+                        }}
+                        title={`${entry.label} (cont. 00:00-${entry.endHour}:00)`}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </div>
           </div>
         ))}

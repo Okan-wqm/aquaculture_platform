@@ -374,6 +374,15 @@ export interface ProjectSlice {
   unbindVariable: (programId: string, variableId: string) => void;
   autoBindByTag: () => { matched: number; unmatched: number };
 
+  /**
+   * Mimari tutarlılık: isDirty'yi named action üzerinden temizler.
+   * Middleware (devtools, undo/redo) doğrudan setState'i yakalayamaz.
+   *
+   * Architectural consistency: clears isDirty via a named action.
+   * Middleware (devtools, undo/redo) cannot intercept direct setState calls.
+   */
+  markClean: () => void;
+
   toScadaPackageJSON: () => ScadaPackageJSON;
   loadFromJSON: (json: ScadaPackageJSON) => void;
   importProcessAsWidget: (process: { id: string; name: string; nodes: unknown[]; edges: unknown[] }) => void;

@@ -87,20 +87,15 @@ const BADGE_STYLE: React.CSSProperties = {
 
 const CONTENT_STYLE: React.CSSProperties = { width: '100%', height: '100%' };
 
-const HANDLE_HOVER_CSS = `
-  .react-flow__handle:hover {
-    transform: scale(1.5);
-    box-shadow: 0 0 6px 2px rgba(6, 182, 212, 0.5);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-  .react-flow__handle.connecting {
-    animation: handle-pulse 1s ease-in-out infinite;
-  }
-  @keyframes handle-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
-    50% { box-shadow: 0 0 0 6px rgba(6, 182, 212, 0); }
-  }
-`;
+/**
+ * Handle hover CSS is now injected globally via AnimationStyles (injectAnimationStyles).
+ * No longer rendered per-widget — prevents DOM bloat on 100+ widget canvases.
+ *
+ * Handle hover CSS artik AnimationStyles uzerinden global inject ediliyor.
+ * Her widget icin ayri <style> tag'i render etmek yerine tek global injection kullanilir.
+ *
+ * @see /engine/animation/AnimationStyles.ts
+ */
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -215,7 +210,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selec
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <style>{HANDLE_HOVER_CSS}</style>
+      {/* Handle hover CSS is now injected globally via AnimationStyles — no per-widget <style> needed */}
 
       {/* Widget type badge (edit mode, top-left) */}
       <span style={BADGE_STYLE}>

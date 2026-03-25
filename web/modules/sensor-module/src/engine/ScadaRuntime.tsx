@@ -6,6 +6,7 @@ import { createOverlayHandler } from './events/handlers/OverlayHandler';
 import { createTagWriteHandler } from './events/handlers/TagWriteHandler';
 import { useScadaStore } from '../store/scada';
 import { AnimationStyles } from './animation/AnimationStyles';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 export interface ScadaRuntimeContextValue {
   tagBus: TagValueBus;
@@ -40,12 +41,30 @@ export const ScadaRuntime: React.FC<{ children: React.ReactNode }> = ({ children
     tagBus.publishBatch(simTagValues);
   }, [tagBus, simTagValues]);
 
+  /**
+   * Memory leak onlemi: Runtime unmount edildiginde tum subscription'lar temizlenir.
+   * Child component'lar kendi cleanup'larini yapmasa bile bus.clear() ile
+   * tum listener'lar ve cache'lenmiş degerler serbest bırakılır.
+   *
+   * Memory leak prevention: When the runtime unmounts, all subscriptions are cleaned up.
+   * Even if child components fail to clean up after themselves, bus.clear() releases
+   * all listeners and cached values.
+   */
+  useEffect(() => {
+    return () => {
+      tagBus.clear();
+      eventBus.clear();
+    };
+  }, [tagBus, eventBus]);
+
   const value = useMemo(() => ({ tagBus, eventBus }), [tagBus, eventBus]);
 
   return (
     <ScadaRuntimeContext.Provider value={value}>
-      <AnimationStyles />
-      {children}
+      <ThemeProvider>
+        <AnimationStyles />
+        {children}
+      </ThemeProvider>
     </ScadaRuntimeContext.Provider>
   );
 };

@@ -109,6 +109,9 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   customSvg:         { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 12, maxH: 12 },
   // Automation
   scheduler:         { defaultW: 4, defaultH: 3, minW: 3, minH: 2, maxW: 12, maxH: 8 },
+  // Media
+  videoStream:       { defaultW: 3, defaultH: 2, minW: 2, minH: 1, maxW: 12, maxH: 8 },
+  mapView:           { defaultW: 3, defaultH: 3, minW: 2, minH: 2, maxW: 12, maxH: 8 },
 };
 
 /* ------------------------------------------------------------------ */

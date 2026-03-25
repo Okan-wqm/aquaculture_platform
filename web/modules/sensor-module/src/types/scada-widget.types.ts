@@ -38,7 +38,9 @@ export type ScadaWidgetType =
   | 'svgLine'
   | 'svgText'
   | 'scheduler'
-  | 'customSvg';
+  | 'customSvg'
+  | 'videoStream'
+  | 'mapView';
 
 /* ------------------------------------------------------------------ */
 /*  Equipment sub-types                                                */

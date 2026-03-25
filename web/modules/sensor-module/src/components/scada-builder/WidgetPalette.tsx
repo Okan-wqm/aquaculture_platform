@@ -33,6 +33,8 @@ import {
   Minus,
   FileImage,
   Calendar,
+  Video,
+  MapPinned,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -204,6 +206,13 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     name: 'Automation',
     widgets: [
       { type: 'scheduler', label: 'Scheduler', icon: <Calendar className="w-4 h-4" /> },
+    ],
+  },
+  {
+    name: 'Media',
+    widgets: [
+      { type: 'videoStream', label: 'Video Stream', icon: <Video className="w-4 h-4" /> },
+      { type: 'mapView', label: 'Map View', icon: <MapPinned className="w-4 h-4" /> },
     ],
   },
   {

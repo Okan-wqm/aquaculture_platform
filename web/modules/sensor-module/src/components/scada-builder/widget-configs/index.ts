@@ -29,10 +29,12 @@ import { PipeFlowConfig } from './PipeFlowConfig';
 import { SvgRectConfig, SvgCircleConfig, SvgLineConfig, SvgTextConfig } from './SvgShapeConfig';
 import { CustomSvgConfig } from './CustomSvgConfig';
 import { SchedulerConfig } from './SchedulerConfig';
+import { VideoStreamConfig } from './VideoStreamConfig';
+import { MapViewConfig } from './MapViewConfig';
 
 interface WidgetConfigProps {
-  config: Record<string, any>;
-  onChange: (updates: Record<string, any>) => void;
+  config: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- legacy config components use any
+  onChange: (updates: Record<string, any>) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
   deviceId?: string | null;
 }
 
@@ -70,4 +72,6 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   svgText: SvgTextConfig,
   customSvg: CustomSvgConfig,
   scheduler: SchedulerConfig,
+  videoStream: VideoStreamConfig,
+  mapView: MapViewConfig,
 };

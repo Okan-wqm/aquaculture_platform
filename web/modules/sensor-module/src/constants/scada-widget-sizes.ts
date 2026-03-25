@@ -110,6 +110,11 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   // SVG Ellipse & Path
   svgEllipse:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 8,  maxH: 8 },
   svgPath:           { defaultW: 4, defaultH: 3, minW: 2, minH: 2, maxW: 12, maxH: 8 },
+  // SVG Polygon, Triangle, Diamond, Arrow
+  svgPolygon:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 8,  maxH: 8 },
+  svgTriangle:       { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 8,  maxH: 8 },
+  svgDiamond:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 8,  maxH: 8 },
+  svgArrow:          { defaultW: 3, defaultH: 2, minW: 1, minH: 1, maxW: 12, maxH: 8 },
   // Raster image
   rasterImage:       { defaultW: 3, defaultH: 3, minW: 1, minH: 1, maxW: 12, maxH: 8 },
   // Automation

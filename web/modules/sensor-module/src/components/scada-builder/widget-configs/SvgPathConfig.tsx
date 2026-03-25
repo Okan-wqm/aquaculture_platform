@@ -5,12 +5,21 @@
  *
  * The actual interactive point editing happens via PathOverlay
  * rendered on the canvas -- this panel provides the properties.
+ *
+ * Phase 7A: Added SvgTagBindingSection for opt-in data binding,
+ * GradientEditor (visible when path is closed), and SvgFilterEditor
+ * for visual filter effects. These were missing from the original
+ * path config, creating an inconsistency with rect/circle/ellipse.
  */
 
 import React, { useCallback } from 'react';
 import { StrokeConfig } from './StrokeConfig';
 import { TransformConfig } from './TransformConfig';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin } from '../../../types/scada-svg-properties.types';
+import { GradientEditor } from './GradientEditor';
+import { SvgFilterEditor } from './SvgFilterEditor';
+import { SvgTagBindingSection } from './SvgTagBindingSection';
+import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
@@ -21,6 +30,9 @@ interface WidgetConfigProps {
   deviceId?: string | null;
 }
 
+const INPUT_CLASS =
+  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+
 /** Default triangle path used when resetting to defaults */
 const DEFAULT_TRIANGLE_POINTS: PathPoint[] = [
   { x: 50, y: 10, type: 'line' },
@@ -28,10 +40,12 @@ const DEFAULT_TRIANGLE_POINTS: PathPoint[] = [
   { x: 10, y: 80, type: 'line' },
 ];
 
-export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
+export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const closed = (config.closed as boolean) ?? false;
   const points = (config.points as PathPoint[]) || [];
   const transform = (config.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
+  const fillGradient = (config.fillGradient as GradientConfig) ?? DEFAULT_GRADIENT;
+  const filterConfig = (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
 
   const handleResetPath = useCallback(() => {
     onChange({
@@ -42,6 +56,13 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
 
   return (
     <div className="space-y-3">
+      {/* Tag binding -- opt-in data binding for animation/event/alarm system */}
+      <SvgTagBindingSection
+        tagName={(config.tagName as string) || ''}
+        onChange={onChange}
+        deviceId={deviceId}
+      />
+
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Path</div>
 
       {/* Closed path toggle */}
@@ -104,6 +125,15 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
         </div>
       )}
 
+      {/* Gradient editor -- only visible when path is closed (fill is meaningful) */}
+      {closed && (
+        <GradientEditor
+          gradient={fillGradient}
+          onChange={(gradient) => onChange({ fillGradient: gradient })}
+          widgetId={(config._widgetId as string) ?? 'path-0'}
+        />
+      )}
+
       {/* Stroke section */}
       <StrokeConfig
         stroke={(config.stroke as string) || '#1d4ed8'}
@@ -113,6 +143,13 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
         lineCap={(config.lineCap as StrokeLineCap) || 'round'}
         lineJoin={(config.lineJoin as StrokeLineJoin) || 'round'}
         onChange={(updates) => onChange(updates)}
+      />
+
+      {/* SVG filter effects -- blur, shadow, glow */}
+      <SvgFilterEditor
+        filter={filterConfig}
+        onChange={(filter) => onChange({ filter })}
+        widgetId={(config._widgetId as string) ?? 'path-0'}
       />
 
       {/* Transform section */}

@@ -361,12 +361,66 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
         return true;
       });
 
-      // Apply filtered changes locally for smooth visual feedback
-      setNodes((nds) => applyNodeChanges(filteredChanges, nds));
+      /**
+       * Group drag propagation: when a grouped widget is dragged, apply the
+       * same position delta to all other group members. This maintains
+       * relative positioning within the group during drag operations.
+       *
+       * Architecture: ReactFlow's onNodesChange fires position changes for
+       * the dragged node. We intercept these changes and generate additional
+       * position updates for sibling group members using the delta.
+       */
+      const groupDragChanges: NodeChange[] = [];
+
+      for (const change of filteredChanges) {
+        if (change.type === 'position' && change.dragging === true && change.position) {
+          const draggedWidget = currentWidgets.find((w) => w.id === change.id);
+          if (draggedWidget?.groupId) {
+            // Find previous position of dragged node from local state
+            const prevNode = nodes.find((n) => n.id === change.id);
+            if (prevNode) {
+              const dx = change.position.x - prevNode.position.x;
+              const dy = change.position.y - prevNode.position.y;
+
+              // Only propagate if there is an actual delta
+              if (dx !== 0 || dy !== 0) {
+                // Find all sibling group members (excluding the dragged node and locked nodes)
+                const siblings = currentWidgets.filter(
+                  (w) => w.groupId === draggedWidget.groupId
+                    && w.id !== change.id
+                    && !lockedIds.has(w.id),
+                );
+
+                for (const sibling of siblings) {
+                  const sibNode = nodes.find((n) => n.id === sibling.id);
+                  if (sibNode) {
+                    groupDragChanges.push({
+                      type: 'position',
+                      id: sibling.id,
+                      dragging: true,
+                      position: {
+                        x: sibNode.position.x + dx,
+                        y: sibNode.position.y + dy,
+                      },
+                    } as NodeChange);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Batch all changes (original + group propagation) into a single setNodes call
+      const allChanges = groupDragChanges.length > 0
+        ? [...filteredChanges, ...groupDragChanges]
+        : filteredChanges;
+
+      setNodes((nds) => applyNodeChanges(allChanges, nds));
 
       for (const change of filteredChanges) {
         if (change.type === 'position' && change.dragging === true) {
-          // Drag in progress — mark so store→local sync is suppressed
+          // Drag in progress -- mark so store-to-local sync is suppressed
           isDragging.current = true;
 
           // Track drag position/size for SmartGuides
@@ -380,7 +434,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
           }
         }
         if (change.type === 'position' && change.dragging === false) {
-          // Drag ended — always clear isDragging, even if position is missing
+          // Drag ended -- always clear isDragging, even if position is missing
           isDragging.current = false;
 
           // Clear SmartGuides tracking
@@ -406,6 +460,32 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
             syncingFromStore.current = true;
             state.updateWidgetPosition(currentScreenId!, change.id, newGrid);
           }
+
+          // Commit group sibling positions to store on drag end
+          if (widget.groupId) {
+            const siblings = currentWidgets.filter(
+              (w) => w.groupId === widget.groupId
+                && w.id !== change.id
+                && !lockedIds.has(w.id),
+            );
+            for (const sibling of siblings) {
+              const sibNode = nodes.find((n) => n.id === sibling.id);
+              if (!sibNode) continue;
+              const sibPx = gridToPixel(sibling.position);
+              const sibNewGrid = pixelToGrid(
+                sibNode.position.x,
+                sibNode.position.y,
+                sibPx.width,
+                sibPx.height,
+              );
+              const sibPosChanged =
+                sibNewGrid.col !== sibling.position.col ||
+                sibNewGrid.row !== sibling.position.row;
+              if (sibPosChanged) {
+                state.updateWidgetPosition(currentScreenId!, sibling.id, sibNewGrid);
+              }
+            }
+          }
         }
         if (change.type === 'select' && change.selected) {
           setSelectedWidget(change.id);
@@ -413,7 +493,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
         }
       }
     },
-    [setSelectedWidget, setSelectedEdge],
+    [setSelectedWidget, setSelectedEdge, nodes],
   );
 
   // Handle edge changes (deletion, selection)

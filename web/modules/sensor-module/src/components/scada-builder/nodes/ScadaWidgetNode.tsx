@@ -406,6 +406,24 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
    */
   const widgetZIndex = data.zIndex ?? 0;
 
+  /**
+   * Visual group indicator: derive a stable hue from the groupId hash
+   * so each group gets a distinctive color. Only shown when the widget
+   * is part of a group AND is either selected or highlighted.
+   */
+  const groupColor = useMemo(() => {
+    const gid = data.groupId;
+    if (!gid) return undefined;
+    // Simple hash: sum char codes modulo 360 for hue
+    let hash = 0;
+    for (let i = 0; i < gid.length; i++) {
+      hash = (hash + gid.charCodeAt(i) * 37) % 360;
+    }
+    return `hsl(${hash}, 70%, 55%)`;
+  }, [data.groupId]);
+
+  const showGroupIndicator = !!data.groupId && (selected || isHighlighted);
+
   const containerStyle = useMemo(() => ({
     width: size.width,
     height: size.height,
@@ -418,7 +436,7 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     boxShadow: selected
       ? '0 0 0 2px rgba(6,182,212,0.35)'
       : 'none',
-    // Highlight outline from Layers panel hover — uses outline instead of border
+    // Highlight outline from Layers panel hover -- uses outline instead of border
     // to avoid layout shift when hovering layer rows
     outline: isHighlighted && !selected
       ? '2px dashed #3b82f6'
@@ -427,11 +445,15 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
     background: 'transparent',
     overflow: 'visible' as const,
     userSelect: 'none' as const,
-    // SVG transform applied at container level — benefits all widget types
+    // Group indicator: colored left border stripe when group is active
+    borderLeft: showGroupIndicator && groupColor
+      ? `4px solid ${groupColor}`
+      : undefined,
+    // SVG transform applied at container level -- benefits all widget types
     // without touching individual renderers
     transform: svgTransformCSS || undefined,
     transformOrigin: svgTransformOrigin,
-  }), [size.width, size.height, selected, isHighlighted, widgetZIndex, svgTransformCSS, svgTransformOrigin]);
+  }), [size.width, size.height, selected, isHighlighted, widgetZIndex, svgTransformCSS, svgTransformOrigin, showGroupIndicator, groupColor]);
 
   const animatedContainerStyle = useMemo(() => {
     // No animations applied without runtime — preserves default appearance

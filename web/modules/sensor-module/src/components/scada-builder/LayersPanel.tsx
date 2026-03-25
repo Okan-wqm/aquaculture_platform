@@ -18,7 +18,7 @@
  * - Z-order buttons: up, down, to-top, to-bottom
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Eye,
   EyeOff,
@@ -26,6 +26,7 @@ import {
   Unlock,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   ChevronsUp,
   ChevronsDown,
   Layers,
@@ -46,6 +47,10 @@ import {
   FileCode,
   Link2,
   Droplets,
+  Hexagon,
+  Triangle as TriangleIcon,
+  Diamond,
+  ArrowRight,
 } from 'lucide-react';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import { useScadaStore } from '../../store/scada';
@@ -86,6 +91,10 @@ const WIDGET_ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
   rasterImage: Image,
   videoStream: Video,
   mapView: Map,
+  svgPolygon: Hexagon,
+  svgTriangle: TriangleIcon,
+  svgDiamond: Diamond,
+  svgArrow: ArrowRight,
 };
 
 function getWidgetIcon(widgetType: string): React.FC<{ className?: string }> {
@@ -228,12 +237,75 @@ export const LayersPanel: React.FC = () => {
   const setHighlightedWidget = useScadaStore((s) => s.setHighlightedWidget);
 
   /**
+   * Group-aware layer list: widgets sharing a groupId are visually
+   * indented and grouped together with a collapsible group header.
+   * Group header shows: group color dot, member count, expand/collapse.
+   */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroupCollapse = useCallback((groupId: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  }, []);
+
+  /**
+   * Compute a deterministic color for each groupId (same algorithm as ScadaWidgetNode).
+   */
+  const getGroupColor = useCallback((groupId: string): string => {
+    let hash = 0;
+    for (let i = 0; i < groupId.length; i++) {
+      hash = (hash + groupId.charCodeAt(i) * 37) % 360;
+    }
+    return `hsl(${hash}, 70%, 55%)`;
+  }, []);
+
+  /**
    * Sorted widget list: z-index descending (highest on top, like Figma).
    * Widgets without an explicit z-index default to 0.
    */
   const sortedWidgets = useMemo(() => {
     return [...widgets].sort((a, b) => (b.zIndex ?? 0) - (a.zIndex ?? 0));
   }, [widgets]);
+
+  /**
+   * Build group-aware render list: grouped widgets appear together under
+   * a group header row. Ungrouped widgets render as before.
+   */
+  interface GroupInfo {
+    groupId: string;
+    members: ScreenWidget[];
+    color: string;
+  }
+
+  const { groups, ungrouped } = useMemo(() => {
+    const groupMap = new Map<string, ScreenWidget[]>();
+    const ungroupedList: ScreenWidget[] = [];
+
+    for (const w of sortedWidgets) {
+      if (w.groupId) {
+        if (!groupMap.has(w.groupId)) {
+          groupMap.set(w.groupId, []);
+        }
+        groupMap.get(w.groupId)!.push(w);
+      } else {
+        ungroupedList.push(w);
+      }
+    }
+
+    const groupList: GroupInfo[] = [];
+    for (const [gid, members] of groupMap.entries()) {
+      groupList.push({ groupId: gid, members, color: getGroupColor(gid) });
+    }
+
+    return { groups: groupList, ungrouped: ungroupedList };
+  }, [sortedWidgets, getGroupColor]);
 
   const handleSelectWidget = useCallback(
     (widgetId: string) => {
@@ -311,23 +383,63 @@ export const LayersPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Layer list */}
+      {/* Layer list -- group-aware rendering */}
       <div className="flex-1 overflow-y-auto max-h-48">
         {sortedWidgets.length === 0 ? (
           <div className="py-4 text-center text-[10px] text-gray-400">
             No widgets on this screen
           </div>
         ) : (
-          sortedWidgets.map((w) => (
-            <LayerRow
-              key={w.id}
-              widget={w}
-              screenId={activeScreenId}
-              isSelected={selectedSet.has(w.id) || selectedWidgetId === w.id}
-              onSelect={handleSelectWidget}
-              onHighlight={handleHighlightWidget}
-            />
-          ))
+          <>
+            {/* Grouped widgets with collapsible headers */}
+            {groups.map((group) => {
+              const isCollapsed = collapsedGroups.has(group.groupId);
+              return (
+                <div key={`group-${group.groupId}`} data-testid={`layer-group-${group.groupId}`}>
+                  {/* Group header row */}
+                  <button
+                    className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-gray-600 bg-gray-50 border-b border-gray-100 hover:bg-gray-100 transition-colors"
+                    onClick={() => toggleGroupCollapse(group.groupId)}
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                    )}
+                    <span
+                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: group.color }}
+                    />
+                    <span className="truncate">Group</span>
+                    <span className="text-gray-400 font-normal">({group.members.length})</span>
+                  </button>
+                  {/* Group members (indented) */}
+                  {!isCollapsed && group.members.map((w) => (
+                    <div key={w.id} className="pl-4" style={{ borderLeft: `3px solid ${group.color}` }}>
+                      <LayerRow
+                        widget={w}
+                        screenId={activeScreenId}
+                        isSelected={selectedSet.has(w.id) || selectedWidgetId === w.id}
+                        onSelect={handleSelectWidget}
+                        onHighlight={handleHighlightWidget}
+                      />
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            {/* Ungrouped widgets */}
+            {ungrouped.map((w) => (
+              <LayerRow
+                key={w.id}
+                widget={w}
+                screenId={activeScreenId}
+                isSelected={selectedSet.has(w.id) || selectedWidgetId === w.id}
+                onSelect={handleSelectWidget}
+                onHighlight={handleHighlightWidget}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>

@@ -41,6 +41,10 @@ export type ScadaWidgetType =
   | 'customSvg'
   | 'svgEllipse'
   | 'svgPath'
+  | 'svgPolygon'
+  | 'svgTriangle'
+  | 'svgDiamond'
+  | 'svgArrow'
   | 'rasterImage'
   | 'videoStream'
   | 'mapView';

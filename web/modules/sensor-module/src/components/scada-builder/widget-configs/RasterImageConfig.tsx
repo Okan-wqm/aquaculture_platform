@@ -5,10 +5,14 @@
  *
  * Images are stored as base64 data URIs in the widget config for simplicity.
  * Production deployments should upload to object storage and reference by URL.
+ *
+ * Phase 7A: Added SvgTagBindingSection for opt-in data binding that
+ * connects the image widget to the animation/event/alarm pipeline.
  */
 
 import React, { useCallback, useRef, useState } from 'react';
 import { TransformConfig } from './TransformConfig';
+import { SvgTagBindingSection } from './SvgTagBindingSection';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 
@@ -44,7 +48,7 @@ const OBJECT_FIT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'none', label: 'None' },
 ];
 
-export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
+export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -100,6 +104,13 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
   return (
     <div className="space-y-3">
+      {/* Tag binding -- opt-in data binding for animation/event/alarm system */}
+      <SvgTagBindingSection
+        tagName={(config.tagName as string) || ''}
+        onChange={onChange}
+        deviceId={deviceId}
+      />
+
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Image</div>
 
       {/* Image preview */}

@@ -4,21 +4,28 @@
  * Allows the user to upload a `.svg` file, displays the current file name,
  * and provides a remove button. Also exposes an optional label field.
  *
- * Security: Upload sirasinda dosya boyutu, SVG root elementi ve DOMPurify
- * sanitizasyonu uygulanir.
+ * Security: Upload-time file size check, SVG root element validation,
+ * and DOMPurify sanitization are applied before storing the content.
+ *
+ * Phase 7A: Added SvgTagBindingSection for opt-in data binding,
+ * TransformConfig for rotation/scale/skew, and opacity slider.
+ * These were missing from the original config, preventing custom SVGs
+ * from participating in the animation/transform pipeline.
  */
 
 import React, { useCallback, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle } from 'lucide-react';
 import DOMPurify from 'dompurify';
+import { SvgTagBindingSection } from './SvgTagBindingSection';
+import { TransformConfig } from './TransformConfig';
+import type { SvgTransform } from '../../../types/scada-transform.types';
+import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 
-// Guvenlik: SVG dosya boyutu limiti -- buyuk dosyalar package JSON'i sisirir
-// ve base64 encode edildiginde ~33% daha buyuk olur
 // Security: 500KB cap prevents oversized payloads in SCADA package store
 const MAX_SVG_SIZE_BYTES = 500 * 1024; // 500KB
 
-// DOMPurify config -- renderer ile ayni config'i kullanir
-// Upload sirasinda da sanitize ederek store'a temiz veri yazilir
+// DOMPurify config -- must match the renderer's config exactly so that
+// what is stored is identical to what is rendered after re-sanitization
 const DOMPURIFY_CONFIG: DOMPurify.Config = {
   USE_PROFILES: { svg: true, svgFilters: true },
   FORBID_TAGS: ['foreignObject', 'script', 'iframe', 'embed', 'object', 'base', 'form'],
@@ -38,10 +45,14 @@ interface WidgetConfigProps {
   deviceId?: string | null;
 }
 
-export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
+const INPUT_CLASS =
+  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+
+export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasSvg = Boolean(config.svgContent);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const transform = (config.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -49,7 +60,6 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
     setUploadError(null);
 
-    // Guvenlik: Dosya boyutu kontrolu -- buyuk SVG'ler store ve API payload'unu patlatir
     // Security: reject files exceeding 500KB to prevent oversized SCADA packages
     if (file.size > MAX_SVG_SIZE_BYTES) {
       setUploadError(`File too large (${(file.size / 1024).toFixed(0)}KB). Maximum: 500KB`);
@@ -60,7 +70,6 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
     const text = await file.text();
     const trimmed = text.trim();
 
-    // Guvenlik: SVG root element dogrulamasi -- sadece gecerli SVG kabul edilir
     // Security: validates file starts with <svg or <?xml to reject non-SVG content
     if (!trimmed.startsWith('<svg') && !trimmed.startsWith('<?xml')) {
       setUploadError('Invalid SVG file. File must start with <svg> or <?xml>.');
@@ -68,7 +77,6 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
       return;
     }
 
-    // Guvenlik: Upload sirasinda DOMPurify sanitizasyonu
     // Security: sanitize at upload time so malicious content never enters the store
     const sanitized = DOMPurify.sanitize(text, DOMPURIFY_CONFIG);
 
@@ -89,6 +97,13 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
   return (
     <div className="space-y-3">
+      {/* Tag binding -- opt-in data binding for animation/event/alarm system */}
+      <SvgTagBindingSection
+        tagName={(config.tagName as string) || ''}
+        onChange={onChange}
+        deviceId={deviceId}
+      />
+
       <div>
         <label className="block text-xs text-gray-500 mb-1">SVG File</label>
         {hasSvg ? (
@@ -116,7 +131,7 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
           className="hidden"
           onChange={handleFileSelect}
         />
-        {/* Upload hata mesaji -- kullaniciya neden reddedildigini gosterir */}
+        {/* Upload error message -- shows the user why the file was rejected */}
         {uploadError && (
           <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-600">
             <AlertCircle size={12} className="flex-shrink-0" />
@@ -131,9 +146,34 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
           value={(config.label as string) || ''}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Optional label"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className={INPUT_CLASS}
         />
       </div>
+
+      {/* Opacity slider -- allows the entire custom SVG to be semi-transparent */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Opacity</label>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={(config.opacity as number) ?? 1}
+          onChange={(e) => onChange({ opacity: Number(e.target.value) })}
+          className="w-full"
+          aria-label="SVG opacity"
+          data-testid="custom-svg-opacity"
+        />
+        <div className="text-xs text-gray-400 text-right">
+          {Math.round(((config.opacity as number) ?? 1) * 100)}%
+        </div>
+      </div>
+
+      {/* Transform section -- rotation, scale, skew for custom SVGs */}
+      <TransformConfig
+        transform={transform}
+        onChange={(updates) => onChange({ transform: { ...transform, ...updates } })}
+      />
     </div>
   );
 };

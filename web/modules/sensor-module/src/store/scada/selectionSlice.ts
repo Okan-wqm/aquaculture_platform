@@ -148,13 +148,30 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
         idMap.set(widget.id, generateId());
       }
 
-      // Create new widgets with fresh IDs and offset position
+      /**
+       * GroupId remapping during paste: generate new groupIds for pasted widgets
+       * so they form their own independent groups instead of joining the
+       * original group. Without this, pasting a group of 3 creates a 6-member
+       * group with the originals -- clearly wrong.
+       */
+      const groupIdMap: Record<string, string> = {};
+
+      // Create new widgets with fresh IDs, remapped groupIds, and offset position
       for (const widget of clipboard.widgets) {
         const newId = idMap.get(widget.id)!;
         const newWidget = deepClone(widget);
         newWidget.id = newId;
         newWidget.position.col += 1;
         newWidget.position.row += 1;
+
+        // Remap groupId so pasted widgets form independent groups
+        if (newWidget.groupId) {
+          if (!groupIdMap[newWidget.groupId]) {
+            groupIdMap[newWidget.groupId] = generateId();
+          }
+          newWidget.groupId = groupIdMap[newWidget.groupId];
+        }
+
         screen.widgets.push(newWidget);
       }
 

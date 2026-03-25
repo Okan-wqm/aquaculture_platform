@@ -26,7 +26,7 @@ import { CornellDualDrainConfig } from './CornellDualDrainConfig';
 import { ScreenLinkConfig } from './ScreenLinkConfig';
 import { StaticTextConfig } from './StaticTextConfig';
 import { PipeFlowConfig } from './PipeFlowConfig';
-import { SvgRectConfig, SvgCircleConfig, SvgLineConfig, SvgTextConfig } from './SvgShapeConfig';
+import { SvgRectConfig, SvgCircleConfig, SvgLineConfig, SvgTextConfig, SvgPolygonConfig, SvgTriangleConfig, SvgDiamondConfig, SvgArrowConfig } from './SvgShapeConfig';
 import { CustomSvgConfig } from './CustomSvgConfig';
 import { SchedulerConfig } from './SchedulerConfig';
 import { VideoStreamConfig } from './VideoStreamConfig';
@@ -79,5 +79,9 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   mapView: MapViewConfig,
   svgEllipse: SvgEllipseConfig,
   svgPath: SvgPathConfig,
+  svgPolygon: SvgPolygonConfig,
+  svgTriangle: SvgTriangleConfig,
+  svgDiamond: SvgDiamondConfig,
+  svgArrow: SvgArrowConfig,
   rasterImage: RasterImageConfig,
 };

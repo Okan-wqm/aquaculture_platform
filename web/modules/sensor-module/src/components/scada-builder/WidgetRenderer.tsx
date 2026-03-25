@@ -80,6 +80,10 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   mapView:           React.lazy(() => import('./widget-renderers/MapViewRenderer')),
   svgEllipse:        React.lazy(() => import('./widget-renderers/SvgEllipseRenderer')),
   svgPath:           React.lazy(() => import('./widget-renderers/SvgPathRenderer')),
+  svgPolygon:        React.lazy(() => import('./widget-renderers/SvgPolygonRenderer')),
+  svgTriangle:       React.lazy(() => import('./widget-renderers/SvgTriangleRenderer')),
+  svgDiamond:        React.lazy(() => import('./widget-renderers/SvgDiamondRenderer')),
+  svgArrow:          React.lazy(() => import('./widget-renderers/SvgArrowRenderer')),
   rasterImage:       React.lazy(() => import('./widget-renderers/RasterImageRenderer')),
 };
 

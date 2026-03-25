@@ -38,6 +38,10 @@ import {
   Ellipsis,
   Spline,
   Image,
+  Hexagon,
+  Triangle,
+  Diamond,
+  ArrowRight,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -205,6 +209,10 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'customSvg', label: 'Custom SVG', icon: <FileImage className="w-4 h-4" /> },
       { type: 'svgEllipse', label: 'Ellipse', icon: <Ellipsis className="w-4 h-4" /> },
       { type: 'svgPath', label: 'Path', icon: <Spline className="w-4 h-4" /> },
+      { type: 'svgPolygon', label: 'Polygon', icon: <Hexagon className="w-4 h-4" /> },
+      { type: 'svgTriangle', label: 'Triangle', icon: <Triangle className="w-4 h-4" /> },
+      { type: 'svgDiamond', label: 'Diamond', icon: <Diamond className="w-4 h-4" /> },
+      { type: 'svgArrow', label: 'Arrow', icon: <ArrowRight className="w-4 h-4" /> },
     ],
   },
   {

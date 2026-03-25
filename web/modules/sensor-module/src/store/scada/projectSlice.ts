@@ -421,6 +421,8 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       state.rightPanelTab = 'widget';
       state.undoStack = [];
       state.redoStack = [];
+      state.checkpoints = [];
+      state.lastHistoryTimestamp = 0;
       state.clipboard = null;
     }),
 });

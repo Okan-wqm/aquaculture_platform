@@ -660,12 +660,12 @@ describe('ScadaStore', () => {
     });
 
     it('undo stack trimmed to MAX_UNDO_STACK', () => {
-      // Push 55 entries (MAX is 50)
-      for (let i = 0; i < 55; i++) {
+      // Push 210 entries (MAX is 200)
+      for (let i = 0; i < 210; i++) {
         const w = makeWidget();
         store.getState().pushHistory({ type: 'WIDGET_ADD', screenId, widget: w });
       }
-      expect(store.getState().undoStack.length).toBeLessThanOrEqual(50);
+      expect(store.getState().undoStack.length).toBeLessThanOrEqual(200);
     });
 
     it('BATCH undo applies in reverse order', () => {

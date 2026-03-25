@@ -246,16 +246,22 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] overflow-hidden flex flex-col">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="csv-dialog-title"
+        className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] overflow-hidden flex flex-col"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <h3 id="csv-dialog-title" className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5 text-cyan-600" />
             CSV Tag Import / Export
           </h3>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+            aria-label="Close"
             title="Close"
           >
             <X className="w-5 h-5 text-gray-500" />
@@ -263,8 +269,12 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
         </div>
 
         {/* Tab Bar */}
-        <div className="flex border-b border-gray-200">
+        <div className="flex border-b border-gray-200" role="tablist" aria-label="CSV operations">
           <button
+            role="tab"
+            aria-selected={tab === 'export'}
+            aria-controls="csv-tab-export"
+            id="csv-tab-btn-export"
             onClick={() => handleTabChange('export')}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               tab === 'export'
@@ -276,6 +286,10 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
             Export
           </button>
           <button
+            role="tab"
+            aria-selected={tab === 'import'}
+            aria-controls="csv-tab-import"
+            id="csv-tab-btn-import"
             onClick={() => handleTabChange('import')}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               tab === 'import'
@@ -300,7 +314,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
 
           {/* ---- EXPORT TAB ---- */}
           {tab === 'export' && (
-            <>
+            <div role="tabpanel" id="csv-tab-export" aria-labelledby="csv-tab-btn-export">
               {exportRows.length === 0 ? (
                 <div className="p-4 bg-gray-50 text-gray-500 rounded-lg text-sm text-center">
                   No widgets with tag bindings found on this screen.
@@ -337,12 +351,12 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
                   </div>
                 </>
               )}
-            </>
+            </div>
           )}
 
           {/* ---- IMPORT TAB ---- */}
           {tab === 'import' && (
-            <>
+            <div role="tabpanel" id="csv-tab-import" aria-labelledby="csv-tab-btn-import">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Select CSV File
@@ -410,7 +424,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
                   </div>
                 </>
               )}
-            </>
+            </div>
           )}
         </div>
 

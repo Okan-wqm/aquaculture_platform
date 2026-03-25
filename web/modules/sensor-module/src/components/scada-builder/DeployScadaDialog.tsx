@@ -103,16 +103,22 @@ export const DeployScadaDialog: React.FC<DeployScadaDialogProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[85vh] overflow-hidden flex flex-col">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="deploy-dialog-title"
+        className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[85vh] overflow-hidden flex flex-col"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <h3 id="deploy-dialog-title" className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <Monitor className="w-5 h-5 text-purple-600" />
             Deploy SCADA Package
           </h3>
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+            aria-label="Close"
             title="Close"
           >
             <X className="w-5 h-5 text-gray-500" />

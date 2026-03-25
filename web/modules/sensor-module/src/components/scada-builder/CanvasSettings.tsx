@@ -29,6 +29,8 @@ const Toggle: React.FC<{
         ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
         : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-150'
     }`}
+    aria-label={label}
+    aria-pressed={enabled}
     title={label}
   >
     {icon}
@@ -127,6 +129,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         <button
           onClick={() => onZoomChange(Math.max(0.2, zoom - 0.1))}
           className="w-6 h-6 rounded hover:bg-gray-100 flex items-center justify-center"
+          aria-label="Zoom Out"
           title="Zoom Out"
         >
           <ZoomOut className="w-3.5 h-3.5" />
@@ -136,6 +139,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         <button
           onClick={() => onZoomChange(1)}
           className="w-12 text-center font-mono hover:bg-gray-100 rounded px-1 py-0.5"
+          aria-label="Reset Zoom"
           title="Reset Zoom"
         >
           {Math.round(zoom * 100)}%
@@ -145,6 +149,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         <button
           onClick={() => onZoomChange(Math.min(2, zoom + 0.1))}
           className="w-6 h-6 rounded hover:bg-gray-100 flex items-center justify-center"
+          aria-label="Zoom In"
           title="Zoom In"
         >
           <ZoomIn className="w-3.5 h-3.5" />
@@ -154,6 +159,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         <button
           onClick={onFitView}
           className="w-6 h-6 rounded hover:bg-gray-100 flex items-center justify-center"
+          aria-label="Fit View"
           title="Fit View"
         >
           <Maximize2 className="w-3.5 h-3.5" />
@@ -165,6 +171,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
       <button
         onClick={handleThemeToggle}
         className="flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-150"
+        aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       >
         {isDark
@@ -190,6 +197,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
                 : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-150'
             }`}
+            aria-label="Background Image"
             title="Background Image"
           >
             <Image className="w-3.5 h-3.5" />
@@ -211,6 +219,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
               <button
                 onClick={() => onBackgroundImageChange(null)}
                 className="w-6 h-6 rounded hover:bg-red-100 flex items-center justify-center text-red-400 hover:text-red-600"
+                aria-label="Remove Background"
                 title="Remove Background"
               >
                 <X className="w-3.5 h-3.5" />
@@ -219,7 +228,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
           )}
           {/* Arkaplan gorseli hata mesaji -- dosya boyutu asiminda gosterilir */}
           {bgError && (
-            <span className="text-red-500 text-[10px] ml-1" title={bgError}>
+            <span className="text-red-500 text-[11px] ml-1" role="alert" title={bgError}>
               {bgError}
             </span>
           )}

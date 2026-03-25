@@ -108,13 +108,13 @@ const Section: React.FC<{
     <div className="border-b border-gray-700">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-500 hover:bg-gray-750 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-750 transition-colors"
       >
         {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         {icon}
         <span className="flex-1 text-left">{title}</span>
         {badge !== undefined && (
-          <span className="px-1.5 py-0.5 rounded-full bg-gray-600 text-gray-500 text-[10px] font-medium">
+          <span className="px-1.5 py-0.5 rounded-full bg-gray-600 text-gray-200 text-[10px] font-medium">
             {badge}
           </span>
         )}
@@ -141,15 +141,17 @@ const TagRow: React.FC<{
       className={`flex items-center gap-2 py-1 px-1 rounded transition-colors duration-500 ${bgClass}`}
     >
       <div className="flex-1 min-w-0">
-        <div className="text-[11px] text-gray-500 truncate" title={tag.tagName}>
+        <div className="text-[11px] text-gray-300 truncate" title={tag.tagName}>
           {tag.tagName}
         </div>
-        <div className="text-[9px] text-gray-500">{tag.widgetType}</div>
+        <div className="text-[10px] text-gray-400">{tag.widgetType}</div>
       </div>
       <div className="flex-shrink-0">
         {tag.dataHint === 'boolean' && (
           <button
             onClick={() => onChange(tag.tagName, !value)}
+            aria-label={`Toggle ${tag.tagName}`}
+            aria-pressed={!!value}
             className={`relative w-8 h-4 rounded-full transition-colors ${
               value ? 'bg-cyan-500' : 'bg-gray-600'
             }`}
@@ -560,7 +562,7 @@ export const SimulationSidebar: React.FC = () => {
         {/* A. Tag Values */}
         <Section title="Tag Values" icon={<Settings className="w-3 h-3" />} badge={allTags.length}>
           {allTags.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic">Assign tags to widgets</p>
+            <p className="text-[11px] text-gray-400 italic">Assign tags to widgets</p>
           ) : (
             <>
               <div className="space-y-0.5">
@@ -576,7 +578,7 @@ export const SimulationSidebar: React.FC = () => {
               </div>
               <button
                 onClick={clearSimTagValues}
-                className="mt-2 flex items-center gap-1 px-2 py-1 text-[10px] text-gray-500 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                className="mt-2 flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
                 Reset All
@@ -592,7 +594,7 @@ export const SimulationSidebar: React.FC = () => {
               <button
                 key={sc.id}
                 onClick={() => handleApplyScenario(sc)}
-                className="w-full text-left px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-700 rounded transition-colors"
+                className="w-full text-left px-2 py-1.5 text-[11px] text-gray-300 hover:bg-gray-700 rounded transition-colors"
               >
                 {sc.name}
               </button>
@@ -604,13 +606,14 @@ export const SimulationSidebar: React.FC = () => {
                   <div key={sc.id} className="flex items-center gap-1">
                     <button
                       onClick={() => handleApplyScenario(sc)}
-                      className="flex-1 text-left px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-700 rounded transition-colors truncate"
+                      className="flex-1 text-left px-2 py-1.5 text-[11px] text-gray-300 hover:bg-gray-700 rounded transition-colors truncate"
                     >
                       {sc.name}
                     </button>
                     <button
                       onClick={() => handleDeleteScenario(sc.id)}
-                      className="p-1 text-gray-500 hover:text-red-400 transition-colors"
+                      aria-label="Delete scenario"
+                      className="p-1 text-gray-400 hover:text-red-400 transition-colors"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -631,7 +634,8 @@ export const SimulationSidebar: React.FC = () => {
             <button
               onClick={handleSaveScenario}
               disabled={!newScenarioName.trim()}
-              className="p-1 text-gray-500 hover:text-cyan-400 disabled:opacity-30 transition-colors"
+              className="p-1 text-gray-400 hover:text-cyan-400 disabled:opacity-30 transition-colors"
+              aria-label="Save current values as scenario"
               title="Save current values as scenario"
             >
               <Save className="w-3.5 h-3.5" />
@@ -646,7 +650,7 @@ export const SimulationSidebar: React.FC = () => {
           badge={firedAlarms.length > 0 ? firedAlarms.length : undefined}
         >
           {alarmRules.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic">No alarm rules defined</p>
+            <p className="text-[11px] text-gray-400 italic">No alarm rules defined</p>
           ) : firedAlarms.length === 0 ? (
             <p className="text-[11px] text-green-400">No alarms triggered</p>
           ) : (
@@ -666,7 +670,7 @@ export const SimulationSidebar: React.FC = () => {
                     </span>
                     <span className="text-[11px] text-gray-200 truncate">{alarm.message}</span>
                   </div>
-                  <div className="text-[10px] text-gray-500">
+                  <div className="text-[10px] text-gray-400">
                     {alarm.tag}: {alarm.currentValue} {alarm.condition} {alarm.threshold}
                   </div>
                 </div>
@@ -685,7 +689,7 @@ export const SimulationSidebar: React.FC = () => {
           >
             {/* Scan interval selector */}
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] text-gray-500">Scan:</span>
+              <span className="text-[10px] text-gray-400">Scan:</span>
               <select
                 value={scanInterval}
                 onChange={(e) => setScanInterval(Number(e.target.value))}
@@ -724,7 +728,7 @@ export const SimulationSidebar: React.FC = () => {
                       <span className="text-[11px] text-gray-200 font-medium truncate">
                         {binding.programName}
                       </span>
-                      <span className="text-[9px] text-gray-500">
+                      <span className="text-[10px] text-gray-400">
                         {boundCount}/{totalCount}
                       </span>
                     </div>

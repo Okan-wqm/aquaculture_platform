@@ -226,6 +226,7 @@ const ScreenTabBar: React.FC = () => {
             setShowAddDropdown(!showAddDropdown);
           }}
           className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+          aria-label="Add Screen"
           title="Add Screen"
         >
           <Plus className="w-4 h-4" />
@@ -238,6 +239,7 @@ const ScreenTabBar: React.FC = () => {
               ? 'text-gray-500 cursor-not-allowed'
               : 'text-gray-500 hover:bg-red-100 hover:text-red-600'
           }`}
+          aria-label="Delete Screen"
           title="Delete Screen"
         >
           <Minus className="w-4 h-4" />

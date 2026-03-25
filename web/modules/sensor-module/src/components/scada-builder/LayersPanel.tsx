@@ -166,6 +166,7 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       <button
         className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 transition-colors"
         onClick={handleVisibilityToggle}
+        aria-label={isVisible ? 'Hide widget' : 'Show widget'}
         title={isVisible ? 'Hide widget' : 'Show widget'}
         data-testid={`layer-visibility-${widget.id}`}
       >
@@ -180,6 +181,7 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       <button
         className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 transition-colors"
         onClick={handleLockToggle}
+        aria-label={isLocked ? 'Unlock widget' : 'Lock widget'}
         title={isLocked ? 'Unlock widget' : 'Lock widget'}
         data-testid={`layer-lock-${widget.id}`}
       >
@@ -202,6 +204,7 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       <button
         className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={handleMoveUp}
+        aria-label="Move up (bring forward)"
         title="Move up (bring forward)"
         data-testid={`layer-up-${widget.id}`}
       >
@@ -210,6 +213,7 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       <button
         className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={handleMoveDown}
+        aria-label="Move down (send backward)"
         title="Move down (send backward)"
         data-testid={`layer-down-${widget.id}`}
       >
@@ -351,7 +355,7 @@ export const LayersPanel: React.FC = () => {
         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
           <Layers className="w-3.5 h-3.5 text-gray-500" />
           <span>Layers</span>
-          <span className="text-[10px] font-normal text-gray-400">
+          <span className="text-[11px] font-normal text-gray-500">
             ({widgets.length})
           </span>
         </div>
@@ -364,6 +368,7 @@ export const LayersPanel: React.FC = () => {
                 ? 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
                 : 'text-gray-300 cursor-not-allowed'
             }`}
+            aria-label="Bring to front"
             title="Bring to front"
           >
             <ChevronsUp className="w-3.5 h-3.5" />
@@ -376,6 +381,7 @@ export const LayersPanel: React.FC = () => {
                 ? 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
                 : 'text-gray-300 cursor-not-allowed'
             }`}
+            aria-label="Send to back"
             title="Send to back"
           >
             <ChevronsDown className="w-3.5 h-3.5" />
@@ -386,7 +392,7 @@ export const LayersPanel: React.FC = () => {
       {/* Layer list -- group-aware rendering */}
       <div className="flex-1 overflow-y-auto max-h-48">
         {sortedWidgets.length === 0 ? (
-          <div className="py-4 text-center text-[10px] text-gray-400">
+          <div className="py-4 text-center text-xs text-gray-500">
             No widgets on this screen
           </div>
         ) : (
@@ -411,7 +417,7 @@ export const LayersPanel: React.FC = () => {
                       style={{ backgroundColor: group.color }}
                     />
                     <span className="truncate">Group</span>
-                    <span className="text-gray-400 font-normal">({group.members.length})</span>
+                    <span className="text-gray-500 font-normal">({group.members.length})</span>
                   </button>
                   {/* Group members (indented) */}
                   {!isCollapsed && group.members.map((w) => (

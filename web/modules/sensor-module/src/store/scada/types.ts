@@ -174,26 +174,43 @@ export interface ScadaPackageJSON {
 /*  History (Undo / Redo) — Command Pattern                            */
 /* ------------------------------------------------------------------ */
 
+export const CHECKPOINT_INTERVAL = 25;
+
+export const MERGE_WINDOW_MS = {
+  WIDGET_MOVE: 500,
+  WIDGET_UPDATE: 300,
+  EDGE_UPDATE: 300,
+  SCRIPT_CHANGE: 1000,
+} as const;
+
+export interface HistoryCheckpoint {
+  id: string;
+  label: string;
+  timestamp: number;
+  stackIndex: number;
+  snapshot?: string;
+}
+
 export type HistoryEntry =
   // Widget
-  | { type: 'WIDGET_ADD'; screenId: string; widget: ScreenWidget }
-  | { type: 'WIDGET_REMOVE'; screenId: string; widget: ScreenWidget; removedEdges: ScadaEdge[] }
-  | { type: 'WIDGET_UPDATE'; screenId: string; widgetId: string; before: ScreenWidget; after: ScreenWidget }
-  | { type: 'WIDGET_MOVE'; screenId: string; widgetId: string; from: WidgetPosition; to: WidgetPosition }
+  | { type: 'WIDGET_ADD'; screenId: string; widget: ScreenWidget; timestamp?: number }
+  | { type: 'WIDGET_REMOVE'; screenId: string; widget: ScreenWidget; removedEdges: ScadaEdge[]; timestamp?: number }
+  | { type: 'WIDGET_UPDATE'; screenId: string; widgetId: string; before: ScreenWidget; after: ScreenWidget; timestamp?: number }
+  | { type: 'WIDGET_MOVE'; screenId: string; widgetId: string; from: WidgetPosition; to: WidgetPosition; timestamp?: number }
   // Edge
-  | { type: 'EDGE_ADD'; screenId: string; edge: ScadaEdge }
-  | { type: 'EDGE_REMOVE'; screenId: string; edge: ScadaEdge }
-  | { type: 'EDGE_UPDATE'; screenId: string; edgeId: string; before: ScadaEdgeData; after: ScadaEdgeData }
+  | { type: 'EDGE_ADD'; screenId: string; edge: ScadaEdge; timestamp?: number }
+  | { type: 'EDGE_REMOVE'; screenId: string; edge: ScadaEdge; timestamp?: number }
+  | { type: 'EDGE_UPDATE'; screenId: string; edgeId: string; before: ScadaEdgeData; after: ScadaEdgeData; timestamp?: number }
   // Screen
-  | { type: 'SCREEN_ADD'; screen: ScreenDef }
-  | { type: 'SCREEN_REMOVE'; screen: ScreenDef; index: number; wasActive: boolean }
-  | { type: 'SCREEN_UPDATE'; screenId: string; before: Partial<ScreenDef>; after: Partial<ScreenDef> }
+  | { type: 'SCREEN_ADD'; screen: ScreenDef; timestamp?: number }
+  | { type: 'SCREEN_REMOVE'; screen: ScreenDef; index: number; wasActive: boolean; timestamp?: number }
+  | { type: 'SCREEN_UPDATE'; screenId: string; before: Partial<ScreenDef>; after: Partial<ScreenDef>; timestamp?: number }
   // Alarm
-  | { type: 'ALARM_ADD'; rule: AlarmRuleDef }
-  | { type: 'ALARM_REMOVE'; rule: AlarmRuleDef; index: number }
-  | { type: 'ALARM_UPDATE'; ruleId: string; before: AlarmRuleDef; after: AlarmRuleDef }
+  | { type: 'ALARM_ADD'; rule: AlarmRuleDef; timestamp?: number }
+  | { type: 'ALARM_REMOVE'; rule: AlarmRuleDef; index: number; timestamp?: number }
+  | { type: 'ALARM_UPDATE'; ruleId: string; before: AlarmRuleDef; after: AlarmRuleDef; timestamp?: number }
   // Composite
-  | { type: 'BATCH'; entries: HistoryEntry[]; label: string };
+  | { type: 'BATCH'; entries: HistoryEntry[]; label: string; timestamp?: number };
 
 /* ------------------------------------------------------------------ */
 /*  Clipboard                                                          */
@@ -310,6 +327,8 @@ export interface SelectionSlice {
 export interface HistorySlice {
   undoStack: HistoryEntry[];
   redoStack: HistoryEntry[];
+  checkpoints: HistoryCheckpoint[];
+  lastHistoryTimestamp: number;
 
   undo: () => void;
   redo: () => void;
@@ -317,6 +336,11 @@ export interface HistorySlice {
   clearHistory: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
+
+  undoDescription: () => string;
+  redoDescription: () => string;
+  createCheckpoint: (label: string) => void;
+  jumpToCheckpoint: (checkpointId: string) => void;
 }
 
 // --- Alarm Slice ---
@@ -353,14 +377,17 @@ export interface TemplateSlice {
 
 // --- Simulation Slice ---
 
+/** Simulation tag values can be numeric, boolean, or string sensor readings. */
+export type SimTagValue = string | number | boolean | null;
+
 export interface SimulationSlice {
   simulationMode: boolean;
-  simTagValues: Record<string, any>;
+  simTagValues: Record<string, SimTagValue>;
   simAlarms: Array<{ ruleId: string; severity: string; message: string; firedAt: string }>;
 
   setSimulationMode: (on: boolean) => void;
-  setSimTagValue: (tagName: string, value: any) => void;
-  setSimTagValuesBatch: (values: Record<string, any>) => void;
+  setSimTagValue: (tagName: string, value: SimTagValue) => void;
+  setSimTagValuesBatch: (values: Record<string, SimTagValue>) => void;
   clearSimTagValues: () => void;
   setSimAlarms: (alarms: SimulationSlice['simAlarms']) => void;
 }
@@ -498,7 +525,7 @@ export const DEFAULT_TREND_CONFIG: TrendConfigDef = {
 
 export const DEFAULT_LAYOUT = { type: 'grid' as const, cols: 12, rows: 8 };
 
-export const MAX_UNDO_STACK = 50;
+export const MAX_UNDO_STACK = 200;
 
 /* ------------------------------------------------------------------ */
 /*  Deep Clone (works with both plain objects and Immer draft proxies)  */

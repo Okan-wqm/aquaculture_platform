@@ -40,6 +40,17 @@ import type { AnimationState } from '../../../engine/animation/types';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
+/*  Module-level noop singleton: all builder-mode widgets share one    */
+/*  WidgetEventBus instance instead of each creating its own via       */
+/*  useMemo.  This fixes two problems:                                 */
+/*  1. Per-widget allocation waste (65+ widgets × 1 bus each)          */
+/*  2. Vite minification timing: a module-level `new` executes after   */
+/*     the class module is fully initialized, avoiding the             */
+/*     "qn is not a constructor" error seen in production builds.      */
+/* ------------------------------------------------------------------ */
+const NOOP_EVENT_BUS = new WidgetEventBus();
+
+/* ------------------------------------------------------------------ */
 /*  Size constraints per widget type (from centralized constants)      */
 /* ------------------------------------------------------------------ */
 
@@ -182,10 +193,9 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
   const safeAnimationRules = runtimeCtx ? widgetAnimations : undefined;
   const animationState = useAnimationState(safeAnimationRules, tagSnapshot);
 
-  // useWidgetEvents bir WidgetEventBus instance'i gerektirir — no-op sentinel kullan
-  // useWidgetEvents requires a WidgetEventBus instance — use no-op sentinel when absent
-  const noopEventBus = useMemo(() => new WidgetEventBus(), []);
-  const safeEventBus = runtimeCtx ? runtimeCtx.eventBus : noopEventBus;
+  // useWidgetEvents bir WidgetEventBus instance'i gerektirir — module singleton kullan
+  // useWidgetEvents requires a WidgetEventBus instance — module singleton when absent
+  const safeEventBus = runtimeCtx ? runtimeCtx.eventBus : NOOP_EVENT_BUS;
   const safeWidgetEvents = runtimeCtx ? widgetEvents : undefined;
   const eventHandlers = useWidgetEvents(id, data.screenId, safeWidgetEvents, safeEventBus);
 

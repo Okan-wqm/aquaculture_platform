@@ -35,7 +35,7 @@ interface GeneralPropertiesSectionProps {
 const INPUT_CLASS =
   'w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
-const LABEL_CLASS = 'block text-[10px] text-gray-400 mb-0.5 uppercase tracking-wide';
+const LABEL_CLASS = 'block text-[11px] text-gray-600 mb-0.5 uppercase tracking-wide';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */

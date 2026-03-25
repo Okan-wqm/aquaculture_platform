@@ -376,7 +376,7 @@ export const WidgetPalette: React.FC = () => {
                       <span className="text-gray-600 flex-shrink-0">{widget.icon}</span>
                       <span className="text-xs text-gray-700 truncate flex-1">{widget.label}</span>
                       {pw > 0 && (
-                        <span className="text-[9px] text-gray-500 flex-shrink-0">
+                        <span className="text-[10px] text-gray-500 flex-shrink-0">
                           {pw}x{ph}
                         </span>
                       )}

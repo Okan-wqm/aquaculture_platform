@@ -22,17 +22,27 @@ export type {
   ScadaScript,
   // New types
   HistoryEntry,
+  HistoryCheckpoint,
   ClipboardData,
   GroupSlice,
   WidgetTemplate,
   TemplateSlice,
   SimulationSlice,
+  SimTagValue,
   ViewManagerSlice,
   ScadaStore,
 } from './types';
 
-// Utilities
-export { generateId, normalizeWidgetType, deepClone, SCREEN_ICONS } from './types';
+// Utilities & Constants
+export {
+  generateId,
+  normalizeWidgetType,
+  deepClone,
+  SCREEN_ICONS,
+  MAX_UNDO_STACK,
+  CHECKPOINT_INTERVAL,
+  MERGE_WINDOW_MS,
+} from './types';
 
 // Scene hierarchy utilities
 export { buildScreenTree, getAncestors, getScreenPath, getChildren, getRootScreens, flattenTree, wouldCreateCycle } from './sceneUtils';

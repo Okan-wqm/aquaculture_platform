@@ -47,7 +47,14 @@ export type ScadaWidgetType =
   | 'svgArrow'
   | 'rasterImage'
   | 'videoStream'
-  | 'mapView';
+  | 'mapView'
+  | 'dataTable'
+  | 'iframe'
+  | 'progressBar'
+  | 'barChart'
+  | 'pieChart'
+  | 'knob'
+  | 'dropdownSelect';
 
 /* ------------------------------------------------------------------ */
 /*  Equipment sub-types                                                */

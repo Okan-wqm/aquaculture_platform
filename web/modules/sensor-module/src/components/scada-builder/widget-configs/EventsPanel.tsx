@@ -32,6 +32,8 @@ const ACTIONS: EventAction[] = [
   'toggleValue',
   'runScript',
   'openUrl',
+  'setProperty',
+  'closeDialog',
 ];
 
 /** Human-readable labels for actions in the dropdown. */
@@ -43,6 +45,8 @@ const ACTION_LABELS: Record<EventAction, string> = {
   toggleValue: 'Toggle Value',
   runScript: 'Run Script',
   openUrl: 'Open URL',
+  setProperty: 'Set Property',
+  closeDialog: 'Close Dialog',
 };
 
 interface EventsPanelProps {
@@ -362,6 +366,61 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
               url={(ev.params.url as string) || ''}
               onChange={(url) => updateEventParams(ev.id, { url })}
             />
+          )}
+
+          {/* setProperty: Dynamically change another widget's config property.
+             Enables interactive patterns like: click button -> change color. */}
+          {ev.action === 'setProperty' && (
+            <div className="space-y-2" data-testid="setproperty-config">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Target Widget ID</label>
+                <input
+                  type="text"
+                  value={(ev.params.targetWidgetId as string) || ''}
+                  onChange={(e) => updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })}
+                  placeholder="widget-uuid-here"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
+                  data-testid="target-widget-id-input"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Property Path</label>
+                <input
+                  type="text"
+                  value={(ev.params.propertyPath as string) || ''}
+                  onChange={(e) => updateEventParams(ev.id, { propertyPath: e.target.value || undefined })}
+                  placeholder="fill, config.opacity, etc."
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
+                  data-testid="property-path-input"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Value</label>
+                <input
+                  type="text"
+                  value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    // Auto-detect type: boolean, number, or string
+                    let parsed: string | number | boolean = raw;
+                    if (raw === 'true') parsed = true;
+                    else if (raw === 'false') parsed = false;
+                    else if (raw !== '' && !Number.isNaN(Number(raw))) parsed = Number(raw);
+                    updateEventParams(ev.id, { propertyValue: parsed });
+                  }}
+                  placeholder="Value (auto-detects type)"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  data-testid="property-value-input"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* closeDialog: Closes the topmost overlay — no parameters needed. */}
+          {ev.action === 'closeDialog' && (
+            <div className="px-2 py-2 text-[10px] text-gray-500 bg-gray-100 rounded-lg" data-testid="closedialog-config">
+              Closes the topmost popup card or modal dialog. No additional configuration needed.
+            </div>
           )}
         </div>
       ))}

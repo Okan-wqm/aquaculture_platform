@@ -35,7 +35,10 @@ export type AnimationRuleType =
   | 'piston'               // vertical oscillation for pump/compressor symbols
   | 'imageAlongPath'       // image travels along an SVG motion path
   | 'recursiveColor'       // applies color to all SVG children via CSS custom properties
-  | 'scale';               // maps tag value range to a scale factor range
+  | 'scale'                // maps tag value range to a scale factor range
+  | 'opacity'              // maps tag value range to an opacity range (gradual fade)
+  | 'videoPlayback'        // tag-driven video play/pause/stop commands
+  | 'textFormat';          // printf-style formatted tag value display
 
 export interface AnimationOptions {
   // colorRange
@@ -84,6 +87,17 @@ export interface AnimationOptions {
   minScale?: number;
   /** scale: scale factor produced when tag equals range maximum (default 2.0) */
   maxScale?: number;
+
+  /** opacity: opacity value produced when tag equals range minimum (default 0) */
+  minOpacity?: number;
+  /** opacity: opacity value produced when tag equals range maximum (default 1) */
+  maxOpacity?: number;
+
+  /** videoPlayback: command to issue when tag is within the rule's trigger range */
+  videoAction?: 'play' | 'pause' | 'stop';
+
+  /** textFormat: printf-style format template for displaying live tag values (e.g. '%.2f') */
+  textFormat?: string;
 }
 
 /** Output of AnimationEngine.evaluate() — consumed by renderers */
@@ -128,6 +142,15 @@ export interface AnimationState {
 
   /** Computed scale factor from scale rule */
   mappedScale?: number;
+
+  /** Computed opacity from opacity rule — linear interpolation across tag range */
+  mappedOpacity?: number;
+
+  /** Video playback command from videoPlayback rule — consumed by VideoStreamRenderer */
+  videoCommand?: 'play' | 'pause' | 'stop';
+
+  /** Formatted text from textFormat rule — printf-style tag value display */
+  formattedText?: string;
 }
 
 export const DEFAULT_ANIMATION_STATE: AnimationState = {

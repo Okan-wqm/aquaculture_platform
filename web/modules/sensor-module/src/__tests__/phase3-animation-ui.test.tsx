@@ -125,7 +125,7 @@ describe('AnimationsPanel — Extended Animation Types', () => {
     expect(select).toBeTruthy();
 
     const options = Array.from(select.querySelectorAll('option'));
-    expect(options).toHaveLength(12);
+    expect(options).toHaveLength(15);
 
     const values = options.map((opt) => opt.value);
     expect(values).toEqual([
@@ -141,6 +141,9 @@ describe('AnimationsPanel — Extended Animation Types', () => {
       'imageAlongPath',
       'recursiveColor',
       'scale',
+      'opacity',
+      'videoPlayback',
+      'textFormat',
     ]);
   });
 

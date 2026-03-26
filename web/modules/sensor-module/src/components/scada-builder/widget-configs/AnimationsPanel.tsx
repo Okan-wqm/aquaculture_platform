@@ -38,6 +38,9 @@ const ANIMATION_TYPE_OPTIONS: Array<{ value: AnimationRuleType; label: string }>
   { value: 'imageAlongPath', label: 'Image Along Path' },
   { value: 'recursiveColor', label: 'Recursive Color (CSS Variables)' },
   { value: 'scale', label: 'Value-Mapped Scale' },
+  { value: 'opacity', label: 'Opacity Fade' },
+  { value: 'videoPlayback', label: 'Video Playback Control' },
+  { value: 'textFormat', label: 'Text Value Format' },
 ];
 
 /** Shared CSS class strings to keep JSX clean and consistent */
@@ -688,6 +691,77 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   className={INPUT_CLASS}
                   data-testid="max-scale-input"
                 />
+              </div>
+            </div>
+          )}
+
+          {/* opacity — gradual fade based on tag value range */}
+          {anim.type === 'opacity' && (
+            <div className="grid grid-cols-2 gap-2" data-testid="opacity-config">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Min Opacity</label>
+                <input
+                  type="number"
+                  value={anim.options.minOpacity ?? 0}
+                  onChange={(e) => updateAnimationOptions(anim.id, { minOpacity: Number(e.target.value) })}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  className={INPUT_CLASS}
+                  data-testid="min-opacity-input"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Max Opacity</label>
+                <input
+                  type="number"
+                  value={anim.options.maxOpacity ?? 1}
+                  onChange={(e) => updateAnimationOptions(anim.id, { maxOpacity: Number(e.target.value) })}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  className={INPUT_CLASS}
+                  data-testid="max-opacity-input"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* videoPlayback — tag-driven video play/pause/stop control */}
+          {anim.type === 'videoPlayback' && (
+            <div data-testid="video-playback-config">
+              <label className="block text-xs text-gray-500 mb-1">Video Action</label>
+              <select
+                value={anim.options.videoAction ?? 'play'}
+                onChange={(e) => updateAnimationOptions(anim.id, { videoAction: e.target.value as 'play' | 'pause' | 'stop' })}
+                className={INPUT_CLASS}
+                data-testid="video-action-select"
+              >
+                <option value="play">Play</option>
+                <option value="pause">Pause</option>
+                <option value="stop">Stop</option>
+              </select>
+            </div>
+          )}
+
+          {/* textFormat — printf-style formatted tag value display */}
+          {anim.type === 'textFormat' && (
+            <div className="space-y-2" data-testid="text-format-config">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Format Template</label>
+                <input
+                  type="text"
+                  value={anim.options.textFormat ?? '%.2f'}
+                  onChange={(e) => updateAnimationOptions(anim.id, { textFormat: e.target.value })}
+                  placeholder="%.2f"
+                  className={`${INPUT_CLASS} font-mono`}
+                  data-testid="text-format-input"
+                />
+              </div>
+              <div className="text-[10px] text-gray-400 space-y-0.5 px-1">
+                <p><code className="bg-gray-100 px-1 rounded">%.2f</code> &rarr; 3.14</p>
+                <p><code className="bg-gray-100 px-1 rounded">%d%%</code> &rarr; 75%</p>
+                <p><code className="bg-gray-100 px-1 rounded">Temp: %.1f&deg;C</code> &rarr; Temp: 23.5&deg;C</p>
               </div>
             </div>
           )}

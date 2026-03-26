@@ -85,6 +85,13 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   svgDiamond:        React.lazy(() => import('./widget-renderers/SvgDiamondRenderer')),
   svgArrow:          React.lazy(() => import('./widget-renderers/SvgArrowRenderer')),
   rasterImage:       React.lazy(() => import('./widget-renderers/RasterImageRenderer')),
+  dataTable:         React.lazy(() => import('./widget-renderers/DataTableRenderer')),
+  iframe:            React.lazy(() => import('./widget-renderers/IFrameRenderer')),
+  progressBar:       React.lazy(() => import('./widget-renderers/ProgressBarRenderer')),
+  barChart:          React.lazy(() => import('./widget-renderers/BarChartRenderer')),
+  pieChart:          React.lazy(() => import('./widget-renderers/PieChartRenderer')),
+  knob:              React.lazy(() => import('./widget-renderers/KnobRenderer')),
+  dropdownSelect:    React.lazy(() => import('./widget-renderers/DropdownSelectRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

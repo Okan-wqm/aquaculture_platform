@@ -34,6 +34,13 @@ import { MapViewConfig } from './MapViewConfig';
 import { SvgEllipseConfig } from './SvgEllipseConfig';
 import { SvgPathConfig } from './SvgPathConfig';
 import { RasterImageConfig } from './RasterImageConfig';
+import { DataTableConfig } from './DataTableConfig';
+import { IFrameConfig } from './IFrameConfig';
+import { ProgressBarConfig } from './ProgressBarConfig';
+import { BarChartConfig } from './BarChartConfig';
+import { PieChartConfig } from './PieChartConfig';
+import { KnobConfig } from './KnobConfig';
+import { DropdownSelectConfig } from './DropdownSelectConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- legacy config components use any
@@ -84,4 +91,11 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   svgDiamond: SvgDiamondConfig,
   svgArrow: SvgArrowConfig,
   rasterImage: RasterImageConfig,
+  dataTable: DataTableConfig,
+  iframe: IFrameConfig,
+  progressBar: ProgressBarConfig,
+  barChart: BarChartConfig,
+  pieChart: PieChartConfig,
+  knob: KnobConfig,
+  dropdownSelect: DropdownSelectConfig,
 };

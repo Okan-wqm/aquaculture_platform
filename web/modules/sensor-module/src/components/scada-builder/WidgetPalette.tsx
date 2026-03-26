@@ -42,6 +42,12 @@ import {
   Triangle,
   Diamond,
   ArrowRight,
+  Table2,
+  Globe,
+  BarChart3,
+  PieChart,
+  Disc3,
+  ChevronDownSquare,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -157,12 +163,16 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'numericInput', label: 'NumericInput', icon: <Keyboard className="w-4 h-4" /> },
       { type: 'pushButton', label: 'PushButton', icon: <CircleDot className="w-4 h-4" /> },
       { type: 'emergencyStop', label: 'EmergencyStop', icon: <OctagonAlert className="w-4 h-4" /> },
+      { type: 'knob', label: 'Knob', icon: <Disc3 className="w-4 h-4" /> },
+      { type: 'dropdownSelect', label: 'Dropdown Select', icon: <ChevronDownSquare className="w-4 h-4" /> },
     ],
   },
   {
-    name: 'Trend',
+    name: 'Charts',
     widgets: [
       { type: 'trendChart', label: 'TrendChart', icon: <TrendingUp className="w-4 h-4" /> },
+      { type: 'barChart', label: 'Bar Chart', icon: <BarChart3 className="w-4 h-4" /> },
+      { type: 'pieChart', label: 'Pie Chart', icon: <PieChart className="w-4 h-4" /> },
     ],
   },
   {
@@ -219,6 +229,14 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
     name: 'Automation',
     widgets: [
       { type: 'scheduler', label: 'Scheduler', icon: <Calendar className="w-4 h-4" /> },
+    ],
+  },
+  {
+    name: 'Data & Embedding',
+    widgets: [
+      { type: 'dataTable', label: 'Data Table', icon: <Table2 className="w-4 h-4" /> },
+      { type: 'iframe', label: 'IFrame', icon: <Globe className="w-4 h-4" /> },
+      { type: 'progressBar', label: 'Progress Bar', icon: <BarChart3 className="w-4 h-4" /> },
     ],
   },
   {

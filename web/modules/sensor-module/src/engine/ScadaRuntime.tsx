@@ -4,6 +4,8 @@ import { WidgetEventBus } from './events/WidgetEventBus';
 import { createNavigateHandler } from './events/handlers/NavigateHandler';
 import { createOverlayHandler } from './events/handlers/OverlayHandler';
 import { createTagWriteHandler } from './events/handlers/TagWriteHandler';
+import { createSetPropertyHandler } from './events/handlers/SetPropertyHandler';
+import { createCloseDialogHandler } from './events/handlers/CloseDialogHandler';
 import { useScadaStore } from '../store/scada';
 import { AnimationStyles } from './animation/AnimationStyles';
 import { ThemeProvider } from './theme/ThemeProvider';
@@ -21,6 +23,7 @@ export const ScadaRuntime: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setActiveScreen = useScadaStore((s) => s.setActiveScreen);
   const openOverlay = useScadaStore((s) => s.openOverlay);
+  const updateWidget = useScadaStore((s) => s.updateWidget);
 
   // Register action handlers
   useEffect(() => {
@@ -31,9 +34,16 @@ export const ScadaRuntime: React.FC<{ children: React.ReactNode }> = ({ children
     unsubs.push(eventBus.register('toggleValue', createTagWriteHandler(tagBus)));
     unsubs.push(eventBus.register('openCard', createOverlayHandler({ openOverlay })));
     unsubs.push(eventBus.register('openDialog', createOverlayHandler({ openOverlay })));
+    unsubs.push(eventBus.register('setProperty', createSetPropertyHandler({ updateWidget })));
+    unsubs.push(
+      eventBus.register(
+        'closeDialog',
+        createCloseDialogHandler(() => useScadaStore.getState()),
+      ),
+    );
 
     return () => unsubs.forEach((u) => u());
-  }, [eventBus, tagBus, setActiveScreen, openOverlay]);
+  }, [eventBus, tagBus, setActiveScreen, openOverlay, updateWidget]);
 
   // Bridge: simulation store tag values -> TagValueBus
   const simTagValues = useScadaStore((s) => s.simTagValues);

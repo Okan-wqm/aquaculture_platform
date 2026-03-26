@@ -12,7 +12,9 @@ export type EventAction =
   | 'setValue'
   | 'toggleValue'
   | 'runScript'
-  | 'openUrl';
+  | 'openUrl'
+  | 'setProperty'
+  | 'closeDialog';
 
 export interface WidgetEventDef {
   id: string;
@@ -33,6 +35,13 @@ export interface EventParams {
   /** Script ID from the package-level scripts array (for runScript action). */
   scriptId?: string;
   variableMap?: Record<string, string>;
+
+  /** setProperty: ID of the widget whose config property should be changed */
+  targetWidgetId?: string;
+  /** setProperty: dot-separated path to the config property (e.g. 'fill', 'config.opacity') */
+  propertyPath?: string;
+  /** setProperty: new value for the target property */
+  propertyValue?: string | number | boolean;
 }
 
 export interface WidgetEventPayload {

@@ -157,7 +157,142 @@ export function evaluate(rules: AnimationRule[], tagValues: Record<string, unkno
         state.mappedScale = scMinScale + scClamped * (scMaxScale - scMinScale);
         break;
       }
+
+      case 'opacity': {
+        /**
+         * Smooth opacity transition between two values based on tag range.
+         * Uses CSS transition for 60fps animation without JavaScript timers.
+         *
+         * Unlike 'hide'/'show' which are binary (visible/hidden), opacity
+         * animation allows gradual fade effects — useful for indicating
+         * signal strength, connection quality, or process confidence levels.
+         */
+        const opMinOpacity = opts.minOpacity ?? 0;
+        const opMaxOpacity = opts.maxOpacity ?? 1;
+        const opTagMin = rule.range.min;
+        const opTagMax = rule.range.max;
+        const opRatio = opTagMax !== opTagMin
+          ? (effective - opTagMin) / (opTagMax - opTagMin)
+          : 0;
+        const opClamped = Math.max(0, Math.min(1, opRatio));
+        state.mappedOpacity = opMinOpacity + opClamped * (opMaxOpacity - opMinOpacity);
+        break;
+      }
+
+      case 'videoPlayback': {
+        /**
+         * Tag-driven video playback control for the videoStream widget.
+         * Maps tag value ranges to play/pause/stop actions.
+         *
+         * The animation state includes a 'videoCommand' field.
+         * The VideoStreamRenderer reads this field and calls the HTML5
+         * video API accordingly. Commands are idempotent — sending 'play'
+         * when already playing is a no-op.
+         */
+        state.videoCommand = opts.videoAction ?? 'play';
+        break;
+      }
+
+      case 'textFormat': {
+        /**
+         * Printf-style formatted tag value display in SVG text widgets.
+         * Injects the live tag value into a format template string.
+         *
+         * Templates: '%.2f' -> '3.14', '%d%%' -> '75%', 'Temp: %.1f°C' -> 'Temp: 23.5°C'
+         *
+         * Uses a safe sprintf implementation (no eval) that handles:
+         *   %d  — integer
+         *   %f  — float (default 6 decimal places)
+         *   %.Nf — float with N decimal places
+         *   %s  — string
+         *   %%  — literal percent sign
+         */
+        const fmt = opts.textFormat ?? '%f';
+        state.formattedText = safeSprintf(fmt, effective);
+        break;
+      }
     }
   }
   return state;
+}
+
+/**
+ * Safe printf-style string formatter.
+ * Supports %d, %f, %.Nf, %s, and %% format specifiers.
+ *
+ * This is intentionally minimal and does NOT use eval or Function().
+ * Only numeric formatting is supported since animation tag values are always numbers.
+ *
+ * @param format - Printf-style format string (e.g., 'Temp: %.1f°C')
+ * @param value  - Numeric tag value to inject into the format
+ * @returns Formatted string with the value substituted
+ */
+export function safeSprintf(format: string, value: number): string {
+  let result = '';
+  let i = 0;
+  while (i < format.length) {
+    if (format[i] === '%') {
+      if (i + 1 >= format.length) {
+        // Trailing '%' — emit as-is
+        result += '%';
+        i++;
+        continue;
+      }
+
+      // Literal '%%' → '%'
+      if (format[i + 1] === '%') {
+        result += '%';
+        i += 2;
+        continue;
+      }
+
+      // Parse optional precision: %.Nf
+      let j = i + 1;
+      let precision = -1;
+
+      if (format[j] === '.') {
+        j++;
+        let digits = '';
+        while (j < format.length && format[j] >= '0' && format[j] <= '9') {
+          digits += format[j];
+          j++;
+        }
+        precision = digits.length > 0 ? parseInt(digits, 10) : 0;
+      }
+
+      // Parse the conversion character
+      if (j < format.length) {
+        const specifier = format[j];
+        switch (specifier) {
+          case 'd':
+            result += Math.round(value).toString();
+            i = j + 1;
+            continue;
+          case 'f':
+            result += precision >= 0
+              ? value.toFixed(precision)
+              : value.toFixed(6);
+            i = j + 1;
+            continue;
+          case 's':
+            result += String(value);
+            i = j + 1;
+            continue;
+          default:
+            // Unrecognized specifier — emit the percent and continue
+            result += '%';
+            i++;
+            continue;
+        }
+      } else {
+        // End of string after '%.' — emit as-is
+        result += format.slice(i);
+        break;
+      }
+    } else {
+      result += format[i];
+      i++;
+    }
+  }
+  return result;
 }

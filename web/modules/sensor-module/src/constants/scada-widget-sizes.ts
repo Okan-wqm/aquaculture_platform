@@ -122,6 +122,15 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   // Media
   videoStream:       { defaultW: 3, defaultH: 2, minW: 2, minH: 1, maxW: 12, maxH: 8 },
   mapView:           { defaultW: 3, defaultH: 3, minW: 2, minH: 2, maxW: 12, maxH: 8 },
+  // Phase 9A: Data, Embedding, Progress
+  dataTable:         { defaultW: 6, defaultH: 4, minW: 3, minH: 2, maxW: 12, maxH: 8 },
+  iframe:            { defaultW: 4, defaultH: 3, minW: 2, minH: 2, maxW: 12, maxH: 8 },
+  progressBar:       { defaultW: 3, defaultH: 1, minW: 2, minH: 1, maxW: 8,  maxH: 2 },
+  // Phase 9A Part 2: Charts & Input Controls
+  barChart:          { defaultW: 4, defaultH: 3, minW: 2, minH: 2, maxW: 12, maxH: 8 },
+  pieChart:          { defaultW: 3, defaultH: 3, minW: 2, minH: 2, maxW: 8,  maxH: 8 },
+  knob:              { defaultW: 2, defaultH: 2, minW: 2, minH: 2, maxW: 4,  maxH: 4 },
+  dropdownSelect:    { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4,  maxH: 3 },
 };
 
 /* ------------------------------------------------------------------ */

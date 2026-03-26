@@ -114,8 +114,12 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
   private initialized = false;
 
   constructor() {
-    // Create the initial barrier
+    // Create the initial barrier.
+    // Attach a no-op catch handler to prevent "Uncaught (in promise)" when
+    // resolveBarrierAsExpired() rejects this barrier during failed initialization.
+    // Actual rejection handling is done by waitForReady() callers.
     this.readyPromise = this.createBarrier();
+    this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
   }
 
   // --------------------------------------------------------------------------

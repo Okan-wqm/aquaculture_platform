@@ -237,6 +237,11 @@ export async function silentRefresh(): Promise<boolean> {
     resolve = res;
     reject = rej;
   });
+  // Prevent unhandled rejection warning on this promise.
+  // Concurrent callers (handleUnauthorized) catch the rejection via their own await.
+  // Without this, a rejection here surfaces as "Uncaught (in promise)" in the console
+  // even though silentRefresh() itself returns a boolean (not this promise).
+  tokenRefreshPromise.catch(() => { /* handled by concurrent waiters */ });
 
   try {
     const success = await performTokenRefresh();

@@ -135,11 +135,93 @@ const InfoRow: React.FC<{ label: string; value?: string | number | null; icon?: 
 
 /**
  * Communication protocol between the edge controller and field I/O.
- * - modbus: RS-485/TCP endüstriyel haberleşme (slave ID, register, function code)
- * - gpio: Doğrudan pin-level digital I/O (RPi, RevPi)
- * - manual: Yazılımla manuel beslenen değerler (test/simülasyon)
+ * - modbus: RS-485/TCP industrial communication (slave ID, register, function code)
+ * - gpio: Direct pin-level digital I/O (RPi, RevPi)
+ * - manual: Software-fed values for testing/simulation
  */
 type ProtocolMode = 'modbus' | 'gpio' | 'manual';
+
+// ============================================================================
+// Modbus Function Code Registry — Modbus Application Protocol V1.1b3
+// ============================================================================
+
+/**
+ * Complete Modbus function code registry following the Modbus Application Protocol
+ * Specification V1.1b3. Function codes are categorized by operation type:
+ *
+ * READ operations (FC1-4): Query data from the Modbus slave device.
+ *   - FC1/FC2 read discrete (boolean) values — coils and discrete inputs
+ *   - FC3/FC4 read 16-bit register values — holding and input registers
+ *
+ * WRITE operations (FC5/6/15/16): Send data to the Modbus slave device.
+ *   - FC5/FC15 write discrete (boolean) values — single/multiple coils
+ *   - FC6/FC16 write 16-bit register values — single/multiple registers
+ *
+ * The function code must match the IO type:
+ *   DI (Digital Input)  -> FC1 (Read Coils) or FC2 (Read Discrete Inputs)
+ *   AI (Analog Input)   -> FC3 (Read Holding Registers) or FC4 (Read Input Registers)
+ *   DO (Digital Output)  -> FC5 (Write Single Coil) or FC15 (Write Multiple Coils)
+ *   AO (Analog Output)  -> FC6 (Write Single Register) or FC16 (Write Multiple Registers)
+ */
+interface ModbusFunctionCode {
+  value: number;
+  label: string;
+  /** 'read' for input types (DI/AI), 'write' for output types (DO/AO) */
+  operation: 'read' | 'write';
+  /** Which IO types this function code is compatible with */
+  compatibleIoTypes: IoType[];
+}
+
+const MODBUS_FUNCTION_CODES: ModbusFunctionCode[] = [
+  // READ functions — for DI and AI
+  { value: 1,  label: 'FC1 - Read Coils',               operation: 'read',  compatibleIoTypes: [IoType.DI] },
+  { value: 2,  label: 'FC2 - Read Discrete Inputs',      operation: 'read',  compatibleIoTypes: [IoType.DI] },
+  { value: 3,  label: 'FC3 - Read Holding Registers',    operation: 'read',  compatibleIoTypes: [IoType.AI] },
+  { value: 4,  label: 'FC4 - Read Input Registers',      operation: 'read',  compatibleIoTypes: [IoType.AI] },
+  // WRITE functions — for DO and AO
+  { value: 5,  label: 'FC5 - Write Single Coil',         operation: 'write', compatibleIoTypes: [IoType.DO] },
+  { value: 6,  label: 'FC6 - Write Single Register',     operation: 'write', compatibleIoTypes: [IoType.AO] },
+  { value: 15, label: 'FC15 - Write Multiple Coils',     operation: 'write', compatibleIoTypes: [IoType.DO] },
+  { value: 16, label: 'FC16 - Write Multiple Registers', operation: 'write', compatibleIoTypes: [IoType.AO] },
+];
+
+/**
+ * Filter available Modbus function codes based on the selected IO type.
+ * This prevents the user from selecting an incompatible combination
+ * (e.g., a read function for an output type) that the backend will reject.
+ */
+function getFilteredFunctionCodes(ioType: IoType): ModbusFunctionCode[] {
+  return MODBUS_FUNCTION_CODES.filter(fc => fc.compatibleIoTypes.includes(ioType));
+}
+
+/**
+ * Return the default Modbus function code for a given IO type.
+ * When the IO type changes, the form auto-selects this default:
+ *   DI -> FC1 (Read Coils)
+ *   AI -> FC3 (Read Holding Registers)
+ *   DO -> FC5 (Write Single Coil)
+ *   AO -> FC6 (Write Single Register)
+ */
+function getDefaultFunctionCode(ioType: IoType): number {
+  const defaults: Record<IoType, number> = {
+    [IoType.DI]: 1,
+    [IoType.AI]: 3,
+    [IoType.DO]: 5,
+    [IoType.AO]: 6,
+  };
+  return defaults[ioType] ?? 3;
+}
+
+/**
+ * Check whether the current function code is compatible with the selected IO type.
+ * Used to display a warning for legacy configurations that may have been saved
+ * with an incorrect pairing (e.g., FC3 on a DO point).
+ */
+function isFunctionCodeCompatible(functionCode: number, ioType: IoType): boolean {
+  return MODBUS_FUNCTION_CODES.some(
+    fc => fc.value === functionCode && fc.compatibleIoTypes.includes(ioType),
+  );
+}
 
 /**
  * Form state — tüm alanlar string olarak tutulur, böylece
@@ -184,7 +266,7 @@ const DEFAULT_FORM_STATE: IoFormState = {
   channel: '0',
   modbusSlaveId: '1',
   modbusRegister: '0',
-  modbusFunction: '3', // FC3 - Holding Register (en yaygın)
+  modbusFunction: '3', // FC3 - Read Holding Registers (default for AI, the most common IO type)
   gpioPin: '',
   gpioMode: 'input',
   invertValue: false,
@@ -386,9 +468,43 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
   if (!isOpen) return null;
 
   const set = <K extends keyof IoFormState>(key: K, val: IoFormState[K]) =>
-    setForm((prev) => ({ ...prev, [key]: val }));
+    setForm((prev) => {
+      const next = { ...prev, [key]: val };
+      // When the IO type changes, auto-select the correct default Modbus function code.
+      // This prevents the user from accidentally submitting an incompatible combination
+      // (e.g., FC3/Read on a DO/AO output) that the backend will reject with BAD_REQUEST.
+      if (key === 'ioType' && typeof val === 'string') {
+        const newIoType = val as IoType;
+        const currentFc = Number(prev.modbusFunction);
+        if (!isFunctionCodeCompatible(currentFc, newIoType)) {
+          next.modbusFunction = String(getDefaultFunctionCode(newIoType));
+        }
+      }
+      return next;
+    });
 
   const isAnalog = form.ioType === IoType.AI || form.ioType === IoType.AO;
+
+  // Compute the filtered Modbus function codes based on current IO type,
+  // plus the current selection if it is incompatible (backward compat for legacy configs).
+  const filteredFunctionCodes = useMemo(() => {
+    const compatible = getFilteredFunctionCodes(form.ioType);
+    const currentFc = Number(form.modbusFunction);
+    const currentIsCompatible = compatible.some(fc => fc.value === currentFc);
+    if (!currentIsCompatible) {
+      // Include the current (incompatible) code so the dropdown does not silently lose it.
+      const legacy = MODBUS_FUNCTION_CODES.find(fc => fc.value === currentFc);
+      if (legacy) {
+        return [...compatible, { ...legacy, label: `${legacy.label} (incompatible)` }];
+      }
+    }
+    return compatible;
+  }, [form.ioType, form.modbusFunction]);
+
+  const currentFcIncompatible = !isFunctionCodeCompatible(
+    Number(form.modbusFunction),
+    form.ioType,
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -402,7 +518,22 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
       return;
     }
 
-    // Alarm sıralaması doğrulama — yanlış sıralama sahada tehlikeli olabilir
+    // Validate Modbus function code compatibility with IO type.
+    // The backend enforces this check and will reject incompatible pairs with BAD_REQUEST,
+    // but we catch it here to give the user immediate feedback in the form.
+    if (!isEdit && form.protocolMode === 'modbus') {
+      const fc = Number(form.modbusFunction);
+      if (!isFunctionCodeCompatible(fc, form.ioType)) {
+        const expectedOp = (form.ioType === IoType.DO || form.ioType === IoType.AO) ? 'write' : 'read';
+        setValidationError(
+          `FC${fc} is incompatible with ${form.ioType}. ${form.ioType} requires a ${expectedOp} function code. ` +
+          `Please select a compatible function code from the dropdown.`
+        );
+        return;
+      }
+    }
+
+    // Alarm order validation — incorrect ordering is dangerous in field operation
     const alarmErr = validateAlarmOrder(form);
     if (alarmErr) {
       setValidationError(alarmErr);
@@ -562,44 +693,56 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
             </div>
           )}
 
-          {/* Modbus RTU/TCP fields — Slave ID: 1-247 (Modbus spec), FC1-FC4 */}
+          {/* Modbus RTU/TCP fields — Slave ID: 1-247 (Modbus spec), FC1-16 filtered by IO type */}
           {!isEdit && form.protocolMode === 'modbus' && (
-            <div className="grid grid-cols-3 gap-4 p-4 bg-blue-50 rounded-lg">
-              <div>
-                <label className={labelCls}>Slave ID</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={form.modbusSlaveId}
-                  onChange={(e) => set('modbusSlaveId', e.target.value)}
-                  min={1}
-                  max={247}
-                />
+            <div className="p-4 bg-blue-50 rounded-lg space-y-3">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className={labelCls}>Slave ID</label>
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={form.modbusSlaveId}
+                    onChange={(e) => set('modbusSlaveId', e.target.value)}
+                    min={1}
+                    max={247}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Register</label>
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={form.modbusRegister}
+                    onChange={(e) => set('modbusRegister', e.target.value)}
+                    min={0}
+                    max={65535}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Function Code</label>
+                  <select
+                    className={`${inputCls} ${currentFcIncompatible ? 'border-amber-400 bg-amber-50' : ''}`}
+                    value={form.modbusFunction}
+                    onChange={(e) => set('modbusFunction', e.target.value)}
+                  >
+                    {filteredFunctionCodes.map((fc) => (
+                      <option key={fc.value} value={String(fc.value)}>{fc.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className={labelCls}>Register</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={form.modbusRegister}
-                  onChange={(e) => set('modbusRegister', e.target.value)}
-                  min={0}
-                  max={65535}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Fonksiyon Kodu</label>
-                <select
-                  className={inputCls}
-                  value={form.modbusFunction}
-                  onChange={(e) => set('modbusFunction', e.target.value)}
-                >
-                  <option value="1">FC1 - Coil Status</option>
-                  <option value="2">FC2 - Input Status</option>
-                  <option value="3">FC3 - Holding Register</option>
-                  <option value="4">FC4 - Input Register</option>
-                </select>
-              </div>
+              {/* Warning banner for legacy configs with incompatible function code */}
+              {currentFcIncompatible && (
+                <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 border border-amber-200">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <span className="text-xs text-amber-800">
+                    FC{form.modbusFunction} is a {Number(form.modbusFunction) <= 4 ? 'read' : 'write'} function
+                    and is incompatible with {form.ioType} ({form.ioType === IoType.DO || form.ioType === IoType.AO ? 'output requires write' : 'input requires read'}).
+                    Select a compatible function code or the backend will reject this configuration.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

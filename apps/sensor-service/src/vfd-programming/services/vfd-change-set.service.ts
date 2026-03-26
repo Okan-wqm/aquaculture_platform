@@ -1,0 +1,606 @@
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Not, In } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+import { VfdChangeSet } from '../entities/vfd-change-set.entity';
+import { VfdChangeSetItem } from '../entities/vfd-change-set-item.entity';
+import { VfdParameterAuditLog } from '../entities/vfd-parameter-audit-log.entity';
+import {
+  VfdChangeSetStatus,
+  VfdChangeSetItemStatus,
+  VfdAuditAction,
+} from '../../vfd/entities/vfd.enums';
+import { RiskEvaluatorService } from '../risk/risk-evaluator.service';
+import { VfdParameterDefinitionService } from './vfd-parameter-definition.service';
+import { VfdDeviceService } from '../../vfd/services/vfd-device.service';
+import { ChangeSetItemInput, CreateChangeSetInput } from '../dto';
+
+/**
+ * VFD ChangeSet Service -- Maker-Checker Workflow Engine
+ *
+ * Implements the 4-eye principle for VFD parameter changes:
+ *   DRAFT -> PENDING_APPROVAL -> APPROVED -> APPLYING -> APPLIED -> VERIFIED
+ *                              -> REJECTED
+ *
+ * Business rules:
+ * - Maker (creator) cannot approve their own change set
+ * - Only one active (non-draft) change set per device at a time
+ * - Rollback creates an inverse change set with swapped values
+ * - Emergency rollback bypasses the normal approval flow
+ */
+@Injectable()
+export class VfdChangeSetService {
+  private readonly logger = new Logger(VfdChangeSetService.name);
+
+  constructor(
+    @InjectRepository(VfdChangeSet)
+    private readonly changeSetRepository: Repository<VfdChangeSet>,
+    @InjectRepository(VfdChangeSetItem)
+    private readonly changeSetItemRepository: Repository<VfdChangeSetItem>,
+    @InjectRepository(VfdParameterAuditLog)
+    private readonly auditLogRepository: Repository<VfdParameterAuditLog>,
+    private readonly riskEvaluator: RiskEvaluatorService,
+    private readonly parameterDefinitionService: VfdParameterDefinitionService,
+    private readonly vfdDeviceService: VfdDeviceService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
+
+  // ─── CREATE ──────────────────────────────────────────────────────────
+
+  /**
+   * Create a new change set in DRAFT status.
+   * Optionally includes initial items.
+   */
+  async createChangeSet(
+    tenantId: string,
+    input: CreateChangeSetInput,
+    createdBy: string,
+  ): Promise<VfdChangeSet> {
+    this.logger.log(
+      `Creating change set for device ${input.vfdDeviceId} by ${createdBy}`,
+    );
+
+    const changeSet = this.changeSetRepository.create({
+      tenantId,
+      vfdDeviceId: input.vfdDeviceId,
+      description: input.description,
+      createdBy,
+      status: VfdChangeSetStatus.DRAFT,
+      scheduledAt: input.scheduledAt,
+      items: [],
+    });
+
+    const saved = await this.changeSetRepository.save(changeSet);
+
+    if (input.items && input.items.length > 0) {
+      return this.addItems(saved.id, input.items, tenantId);
+    }
+
+    return saved;
+  }
+
+  // ─── ITEMS ───────────────────────────────────────────────────────────
+
+  /**
+   * Add parameter change items to a DRAFT change set.
+   * Validates each parameter exists and requested value is within range.
+   */
+  async addItems(
+    changeSetId: string,
+    items: ChangeSetItemInput[],
+    tenantId: string,
+  ): Promise<VfdChangeSet> {
+    const changeSet = await this.findByIdOrFail(changeSetId);
+    this.assertStatus(changeSet, VfdChangeSetStatus.DRAFT, 'add items');
+
+    // Resolve device brand for parameter lookups
+    const deviceId = changeSet.vfdDeviceId;
+    const definitions =
+      await this.parameterDefinitionService.getDefinitionsForDevice(
+        deviceId,
+        tenantId,
+      );
+
+    const newItems: VfdChangeSetItem[] = [];
+
+    for (const item of items) {
+      const definition = definitions.find(
+        (d) => d.parameterName === item.parameterName,
+      );
+
+      if (!definition) {
+        throw new BadRequestException(
+          `Parameter '${item.parameterName}' not found for this device`,
+        );
+      }
+
+      this.validateValueInRange(
+        item.parameterName,
+        item.requestedValue,
+        definition.minValue,
+        definition.maxValue,
+      );
+
+      const changeSetItem = this.changeSetItemRepository.create({
+        changeSetId,
+        parameterDefinitionId: definition.id,
+        parameterName: item.parameterName,
+        requestedValue: item.requestedValue,
+        status: VfdChangeSetItemStatus.PENDING,
+      });
+
+      newItems.push(changeSetItem);
+    }
+
+    await this.changeSetItemRepository.save(newItems);
+
+    return this.findByIdOrFail(changeSetId);
+  }
+
+  /**
+   * Remove an item from a DRAFT change set.
+   */
+  async removeItem(changeSetId: string, itemId: string): Promise<VfdChangeSet> {
+    const changeSet = await this.findByIdOrFail(changeSetId);
+    this.assertStatus(changeSet, VfdChangeSetStatus.DRAFT, 'remove items');
+
+    const item = await this.changeSetItemRepository.findOne({
+      where: { id: itemId, changeSetId },
+    });
+
+    if (!item) {
+      throw new NotFoundException(
+        `Item ${itemId} not found in change set ${changeSetId}`,
+      );
+    }
+
+    await this.changeSetItemRepository.remove(item);
+
+    return this.findByIdOrFail(changeSetId);
+  }
+
+  // ─── SUBMIT FOR APPROVAL ────────────────────────────────────────────
+
+  /**
+   * Submit a DRAFT change set for approval.
+   * Validates items exist, values in range, and runs risk evaluation.
+   */
+  async submitForApproval(
+    changeSetId: string,
+    submittedBy: string,
+  ): Promise<VfdChangeSet> {
+    const changeSet = await this.findByIdOrFail(changeSetId);
+    this.assertStatus(changeSet, VfdChangeSetStatus.DRAFT, 'submit');
+
+    if (!changeSet.items || changeSet.items.length === 0) {
+      throw new BadRequestException(
+        'Change set must have at least one item before submission',
+      );
+    }
+
+    // Load definitions for the device to validate values and assess risk
+    const definitions =
+      await this.parameterDefinitionService.getDefinitionsForDevice(
+        changeSet.vfdDeviceId,
+        changeSet.tenantId,
+      );
+    const defMap = new Map(definitions.map((d) => [d.parameterName, d]));
+
+    const riskChanges: Array<{
+      parameterName: string;
+      value: number;
+      limits?: { min?: number; max?: number };
+    }> = [];
+
+    for (const item of changeSet.items) {
+      const definition = defMap.get(item.parameterName);
+
+      if (definition) {
+        this.validateValueInRange(
+          item.parameterName,
+          item.requestedValue,
+          definition.minValue,
+          definition.maxValue,
+        );
+      }
+
+      riskChanges.push({
+        parameterName: item.parameterName,
+        value: item.requestedValue,
+        limits: definition
+          ? { min: definition.minValue, max: definition.maxValue }
+          : undefined,
+      });
+    }
+
+    const riskResult = this.riskEvaluator.evaluateBatchRisk(riskChanges);
+
+    // Concurrent guard: no other active change set for this device
+    await this.ensureNoActiveChangeSet(
+      changeSet.tenantId,
+      changeSet.vfdDeviceId,
+      changeSet.id,
+    );
+
+    changeSet.status = VfdChangeSetStatus.PENDING_APPROVAL;
+    changeSet.metadata = {
+      ...changeSet.metadata,
+      riskSummary: {
+        riskLevel: riskResult.riskLevel,
+        riskScore: riskResult.riskScore,
+        requiresMotorStop: riskResult.requiresMotorStop,
+        warnings: riskResult.warnings,
+      },
+    };
+
+    const saved = await this.changeSetRepository.save(changeSet);
+
+    this.eventEmitter.emit('vfd.changeset.pending', {
+      changeSetId: saved.id,
+      tenantId: saved.tenantId,
+      vfdDeviceId: saved.vfdDeviceId,
+      submittedBy,
+      riskLevel: riskResult.riskLevel,
+    });
+
+    this.logger.log(
+      `Change set ${changeSetId} submitted for approval (risk: ${riskResult.riskLevel})`,
+    );
+
+    return saved;
+  }
+
+  // ─── APPROVE (MAKER-CHECKER) ────────────────────────────────────────
+
+  /**
+   * Approve a PENDING_APPROVAL change set.
+   * CRITICAL: enforces maker != checker rule.
+   */
+  async approveChangeSet(
+    changeSetId: string,
+    approvedBy: string,
+  ): Promise<VfdChangeSet> {
+    const changeSet = await this.findByIdOrFail(changeSetId);
+    this.assertStatus(changeSet, VfdChangeSetStatus.PENDING_APPROVAL, 'approve');
+
+    // Maker-Checker enforcement
+    if (changeSet.createdBy === approvedBy) {
+      throw new ForbiddenException(
+        'Maker-Checker violation: approver must differ from requester',
+      );
+    }
+
+    // Concurrent guard
+    await this.ensureNoActiveChangeSet(
+      changeSet.tenantId,
+      changeSet.vfdDeviceId,
+      changeSet.id,
+    );
+
+    changeSet.status = VfdChangeSetStatus.APPROVED;
+    changeSet.approvedBy = approvedBy;
+
+    const saved = await this.changeSetRepository.save(changeSet);
+
+    // If not scheduled, trigger immediate apply
+    if (!changeSet.scheduledAt) {
+      this.eventEmitter.emit('vfd.changeset.approved', {
+        changeSetId: saved.id,
+        tenantId: saved.tenantId,
+        vfdDeviceId: saved.vfdDeviceId,
+        approvedBy,
+      });
+    }
+
+    this.logger.log(
+      `Change set ${changeSetId} approved by ${approvedBy}`,
+    );
+
+    return saved;
+  }
+
+  // ─── REJECT ──────────────────────────────────────────────────────────
+
+  /**
+   * Reject a PENDING_APPROVAL change set with a reason.
+   */
+  async rejectChangeSet(
+    changeSetId: string,
+    rejectedBy: string,
+    reason: string,
+  ): Promise<VfdChangeSet> {
+    const changeSet = await this.findByIdOrFail(changeSetId);
+    this.assertStatus(changeSet, VfdChangeSetStatus.PENDING_APPROVAL, 'reject');
+
+    changeSet.status = VfdChangeSetStatus.REJECTED;
+    changeSet.rejectedBy = rejectedBy;
+    changeSet.rejectionReason = reason;
+
+    const saved = await this.changeSetRepository.save(changeSet);
+
+    this.eventEmitter.emit('vfd.changeset.rejected', {
+      changeSetId: saved.id,
+      tenantId: saved.tenantId,
+      vfdDeviceId: saved.vfdDeviceId,
+      rejectedBy,
+      reason,
+    });
+
+    this.logger.log(
+      `Change set ${changeSetId} rejected by ${rejectedBy}: ${reason}`,
+    );
+
+    return saved;
+  }
+
+  // ─── ROLLBACK ────────────────────────────────────────────────────────
+
+  /**
+   * Rollback an APPLIED or VERIFIED change set by creating an inverse change set.
+   * Emergency rollback bypasses the normal approval flow.
+   */
+  async rollbackChangeSet(
+    changeSetId: string,
+    reason: string,
+    performedBy: string,
+  ): Promise<VfdChangeSet> {
+    const original = await this.findByIdOrFail(changeSetId);
+
+    if (
+      original.status !== VfdChangeSetStatus.APPLIED &&
+      original.status !== VfdChangeSetStatus.VERIFIED
+    ) {
+      throw new BadRequestException(
+        `Cannot rollback change set in status '${original.status}'. Must be APPLIED or VERIFIED.`,
+      );
+    }
+
+    // Create inverse change set
+    const rollbackChangeSet = this.changeSetRepository.create({
+      tenantId: original.tenantId,
+      vfdDeviceId: original.vfdDeviceId,
+      description: `Rollback of change set ${original.id}: ${reason}`,
+      createdBy: performedBy,
+      status: VfdChangeSetStatus.DRAFT,
+      rollbackOfId: original.id,
+      metadata: {
+        rollbackReason: reason,
+        originalChangeSetId: original.id,
+      },
+    });
+
+    const savedRollback = await this.changeSetRepository.save(rollbackChangeSet);
+
+    // Create inverse items: swap previousValue <-> requestedValue
+    const inverseItems: VfdChangeSetItem[] = [];
+    for (const item of original.items) {
+      const inverseItem = this.changeSetItemRepository.create({
+        changeSetId: savedRollback.id,
+        parameterDefinitionId: item.parameterDefinitionId,
+        parameterName: item.parameterName,
+        previousValue: item.requestedValue,
+        requestedValue: item.previousValue ?? 0,
+        status: VfdChangeSetItemStatus.PENDING,
+      });
+      inverseItems.push(inverseItem);
+    }
+
+    await this.changeSetItemRepository.save(inverseItems);
+
+    const isEmergency = reason === 'emergency';
+
+    if (isEmergency) {
+      // Emergency rollback: auto-approve and emit with EMERGENCY_OVERRIDE
+      savedRollback.status = VfdChangeSetStatus.APPROVED;
+      savedRollback.approvedBy = performedBy;
+      await this.changeSetRepository.save(savedRollback);
+
+      // Mark original as rolled back
+      original.status = VfdChangeSetStatus.ROLLED_BACK;
+      await this.changeSetRepository.save(original);
+
+      // Audit log
+      await this.createAuditLog(
+        original.tenantId,
+        original.vfdDeviceId,
+        savedRollback.id,
+        VfdAuditAction.EMERGENCY_OVERRIDE,
+        performedBy,
+        inverseItems,
+      );
+
+      this.eventEmitter.emit('vfd.changeset.approved', {
+        changeSetId: savedRollback.id,
+        tenantId: savedRollback.tenantId,
+        vfdDeviceId: savedRollback.vfdDeviceId,
+        approvedBy: performedBy,
+        action: VfdAuditAction.EMERGENCY_OVERRIDE,
+      });
+
+      this.logger.warn(
+        `EMERGENCY rollback of change set ${changeSetId} by ${performedBy}`,
+      );
+    } else {
+      // Normal rollback: submit for approval
+      await this.submitForApproval(savedRollback.id, performedBy);
+
+      this.logger.log(
+        `Rollback change set ${savedRollback.id} created for ${changeSetId}`,
+      );
+    }
+
+    return this.findByIdOrFail(savedRollback.id);
+  }
+
+  // ─── QUERIES ─────────────────────────────────────────────────────────
+
+  /**
+   * Find a change set by ID with items relation.
+   */
+  async findById(changeSetId: string): Promise<VfdChangeSet | null> {
+    return this.changeSetRepository.findOne({
+      where: { id: changeSetId },
+      relations: ['items'],
+    });
+  }
+
+  /**
+   * Find change sets for a device with optional status filter and pagination.
+   */
+  async findByDevice(
+    tenantId: string,
+    vfdDeviceId: string,
+    status?: VfdChangeSetStatus,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: VfdChangeSet[]; total: number }> {
+    const where: Record<string, unknown> = { tenantId, vfdDeviceId };
+    if (status) {
+      where.status = status;
+    }
+
+    const [items, total] = await this.changeSetRepository.findAndCount({
+      where,
+      relations: ['items'],
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
+
+    return { items, total };
+  }
+
+  /**
+   * Count change sets with PENDING_APPROVAL status for a tenant.
+   */
+  async getPendingApprovalCount(tenantId: string): Promise<number> {
+    return this.changeSetRepository.count({
+      where: { tenantId, status: VfdChangeSetStatus.PENDING_APPROVAL },
+    });
+  }
+
+  // ─── PRIVATE HELPERS ─────────────────────────────────────────────────
+
+  /**
+   * Load a change set or throw NotFoundException.
+   */
+  private async findByIdOrFail(changeSetId: string): Promise<VfdChangeSet> {
+    const changeSet = await this.changeSetRepository.findOne({
+      where: { id: changeSetId },
+      relations: ['items'],
+    });
+
+    if (!changeSet) {
+      throw new NotFoundException(
+        `Change set ${changeSetId} not found`,
+      );
+    }
+
+    return changeSet;
+  }
+
+  /**
+   * Assert a change set is in the expected status.
+   */
+  private assertStatus(
+    changeSet: VfdChangeSet,
+    expected: VfdChangeSetStatus,
+    action: string,
+  ): void {
+    if (changeSet.status !== expected) {
+      throw new BadRequestException(
+        `Cannot ${action}: change set is in '${changeSet.status}' status, expected '${expected}'`,
+      );
+    }
+  }
+
+  /**
+   * Validate a requested value is within the parameter's min/max bounds.
+   */
+  private validateValueInRange(
+    parameterName: string,
+    value: number,
+    minValue?: number,
+    maxValue?: number,
+  ): void {
+    if (minValue !== undefined && minValue !== null && value < minValue) {
+      throw new BadRequestException(
+        `Value ${value} for '${parameterName}' is below minimum ${minValue}`,
+      );
+    }
+    if (maxValue !== undefined && maxValue !== null && value > maxValue) {
+      throw new BadRequestException(
+        `Value ${value} for '${parameterName}' is above maximum ${maxValue}`,
+      );
+    }
+  }
+
+  /**
+   * Ensure no other active (non-draft) change set exists for the same device.
+   * Prevents concurrent conflicting changes.
+   */
+  private async ensureNoActiveChangeSet(
+    tenantId: string,
+    vfdDeviceId: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const activeStatuses = [
+      VfdChangeSetStatus.PENDING_APPROVAL,
+      VfdChangeSetStatus.APPROVED,
+      VfdChangeSetStatus.APPLYING,
+    ];
+
+    const where: Record<string, unknown> = {
+      tenantId,
+      vfdDeviceId,
+      status: In(activeStatuses),
+    };
+
+    if (excludeId) {
+      where.id = Not(excludeId);
+    }
+
+    const existing = await this.changeSetRepository.findOne({ where });
+
+    if (existing) {
+      throw new ConflictException(
+        `Device ${vfdDeviceId} already has an active change set (${existing.id}) in status ${existing.status}`,
+      );
+    }
+  }
+
+  /**
+   * Create audit log entries for rollback operations.
+   */
+  private async createAuditLog(
+    tenantId: string,
+    vfdDeviceId: string,
+    changeSetId: string,
+    action: VfdAuditAction,
+    performedBy: string,
+    items: VfdChangeSetItem[],
+  ): Promise<void> {
+    const logs = items.map((item) =>
+      this.auditLogRepository.create({
+        tenantId,
+        vfdDeviceId,
+        changeSetId,
+        parameterName: item.parameterName,
+        previousValue: item.previousValue,
+        newValue: item.requestedValue,
+        action,
+        performedBy,
+      }),
+    );
+
+    await this.auditLogRepository.save(logs);
+  }
+}

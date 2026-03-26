@@ -44,10 +44,10 @@ import {
 } from '../../hooks/useScadaPackage';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
-import { ScadaDataProvider } from '../../context/ScadaDataProvider';
-import { SimulationDataProvider } from '../../context/SimulationDataProvider';
 import { SimulationSidebar } from '../../components/scada-builder/SimulationSidebar';
+import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
 import { ExportDialog } from '../../components/scada-builder/ExportDialog';
+import { AQUACULTURE_RAS_DEMO } from '../../store/scada/templates';
 
 const DEFAULT_EMERGENCY_STOP = {
   holdDuration: 3000,
@@ -306,6 +306,16 @@ const ScadaPackageBuilderPage: React.FC = () => {
     setSimulationMode(newMode === 'simulation');
   }, [setSimulationMode]);
 
+  // Load demo template handler — replaces current package data with built-in RAS demo
+  const handleLoadDemo = useCallback(() => {
+    // eslint-disable-next-line no-restricted-globals
+    if (isDirty && !confirm('Loading the demo template will replace your current work. Continue?')) {
+      return;
+    }
+    loadFromJSON(AQUACULTURE_RAS_DEMO);
+    setPackageName(AQUACULTURE_RAS_DEMO.meta?.packageName ?? 'RAS Demo');
+  }, [isDirty, loadFromJSON, setPackageName]);
+
   // Screen summaries for status bar
   const screenSummaries = useMemo(() => screens.map((s) => ({
     id: s.id,
@@ -349,6 +359,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
         devices={devices}
         onCsvDialogOpen={() => setShowCsvDialog(true)}
         onExportDialogOpen={() => setShowExportDialog(true)}
+        onLoadDemo={handleLoadDemo}
       />
 
       {/* Main Content */}
@@ -377,22 +388,24 @@ const ScadaPackageBuilderPage: React.FC = () => {
           {/* Breadcrumb navigation for nested screens */}
           <ScreenBreadcrumb />
 
-          {/* Canvas — wrapped with appropriate data provider per mode */}
+          {/* Canvas — single stable instance, data provider switches internally
+               to prevent unmount/remount that would destroy ReactFlow drag positions */}
           <div className="flex-1 flex flex-col">
-            {mode === 'preview' && selectedDevice?.deviceCode ? (
-              <ScadaDataProvider
-                initialDeviceCodes={[selectedDevice.deviceCode]}
-                enabled
-              >
-                <ScreenCanvas isPreview deviceCode={selectedDevice.deviceCode} />
-              </ScadaDataProvider>
-            ) : mode === 'simulation' ? (
-              <SimulationDataProvider>
-                <ScreenCanvas isPreview deviceCode="__sim__" />
-              </SimulationDataProvider>
-            ) : (
-              <ScreenCanvas isPreview={mode === 'preview'} />
-            )}
+            <StableModeProvider
+              mode={mode}
+              deviceCode={selectedDevice?.deviceCode ?? null}
+            >
+              <ScreenCanvas
+                isPreview={mode !== 'edit'}
+                deviceCode={
+                  mode === 'simulation'
+                    ? '__sim__'
+                    : mode === 'preview' && selectedDevice?.deviceCode
+                      ? selectedDevice.deviceCode
+                      : undefined
+                }
+              />
+            </StableModeProvider>
           </div>
         </div>
 

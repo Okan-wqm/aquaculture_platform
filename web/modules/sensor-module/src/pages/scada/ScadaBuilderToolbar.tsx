@@ -24,6 +24,7 @@ import {
   Pencil,
   FileSpreadsheet,
   ImageDown,
+  FlaskConical,
 } from 'lucide-react';
 
 import { UndoRedoToolbar } from '../../components/scada-builder/UndoRedoToolbar';
@@ -61,6 +62,8 @@ export interface ScadaBuilderToolbarProps {
   onCsvDialogOpen: () => void;
   /** Callback to open the PNG/PDF export dialog. */
   onExportDialogOpen?: () => void;
+  /** Callback to load the built-in RAS demo template. */
+  onLoadDemo?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +87,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
   devices,
   onCsvDialogOpen,
   onExportDialogOpen,
+  onLoadDemo,
 }) => {
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
   const [showDeployMenu, setShowDeployMenu] = useState(false);
@@ -247,6 +251,18 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             </>
           )}
         </div>
+
+        {/* Load Demo Template */}
+        {onLoadDemo && (
+          <button
+            onClick={onLoadDemo}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors"
+            title="Load RAS Demo Template"
+          >
+            <FlaskConical className="w-4 h-4" />
+            Demo
+          </button>
+        )}
 
         {/* CSV Tag Import/Export */}
         <button

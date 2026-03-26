@@ -45,11 +45,30 @@ export default defineConfig({
       },
       selfDestroying: false,
       workbox: {
-        // Disable precaching entirely -- all assets use runtimeCaching
-        // This prevents vite-plugin-pwa from failing when glob patterns match no files in Docker builds
+        // Disable precaching entirely -- all assets use runtimeCaching.
+        // This prevents vite-plugin-pwa from failing when glob patterns match no files in Docker builds.
         globPatterns: [],
-        // Prevent workbox from erroring when no precache entries exist
+
+        // FIX(SW-001): Disable the auto-generated NavigationRoute that binds to
+        // createHandlerBoundToURL("index.html"). vite-plugin-pwa auto-generates this
+        // when registerType is 'autoUpdate', but createHandlerBoundToURL requires the
+        // URL to exist in the precache manifest. Since globPatterns is [], index.html
+        // is NOT precached, causing:
+        //   "Uncaught (in promise) non-precached-url :: [{"url":"index.html"}]"
+        // Using navigateFallbackDenylist with a catch-all regex prevents the NavigationRoute
+        // from matching any request. SPA navigation is handled by the NetworkFirst
+        // runtimeCaching rule below instead.
+        navigateFallbackDenylist: [/./],
+
+        // FIX(SW-002): skipWaiting + clientsClaim ensure the new service worker activates
+        // immediately on deployment, replacing the old SW without waiting for all tabs to close.
+        // Without this, users can be stuck on stale cached assets until they close ALL tabs.
+        skipWaiting: true,
+        clientsClaim: true,
+
+        // Suppress workbox development logs in production
         disableDevLogs: true,
+
         runtimeCaching: [
           // CRIT-2 / SEC-02 / PERF-01: GraphQL runtime caching has been intentionally
           // removed. Reasons:
@@ -61,7 +80,23 @@ export default defineConfig({
           //    per URL, providing no real offline query value.
           // Offline reads use the application-layer IndexedDB cache (cacheData/getCachedData).
           {
-            // Static assets - Cache first
+            // FIX(SW-003): SPA navigation fallback via NetworkFirst strategy.
+            // For navigation requests (HTML pages), always try network first so deployments
+            // are picked up immediately. Falls back to cache for offline support.
+            // This replaces the broken precache-bound NavigationRoute.
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'navigation-cache',
+              networkTimeoutSeconds: 5,
+              expiration: {
+                maxEntries: 1,
+                maxAgeSeconds: 60 * 60 * 24, // 1 day
+              },
+            },
+          },
+          {
+            // Static assets - Cache first (content-hashed filenames make this safe)
             urlPattern: /\.(?:js|css|woff2?)$/,
             handler: 'CacheFirst',
             options: {

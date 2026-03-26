@@ -134,6 +134,12 @@ export interface DashboardSummary {
   system: SystemMetrics;
   usage: UsageMetrics;
   generatedAt: Date;
+  /**
+   * Lists which data sources failed during aggregation.
+   * Present only when the dashboard is in degraded mode (partial failure).
+   * Possible values: 'tenants', 'users', 'financial', 'system', 'usage'.
+   */
+  unavailable?: string[];
 }
 
 // ============================================================================

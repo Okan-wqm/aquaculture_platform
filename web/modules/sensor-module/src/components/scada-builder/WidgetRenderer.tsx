@@ -92,6 +92,7 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   pieChart:          React.lazy(() => import('./widget-renderers/PieChartRenderer')),
   knob:              React.lazy(() => import('./widget-renderers/KnobRenderer')),
   dropdownSelect:    React.lazy(() => import('./widget-renderers/DropdownSelectRenderer')),
+  fuxaWidget:        React.lazy(() => import('./widget-renderers/FuxaWidgetRenderer')),
 };
 
 /* ------------------------------------------------------------------ */

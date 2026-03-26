@@ -52,17 +52,17 @@ export class SubscriptionRenewalService {
       `
       SELECT
         s.id,
-        s."tenantId" as "tenantId",
+        s.tenant_id as "tenantId",
         t.name as "tenantName",
-        s."planName" as "planName",
+        s.plan_name as "planName",
         s.status,
-        s."currentPeriodEnd" as "currentPeriodEnd"
+        s.current_period_end as "currentPeriodEnd"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
       WHERE s.status = 'active'
-        AND s."autoRenew" = true
-        AND s."currentPeriodEnd" BETWEEN NOW() AND NOW() + INTERVAL '7 days'
-      ORDER BY s."currentPeriodEnd" ASC
+        AND s.auto_renew = true
+        AND s.current_period_end BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+      ORDER BY s.current_period_end ASC
     `,
     );
 
@@ -71,15 +71,15 @@ export class SubscriptionRenewalService {
       `
       SELECT
         s.id,
-        s."tenantId" as "tenantId",
+        s.tenant_id as "tenantId",
         t.name as "tenantName",
-        s."planName" as "planName",
+        s.plan_name as "planName",
         s.status,
-        s."currentPeriodEnd" as "currentPeriodEnd"
+        s.current_period_end as "currentPeriodEnd"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
       WHERE s.status = 'past_due'
-      ORDER BY s."currentPeriodEnd" ASC
+      ORDER BY s.current_period_end ASC
     `,
     );
 
@@ -89,16 +89,16 @@ export class SubscriptionRenewalService {
       `
       SELECT
         s.id,
-        s."tenantId" as "tenantId",
+        s.tenant_id as "tenantId",
         t.name as "tenantName",
-        s."planName" as "planName",
+        s.plan_name as "planName",
         s.status,
-        s."currentPeriodEnd" as "currentPeriodEnd"
+        s.current_period_end as "currentPeriodEnd"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
       WHERE s.status = 'past_due'
-        AND s."currentPeriodEnd" < NOW() - ($1::integer * INTERVAL '1 day')
-      ORDER BY s."currentPeriodEnd" ASC
+        AND s.current_period_end < NOW() - ($1::integer * INTERVAL '1 day')
+      ORDER BY s.current_period_end ASC
     `,
       [gracePeriodWarningDays],
     );
@@ -123,16 +123,16 @@ export class SubscriptionRenewalService {
       `
       SELECT
         s.id,
-        s."tenantId" as "tenantId",
-        s."planTier" as "planTier",
-        s."planName" as "planName",
-        s."billingCycle" as "billingCycle",
+        s.tenant_id as "tenantId",
+        s.plan_tier as "planTier",
+        s.plan_name as "planName",
+        s.billing_cycle as "billingCycle",
         s.pricing,
-        s."currentPeriodEnd" as "currentPeriodEnd"
+        s.current_period_end as "currentPeriodEnd"
       FROM billing.subscriptions s
       WHERE s.status = 'active'
-        AND s."autoRenew" = true
-        AND s."currentPeriodEnd" <= NOW()
+        AND s.auto_renew = true
+        AND s.current_period_end <= NOW()
     `,
     );
 
@@ -152,31 +152,31 @@ export class SubscriptionRenewalService {
         const amount = pricing?.basePrice || 0;
 
         await this.dataSource.transaction(async (manager) => {
-          // Update subscription period
+          // Update subscription period (billing.subscriptions uses snake_case)
           await manager.query(
             `
             UPDATE billing.subscriptions SET
-              "currentPeriodStart" = $1,
-              "currentPeriodEnd" = $2,
+              current_period_start = $1,
+              current_period_end = $2,
               "updatedAt" = NOW()
             WHERE id = $3
           `,
             [newPeriodStart, newPeriodEnd, sub.id],
           );
 
-          // Create invoice
+          // Create invoice (billing.invoices uses snake_case)
           await manager.query(
             `
             INSERT INTO billing.invoices (
-              id, "tenantId", "subscriptionId", "invoiceNumber", status,
-              "lineItems", subtotal, total, "amountDue",
-              currency, "issueDate", "dueDate", "periodStart", "periodEnd",
-              "createdAt", "updatedAt"
+              id, tenant_id, subscription_id, invoice_number, status,
+              line_items, subtotal, total, amount_due, billing_address,
+              currency, issue_date, due_date, period_start, period_end,
+              "createdAt", "updatedAt", version
             ) VALUES (
               gen_random_uuid(), $1, $2, $3, 'pending',
-              $4, $5, $5, $5,
+              $4, $5, $5, $5, '{}',
               'USD', NOW(), NOW() + INTERVAL '7 days', $6, $7,
-              NOW(), NOW()
+              NOW(), NOW(), 1
             )
           `,
             [
@@ -218,22 +218,22 @@ export class SubscriptionRenewalService {
       `
       SELECT
         s.id,
-        s."tenantId" as "tenantId",
+        s.tenant_id as "tenantId",
         t.name as "tenantName",
-        s."planTier" as "planTier",
-        s."planName" as "planName",
+        s.plan_tier as "planTier",
+        s.plan_name as "planName",
         s.status,
-        s."billingCycle" as "billingCycle",
-        s."currentPeriodStart" as "currentPeriodStart",
-        s."currentPeriodEnd" as "currentPeriodEnd",
+        s.billing_cycle as "billingCycle",
+        s.current_period_start as "currentPeriodStart",
+        s.current_period_end as "currentPeriodEnd",
         (s.pricing->>'basePrice')::decimal as "monthlyPrice",
-        s."autoRenew" as "autoRenew"
+        s.auto_renew as "autoRenew"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
       WHERE s.status IN ('active', 'trial')
-        AND s."autoRenew" = false
-        AND s."currentPeriodEnd" <= NOW() + ($1::integer * INTERVAL '1 day')
-      ORDER BY s."currentPeriodEnd" ASC
+        AND s.auto_renew = false
+        AND s.current_period_end <= NOW() + ($1::integer * INTERVAL '1 day')
+      ORDER BY s.current_period_end ASC
     `,
       [withinDays],
     );
@@ -264,8 +264,7 @@ export class SubscriptionRenewalService {
       `
       UPDATE billing.subscriptions SET
         status = 'suspended',
-        "suspendedAt" = NOW(),
-        "suspensionReason" = 'Non-payment after grace period',
+        cancellation_reason = 'Non-payment after grace period',
         "updatedAt" = NOW()
       WHERE id = $1
     `,

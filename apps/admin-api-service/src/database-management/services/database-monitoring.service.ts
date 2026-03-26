@@ -1,7 +1,8 @@
 /**
  * Database Monitoring Service
  *
- * Database performans izleme, slow query detection ve index optimizasyonu.
+ * Provides database performance monitoring, slow query detection with
+ * graceful fallback, and index optimization recommendations.
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -17,6 +18,7 @@ import {
   IndexRecommendation,
   DatabaseHealthStatus,
   HealthCheck,
+  SlowQueryResult,
 } from '../entities/database-management.entity';
 
 // ============================================================================
@@ -236,52 +238,290 @@ export class DatabaseMonitoringService {
   }
 
   /**
-   * Get slow queries
+   * Slow query monitoring with graceful fallback.
+   *
+   * Primary source: slow_query_logs table — internal log of queries that
+   * exceeded the configured threshold. Populated by the application layer
+   * via logSlowQuery().
+   *
+   * Enrichment source: pg_stat_statements extension — provides historical
+   * query-level statistics including execution time, call count, and row
+   * counts. Requires the extension to be installed AND loaded via
+   * shared_preload_libraries.
+   *
+   * Fallback enrichment: pg_stat_activity — provides currently running
+   * queries with their elapsed time. Always available, but only shows
+   * active queries (not historical statistics).
+   *
+   * The endpoint attempts slow_query_logs first (always available). When
+   * grouped=true, it also attempts pg_stat_statements for richer stats.
+   * If that extension is unavailable (common in managed databases or
+   * TimescaleDB setups that don't preload it), it falls back gracefully
+   * to pg_stat_activity with a clear indication in the response metadata.
    */
   async getSlowQueries(options: {
     tenantId?: string;
     limit?: number;
     minExecutionTime?: number;
     groupByQuery?: boolean;
-  }): Promise<SlowQueryLog[] | Array<{ query: string; count: number; avgTime: number }>> {
+  }): Promise<SlowQueryResult> {
     const { tenantId, limit = 50, minExecutionTime = SLOW_QUERY_THRESHOLD_MS, groupByQuery = false } = options;
 
     if (groupByQuery) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-
-      try {
-        const results = await queryRunner.query(`
-          SELECT
-            normalized_query as query,
-            count(*) as count,
-            avg(execution_time_ms) as avg_time
-          FROM slow_query_logs
-          WHERE execution_time_ms >= $1
-            ${tenantId ? 'AND tenant_id = $2' : ''}
-          GROUP BY normalized_query
-          ORDER BY count DESC
-          LIMIT $${tenantId ? '3' : '2'}
-        `, tenantId ? [minExecutionTime, tenantId, limit] : [minExecutionTime, limit]);
-
-        return results.map((r: Record<string, unknown>) => ({
-          query: r.query as string,
-          count: parseInt(r.count as string, 10),
-          avgTime: parseFloat(r.avg_time as string),
-        }));
-      } finally {
-        await queryRunner.release();
-      }
+      return this.getGroupedSlowQueries(tenantId, minExecutionTime, limit);
     }
 
     const where: Record<string, unknown> = {};
     if (tenantId) where.tenantId = tenantId;
 
-    return this.slowQueryRepository.find({
-      where,
-      order: { executionTimeMs: 'DESC' },
-      take: limit,
-    });
+    try {
+      const queries = await this.slowQueryRepository.find({
+        where,
+        order: { executionTimeMs: 'DESC' },
+        take: limit,
+      });
+
+      return {
+        source: 'slow_query_logs',
+        data: queries,
+        metadata: {
+          total: queries.length,
+          limit,
+          minExecutionTimeMs: minExecutionTime,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch slow queries: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return {
+        source: 'none',
+        data: [],
+        metadata: {
+          total: 0,
+          limit,
+          minExecutionTimeMs: minExecutionTime,
+          error: 'Failed to retrieve slow query logs',
+        },
+      };
+    }
+  }
+
+  /**
+   * Retrieve grouped slow queries from the slow_query_logs table.
+   * Column names use quoted camelCase to match TypeORM's default naming strategy.
+   *
+   * Falls back to pg_stat_statements or pg_stat_activity for enrichment
+   * when the slow_query_logs table has no matching records.
+   */
+  private async getGroupedSlowQueries(
+    tenantId: string | undefined,
+    minExecutionTime: number,
+    limit: number,
+  ): Promise<SlowQueryResult> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      // Primary: query the slow_query_logs table using correct camelCase column names
+      const params: (number | string)[] = [minExecutionTime];
+      let tenantFilter = '';
+      if (tenantId) {
+        params.push(tenantId);
+        tenantFilter = `AND "tenantId" = $${params.length}`;
+      }
+      params.push(limit);
+      const limitParam = `$${params.length}`;
+
+      const results = await queryRunner.query(`
+        SELECT
+          "normalizedQuery" as query,
+          count(*)::text as count,
+          avg("executionTimeMs")::text as avg_time,
+          max("executionTimeMs") as max_time,
+          min("executionTimeMs") as min_time,
+          max("recordedAt") as last_seen
+        FROM slow_query_logs
+        WHERE "executionTimeMs" >= $1
+          ${tenantFilter}
+        GROUP BY "normalizedQuery"
+        ORDER BY count(*) DESC
+        LIMIT ${limitParam}
+      `, params);
+
+      if (results.length > 0) {
+        return {
+          source: 'slow_query_logs',
+          data: results.map((r: Record<string, unknown>) => ({
+            query: r.query as string,
+            count: parseInt(r.count as string, 10),
+            avgTime: parseFloat(r.avg_time as string),
+            maxTime: parseInt(String(r.max_time), 10),
+            minTime: parseInt(String(r.min_time), 10),
+            lastSeen: r.last_seen as string,
+          })),
+          metadata: {
+            total: results.length,
+            limit,
+            minExecutionTimeMs: minExecutionTime,
+          },
+        };
+      }
+
+      // No records in slow_query_logs — attempt enrichment from pg_stat_statements
+      return await this.getSlowQueriesFromPgStats(queryRunner, limit);
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch grouped slow queries: ${error instanceof Error ? error.message : String(error)}`,
+      );
+
+      // Fallback: attempt pg_stat_activity (always available)
+      try {
+        return await this.getSlowQueriesFromPgActivity(queryRunner, limit);
+      } catch (fallbackError) {
+        this.logger.error(
+          `Fallback to pg_stat_activity also failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+        );
+        return {
+          source: 'none',
+          data: [],
+          metadata: {
+            total: 0,
+            limit,
+            minExecutionTimeMs: minExecutionTime,
+            error: 'All slow query sources unavailable',
+          },
+        };
+      }
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Attempt to retrieve slow query statistics from pg_stat_statements.
+   * This extension must be installed and loaded via shared_preload_libraries.
+   * If unavailable, falls back to pg_stat_activity.
+   */
+  private async getSlowQueriesFromPgStats(
+    queryRunner: ReturnType<DataSource['createQueryRunner']>,
+    limit: number,
+  ): Promise<SlowQueryResult> {
+    // Check if pg_stat_statements extension is available
+    const extCheck = await queryRunner.query(
+      `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') as exists`,
+    );
+
+    if (!extCheck[0]?.exists) {
+      // Try to create the extension (requires appropriate privileges)
+      try {
+        await queryRunner.query('CREATE EXTENSION IF NOT EXISTS pg_stat_statements');
+        this.logger.log('Successfully created pg_stat_statements extension');
+      } catch (createError) {
+        this.logger.warn(
+          'pg_stat_statements extension is not available and cannot be created. '
+          + 'This requires shared_preload_libraries configuration. '
+          + 'Falling back to pg_stat_activity for active query monitoring.',
+        );
+        return this.getSlowQueriesFromPgActivity(queryRunner, limit);
+      }
+    }
+
+    try {
+      const results = await queryRunner.query(`
+        SELECT
+          query,
+          calls::text as count,
+          mean_exec_time::text as avg_time,
+          max_exec_time as max_time,
+          min_exec_time as min_time,
+          total_exec_time as total_time,
+          rows as total_rows
+        FROM pg_stat_statements
+        WHERE query NOT LIKE '%pg_stat_statements%'
+          AND calls > 0
+        ORDER BY mean_exec_time DESC
+        LIMIT $1
+      `, [limit]);
+
+      return {
+        source: 'pg_stat_statements',
+        data: results.map((r: Record<string, unknown>) => ({
+          query: r.query as string,
+          count: parseInt(r.count as string, 10),
+          avgTime: parseFloat(r.avg_time as string),
+          maxTime: parseFloat(String(r.max_time)),
+          minTime: parseFloat(String(r.min_time)),
+          totalTime: parseFloat(String(r.total_time)),
+          totalRows: parseInt(String(r.total_rows), 10),
+        })),
+        metadata: {
+          total: results.length,
+          limit,
+          note: 'Data sourced from pg_stat_statements extension (historical query statistics)',
+        },
+      };
+    } catch (queryError) {
+      this.logger.warn(
+        `pg_stat_statements query failed: ${queryError instanceof Error ? queryError.message : String(queryError)}. `
+        + 'Falling back to pg_stat_activity.',
+      );
+      return this.getSlowQueriesFromPgActivity(queryRunner, limit);
+    }
+  }
+
+  /**
+   * Retrieve currently running slow queries from pg_stat_activity.
+   * This view is always available in PostgreSQL and does not require
+   * any extensions. It only shows currently active queries, not historical data.
+   */
+  private async getSlowQueriesFromPgActivity(
+    queryRunner: ReturnType<DataSource['createQueryRunner']>,
+    limit: number,
+  ): Promise<SlowQueryResult> {
+    const results = await queryRunner.query(`
+      SELECT
+        query,
+        state,
+        EXTRACT(EPOCH FROM (now() - query_start))::numeric * 1000 as elapsed_ms,
+        usename as username,
+        datname as database,
+        application_name,
+        client_addr,
+        query_start,
+        wait_event_type,
+        wait_event
+      FROM pg_stat_activity
+      WHERE state != 'idle'
+        AND query NOT LIKE '%pg_stat_activity%'
+        AND datname = current_database()
+        AND pid != pg_backend_pid()
+      ORDER BY query_start ASC
+      LIMIT $1
+    `, [limit]);
+
+    return {
+      source: 'pg_stat_activity',
+      data: results.map((r: Record<string, unknown>) => ({
+        query: r.query as string,
+        state: r.state as string,
+        elapsedMs: parseFloat(String(r.elapsed_ms)),
+        username: r.username as string,
+        database: r.database as string,
+        applicationName: r.application_name as string,
+        clientAddr: r.client_addr as string,
+        queryStart: r.query_start as string,
+        waitEventType: r.wait_event_type as string | null,
+        waitEvent: r.wait_event as string | null,
+      })),
+      metadata: {
+        total: results.length,
+        limit,
+        note: 'Data sourced from pg_stat_activity (currently running queries only). '
+          + 'Install pg_stat_statements extension and add it to shared_preload_libraries '
+          + 'for historical query statistics.',
+      },
+    };
   }
 
   /**

@@ -97,14 +97,14 @@ export class SubscriptionPlanChangeService {
       await manager.query(
         `
         UPDATE billing.subscriptions SET
-          "planTier" = $1,
-          "planName" = $2,
-          "billingCycle" = $3,
+          plan_tier = $1,
+          plan_name = $2,
+          billing_cycle = $3,
           limits = $4,
           pricing = $5,
           "updatedAt" = NOW(),
-          "updatedBy" = $6
-        WHERE "tenantId" = $7
+          updated_by = $6
+        WHERE tenant_id = $7
       `,
         [
           newPlan.tier,
@@ -138,15 +138,15 @@ export class SubscriptionPlanChangeService {
         await manager.query(
           `
           INSERT INTO billing.invoices (
-            id, "tenantId", "subscriptionId", "invoiceNumber", status,
-            "lineItems", subtotal, discount, "discountCode", total, "amountDue",
-            currency, "issueDate", "dueDate", "periodStart", "periodEnd",
-            notes, "createdAt", "updatedAt", "createdBy"
+            id, tenant_id, subscription_id, invoice_number, status,
+            line_items, subtotal, discount, discount_code, total, amount_due,
+            billing_address, currency, issue_date, due_date, period_start, period_end,
+            notes, "createdAt", "updatedAt", created_by, version
           ) VALUES (
             gen_random_uuid(), $1, $2, $3, 'pending',
             $4, $5, $6, $7, $8, $8,
-            'USD', NOW(), $9, $10, $11,
-            $12, NOW(), NOW(), $13
+            '{}', 'USD', NOW(), $9, $10, $11,
+            $12, NOW(), NOW(), $13, 1
           )
         `,
           [

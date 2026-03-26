@@ -53,10 +53,11 @@ export class SubscriptionAnalyticsService {
     }
 
     // By plan tier
+    // billing.subscriptions uses snake_case columns (owned by billing-service)
     const tierResult = await this.dataSource.query(`
-      SELECT "planTier", COUNT(*) as count
+      SELECT plan_tier as "planTier", COUNT(*) as count
       FROM billing.subscriptions
-      GROUP BY "planTier"
+      GROUP BY plan_tier
     `);
     const byPlanTier: Record<string, number> = {};
     for (const row of tierResult) {
@@ -65,9 +66,9 @@ export class SubscriptionAnalyticsService {
 
     // By billing cycle
     const cycleResult = await this.dataSource.query(`
-      SELECT "billingCycle", COUNT(*) as count
+      SELECT billing_cycle as "billingCycle", COUNT(*) as count
       FROM billing.subscriptions
-      GROUP BY "billingCycle"
+      GROUP BY billing_cycle
     `);
     const byBillingCycle: Record<string, number> = {};
     for (const row of cycleResult) {
@@ -77,7 +78,7 @@ export class SubscriptionAnalyticsService {
     // MRR calculation
     const mrrResult = await this.dataSource.query(`
       SELECT COALESCE(SUM(
-        CASE "billingCycle"
+        CASE billing_cycle
           WHEN 'monthly' THEN (pricing->>'basePrice')::decimal
           WHEN 'quarterly' THEN (pricing->>'basePrice')::decimal / 3
           WHEN 'semi_annual' THEN (pricing->>'basePrice')::decimal / 6
@@ -96,8 +97,8 @@ export class SubscriptionAnalyticsService {
       SELECT COUNT(*) as count
       FROM billing.subscriptions
       WHERE status = 'active'
-        AND "autoRenew" = false
-        AND "currentPeriodEnd" <= NOW() + INTERVAL '30 days'
+        AND auto_renew = false
+        AND current_period_end <= NOW() + INTERVAL '30 days'
     `);
     const expiringThisMonth = parseInt(expiringResult[0]?.count || '0', 10);
 
@@ -106,7 +107,7 @@ export class SubscriptionAnalyticsService {
 
     // Total revenue from paid invoices
     const revenueResult = await this.dataSource.query(`
-      SELECT COALESCE(SUM("amountPaid"), 0) as total
+      SELECT COALESCE(SUM(amount_paid), 0) as total
       FROM billing.invoices
       WHERE status = 'paid'
     `);
@@ -121,7 +122,7 @@ export class SubscriptionAnalyticsService {
       SELECT COUNT(*) as count
       FROM billing.subscriptions
       WHERE status = 'cancelled'
-        AND "cancelledAt" >= NOW() - INTERVAL '30 days'
+        AND cancelled_at >= NOW() - INTERVAL '30 days'
     `);
     const churnedCount = parseInt(churnResult[0]?.count || '0', 10);
     const churnRate = totalSubscriptions > 0
@@ -131,8 +132,8 @@ export class SubscriptionAnalyticsService {
     // Trial conversion rate
     const trialConversionResult = await this.dataSource.query(`
       SELECT
-        COUNT(CASE WHEN "trialEndDate" IS NOT NULL THEN 1 END) as total_trials,
-        COUNT(CASE WHEN "trialEndDate" IS NOT NULL AND status = 'active' THEN 1 END) as converted
+        COUNT(CASE WHEN trial_end_date IS NOT NULL THEN 1 END) as total_trials,
+        COUNT(CASE WHEN trial_end_date IS NOT NULL AND status = 'active' THEN 1 END) as converted
       FROM billing.subscriptions
     `);
     const totalTrials = parseInt(trialConversionResult[0]?.total_trials || '0', 10);
@@ -176,7 +177,7 @@ export class SubscriptionAnalyticsService {
       SELECT
         to_char(m.month, 'YYYY-MM') as month,
         COALESCE(SUM(
-          CASE s."billingCycle"
+          CASE s.billing_cycle
             WHEN 'monthly' THEN (s.pricing->>'basePrice')::decimal
             WHEN 'quarterly' THEN (s.pricing->>'basePrice')::decimal / 3
             WHEN 'semi_annual' THEN (s.pricing->>'basePrice')::decimal / 6
@@ -189,7 +190,7 @@ export class SubscriptionAnalyticsService {
       LEFT JOIN billing.subscriptions s ON
         s.status IN ('active', 'trial')
         AND s."createdAt" <= m.month + INTERVAL '1 month'
-        AND (s."cancelledAt" IS NULL OR s."cancelledAt" > m.month)
+        AND (s.cancelled_at IS NULL OR s.cancelled_at > m.month)
       GROUP BY m.month
       ORDER BY m.month ASC
     `, [months]);
@@ -212,7 +213,7 @@ export class SubscriptionAnalyticsService {
       SELECT COUNT(*) as count
       FROM billing.subscriptions
       WHERE status = 'cancelled'
-        AND "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 day')
+        AND cancelled_at >= NOW() - ($1::integer * INTERVAL '1 day')
     `, [days]);
     const churned = parseInt(churnedResult[0]?.count || '0', 10);
 
@@ -229,12 +230,12 @@ export class SubscriptionAnalyticsService {
     // Reason breakdown
     const reasonResult = await this.dataSource.query(`
       SELECT
-        COALESCE("cancellationReason", 'Unknown') as reason,
+        COALESCE(cancellation_reason, 'Unknown') as reason,
         COUNT(*) as count
       FROM billing.subscriptions
       WHERE status = 'cancelled'
-        AND "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 day')
-      GROUP BY "cancellationReason"
+        AND cancelled_at >= NOW() - ($1::integer * INTERVAL '1 day')
+      GROUP BY cancellation_reason
     `, [days]);
     const reasonBreakdown: Record<string, number> = {};
     for (const row of reasonResult) {
@@ -244,12 +245,12 @@ export class SubscriptionAnalyticsService {
     // Tier breakdown
     const tierResult = await this.dataSource.query(`
       SELECT
-        "planTier" as tier,
+        plan_tier as tier,
         COUNT(*) as count
       FROM billing.subscriptions
       WHERE status = 'cancelled'
-        AND "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 day')
-      GROUP BY "planTier"
+        AND cancelled_at >= NOW() - ($1::integer * INTERVAL '1 day')
+      GROUP BY plan_tier
     `, [days]);
     const tierBreakdown: Record<string, number> = {};
     for (const row of tierResult) {
@@ -259,11 +260,11 @@ export class SubscriptionAnalyticsService {
     // Average lifetime
     const lifetimeResult = await this.dataSource.query(`
       SELECT AVG(
-        EXTRACT(EPOCH FROM ("cancelledAt" - "createdAt")) / (30 * 24 * 60 * 60)
+        EXTRACT(EPOCH FROM (cancelled_at - "createdAt")) / (30 * 24 * 60 * 60)
       ) as avg_months
       FROM billing.subscriptions
       WHERE status = 'cancelled'
-        AND "cancelledAt" IS NOT NULL
+        AND cancelled_at IS NOT NULL
     `);
     const avgLifetimeMonths = parseFloat(lifetimeResult[0]?.avg_months || '0');
 
@@ -286,9 +287,9 @@ export class SubscriptionAnalyticsService {
   }>> {
     const result = await this.dataSource.query(`
       SELECT
-        "planTier",
+        plan_tier as "planTier",
         SUM(
-          CASE "billingCycle"
+          CASE billing_cycle
             WHEN 'monthly' THEN (pricing->>'basePrice')::decimal
             WHEN 'quarterly' THEN (pricing->>'basePrice')::decimal / 3
             WHEN 'semi_annual' THEN (pricing->>'basePrice')::decimal / 6
@@ -299,7 +300,7 @@ export class SubscriptionAnalyticsService {
         COUNT(*) as count
       FROM billing.subscriptions
       WHERE status IN ('active', 'trial')
-      GROUP BY "planTier"
+      GROUP BY plan_tier
     `);
 
     const totalMrr = result.reduce(
@@ -341,7 +342,7 @@ export class SubscriptionAnalyticsService {
     const cancelledResult = await this.dataSource.query(`
       SELECT COUNT(*) as count
       FROM billing.subscriptions
-      WHERE "cancelledAt" >= NOW() - ($1::integer * INTERVAL '1 month')
+      WHERE cancelled_at >= NOW() - ($1::integer * INTERVAL '1 month')
     `, [months]);
     const cancelled = parseInt(cancelledResult[0]?.count || '0', 10);
 
@@ -360,7 +361,7 @@ export class SubscriptionAnalyticsService {
     // Average new MRR
     const avgMrrResult = await this.dataSource.query(`
       SELECT AVG(
-        CASE "billingCycle"
+        CASE billing_cycle
           WHEN 'monthly' THEN (pricing->>'basePrice')::decimal
           WHEN 'quarterly' THEN (pricing->>'basePrice')::decimal / 3
           WHEN 'semi_annual' THEN (pricing->>'basePrice')::decimal / 6

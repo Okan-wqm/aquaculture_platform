@@ -41,6 +41,7 @@ import { BarChartConfig } from './BarChartConfig';
 import { PieChartConfig } from './PieChartConfig';
 import { KnobConfig } from './KnobConfig';
 import { DropdownSelectConfig } from './DropdownSelectConfig';
+import { FuxaWidgetConfig } from './FuxaWidgetConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- legacy config components use any
@@ -98,4 +99,5 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   pieChart: PieChartConfig,
   knob: KnobConfig,
   dropdownSelect: DropdownSelectConfig,
+  fuxaWidget: FuxaWidgetConfig,
 };

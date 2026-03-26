@@ -190,7 +190,7 @@ export class CustomPlanService {
     const query = this.planRepo.createQueryBuilder('cp');
 
     if (tenantId) {
-      query.andWhere('cp.tenant_id = :tenantId', { tenantId });
+      query.andWhere('cp."tenantId" = :tenantId', { tenantId });
     }
 
     if (status) {
@@ -208,7 +208,7 @@ export class CustomPlanService {
     }
 
     const [items, total] = await query
-      .orderBy('cp.created_at', 'DESC')
+      .orderBy('cp."createdAt"', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();

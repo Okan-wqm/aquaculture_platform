@@ -471,3 +471,28 @@ export interface HealthCheck {
   threshold?: number | string;
   message: string;
 }
+
+/**
+ * Structured response for slow query monitoring.
+ *
+ * The `source` field indicates which data provider was used:
+ * - 'slow_query_logs': Internal application-level slow query log table
+ * - 'pg_stat_statements': PostgreSQL extension with historical query stats
+ * - 'pg_stat_activity': Currently running queries (always available)
+ * - 'none': All sources failed; data will be empty with an error in metadata
+ */
+export type SlowQuerySource = 'slow_query_logs' | 'pg_stat_statements' | 'pg_stat_activity' | 'none';
+
+export interface SlowQueryResultMetadata {
+  total: number;
+  limit: number;
+  minExecutionTimeMs?: number;
+  note?: string;
+  error?: string;
+}
+
+export interface SlowQueryResult {
+  source: SlowQuerySource;
+  data: Record<string, unknown>[];
+  metadata: SlowQueryResultMetadata;
+}

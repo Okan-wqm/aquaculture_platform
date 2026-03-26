@@ -122,7 +122,7 @@ export class PaymentManagementService {
         p.tenant_id as "tenantId",
         p.transaction_id as "transactionId",
         p.invoice_id as "invoiceId",
-        i."invoiceNumber" as "invoiceNumber",
+        i.invoice_number as "invoiceNumber",
         p.amount,
         p.currency,
         p.status,
@@ -167,7 +167,7 @@ export class PaymentManagementService {
   ): Promise<PaymentOverview> {
     // Verify invoice exists
     const invoice = await this.dataSource.query(
-      'SELECT id, tenant_id as "tenantId", status, "amountDue", total FROM billing.invoices WHERE id = $1',
+      'SELECT id, tenant_id as "tenantId", status, amount_due as "amountDue", total FROM billing.invoices WHERE id = $1',
       [dto.invoiceId],
     );
 
@@ -239,10 +239,10 @@ export class PaymentManagementService {
     await this.dataSource.query(
       `
       UPDATE billing.invoices SET
-        "amountPaid" = $1,
-        "amountDue" = $2,
+        amount_paid = $1,
+        amount_due = $2,
         status = $3,
-        "paidAt" = $4,
+        paid_at = $4,
         "updatedAt" = NOW()
       WHERE id = $5
       `,
@@ -329,10 +329,10 @@ export class PaymentManagementService {
     await this.dataSource.query(
       `
       UPDATE billing.invoices SET
-        "amountPaid" = GREATEST(0, "amountPaid" - $1),
-        "amountDue" = LEAST(total, "amountDue" + $1),
+        amount_paid = GREATEST(0, amount_paid - $1),
+        amount_due = LEAST(total, amount_due + $1),
         status = CASE
-          WHEN "amountPaid" - $1 <= 0 THEN 'refunded'
+          WHEN amount_paid - $1 <= 0 THEN 'refunded'
           ELSE 'partially_paid'
         END,
         "updatedAt" = NOW()

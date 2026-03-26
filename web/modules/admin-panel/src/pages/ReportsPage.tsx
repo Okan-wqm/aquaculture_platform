@@ -65,6 +65,110 @@ const getReportTypeForExport = (reportType: ReportType): string => {
 };
 
 // ============================================================================
+// Column Header & Value Formatting
+// ============================================================================
+
+/**
+ * Column header formatter that converts any casing convention to
+ * human-readable title case. Handles:
+ * - UPPERCASE:   CREATEDAT   -> Created At
+ * - camelCase:   createdAt   -> Created At
+ * - snake_case:  created_at  -> Created At
+ * - PascalCase:  CreatedAt   -> Created At
+ *
+ * Known abbreviations (API, MRR, ARPU, ID, URL, IP, KPI) are preserved
+ * in uppercase.
+ */
+const ABBREVIATIONS = new Set(['api', 'mrr', 'arpu', 'id', 'url', 'ip', 'kpi']);
+
+const formatColumnHeader = (raw: string): string => {
+  // For fully-uppercase compound words (e.g. CREATEDAT, NETREVENUE),
+  // attempt dictionary-based splitting using common analytics terms.
+  // This runs before regex splitting which cannot detect word boundaries
+  // in all-caps strings.
+  const KNOWN_WORDS = [
+    'created', 'updated', 'deleted', 'storage', 'revenue', 'amount',
+    'count', 'total', 'active', 'status', 'tenant', 'module', 'plan',
+    'distribution', 'monthly', 'annual', 'daily', 'weekly', 'churn',
+    'growth', 'rate', 'date', 'time', 'name', 'type', 'used', 'free',
+    'paid', 'pending', 'overdue', 'refund', 'net', 'gross', 'avg',
+    'average', 'max', 'min', 'percent', 'ratio', 'price', 'cost',
+    'user', 'email', 'phone', 'address', 'region', 'country', 'city',
+    'subscription', 'invoice', 'payment', 'billing', 'period', 'start',
+    'end', 'last', 'first', 'login', 'session', 'duration', 'feature',
+    'adoption', 'usage', 'byte', 'bytes', 'connections', 'jobs',
+    'queued', 'error', 'uptime', 'response', 'calls', 'today', 'month',
+    'week', 'year', 'day', 'at', 'by', 'per', 'this', 'new',
+  ];
+
+  let processed = raw;
+
+  // If the entire string is uppercase and has no separators, try dictionary split
+  if (/^[A-Z]+$/.test(raw) && raw.length > 3) {
+    const lower = raw.toLowerCase();
+    const result: string[] = [];
+    let remaining = lower;
+
+    while (remaining.length > 0) {
+      // Greedy: try longest matching word first
+      let matched = false;
+      for (let len = Math.min(remaining.length, 14); len >= 2; len--) {
+        const candidate = remaining.substring(0, len);
+        if (KNOWN_WORDS.includes(candidate)) {
+          result.push(candidate);
+          remaining = remaining.substring(len);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        // No dictionary match found, take the rest as one word
+        result.push(remaining);
+        remaining = '';
+      }
+    }
+    processed = result.join(' ');
+  }
+
+  const words = processed
+    .replace(/([a-z])([A-Z])/g, '$1 $2')         // camelCase boundary
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')   // ACRONYM followed by Word
+    .replace(/_/g, ' ')                            // snake_case separator
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return words.map(w => {
+    const lower = w.toLowerCase();
+    if (ABBREVIATIONS.has(lower)) return w.toUpperCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join(' ');
+};
+
+/**
+ * Smart value renderer for report cells. Handles all value types
+ * so that [object Object] is never rendered in the UI:
+ * - Primitives (string, number, boolean) -> direct string
+ * - null/undefined                       -> dash placeholder
+ * - Arrays                               -> comma-separated
+ * - Objects (like planDistribution)       -> "Key: value" pairs
+ */
+const renderReportValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '\u2014';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(v => renderReportValue(v)).join(', ');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => `${formatColumnHeader(k)}: ${renderReportValue(v)}`)
+      .join(', ');
+  }
+  return String(value);
+};
+
+// ============================================================================
 // Report Definitions
 // ============================================================================
 
@@ -355,9 +459,9 @@ const ReportsPage: React.FC = () => {
           const headers = Object.keys(firstRow);
           const rows = data.map(row => {
             const r = row as Record<string, unknown>;
-            return headers.map(h => String(r[h] ?? '')).join(',');
+            return headers.map(h => renderReportValue(r[h])).join(',');
           });
-          content = [headers.join(','), ...rows].join('\n');
+          content = [headers.map(formatColumnHeader).join(','), ...rows].join('\n');
         } else {
           content = '';
         }
@@ -634,9 +738,9 @@ const ReportsPage: React.FC = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {Object.entries(selectedReport.summary).map(([key, value]) => (
                     <div key={key} className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-xs text-gray-500">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                      <p className="text-xs text-gray-500">{formatColumnHeader(key)}</p>
                       <p className="text-lg font-semibold text-gray-900">
-                        {typeof value === 'number' ? value.toLocaleString() : String(value)}
+                        {typeof value === 'number' ? value.toLocaleString() : renderReportValue(value)}
                       </p>
                     </div>
                   ))}
@@ -655,9 +759,9 @@ const ReportsPage: React.FC = () => {
                         {Object.keys(selectedReport.data[0] as Record<string, unknown>).map((key) => (
                           <th
                             key={key}
-                            className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"
+                            className="px-4 py-3 text-left text-xs font-medium text-gray-500"
                           >
-                            {key}
+                            {formatColumnHeader(key)}
                           </th>
                         ))}
                       </tr>
@@ -667,7 +771,7 @@ const ReportsPage: React.FC = () => {
                         <tr key={idx}>
                           {Object.values(row).map((value, cellIdx) => (
                             <td key={cellIdx} className="px-4 py-3 text-sm text-gray-900">
-                              {String(value ?? '')}
+                              {renderReportValue(value)}
                             </td>
                           ))}
                         </tr>

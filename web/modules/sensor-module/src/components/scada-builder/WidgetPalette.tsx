@@ -48,6 +48,7 @@ import {
   PieChart,
   Disc3,
   ChevronDownSquare,
+  Puzzle,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -245,6 +246,12 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'videoStream', label: 'Video Stream', icon: <Video className="w-4 h-4" /> },
       { type: 'mapView', label: 'Map View', icon: <MapPinned className="w-4 h-4" /> },
       { type: 'rasterImage', label: 'Image', icon: <Image className="w-4 h-4" /> },
+    ],
+  },
+  {
+    name: 'Community',
+    widgets: [
+      { type: 'fuxaWidget', label: 'FUXA Widget', icon: <Puzzle className="w-4 h-4" /> },
     ],
   },
   {

@@ -130,13 +130,58 @@ export class AnalyticsService {
 
     this.logger.log('Calculating dashboard summary from database...');
 
-    const [tenants, users, financial, system, usage] = await Promise.all([
-      this.getTenantMetrics(),
-      this.getUserMetrics(),
-      this.getFinancialMetrics(),
-      this.getSystemMetrics(),
-      this.getUsageMetrics(),
-    ]);
+    /**
+     * Partial failure resilience: each data source is fetched independently
+     * via Promise.allSettled. If any single source fails (e.g. billing schema
+     * unavailable), the dashboard still returns data from the healthy sources
+     * with sensible defaults for the failed ones. The 'unavailable' array
+     * lists which sources failed so the frontend can show degraded-mode
+     * indicators instead of a full error screen.
+     */
+    const [tenantsResult, usersResult, financialResult, systemResult, usageResult] =
+      await Promise.allSettled([
+        this.getTenantMetrics(),
+        this.getUserMetrics(),
+        this.getFinancialMetrics(),
+        this.getSystemMetrics(),
+        this.getUsageMetrics(),
+      ]);
+
+    const unavailable: string[] = [];
+
+    const tenants = tenantsResult.status === 'fulfilled'
+      ? tenantsResult.value
+      : (this.logger.error(`Tenant metrics failed: ${(tenantsResult.reason as Error).message}`),
+         unavailable.push('tenants'),
+         this.getDefaultTenantMetrics());
+
+    const users = usersResult.status === 'fulfilled'
+      ? usersResult.value
+      : (this.logger.error(`User metrics failed: ${(usersResult.reason as Error).message}`),
+         unavailable.push('users'),
+         this.getDefaultUserMetrics());
+
+    const financial = financialResult.status === 'fulfilled'
+      ? financialResult.value
+      : (this.logger.error(`Financial metrics failed: ${(financialResult.reason as Error).message}`),
+         unavailable.push('financial'),
+         this.getDefaultFinancialMetrics());
+
+    const system = systemResult.status === 'fulfilled'
+      ? systemResult.value
+      : (this.logger.error(`System metrics failed: ${(systemResult.reason as Error).message}`),
+         unavailable.push('system'),
+         this.getDefaultSystemMetrics());
+
+    const usage = usageResult.status === 'fulfilled'
+      ? usageResult.value
+      : (this.logger.error(`Usage metrics failed: ${(usageResult.reason as Error).message}`),
+         unavailable.push('usage'),
+         this.getDefaultUsageMetrics());
+
+    if (unavailable.length > 0) {
+      this.logger.warn(`Dashboard summary degraded — unavailable sources: ${unavailable.join(', ')}`);
+    }
 
     const summary: DashboardSummary = {
       tenants,
@@ -145,6 +190,7 @@ export class AnalyticsService {
       system,
       usage,
       generatedAt: new Date(),
+      ...(unavailable.length > 0 ? { unavailable } : {}),
     };
 
     // Write back to cache (fire-and-forget)
@@ -422,14 +468,16 @@ export class AnalyticsService {
     }
 
     // CRITICAL-003 fix: replace 4 separate invoice queries with one conditional aggregation.
+    // BUG-044 fix: use lowercase enum values to match billing.invoices_status_enum,
+    // and snake_case column names to match the actual database schema.
     const invoiceRows = await this.dataSource.query(`
       SELECT
-        COALESCE(SUM(total)      FILTER (WHERE status = 'PAID'),                            0) AS total_revenue,
-        COALESCE(SUM(total)      FILTER (WHERE status = 'PAID'
-                                          AND "paidAt" >= date_trunc('month', NOW())),       0) AS revenue_this_month,
-        COALESCE(SUM("amountDue") FILTER (WHERE status IN ('PENDING','SENT')),              0) AS pending_payments,
-        COALESCE(SUM("amountDue") FILTER (WHERE status = 'OVERDUE'),                        0) AS overdue_payments,
-        COALESCE(SUM(total)      FILTER (WHERE status = 'REFUNDED'),                        0) AS refunds
+        COALESCE(SUM(total)       FILTER (WHERE status = 'paid'),                            0) AS total_revenue,
+        COALESCE(SUM(total)       FILTER (WHERE status = 'paid'
+                                           AND paid_at >= date_trunc('month', NOW())),        0) AS revenue_this_month,
+        COALESCE(SUM(amount_due)  FILTER (WHERE status IN ('pending','sent')),               0) AS pending_payments,
+        COALESCE(SUM(amount_due)  FILTER (WHERE status = 'overdue'),                         0) AS overdue_payments,
+        COALESCE(SUM(total)       FILTER (WHERE status = 'refunded'),                        0) AS refunds
       FROM billing.invoices
     `);
     const ir = invoiceRows[0] || {};
@@ -926,6 +974,56 @@ export class AnalyticsService {
       style: 'currency',
       currency,
     }).format(amount);
+  }
+
+  // ============================================================================
+  // Default Metric Factories (Partial Failure Resilience)
+  // ============================================================================
+
+  /**
+   * Zero-value defaults returned when a data source is unreachable.
+   * Each factory produces a structurally valid metric object so the
+   * frontend can always render the dashboard — even in degraded mode.
+   */
+
+  private getDefaultTenantMetrics(): TenantMetrics {
+    return {
+      total: 0, active: 0, inactive: 0, trial: 0, suspended: 0,
+      newThisMonth: 0, churnedThisMonth: 0, churnRate: 0, growthRate: 0,
+      byPlan: {}, byRegion: {},
+    };
+  }
+
+  private getDefaultUserMetrics(): UserMetrics {
+    return {
+      total: 0, active: 0, inactive: 0, newThisMonth: 0,
+      activeLastDay: 0, activeLastWeek: 0, activeLastMonth: 0,
+      growthRate: 0, avgUsersPerTenant: 0, byRole: {},
+    };
+  }
+
+  private getDefaultFinancialMetrics(): FinancialMetrics {
+    return {
+      mrr: 0, arr: 0, arpu: 0, arppu: 0, ltv: 0,
+      totalRevenue: 0, revenueThisMonth: 0, revenueGrowthRate: 0,
+      pendingPayments: 0, overduePayments: 0, refunds: 0,
+      byPlan: {}, byCurrency: {},
+    };
+  }
+
+  private getDefaultSystemMetrics(): SystemMetrics {
+    return {
+      totalStorageBytes: 0, usedStorageBytes: 0, storageUtilization: 0,
+      apiCallsToday: 0, apiCallsThisMonth: 0, avgResponseTimeMs: 0,
+      errorRate: 0, uptimePercent: 0, activeConnections: 0, queuedJobs: 0,
+    };
+  }
+
+  private getDefaultUsageMetrics(): UsageMetrics {
+    return {
+      moduleUsage: {}, featureAdoption: {}, topFeatures: [],
+      peakHours: [], avgDailyActiveUsers: 0,
+    };
   }
 
   // ============================================================================

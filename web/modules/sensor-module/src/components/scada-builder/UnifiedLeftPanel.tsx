@@ -19,11 +19,14 @@ import {
   CheckCircle, LayoutDashboard, Droplets, Link2, Type,
   GitCommitHorizontal, Square, Circle, Minus, FileImage, Calendar,
   Video, MapPinned, Ellipsis, Spline, Image, Hexagon,
-  Triangle, Diamond, ArrowRight,
+  Triangle, Diamond, ArrowRight, Package,
 } from 'lucide-react';
 
 import { SceneTreePanel } from './SceneTreePanel';
 import { LayersPanel } from './LayersPanel';
+import { FuxaWidgetBrowser } from './FuxaWidgetBrowser';
+import type { FuxaWidgetCatalogEntry } from './fuxa-bridge/catalog';
+import { useScadaPackageStore } from '../../store/scadaPackageStore';
 import {
   PALETTE_CATEGORIES,
   DEFAULT_EXPANDED_CATEGORIES,
@@ -155,6 +158,39 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
   const [query, setQuery] = useState('');
   const [dq, setDq] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // FUXA Widget Browser modal state
+  const [fuxaBrowserOpen, setFuxaBrowserOpen] = useState(false);
+
+  // Store actions for adding FUXA widgets to the canvas
+  const addWidget = useScadaPackageStore((s) => s.addWidget);
+  const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
+  const setSelectedWidget = useScadaPackageStore((s) => s.setSelectedWidget);
+
+  /**
+   * Handle FUXA widget selection from the browser.
+   * Creates a new fuxaWidget on the active screen with the catalog entry's
+   * ID stored in config.catalogId for later SVG content loading.
+   */
+  const handleFuxaWidgetSelect = useCallback(
+    (entry: FuxaWidgetCatalogEntry) => {
+      const widgetId = `fuxa-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      addWidget(activeScreenId, {
+        id: widgetId,
+        widgetType: 'fuxaWidget',
+        position: { col: 2, row: 2, w: 2, h: 2 },
+        config: {
+          label: entry.name,
+          catalogId: entry.id,
+          category: entry.subcategory
+            ? `${entry.category} > ${entry.subcategory}`
+            : entry.category,
+        },
+      });
+      setSelectedWidget(widgetId);
+    },
+    [addWidget, activeScreenId, setSelectedWidget],
+  );
 
   // Layers resize
   const [layH, setLayH] = useState(200);
@@ -359,6 +395,17 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
                 )}
               </div>
             </div>
+            {/* FUXA Community Library button */}
+            <div className="px-2 pb-1.5 flex-shrink-0">
+              <button
+                onClick={() => setFuxaBrowserOpen(true)}
+                className="w-full flex items-center justify-center gap-1.5 h-8 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 hover:border-emerald-300 transition-colors"
+                data-testid="fuxa-library-btn"
+              >
+                <Package className="w-3.5 h-3.5" />
+                FUXA Community Library
+              </button>
+            </div>
             <div className="flex-1 overflow-y-auto min-h-0">{renderPalette()}</div>
           </div>
         )}
@@ -383,6 +430,13 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
           </div>
         )}
       </div>
+
+      {/* FUXA Widget Browser modal -- rendered via portal-style at root level */}
+      <FuxaWidgetBrowser
+        open={fuxaBrowserOpen}
+        onClose={() => setFuxaBrowserOpen(false)}
+        onSelect={handleFuxaWidgetSelect}
+      />
     </div>
   );
 };

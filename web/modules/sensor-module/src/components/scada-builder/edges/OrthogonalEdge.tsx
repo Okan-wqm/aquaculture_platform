@@ -16,6 +16,8 @@ import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMem
 import { EdgeProps } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
+import { useEdgeFlowState } from './useEdgeFlowState';
+import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -28,6 +30,10 @@ export interface OrthogonalEdgeData {
   label?: string;
   connectionType?: ConnectionType;
   routingMode?: 'horizontal-first' | 'vertical-first' | 'auto';
+  /** Tag-driven flow animation binding */
+  flowConfig?: EdgeFlowConfig;
+  /** Legacy static animation flag (backward compat) */
+  animated?: boolean;
 }
 
 /* -------------------------------------------------- */
@@ -230,6 +236,16 @@ const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
 
   const { updateEdgeData } = useEdgeStoreContext();
 
+  /**
+   * Tag-driven flow state. When flowConfig is present, the animation
+   * is controlled by the live tag value. When absent, we fall back
+   * to the static `animated` flag (backward compatibility).
+   */
+  const flowState = useEdgeFlowState(data?.flowConfig);
+  const shouldAnimate = data?.flowConfig
+    ? flowState.isFlowing
+    : !!data?.animated;
+
   const source: Point = { x: sourceX, y: sourceY };
   const target: Point = { x: targetX, y: targetY };
 
@@ -382,7 +398,10 @@ const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
         onDoubleClick={handlePathDoubleClick}
       />
 
-      {/* Main visible path with P&ID styling */}
+      {/* Main visible path with P&ID styling.
+          When tag-driven flow is active (flowConfig present), apply inline
+          dash animation so each edge animates independently based on its
+          bound tag. The animation speed and direction come from useEdgeFlowState. */}
       <path
         id={id}
         d={edgePath}
@@ -392,9 +411,15 @@ const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
           pointerEvents: 'none',
           stroke: edgeStyle.stroke,
           strokeWidth: edgeStyle.strokeWidth,
-          strokeDasharray: edgeStyle.strokeDasharray,
+          strokeDasharray: (data?.flowConfig && shouldAnimate)
+            ? '8 4'
+            : edgeStyle.strokeDasharray,
           strokeLinejoin: 'miter',
           strokeLinecap: 'round',
+          ...(data?.flowConfig && shouldAnimate ? {
+            animation: `edge-flow ${flowState.speed}s linear infinite`,
+            animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
+          } : {}),
           ...style,
         }}
       />
@@ -412,8 +437,9 @@ const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
         />
       )}
 
-      {/* P&ID flow direction indicator — animated chevron at path midpoint */}
-      {renderFlowArrow(source, target, bendPoints, edgeStyle.stroke)}
+      {/* P&ID flow direction indicator -- animated chevron at path midpoint.
+          Only rendered when the edge is actively flowing (tag-driven or legacy). */}
+      {shouldAnimate && renderFlowArrow(source, target, bendPoints, edgeStyle.stroke)}
 
       {/* Hover insertion preview */}
       {hoverPosition && (

@@ -365,10 +365,11 @@ describe('FuxaWidgetBrowser', () => {
     const categoryTree = screen.getByTestId('fuxa-category-tree');
     expect(categoryTree).toBeDefined();
 
-    // Should have the main categories from the catalog
-    expect(screen.getByText('All Categories')).toBeDefined();
-    expect(screen.getByText(/Process Engineering/)).toBeDefined();
-    expect(screen.getByText(/Electrical/)).toBeDefined();
+    // Should have the main categories from the catalog.
+    // Use within(categoryTree) to avoid matching text in widget cards.
+    expect(within(categoryTree).getByText('All Categories')).toBeDefined();
+    expect(within(categoryTree).getByText(/Process Engineering/)).toBeDefined();
+    expect(within(categoryTree).getByText(/^Electrical/)).toBeDefined();
   });
 
   it('does not render when closed', () => {

@@ -17,3 +17,5 @@ export const scadaEdgeTypes = {
 export const edgeTypes = scadaEdgeTypes;
 
 export { MultiHandleEdge, DraggableEdge, OrthogonalEdge };
+export { useEdgeFlowState } from './useEdgeFlowState';
+export type { EdgeFlowState } from './useEdgeFlowState';

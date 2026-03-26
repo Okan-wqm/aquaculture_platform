@@ -149,35 +149,21 @@ export class AnalyticsService {
 
     const unavailable: string[] = [];
 
-    const tenants = tenantsResult.status === 'fulfilled'
-      ? tenantsResult.value
-      : (this.logger.error(`Tenant metrics failed: ${(tenantsResult.reason as Error).message}`),
-         unavailable.push('tenants'),
-         this.getDefaultTenantMetrics());
-
-    const users = usersResult.status === 'fulfilled'
-      ? usersResult.value
-      : (this.logger.error(`User metrics failed: ${(usersResult.reason as Error).message}`),
-         unavailable.push('users'),
-         this.getDefaultUserMetrics());
-
-    const financial = financialResult.status === 'fulfilled'
-      ? financialResult.value
-      : (this.logger.error(`Financial metrics failed: ${(financialResult.reason as Error).message}`),
-         unavailable.push('financial'),
-         this.getDefaultFinancialMetrics());
-
-    const system = systemResult.status === 'fulfilled'
-      ? systemResult.value
-      : (this.logger.error(`System metrics failed: ${(systemResult.reason as Error).message}`),
-         unavailable.push('system'),
-         this.getDefaultSystemMetrics());
-
-    const usage = usageResult.status === 'fulfilled'
-      ? usageResult.value
-      : (this.logger.error(`Usage metrics failed: ${(usageResult.reason as Error).message}`),
-         unavailable.push('usage'),
-         this.getDefaultUsageMetrics());
+    const tenants = this.extractOrDefault(
+      tenantsResult, 'tenants', unavailable, () => this.getDefaultTenantMetrics(),
+    );
+    const users = this.extractOrDefault(
+      usersResult, 'users', unavailable, () => this.getDefaultUserMetrics(),
+    );
+    const financial = this.extractOrDefault(
+      financialResult, 'financial', unavailable, () => this.getDefaultFinancialMetrics(),
+    );
+    const system = this.extractOrDefault(
+      systemResult, 'system', unavailable, () => this.getDefaultSystemMetrics(),
+    );
+    const usage = this.extractOrDefault(
+      usageResult, 'usage', unavailable, () => this.getDefaultUsageMetrics(),
+    );
 
     if (unavailable.length > 0) {
       this.logger.warn(`Dashboard summary degraded — unavailable sources: ${unavailable.join(', ')}`);
@@ -974,6 +960,32 @@ export class AnalyticsService {
       style: 'currency',
       currency,
     }).format(amount);
+  }
+
+  // ============================================================================
+  // Partial Failure Resilience Helpers
+  // ============================================================================
+
+  /**
+   * Extracts the fulfilled value from a settled promise result, or falls back
+   * to a default. When a source rejects, its name is appended to the
+   * unavailable list and the error is logged — but the dashboard keeps loading.
+   */
+  private extractOrDefault<T>(
+    result: PromiseSettledResult<T>,
+    sourceName: string,
+    unavailable: string[],
+    getDefault: () => T,
+  ): T {
+    if (result.status === 'fulfilled') {
+      return result.value;
+    }
+    const reason = result.reason instanceof Error
+      ? result.reason.message
+      : String(result.reason);
+    this.logger.error(`${sourceName} metrics failed: ${reason}`);
+    unavailable.push(sourceName);
+    return getDefault();
   }
 
   // ============================================================================

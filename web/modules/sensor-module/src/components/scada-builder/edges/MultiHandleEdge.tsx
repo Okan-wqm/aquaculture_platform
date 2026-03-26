@@ -17,6 +17,8 @@ import { useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent
 import { EdgeProps } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
+import { useEdgeFlowState } from './useEdgeFlowState';
+import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -27,6 +29,10 @@ export interface MultiHandleEdgeData {
   points?: Point[];
   label?: string;
   connectionType?: ConnectionType;
+  /** Tag-driven flow animation binding */
+  flowConfig?: EdgeFlowConfig;
+  /** Legacy static animation flag (backward compat) */
+  animated?: boolean;
 }
 
 /* -------------------------------------------------- */
@@ -154,6 +160,12 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
 
   const { updateEdgeData } = useEdgeStoreContext();
   const pathRef = useRef<SVGPathElement>(null);
+
+  /* Tag-driven flow state (falls back to static animated flag) */
+  const flowState = useEdgeFlowState(data?.flowConfig);
+  const shouldAnimate = data?.flowConfig
+    ? flowState.isFlowing
+    : !!data?.animated;
 
   /* ---------- Initial points ----------------- */
   const initialPoints: Point[] =
@@ -324,7 +336,8 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
         onDoubleClick={handlePathDoubleClick}
       />
 
-      {/* Main visible path with P&ID styling */}
+      {/* Main visible path with P&ID styling.
+          Tag-driven flow applies inline dash animation per-edge. */}
       <path
         ref={pathRef}
         id={id}
@@ -335,7 +348,13 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
           pointerEvents: 'none',
           stroke: edgeStyle.stroke,
           strokeWidth: edgeStyle.strokeWidth,
-          strokeDasharray: edgeStyle.strokeDasharray,
+          strokeDasharray: (data?.flowConfig && shouldAnimate)
+            ? '8 4'
+            : edgeStyle.strokeDasharray,
+          ...(data?.flowConfig && shouldAnimate ? {
+            animation: `edge-flow ${flowState.speed}s linear infinite`,
+            animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
+          } : {}),
           ...style,
         }}
       />
@@ -352,8 +371,8 @@ const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
         />
       )}
 
-      {/* P&ID flow direction indicator — animated chevron at path midpoint */}
-      {renderFlowArrow(points, edgeStyle.stroke)}
+      {/* P&ID flow direction indicator -- only when actively flowing */}
+      {shouldAnimate && renderFlowArrow(points, edgeStyle.stroke)}
 
       {/* Hover insertion preview */}
       {hoverSegment && (

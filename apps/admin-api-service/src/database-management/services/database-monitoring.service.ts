@@ -283,7 +283,7 @@ export class DatabaseMonitoringService {
 
       return {
         source: 'slow_query_logs',
-        data: queries,
+        data: queries as unknown as Record<string, unknown>[],
         metadata: {
           total: queries.length,
           limit,

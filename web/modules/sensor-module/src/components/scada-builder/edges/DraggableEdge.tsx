@@ -15,6 +15,8 @@ import { useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent
 import { EdgeProps } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
+import { useEdgeFlowState } from './useEdgeFlowState';
+import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -28,6 +30,10 @@ export interface DraggableEdgeData {
   label?: string;
   connectionType?: ConnectionType;
   showGuides?: boolean;
+  /** Tag-driven flow animation binding */
+  flowConfig?: EdgeFlowConfig;
+  /** Legacy static animation flag (backward compat) */
+  animated?: boolean;
 }
 
 /* -------------------------------------------------- */
@@ -61,6 +67,12 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
   } = props;
 
   const { updateEdgeData } = useEdgeStoreContext();
+
+  /* Tag-driven flow state (falls back to static animated flag) */
+  const flowState = useEdgeFlowState(data?.flowConfig);
+  const shouldAnimate = data?.flowConfig
+    ? flowState.isFlowing
+    : !!data?.animated;
 
   const curveType = data?.curveType || 'quadratic';
   const showGuides = data?.showGuides ?? true;
@@ -206,7 +218,8 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
         />
       )}
 
-      {/* Main bezier curve with P&ID styling */}
+      {/* Main bezier curve with P&ID styling.
+          Tag-driven flow applies inline dash animation per-edge. */}
       <path
         id={id}
         d={edgePath}
@@ -216,8 +229,14 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
           pointerEvents: 'stroke',
           stroke: edgeStyle.stroke,
           strokeWidth: edgeStyle.strokeWidth,
-          strokeDasharray: edgeStyle.strokeDasharray,
+          strokeDasharray: (data?.flowConfig && shouldAnimate)
+            ? '8 4'
+            : edgeStyle.strokeDasharray,
           strokeLinecap: 'round',
+          ...(data?.flowConfig && shouldAnimate ? {
+            animation: `edge-flow ${flowState.speed}s linear infinite`,
+            animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
+          } : {}),
           ...style,
         }}
       />
@@ -234,8 +253,8 @@ const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
         />
       )}
 
-      {/* P&ID flow direction indicator — animated chevron at curve midpoint */}
-      {(() => {
+      {/* P&ID flow direction indicator -- only rendered when actively flowing */}
+      {shouldAnimate && (() => {
         const T = 0.5;
         const DELTA = 0.01;
         let mx: number, my: number, angle: number;

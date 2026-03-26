@@ -80,10 +80,24 @@ function generateId(): string {
 /*  Animated flow CSS                                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Animated flow CSS for pipe edges.
+ *
+ * The .animated-flow class applies a CSS stroke-dashoffset animation that
+ * creates the illusion of flowing liquid in a pipe. This is the static
+ * fallback used when edges have `animated: true` but no flowConfig.
+ *
+ * Tag-driven flow uses the same animation but with a dynamic
+ * --edge-flow-speed CSS variable (set per-edge by ScreenCanvas) and an
+ * optional .flow-reverse modifier that reverses the offset direction.
+ */
 const ANIMATED_EDGE_CSS = `
   .react-flow__edge.animated-flow .react-flow__edge-path {
     stroke-dasharray: 8 4 !important;
-    animation: edge-flow 0.6s linear infinite;
+    animation: edge-flow var(--edge-flow-speed, 0.6s) linear infinite;
+  }
+  .react-flow__edge.animated-flow.flow-reverse .react-flow__edge-path {
+    animation-direction: reverse;
   }
   @keyframes edge-flow {
     from { stroke-dashoffset: 0; }
@@ -270,10 +284,22 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widgets, activeScreenId, handleWidgetResize, isPreview, scadaData, deviceCode]);
 
-  // Convert store edges → ReactFlow edges
+  /**
+   * Convert store edges to ReactFlow edges.
+   *
+   * Animation strategy:
+   * - Edges with flowConfig: the edge component internally calls
+   *   useEdgeFlowState() which subscribes to the TagValueBus and
+   *   determines whether to animate. The CSS class is NOT set here;
+   *   the component applies inline animation styles.
+   * - Edges with animated:true but NO flowConfig (backward compat):
+   *   the old CSS class approach is used so existing edges keep working.
+   * - flowConfig is passed through in edge data for the component to read.
+   */
   const rfEdges: Edge[] = useMemo(() => {
     return storeEdges.map((e) => {
       const style = getEdgeStyle(e.data.connectionType);
+      const hasFlowConfig = !!e.data.flowConfig?.tagName;
       return {
         id: e.id,
         source: e.source,
@@ -282,14 +308,16 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
         targetHandle: e.targetHandle,
         type: e.type,
         selected: e.id === selectedEdgeId,
-        animated: false, // We use CSS animation instead
+        animated: false, // We use our own animation, not ReactFlow's built-in
         data: {
           ...e.data,
-          // Pass connection type for P&ID styling inside the edge component
           connectionType: e.data.connectionType,
+          flowConfig: e.data.flowConfig,
         },
         style,
-        className: e.data.animated ? 'animated-flow' : undefined,
+        // Only apply the static CSS class for legacy edges (animated:true, no flowConfig).
+        // Tag-driven edges handle animation internally via useEdgeFlowState.
+        className: (!hasFlowConfig && e.data.animated) ? 'animated-flow' : undefined,
       };
     });
   }, [storeEdges, selectedEdgeId]);

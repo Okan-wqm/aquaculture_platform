@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * ABB ACS Series Register Mappings
@@ -326,6 +326,155 @@ export const ABB_CONTROL_COMMANDS = {
   DISABLE_VOLTAGE: 0x0000,
   FAULT_RESET: 0x0080,
 };
+
+/**
+ * ABB ACS Series Configuration Registers for Remote Programming
+ * Register: 40000 + (100 x Group) + Index for 16-bit params
+ * Groups: 20=Start/Stop, 22=Accel/Decel, 30=Limits, 99=Motor data
+ */
+export const ABB_ACS_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'accel_time_1', displayName: 'Acceleration Time 1',
+    description: 'Acceleration time 1 — Group 22 parameter 02',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 42201, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 1800,
+    defaultValue: 5, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 22, abbIndex: 1, abbParameter: '22.01' },
+  },
+  {
+    brand: VfdBrand.ABB, parameterName: 'decel_time_1', displayName: 'Deceleration Time 1',
+    description: 'Deceleration time 1 — Group 22 parameter 02',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 42202, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 1800,
+    defaultValue: 5, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 22, abbIndex: 2, abbParameter: '22.02' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'min_frequency', displayName: 'Minimum Frequency',
+    description: 'Minimum output frequency — Group 20 parameter 01',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 42001, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 500,
+    defaultValue: 0, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 20, abbIndex: 1, abbParameter: '20.01' },
+  },
+  {
+    brand: VfdBrand.ABB, parameterName: 'max_frequency', displayName: 'Maximum Frequency',
+    description: 'Maximum output frequency — Group 20 parameter 02',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 42002, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 500,
+    defaultValue: 50, step: 0.1, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 20, abbIndex: 2, abbParameter: '20.02' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'motor_nom_power', displayName: 'Motor Nominal Power',
+    description: 'Motor nameplate power — Group 99 parameter 04',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 49904, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'kW',
+    isWritable: true, isReadable: true, minValue: 0.12, maxValue: 2000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { abbGroup: 99, abbIndex: 4, abbParameter: '99.04' },
+  },
+  {
+    brand: VfdBrand.ABB, parameterName: 'motor_nom_voltage', displayName: 'Motor Nominal Voltage',
+    description: 'Motor nameplate voltage — Group 99 parameter 05',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 49905, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'V',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 1000,
+    defaultValue: 400, step: 1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { abbGroup: 99, abbIndex: 5, abbParameter: '99.05' },
+  },
+  {
+    brand: VfdBrand.ABB, parameterName: 'motor_nom_current', displayName: 'Motor Nominal Current',
+    description: 'Motor nameplate current — Group 99 parameter 06',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 49906, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 5000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { abbGroup: 99, abbIndex: 6, abbParameter: '99.06' },
+  },
+  {
+    brand: VfdBrand.ABB, parameterName: 'motor_nom_speed', displayName: 'Motor Nominal Speed',
+    description: 'Motor nameplate speed — Group 99 parameter 07',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 49907, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'RPM',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 30000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { abbGroup: 99, abbIndex: 7, abbParameter: '99.07' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'current_limit', displayName: 'Current Limit',
+    description: 'Maximum motor current as % of nominal — Group 20 parameter 07',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 42007, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: '%',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 300,
+    defaultValue: 150, step: 1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 20, abbIndex: 7, abbParameter: '20.07' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'jog_frequency', displayName: 'Jog Speed Reference',
+    description: 'Jog speed reference frequency — Group 21 parameter 10',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 42110, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 500,
+    defaultValue: 5, step: 0.1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 21, abbIndex: 10, abbParameter: '21.10' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'motor_thermal_protection', displayName: 'Motor Thermal Protection',
+    description: 'Motor thermal protection mode — Group 30 parameter 01',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 43001, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 3,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 30, abbIndex: 1, abbParameter: '30.01' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'modbus_address', displayName: 'Modbus Station ID',
+    description: 'Modbus RTU station address — Group 53 parameter 01',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 45301, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 247,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 53, abbIndex: 1, abbParameter: '53.01' },
+  },
+
+  // ============ PID_CONTROLLER ============
+  {
+    brand: VfdBrand.ABB, parameterName: 'pid_gain', displayName: 'PID Gain',
+    description: 'PID controller gain — Group 40 parameter 01',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PID_CONTROLLER,
+    registerAddress: 44001, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 1000,
+    defaultValue: 100, step: 1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 40, abbIndex: 1, abbParameter: '40.01' },
+  },
+  {
+    brand: VfdBrand.ABB, parameterName: 'pid_integration_time', displayName: 'PID Integration Time',
+    description: 'PID controller integration time — Group 40 parameter 02',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PID_CONTROLLER,
+    registerAddress: 44002, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 3200,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { abbGroup: 40, abbIndex: 2, abbParameter: '40.02' },
+  },
+];
 
 /**
  * ABB default serial configuration

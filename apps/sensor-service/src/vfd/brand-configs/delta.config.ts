@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * Delta VFD Register Mappings
@@ -395,6 +395,135 @@ export const DELTA_CONTROL_COMMANDS = {
   JOG_REVERSE: 0x0007,
   FAULT_RESET: 0x0008,
 };
+
+/**
+ * Delta VFD Configuration Registers for Remote Programming
+ * Register Structure: Parameter group x 256 + parameter number
+ * Example: Pr.01-00 = 0x0100, Pr.02-01 = 0x0201
+ */
+export const DELTA_VFD_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.DELTA, parameterName: 'accel_time_1', displayName: 'Acceleration Time 1',
+    description: 'Pr.01-09 Acceleration time 1',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 0x0109, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 6000,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.01-09' },
+  },
+  {
+    brand: VfdBrand.DELTA, parameterName: 'decel_time_1', displayName: 'Deceleration Time 1',
+    description: 'Pr.01-10 Deceleration time 1',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 0x010A, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 6000,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.01-10' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.DELTA, parameterName: 'min_frequency', displayName: 'Minimum Frequency',
+    description: 'Pr.01-07 Minimum output frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 0x0107, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 600,
+    defaultValue: 0, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.01-07' },
+  },
+  {
+    brand: VfdBrand.DELTA, parameterName: 'max_frequency', displayName: 'Maximum Frequency',
+    description: 'Pr.01-00 Maximum operation frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 0x0100, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 600,
+    defaultValue: 60, step: 0.01, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.01-00' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.DELTA, parameterName: 'motor_nom_power', displayName: 'Motor Rated Power',
+    description: 'Pr.07-01 Motor rated power',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0701, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'kW',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 1000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.07-01' },
+  },
+  {
+    brand: VfdBrand.DELTA, parameterName: 'motor_nom_voltage', displayName: 'Motor Rated Voltage',
+    description: 'Pr.07-02 Motor rated voltage',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0702, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'V',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 1000,
+    defaultValue: 400, step: 1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.07-02' },
+  },
+  {
+    brand: VfdBrand.DELTA, parameterName: 'motor_nom_current', displayName: 'Motor Rated Current',
+    description: 'Pr.07-03 Motor rated current',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0703, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 5000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.07-03' },
+  },
+  {
+    brand: VfdBrand.DELTA, parameterName: 'motor_nom_speed', displayName: 'Motor Rated Speed',
+    description: 'Pr.07-04 Motor rated speed',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0704, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'RPM',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 30000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.07-04' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.DELTA, parameterName: 'current_limit', displayName: 'Over-Current Stall Prevention',
+    description: 'Pr.06-03 Over-current stall prevention level',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 0x0603, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '%',
+    isWritable: true, isReadable: true, minValue: 20, maxValue: 200,
+    defaultValue: 150, step: 1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.06-03' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.DELTA, parameterName: 'jog_frequency', displayName: 'JOG Frequency',
+    description: 'Pr.01-03 JOG frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 0x0103, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 600,
+    defaultValue: 6, step: 0.01, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.01-03' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.DELTA, parameterName: 'motor_thermal_protection', displayName: 'Electronic Thermal OL Relay',
+    description: 'Pr.06-01 Electronic thermal overload relay',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 0x0601, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '%',
+    isWritable: true, isReadable: true, minValue: 30, maxValue: 110,
+    defaultValue: 100, step: 1, riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.06-01' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.DELTA, parameterName: 'modbus_address', displayName: 'Communication Address',
+    description: 'Pr.09-00 Communication address',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 0x0900, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 254,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { deltaParameter: 'Pr.09-00' },
+  },
+];
 
 /**
  * Delta default serial configuration

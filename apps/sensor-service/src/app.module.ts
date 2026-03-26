@@ -69,6 +69,13 @@ import { VfdDevice } from './vfd/entities/vfd-device.entity';
 import { VfdReading } from './vfd/entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './vfd/entities/vfd-register-mapping.entity';
 import { VfdModule } from './vfd/vfd.module';
+import {
+  VfdParameterDefinition,
+  VfdChangeSet,
+  VfdChangeSetItem,
+  VfdParameterAuditLog,
+  VfdAutomationRule,
+} from './vfd-programming/entities';
 import { DeviceGroupModule } from './device-group/device-group.module';
 import { DeviceGroup } from './device-group/entities/device-group.entity';
 import { DeviceGroupMember } from './device-group/entities/device-group-member.entity';
@@ -158,6 +165,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           // Device group entities
           DeviceGroup,
           DeviceGroupMember,
+          // VFD Programming entities (remote parameter programming)
+          VfdParameterDefinition,
+          VfdChangeSet,
+          VfdChangeSetItem,
+          VfdParameterAuditLog,
+          VfdAutomationRule,
           // Audit trail
           AuditLog,
         ],

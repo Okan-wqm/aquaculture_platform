@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * Yaskawa Register Mappings
@@ -400,6 +400,135 @@ export const YASKAWA_CONTROL_COMMANDS = {
   BASE_BLOCK: 0x0800,
   DC_BRAKING: 0x0401,
 };
+
+/**
+ * Yaskawa A1000/V1000 Configuration Registers for Remote Programming
+ * Parameter groups: A1-xx, b1-xx, C1-xx, d1-xx, E1-xx, F1-xx, H1-xx
+ * Modbus register = parameter address (MEMOBUS mapping)
+ */
+export const YASKAWA_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'accel_time_1', displayName: 'Acceleration Time 1',
+    description: 'C1-01 Acceleration time 1',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 0x0108, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 6000,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'C1-01' },
+  },
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'decel_time_1', displayName: 'Deceleration Time 1',
+    description: 'C1-02 Deceleration time 1',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 0x0109, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 6000,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'C1-02' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'min_frequency', displayName: 'Minimum Frequency',
+    description: 'd1-01 Minimum output frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 0x0110, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 400,
+    defaultValue: 0, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'd1-01' },
+  },
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'max_frequency', displayName: 'Maximum Frequency',
+    description: 'd1-02 Maximum output frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 0x0111, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 400,
+    defaultValue: 50, step: 0.01, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'd1-02' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'motor_nom_power', displayName: 'Motor Rated Power',
+    description: 'E1-06 Motor rated power',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0145, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'kW',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 2000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { yaskawaParameter: 'E1-06' },
+  },
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'motor_nom_voltage', displayName: 'Motor Rated Voltage',
+    description: 'E1-05 Motor rated voltage',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0144, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'V',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 1000,
+    defaultValue: 400, step: 1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { yaskawaParameter: 'E1-05' },
+  },
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'motor_nom_current', displayName: 'Motor Rated Current',
+    description: 'E1-04 Motor rated current',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0143, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 5000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { yaskawaParameter: 'E1-04' },
+  },
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'motor_nom_speed', displayName: 'Motor Rated Speed',
+    description: 'E1-09 Motor rated speed (RPM)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 0x0148, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'RPM',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 30000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { yaskawaParameter: 'E1-09' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'current_limit', displayName: 'Current Limit',
+    description: 'L1-01 Motor overload current limit',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 0x0200, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: '%',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 200,
+    defaultValue: 150, step: 1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'L1-01' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'jog_frequency', displayName: 'JOG Frequency',
+    description: 'd1-17 JOG frequency reference',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 0x011F, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 400,
+    defaultValue: 6, step: 0.01, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'd1-17' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'motor_thermal_protection', displayName: 'Motor OL Protection',
+    description: 'L1-01 Motor overload protection selection',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 0x0201, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 5,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'L1-02' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.YASKAWA, parameterName: 'modbus_address', displayName: 'MEMOBUS Slave Address',
+    description: 'H5-01 MEMOBUS/Modbus slave address',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 0x0300, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 247,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { yaskawaParameter: 'H5-01' },
+  },
+];
 
 /**
  * Yaskawa default serial configuration

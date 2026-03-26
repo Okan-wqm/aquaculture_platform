@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * Schneider Electric Altivar Register Mappings
@@ -401,6 +401,134 @@ export const SCHNEIDER_CONTROL_COMMANDS = {
   RUN_FORWARD: 0x000f,      // Run forward
   RUN_REVERSE: 0x080f,      // Run reverse
 };
+
+/**
+ * Schneider Electric Altivar Configuration Registers for Remote Programming
+ * ATV320/ATV340 Modbus register mapping
+ */
+export const SCHNEIDER_ALTIVAR_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'accel_time', displayName: 'Acceleration Time',
+    description: 'ACC - Acceleration ramp time',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 9001, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 6000,
+    defaultValue: 3, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'ACC', schneiderMenu: 'rMP' },
+  },
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'decel_time', displayName: 'Deceleration Time',
+    description: 'dEC - Deceleration ramp time',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 9002, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 6000,
+    defaultValue: 3, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'dEC', schneiderMenu: 'rMP' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'min_frequency', displayName: 'Low Speed',
+    description: 'LSP - Low speed / minimum frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 9003, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 500,
+    defaultValue: 0, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'LSP', schneiderMenu: 'SEt' },
+  },
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'max_frequency', displayName: 'High Speed',
+    description: 'HSP - High speed / maximum frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 9004, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 500,
+    defaultValue: 50, step: 0.1, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'HSP', schneiderMenu: 'SEt' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'motor_nom_voltage', displayName: 'Motor Nominal Voltage',
+    description: 'UnS - Motor rated voltage',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 9201, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'V',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 1000,
+    defaultValue: 400, step: 1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { schneiderCode: 'UnS', schneiderMenu: 'drC' },
+  },
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'motor_nom_current', displayName: 'Motor Nominal Current',
+    description: 'nCr - Motor rated current',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 9202, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 5000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { schneiderCode: 'nCr', schneiderMenu: 'drC' },
+  },
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'motor_nom_frequency', displayName: 'Motor Nominal Frequency',
+    description: 'FrS - Motor rated frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 9203, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 10, maxValue: 500,
+    defaultValue: 50, step: 0.1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { schneiderCode: 'FrS', schneiderMenu: 'drC' },
+  },
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'motor_nom_speed', displayName: 'Motor Nominal Speed',
+    description: 'nSP - Motor rated speed',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 9204, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'RPM',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 30000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { schneiderCode: 'nSP', schneiderMenu: 'drC' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'current_limit', displayName: 'Current Limitation',
+    description: 'CLI - Current limitation',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 9207, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 5000,
+    riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'CLI', schneiderMenu: 'I-O' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'jog_frequency', displayName: 'JOG Frequency',
+    description: 'JGF - JOG frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 9006, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 500,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'JGF', schneiderMenu: 'SEt' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'motor_thermal_protection', displayName: 'Motor Thermal Protection',
+    description: 'tHP - Motor thermal protection level',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 9301, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 2,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'tHP', schneiderMenu: 'PrO' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.SCHNEIDER, parameterName: 'modbus_address', displayName: 'Modbus Address',
+    description: 'Add - Modbus address',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 8601, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 247,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { schneiderCode: 'Add', schneiderMenu: 'COM' },
+  },
+];
 
 /**
  * Schneider default serial configuration

@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * Danfoss FC Series Register Mappings
@@ -389,6 +389,154 @@ export const DANFOSS_CONTROL_COMMANDS = {
   RESET: 0x04ff,    // Fault reset
   JOG: 0x057f,      // Jog mode
 };
+
+/**
+ * Danfoss FC Series Configuration Registers for Remote Programming
+ * Register Calculation: Register = (Parameter No x 10) - 1
+ */
+export const DANFOSS_FC_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'accel_time_1', displayName: 'Acceleration Time 1',
+    description: 'Ramp 1 up time — 0 Hz to max frequency (P3-41)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 3409, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0.05, maxValue: 3600,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '3-41' },
+  },
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'decel_time_1', displayName: 'Deceleration Time 1',
+    description: 'Ramp 1 down time — max frequency to 0 Hz (P3-42)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 3419, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0.05, maxValue: 3600,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '3-42' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'min_frequency', displayName: 'Minimum Frequency',
+    description: 'Minimum output frequency limit (P4-11)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 4109, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 400,
+    defaultValue: 0, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '4-11' },
+  },
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'max_frequency', displayName: 'Maximum Frequency',
+    description: 'Maximum output frequency limit (P4-13)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 4129, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.1, maxValue: 400,
+    defaultValue: 50, step: 0.1, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '4-13' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'motor_power_nom', displayName: 'Motor Nominal Power',
+    description: 'Motor nameplate power (P1-20)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 1199, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'kW',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 1000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { danfossParameter: '1-20' },
+  },
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'motor_voltage_nom', displayName: 'Motor Nominal Voltage',
+    description: 'Motor nameplate voltage (P1-22)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 1219, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'V',
+    isWritable: true, isReadable: true, minValue: 50, maxValue: 1000,
+    defaultValue: 400, step: 1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { danfossParameter: '1-22' },
+  },
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'motor_current_nom', displayName: 'Motor Nominal Current',
+    description: 'Motor nameplate current (P1-24)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 1239, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 10000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { danfossParameter: '1-24' },
+  },
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'motor_speed_nom', displayName: 'Motor Nominal Speed',
+    description: 'Motor nameplate speed RPM (P1-25)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 1249, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'RPM',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 60000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { danfossParameter: '1-25' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'current_limit_percent', displayName: 'Current Limit',
+    description: 'Motor current limit as % of nominal (P4-16)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 4159, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: '%',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 400,
+    defaultValue: 160, step: 1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '4-16' },
+  },
+
+  // ============ PID_CONTROLLER ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'pid_p_gain', displayName: 'PID Proportional Gain',
+    description: 'PID controller proportional gain (P7-03)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PID_CONTROLLER,
+    registerAddress: 7029, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 10,
+    defaultValue: 1, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '7-03' },
+  },
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'pid_i_time', displayName: 'PID Integral Time',
+    description: 'PID controller integral time (P7-04)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PID_CONTROLLER,
+    registerAddress: 7039, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 9999,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '7-04' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'jog_frequency', displayName: 'Jog Frequency',
+    description: 'Jog speed frequency (P3-19)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 3189, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 400,
+    defaultValue: 5, step: 0.1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '3-19' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'thermal_protection_mode', displayName: 'Motor Thermal Protection',
+    description: 'Motor thermal protection mode: 0=Off, 1=Warning, 2=Trip (P1-90)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 1899, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 4,
+    defaultValue: 2, step: 1, riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '1-90' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.DANFOSS, parameterName: 'modbus_address', displayName: 'Modbus Address',
+    description: 'RS485 Modbus slave address (P8-31)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 8309, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 247,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { danfossParameter: '8-31' },
+  },
+];
 
 /**
  * Danfoss default serial configuration

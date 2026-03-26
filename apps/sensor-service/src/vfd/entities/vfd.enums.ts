@@ -34,6 +34,55 @@ export enum VfdParameterCategory {
   THERMAL = 'thermal',
   FAULT = 'fault',
   CONTROL = 'control',
+  CONFIGURATION = 'configuration',
+}
+
+export enum VfdParameterGroup {
+  RAMP_TIMES = 'ramp_times',
+  FREQUENCY_LIMITS = 'frequency_limits',
+  MOTOR_NAMEPLATE = 'motor_nameplate',
+  CURRENT_LIMITS = 'current_limits',
+  VF_CONTROL = 'vf_control',
+  PID_CONTROLLER = 'pid_controller',
+  DIGITAL_IO = 'digital_io',
+  COMMUNICATION = 'communication',
+  PROTECTION = 'protection',
+  JOG = 'jog',
+  ADVANCED = 'advanced',
+}
+
+export enum VfdChangeSetStatus {
+  DRAFT = 'draft',
+  PENDING_APPROVAL = 'pending_approval',
+  APPROVED = 'approved',
+  APPLYING = 'applying',
+  APPLIED = 'applied',
+  VERIFIED = 'verified',
+  REJECTED = 'rejected',
+  FAILED = 'failed',
+  ROLLED_BACK = 'rolled_back',
+}
+
+export enum RiskLevel {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  CRITICAL = 'critical',
+}
+
+export enum VfdChangeSetItemStatus {
+  PENDING = 'pending',
+  APPLIED = 'applied',
+  VERIFIED = 'verified',
+  FAILED = 'failed',
+  ROLLED_BACK = 'rolled_back',
+}
+
+export enum VfdAuditAction {
+  APPLY = 'apply',
+  ROLLBACK = 'rollback',
+  AUTO_APPLY = 'auto_apply',
+  EMERGENCY_OVERRIDE = 'emergency_override',
 }
 
 export enum VfdDeviceStatus {
@@ -261,4 +310,29 @@ registerEnumType(VfdDataType, {
 registerEnumType(ByteOrder, {
   name: 'ByteOrder',
   description: 'Byte order for data parsing',
+});
+
+registerEnumType(VfdParameterGroup, {
+  name: 'VfdParameterGroup',
+  description: 'VFD configuration parameter groups',
+});
+
+registerEnumType(VfdChangeSetStatus, {
+  name: 'VfdChangeSetStatus',
+  description: 'VFD change set workflow status',
+});
+
+registerEnumType(RiskLevel, {
+  name: 'RiskLevel',
+  description: 'Risk level for VFD parameter changes',
+});
+
+registerEnumType(VfdChangeSetItemStatus, {
+  name: 'VfdChangeSetItemStatus',
+  description: 'VFD change set item status',
+});
+
+registerEnumType(VfdAuditAction, {
+  name: 'VfdAuditAction',
+  description: 'VFD audit trail action types',
 });

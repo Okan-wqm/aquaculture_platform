@@ -42,3 +42,16 @@ export interface VfdRegisterMappingInput {
   minValue?: number;
   maxValue?: number;
 }
+
+/**
+ * Extended input type for configuration registers (used in VFD remote programming)
+ * Adds group, risk, and motor-stop metadata on top of standard register mappings
+ */
+export interface VfdConfigRegisterInput extends VfdRegisterMappingInput {
+  group: string;
+  defaultValue?: number;
+  step?: number;
+  riskLevel: string;
+  requiresMotorStop: boolean;
+  metadata?: Record<string, unknown>;
+}

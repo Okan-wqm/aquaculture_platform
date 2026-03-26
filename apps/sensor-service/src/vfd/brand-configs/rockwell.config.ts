@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * Rockwell Automation (Allen-Bradley) PowerFlex Register Mappings
@@ -441,6 +441,134 @@ export const ROCKWELL_CONTROL_COMMANDS = {
   MOP_INCREMENT: 0x0102,
   MOP_DECREMENT: 0x0202,
 };
+
+/**
+ * Rockwell PowerFlex 525/755 Configuration Registers for Remote Programming
+ * CIP parameters mapped to Modbus registers
+ */
+export const ROCKWELL_POWERFLEX_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'accel_time_1', displayName: 'Accel Time 1',
+    description: 'P041 Accel Time 1',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 40041, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 3600,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P041' },
+  },
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'decel_time_1', displayName: 'Decel Time 1',
+    description: 'P042 Decel Time 1',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 40042, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 3600,
+    defaultValue: 10, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P042' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'min_frequency', displayName: 'Minimum Speed',
+    description: 'P033 Minimum Speed',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 40033, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 500,
+    defaultValue: 0, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P033' },
+  },
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'max_frequency', displayName: 'Maximum Speed',
+    description: 'P034 Maximum Speed',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 40034, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 500,
+    defaultValue: 60, step: 0.01, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P034' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'motor_nom_voltage', displayName: 'Motor NP Volts',
+    description: 'P035 Motor nameplate voltage',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 40035, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'V',
+    isWritable: true, isReadable: true, minValue: 100, maxValue: 1000,
+    defaultValue: 460, step: 1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { rockwellParameter: 'P035' },
+  },
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'motor_nom_current', displayName: 'Motor NP Amps',
+    description: 'P036 Motor nameplate FLA',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 40036, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 5000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { rockwellParameter: 'P036' },
+  },
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'motor_nom_hertz', displayName: 'Motor NP Hertz',
+    description: 'P037 Motor nameplate frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 40037, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 10, maxValue: 500,
+    defaultValue: 60, step: 0.1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { rockwellParameter: 'P037' },
+  },
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'motor_nom_speed', displayName: 'Motor NP RPM',
+    description: 'P038 Motor nameplate speed',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 40038, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'RPM',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 30000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { rockwellParameter: 'P038' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'motor_ol_current', displayName: 'Motor OL Current',
+    description: 'P039 Motor overload current level',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 40039, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 5000,
+    riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P039' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'jog_frequency', displayName: 'Jog Speed',
+    description: 'P050 Jog speed reference',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 40050, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 500,
+    defaultValue: 5, step: 0.01, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P050' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'motor_ol_mode', displayName: 'Motor OL Mode',
+    description: 'P040 Motor overload protection mode',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 40040, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 2,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P040' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.ROCKWELL, parameterName: 'modbus_address', displayName: 'Comm Node Addr',
+    description: 'P044 Communication node address',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 40044, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 247,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { rockwellParameter: 'P044' },
+  },
+];
 
 /**
  * Rockwell default serial configuration (for Modbus RTU)

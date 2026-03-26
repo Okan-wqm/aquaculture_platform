@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * Mitsubishi Electric Inverter Register Mappings
@@ -399,6 +399,136 @@ export const MITSUBISHI_CONTROL_COMMANDS = {
   FAULT_RESET: 0x0080,
   COAST_STOP: 0x0200, // MRS bit
 };
+
+/**
+ * Mitsubishi FR Series Configuration Registers for Remote Programming
+ * Parameters Pr.0 - Pr.999, Modbus register = parameter number
+ */
+export const MITSUBISHI_FR_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'accel_time', displayName: 'Acceleration Time',
+    description: 'Pr.7 Acceleration time',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 7, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 3600,
+    defaultValue: 5, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.7' },
+  },
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'decel_time', displayName: 'Deceleration Time',
+    description: 'Pr.8 Deceleration time',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 8, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 3600,
+    defaultValue: 5, step: 0.1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.8' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'min_frequency', displayName: 'Minimum Frequency',
+    description: 'Pr.2 Minimum output frequency (low speed)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 2, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 400,
+    defaultValue: 0, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.2' },
+  },
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'max_frequency', displayName: 'Maximum Frequency',
+    description: 'Pr.1 Maximum output frequency (high speed)',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 1, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 400,
+    defaultValue: 50, step: 0.01, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.1' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'motor_capacity', displayName: 'Motor Capacity',
+    description: 'Pr.80 Motor capacity selection',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 80, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'kW',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 1000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.80' },
+  },
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'motor_poles', displayName: 'Motor Poles',
+    description: 'Pr.81 Number of motor poles',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 81, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 2, maxValue: 12,
+    defaultValue: 4, step: 2, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.81' },
+  },
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'motor_nom_current', displayName: 'Motor Rated Current',
+    description: 'Pr.9 Electronic thermal overload relay current setting',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 9, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 5000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.9' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'current_limit', displayName: 'Current Limit Level',
+    description: 'Pr.22 Stall prevention operation current level',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 22, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '%',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 200,
+    defaultValue: 150, step: 1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.22' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'jog_frequency', displayName: 'JOG Frequency',
+    description: 'Pr.15 JOG frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 15, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 400,
+    defaultValue: 5, step: 0.01, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.15' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'thermal_relay_function', displayName: 'Electronic Thermal Relay',
+    description: 'Pr.9 Electronic thermal relay function selection',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 9, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 500,
+    riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.9' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'modbus_address', displayName: 'Station Number',
+    description: 'Pr.117 RS-485 station number',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 117, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 247,
+    defaultValue: 0, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.117' },
+  },
+
+  // ============ VF_CONTROL ============
+  {
+    brand: VfdBrand.MITSUBISHI, parameterName: 'base_frequency', displayName: 'Base Frequency',
+    description: 'Pr.3 Base frequency',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.VF_CONTROL,
+    registerAddress: 3, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 400,
+    defaultValue: 50, step: 0.01, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { mitsubishiParameter: 'Pr.3' },
+  },
+];
 
 /**
  * Mitsubishi default serial configuration

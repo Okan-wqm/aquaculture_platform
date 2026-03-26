@@ -1,5 +1,5 @@
-import { VfdRegisterMappingInput } from '../entities/vfd.types';
-import { VfdBrand, VfdParameterCategory, VfdDataType } from '../entities/vfd.enums';
+import { VfdRegisterMappingInput, VfdConfigRegisterInput } from '../entities/vfd.types';
+import { VfdBrand, VfdParameterCategory, VfdDataType, VfdParameterGroup, RiskLevel } from '../entities/vfd.enums';
 
 /**
  * Siemens SINAMICS Register Mappings
@@ -407,6 +407,134 @@ export const SIEMENS_CONTROL_COMMANDS = {
   JOG_FORWARD: 0x057f,    // Jog forward
   JOG_REVERSE: 0x0d7f,    // Jog reverse
 };
+
+/**
+ * Siemens SINAMICS G120 Configuration Registers for Remote Programming
+ * Parameter Structure: P0xxx (Read/Write), r0xxx (Read Only)
+ */
+export const SIEMENS_G120_CONFIG_REGISTERS: VfdConfigRegisterInput[] = [
+  // ============ RAMP_TIMES ============
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'accel_time', displayName: 'Acceleration Time',
+    description: 'Ramp-up time P1120',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 1120, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 6500,
+    defaultValue: 10, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P1120' },
+  },
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'decel_time', displayName: 'Deceleration Time',
+    description: 'Ramp-down time P1121',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.RAMP_TIMES,
+    registerAddress: 1121, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 's',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 6500,
+    defaultValue: 10, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P1121' },
+  },
+
+  // ============ FREQUENCY_LIMITS ============
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'min_frequency', displayName: 'Minimum Frequency',
+    description: 'Minimum motor frequency P1080',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 1080, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 650,
+    defaultValue: 0, step: 0.01, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P1080' },
+  },
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'max_frequency', displayName: 'Maximum Frequency',
+    description: 'Maximum motor frequency P1082',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.FREQUENCY_LIMITS,
+    registerAddress: 1082, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 650,
+    defaultValue: 50, step: 0.01, riskLevel: RiskLevel.HIGH, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P1082' },
+  },
+
+  // ============ MOTOR_NAMEPLATE ============
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'motor_nom_voltage', displayName: 'Motor Rated Voltage',
+    description: 'Motor rated voltage P0304',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 304, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: 'V',
+    isWritable: true, isReadable: true, minValue: 10, maxValue: 2000,
+    defaultValue: 400, step: 1, riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { siemensParameter: 'P0304' },
+  },
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'motor_nom_current', displayName: 'Motor Rated Current',
+    description: 'Motor rated current P0305',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 305, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'A',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 10000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { siemensParameter: 'P0305' },
+  },
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'motor_nom_power', displayName: 'Motor Rated Power',
+    description: 'Motor rated power P0307',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 307, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'kW',
+    isWritable: true, isReadable: true, minValue: 0.01, maxValue: 2000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { siemensParameter: 'P0307' },
+  },
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'motor_nom_speed', displayName: 'Motor Rated Speed',
+    description: 'Motor rated speed P0311',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.MOTOR_NAMEPLATE,
+    registerAddress: 311, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: 'RPM',
+    isWritable: true, isReadable: true, minValue: 1, maxValue: 40000,
+    riskLevel: RiskLevel.HIGH, requiresMotorStop: true,
+    functionCode: 6, metadata: { siemensParameter: 'P0311' },
+  },
+
+  // ============ CURRENT_LIMITS ============
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'current_limit', displayName: 'Current Limit',
+    description: 'Motor current limit as % P0640',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.CURRENT_LIMITS,
+    registerAddress: 640, dataType: VfdDataType.UINT16, scalingFactor: 0.1, unit: '%',
+    isWritable: true, isReadable: true, minValue: 10, maxValue: 400,
+    defaultValue: 150, step: 1, riskLevel: RiskLevel.MEDIUM, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P0640' },
+  },
+
+  // ============ JOG ============
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'jog_frequency', displayName: 'JOG Setpoint',
+    description: 'Fixed frequency for JOG P1058',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.JOG,
+    registerAddress: 1058, dataType: VfdDataType.UINT16, scalingFactor: 0.01, unit: 'Hz',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 650,
+    defaultValue: 5, step: 0.01, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P1058' },
+  },
+
+  // ============ PROTECTION ============
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'motor_overload_protection', displayName: 'Motor Overload Protection',
+    description: 'Motor I2t overload protection enable P0610',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.PROTECTION,
+    registerAddress: 610, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 3,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.CRITICAL, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P0610' },
+  },
+
+  // ============ COMMUNICATION ============
+  {
+    brand: VfdBrand.SIEMENS, parameterName: 'modbus_address', displayName: 'USS/Modbus Address',
+    description: 'USS or Modbus station address P2011',
+    category: VfdParameterCategory.CONFIGURATION, group: VfdParameterGroup.COMMUNICATION,
+    registerAddress: 2011, dataType: VfdDataType.UINT16, scalingFactor: 1, unit: '',
+    isWritable: true, isReadable: true, minValue: 0, maxValue: 247,
+    defaultValue: 1, step: 1, riskLevel: RiskLevel.LOW, requiresMotorStop: false,
+    functionCode: 6, metadata: { siemensParameter: 'P2011' },
+  },
+];
 
 /**
  * Siemens default serial configuration

@@ -69,6 +69,7 @@ let _scriptId = '';
 let _tagWriteCount = 0;
 let _logCount = 0;
 const _tagValues = {};
+const _widgetProperties = {};
 
 // Synchronous tag read from the snapshot provided at invocation start.
 // Returns 0 as default for missing tags -- safe fallback for numeric expressions.
@@ -119,6 +120,94 @@ function $log(message) {
 }
 
 // ===================================================================
+// Phase 2b: Extended API functions (Phase 9D)
+// ===================================================================
+
+// Dangerous property path segments that could enable prototype pollution.
+// Validated on both worker side (fail-fast) and main thread (defense-in-depth).
+var _FORBIDDEN_SEGMENTS = { '__proto__': 1, 'constructor': 1, 'prototype': 1 };
+
+// Validate a property path is safe for object traversal.
+// Returns true only for alphanumeric/underscore/hyphen paths without
+// prototype-polluting segments or empty parts (consecutive dots).
+function _isPropertyPathSafe(path) {
+  if (!path || typeof path !== 'string' || path.length === 0 || path.length > 200) return false;
+  if (!/^[a-zA-Z0-9_.\\-]+$/.test(path)) return false;
+  var segments = path.split('.');
+  for (var i = 0; i < segments.length; i++) {
+    if (segments[i].length === 0) return false;
+    if (_FORBIDDEN_SEGMENTS[segments[i]]) return false;
+  }
+  return true;
+}
+
+// Dynamically change a widget config property at runtime.
+// Shares the write budget with $setTag to prevent flooding.
+// Property path is validated against prototype pollution patterns.
+function $setProperty(widgetId, propertyPath, value) {
+  if (typeof widgetId !== 'string') throw new Error('$setProperty: widgetId must be a string');
+  if (typeof propertyPath !== 'string') throw new Error('$setProperty: propertyPath must be a string');
+  if (typeof value !== 'number' && typeof value !== 'string' && typeof value !== 'boolean') {
+    throw new Error('$setProperty: value must be number, string, or boolean');
+  }
+  if (!_isPropertyPathSafe(propertyPath)) {
+    throw new Error('$setProperty: unsafe property path "' + propertyPath + '"');
+  }
+  if (_tagWriteCount >= ${SANDBOX_LIMITS.MAX_TAG_WRITES}) {
+    throw new Error('Write limit exceeded (' + ${SANDBOX_LIMITS.MAX_TAG_WRITES} + ' per invocation)');
+  }
+  _tagWriteCount++;
+  self.postMessage({ type: 'api-call', scriptId: _scriptId, apiMethod: '$setProperty', apiArgs: [widgetId, propertyPath, value] });
+}
+
+// Read a widget config property from the pre-populated snapshot.
+// Returns the value synchronously -- no async roundtrip needed because
+// the snapshot is populated before script execution starts.
+// Returns undefined for missing widgets or properties.
+function $getProperty(widgetId, propertyPath) {
+  if (typeof widgetId !== 'string') throw new Error('$getProperty: widgetId must be a string');
+  if (typeof propertyPath !== 'string') throw new Error('$getProperty: propertyPath must be a string');
+  var widgetProps = _widgetProperties[widgetId];
+  if (!widgetProps) return undefined;
+  // Support dot-separated nested paths by walking the snapshot
+  var segments = propertyPath.split('.');
+  var current = widgetProps;
+  for (var i = 0; i < segments.length; i++) {
+    if (current === null || current === undefined || typeof current !== 'object') return undefined;
+    current = current[segments[i]];
+  }
+  // Only return primitive values -- objects/arrays are filtered out for safety
+  if (typeof current === 'number' || typeof current === 'string' || typeof current === 'boolean') {
+    return current;
+  }
+  return undefined;
+}
+
+// Close the topmost overlay (PopupCard or ModalDialog).
+// No-op on the main thread when no overlay is open.
+function $closeDialog() {
+  self.postMessage({ type: 'api-call', scriptId: _scriptId, apiMethod: '$closeDialog', apiArgs: [] });
+}
+
+// Raise a script-generated alarm. Enables complex alarm conditions
+// beyond simple threshold rules (e.g., rate-of-change over time).
+// Level must be one of: 'info', 'warning', 'critical', 'emergency'.
+// Message length capped at 500 characters for abuse prevention.
+function $setAlarm(tagName, level, message) {
+  if (typeof tagName !== 'string') throw new Error('$setAlarm: tagName must be a string');
+  if (typeof level !== 'string') throw new Error('$setAlarm: level must be a string');
+  if (typeof message !== 'string') throw new Error('$setAlarm: message must be a string');
+  var validLevels = { 'info': 1, 'warning': 1, 'critical': 1, 'emergency': 1 };
+  if (!validLevels[level]) {
+    throw new Error('$setAlarm: level must be info, warning, critical, or emergency');
+  }
+  if (message.length > 500) {
+    throw new Error('$setAlarm: message exceeds 500 character limit');
+  }
+  self.postMessage({ type: 'api-call', scriptId: _scriptId, apiMethod: '$setAlarm', apiArgs: [tagName, level, message] });
+}
+
+// ===================================================================
 // Phase 3: Message handler -- receives execute commands from main thread
 // ===================================================================
 
@@ -126,7 +215,7 @@ self.onmessage = function(e) {
   const msg = e.data;
   if (!msg || msg.type !== 'execute') return;
 
-  const { scriptId, code, tagValues, params } = msg;
+  const { scriptId, code, tagValues, widgetProperties, params } = msg;
 
   // Reset per-invocation counters
   _scriptId = scriptId;
@@ -139,15 +228,28 @@ self.onmessage = function(e) {
     Object.assign(_tagValues, tagValues);
   }
 
+  // Populate the widget property snapshot for $getProperty access
+  for (const key in _widgetProperties) delete _widgetProperties[key];
+  if (widgetProperties && typeof widgetProperties === 'object') {
+    Object.assign(_widgetProperties, widgetProperties);
+  }
+
   try {
     // Wrap user code in a Function that only receives the sandbox API.
     // The user code cannot access any worker-scope variables because
     // Function constructor creates its own scope (unlike eval).
+    // Phase 9D: Added $setProperty, $getProperty, $closeDialog, $setAlarm
     const fn = new Function(
-      '$getTag', '$setTag', '$navigate', '$openCard', '$openUrl', '$log', '$params',
+      '$getTag', '$setTag', '$navigate', '$openCard', '$openUrl', '$log',
+      '$setProperty', '$getProperty', '$closeDialog', '$setAlarm',
+      '$params',
       code
     );
-    const result = fn($getTag, $setTag, $navigate, $openCard, $openUrl, $log, params || {});
+    const result = fn(
+      $getTag, $setTag, $navigate, $openCard, $openUrl, $log,
+      $setProperty, $getProperty, $closeDialog, $setAlarm,
+      params || {}
+    );
     self.postMessage({ type: 'result', scriptId: scriptId, returnValue: result });
   } catch (err) {
     self.postMessage({
@@ -164,7 +266,7 @@ self.onmessage = function(e) {
 // Now that self.onmessage is set and uses Function internally via closure,
 // we can prevent user code from using new Function() to escape the sandbox.
 // Note: This is defense-in-depth; the user code's scope only receives
-// the six $api functions, so it cannot access Function directly.
+// the ten $api functions, so it cannot access Function directly.
 try {
   self.Function = undefined;
 } catch(e) {

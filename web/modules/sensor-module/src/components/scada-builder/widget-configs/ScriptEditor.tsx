@@ -30,17 +30,20 @@ interface ScriptEditorProps {
 
 /**
  * Available sandbox API functions displayed in the collapsible reference.
- * These mirror the ScriptExecutor API that Phase 5A exposes inside the
- * Web Worker sandbox, so operators know what's available without docs.
+ * These mirror the ScriptExecutor API that Phase 5A + 9D expose inside the
+ * Web Worker sandbox, so operators know what is available without docs.
  */
 const API_REFERENCE: Array<{ fn: string; desc: string }> = [
   { fn: '$getTag(name)', desc: 'Read a tag value by name' },
   { fn: '$setTag(name, value)', desc: 'Write a value to a tag' },
   { fn: '$log(message)', desc: 'Log a message to the console' },
-  { fn: '$alarm(severity, message)', desc: 'Trigger a runtime alarm' },
   { fn: '$navigate(screenId)', desc: 'Navigate to another screen' },
-  { fn: '$getTime()', desc: 'Get current timestamp (ms)' },
-  { fn: '$delay(ms)', desc: 'Async wait (capped at 5000ms)' },
+  { fn: '$openCard(screenId, opts?)', desc: 'Open screen as overlay card' },
+  { fn: '$openUrl(url)', desc: 'Open an external URL (https only)' },
+  { fn: '$setProperty(widgetId, path, val)', desc: 'Change a widget config property' },
+  { fn: '$getProperty(widgetId, path)', desc: 'Read a widget config property' },
+  { fn: '$closeDialog()', desc: 'Close the topmost overlay dialog' },
+  { fn: '$setAlarm(tag, level, msg)', desc: 'Raise a runtime alarm' },
 ];
 
 export const ScriptEditor: React.FC<ScriptEditorProps> = ({

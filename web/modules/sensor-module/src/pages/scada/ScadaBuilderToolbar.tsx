@@ -23,6 +23,7 @@ import {
   Zap,
   Pencil,
   FileSpreadsheet,
+  ImageDown,
 } from 'lucide-react';
 
 import { UndoRedoToolbar } from '../../components/scada-builder/UndoRedoToolbar';
@@ -58,6 +59,8 @@ export interface ScadaBuilderToolbarProps {
   selectedDevice: EdgeDevice | null;
   devices: EdgeDevice[];
   onCsvDialogOpen: () => void;
+  /** Callback to open the PNG/PDF export dialog. */
+  onExportDialogOpen?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +83,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
   selectedDevice,
   devices,
   onCsvDialogOpen,
+  onExportDialogOpen,
 }) => {
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
   const [showDeployMenu, setShowDeployMenu] = useState(false);
@@ -253,6 +257,18 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           <FileSpreadsheet className="w-4 h-4" />
           CSV
         </button>
+
+        {/* PNG/PDF Export */}
+        {onExportDialogOpen && (
+          <button
+            onClick={onExportDialogOpen}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Export as PNG/PDF"
+          >
+            <ImageDown className="w-4 h-4" />
+            Export
+          </button>
+        )}
 
         <button
           onClick={onSave}

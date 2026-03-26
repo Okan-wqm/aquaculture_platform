@@ -47,6 +47,7 @@ import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts
 import { ScadaDataProvider } from '../../context/ScadaDataProvider';
 import { SimulationDataProvider } from '../../context/SimulationDataProvider';
 import { SimulationSidebar } from '../../components/scada-builder/SimulationSidebar';
+import { ExportDialog } from '../../components/scada-builder/ExportDialog';
 
 const DEFAULT_EMERGENCY_STOP = {
   holdDuration: 3000,
@@ -66,6 +67,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [mode, setMode] = useState<BuilderMode>('edit');
   const [showCsvDialog, setShowCsvDialog] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const deployParam = searchParams.get('deploy');
 
   // Panel collapse state + keyboard shortcuts (Ctrl+[, Ctrl+], Ctrl+\)
@@ -346,6 +348,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
         selectedDevice={selectedDevice}
         devices={devices}
         onCsvDialogOpen={() => setShowCsvDialog(true)}
+        onExportDialogOpen={() => setShowExportDialog(true)}
       />
 
       {/* Main Content */}
@@ -467,6 +470,9 @@ const ScadaPackageBuilderPage: React.FC = () => {
 
       {/* CSV Tag Import/Export Dialog */}
       <CsvTagDialog open={showCsvDialog} onClose={() => setShowCsvDialog(false)} />
+
+      {/* PNG/PDF Export Dialog */}
+      <ExportDialog isOpen={showExportDialog} onClose={() => setShowExportDialog(false)} />
     </div>
   );
 };

@@ -156,6 +156,18 @@ export const billingApi = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
+  createInvoice: (data: {
+    tenantId: string;
+    amount: number;
+    currency: string;
+    dueDate: string;
+    periodStart: string;
+    periodEnd: string;
+  }) =>
+    apiFetch<InvoiceOverview>('/billing/invoices', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   // Payments
   getPayments: (params?: { status?: string; invoiceId?: string; limit?: number; offset?: number }) => {

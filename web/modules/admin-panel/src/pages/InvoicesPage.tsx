@@ -197,6 +197,154 @@ const InvoicesPage: React.FC = () => {
     showToast('Email reminders are not yet configured', 'info');
   };
 
+  // --- Create Invoice Modal State ---
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createInvoiceData, setCreateInvoiceData] = useState({
+    tenantId: '',
+    tenantName: '',
+    amount: '',
+    currency: 'USD',
+    dueDate: '',
+    periodStart: '',
+    periodEnd: '',
+  });
+  const [createInvoiceLoading, setCreateInvoiceLoading] = useState(false);
+
+  /**
+   * Opens the Create Invoice modal with default field values.
+   * Due date defaults to 30 days from now, period covers the current month.
+   */
+  const handleOpenCreateModal = () => {
+    const today = new Date();
+    const dueDate = new Date(today);
+    dueDate.setDate(dueDate.getDate() + 30);
+
+    const periodStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const periodEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    setCreateInvoiceData({
+      tenantId: '',
+      tenantName: '',
+      amount: '',
+      currency: 'USD',
+      dueDate: dueDate.toISOString().split('T')[0],
+      periodStart: periodStart.toISOString().split('T')[0],
+      periodEnd: periodEnd.toISOString().split('T')[0],
+    });
+    setShowCreateModal(true);
+  };
+
+  /**
+   * Submits the new invoice creation form.
+   * Validates required fields, then delegates to the billing API.
+   */
+  const handleCreateInvoice = async () => {
+    if (!createInvoiceData.tenantId.trim()) {
+      showToast('Please enter a Tenant ID', 'error');
+      return;
+    }
+    const amount = parseFloat(createInvoiceData.amount);
+    if (isNaN(amount) || amount <= 0) {
+      showToast('Please enter a valid amount', 'error');
+      return;
+    }
+    if (!createInvoiceData.dueDate) {
+      showToast('Please enter a due date', 'error');
+      return;
+    }
+
+    setCreateInvoiceLoading(true);
+    try {
+      await billingApi.createInvoice({
+        tenantId: createInvoiceData.tenantId.trim(),
+        amount,
+        currency: createInvoiceData.currency,
+        dueDate: createInvoiceData.dueDate,
+        periodStart: createInvoiceData.periodStart,
+        periodEnd: createInvoiceData.periodEnd,
+      });
+      showToast('Invoice created successfully', 'success');
+      setShowCreateModal(false);
+      fetchInvoices();
+      fetchStats();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to create invoice', 'error');
+    } finally {
+      setCreateInvoiceLoading(false);
+    }
+  };
+
+  /**
+   * Export invoices to a CSV file.
+   * Generates a client-side CSV from the currently loaded invoice list
+   * using the Blob API -- no server roundtrip needed since data is
+   * already fetched. Falls back with an error toast when there is
+   * nothing to export.
+   */
+  const handleExportCsv = () => {
+    if (invoices.length === 0) {
+      showToast('No invoices to export', 'info');
+      return;
+    }
+
+    const csvHeaders = [
+      'Invoice Number',
+      'Tenant',
+      'Email',
+      'Amount',
+      'Amount Paid',
+      'Amount Due',
+      'Currency',
+      'Status',
+      'Issue Date',
+      'Due Date',
+      'Period Start',
+      'Period End',
+      'Paid At',
+    ];
+
+    const csvRows = invoices.map((inv) => [
+      inv.invoiceNumber,
+      inv.tenantName,
+      inv.tenantEmail ?? '',
+      String(inv.amount),
+      String(inv.amountPaid),
+      String(inv.amountDue),
+      inv.currency,
+      inv.status,
+      inv.issueDate,
+      inv.dueDate,
+      inv.periodStart,
+      inv.periodEnd,
+      inv.paidAt ?? '',
+    ]);
+
+    // Escape values that contain commas, quotes, or newlines
+    const escapeCell = (value: string): string => {
+      if (/[",\n\r]/.test(value)) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    };
+
+    const csvContent = [
+      csvHeaders.map(escapeCell).join(','),
+      ...csvRows.map((row) => row.map(escapeCell).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `invoices-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast(`Exported ${invoices.length} invoices`, 'success');
+  };
+
   const openMarkPaidModal = () => {
     if (selectedInvoice) {
       setMarkPaidAmount(String(selectedInvoice.amountDue));
@@ -256,10 +404,16 @@ const InvoicesPage: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+          <button
+            onClick={handleExportCsv}
+            className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >
             Export
           </button>
-          <button className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+          <button
+            onClick={handleOpenCreateModal}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
             Create Invoice
           </button>
         </div>
@@ -635,6 +789,114 @@ const InvoicesPage: React.FC = () => {
                 className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
               >
                 {voidLoading ? 'Processing...' : 'Void Invoice'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Invoice Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900">Create Invoice</h2>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-gray-500 hover:text-gray-600"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tenant ID *</label>
+                <input
+                  type="text"
+                  value={createInvoiceData.tenantId}
+                  onChange={(e) => setCreateInvoiceData(prev => ({ ...prev, tenantId: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter tenant ID"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={createInvoiceData.amount}
+                      onChange={(e) => setCreateInvoiceData(prev => ({ ...prev, amount: e.target.value }))}
+                      className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
+                  <select
+                    value={createInvoiceData.currency}
+                    onChange={(e) => setCreateInvoiceData(prev => ({ ...prev, currency: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="TRY">TRY</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Due Date *</label>
+                <input
+                  type="date"
+                  value={createInvoiceData.dueDate}
+                  onChange={(e) => setCreateInvoiceData(prev => ({ ...prev, dueDate: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Period Start</label>
+                  <input
+                    type="date"
+                    value={createInvoiceData.periodStart}
+                    onChange={(e) => setCreateInvoiceData(prev => ({ ...prev, periodStart: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Period End</label>
+                  <input
+                    type="date"
+                    value={createInvoiceData.periodEnd}
+                    onChange={(e) => setCreateInvoiceData(prev => ({ ...prev, periodEnd: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={createInvoiceLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateInvoice}
+                disabled={createInvoiceLoading}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {createInvoiceLoading ? 'Creating...' : 'Create Invoice'}
               </button>
             </div>
           </div>

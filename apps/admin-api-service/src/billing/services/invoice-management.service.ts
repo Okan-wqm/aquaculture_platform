@@ -101,26 +101,27 @@ export class InvoiceManagementService {
     invoices: InvoiceOverview[];
     total: number;
   }> {
+    // billing.invoices uses snake_case column names (owned by billing-service)
     let query = `
       SELECT
         i.id,
-        i."invoiceNumber" as "invoiceNumber",
-        i."tenantId" as "tenantId",
+        i.invoice_number as "invoiceNumber",
+        i.tenant_id as "tenantId",
         t.name as "tenantName",
         t."contactEmail" as "tenantEmail",
         i.total as amount,
-        i."amountPaid" as "amountPaid",
-        i."amountDue" as "amountDue",
+        i.amount_paid as "amountPaid",
+        i.amount_due as "amountDue",
         i.status,
         i.currency,
-        i."dueDate" as "dueDate",
-        i."paidAt" as "paidAt",
-        i."issueDate" as "issueDate",
-        i."periodStart" as "periodStart",
-        i."periodEnd" as "periodEnd",
+        i.due_date as "dueDate",
+        i.paid_at as "paidAt",
+        i.issue_date as "issueDate",
+        i.period_start as "periodStart",
+        i.period_end as "periodEnd",
         i."createdAt" as "createdAt"
       FROM billing.invoices i
-      LEFT JOIN auth.tenants t ON t.id::text = i."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = i.tenant_id
       WHERE 1=1
     `;
 
@@ -134,7 +135,7 @@ export class InvoiceManagementService {
     }
 
     if (filters.tenantId) {
-      query += ` AND i."tenantId" = $${paramIndex}`;
+      query += ` AND i.tenant_id = $${paramIndex}`;
       params.push(filters.tenantId);
       paramIndex++;
     }
@@ -145,20 +146,20 @@ export class InvoiceManagementService {
       // manipulate the LIKE clause behavior
       const sanitizedSearch = sanitizeSearchString(filters.search);
       if (sanitizedSearch) {
-        query += ` AND (i."invoiceNumber" ILIKE $${paramIndex} OR t.name ILIKE $${paramIndex}) ESCAPE '\\'`;
+        query += ` AND (i.invoice_number ILIKE $${paramIndex} OR t.name ILIKE $${paramIndex}) ESCAPE '\\'`;
         params.push(`%${sanitizedSearch}%`);
         paramIndex++;
       }
     }
 
     if (filters.dateFrom) {
-      query += ` AND i."issueDate" >= $${paramIndex}`;
+      query += ` AND i.issue_date >= $${paramIndex}`;
       params.push(filters.dateFrom);
       paramIndex++;
     }
 
     if (filters.dateTo) {
-      query += ` AND i."issueDate" <= $${paramIndex}`;
+      query += ` AND i.issue_date <= $${paramIndex}`;
       params.push(filters.dateTo);
       paramIndex++;
     }
@@ -209,23 +210,23 @@ export class InvoiceManagementService {
       `
       SELECT
         i.id,
-        i."invoiceNumber" as "invoiceNumber",
-        i."tenantId" as "tenantId",
+        i.invoice_number as "invoiceNumber",
+        i.tenant_id as "tenantId",
         t.name as "tenantName",
         t."contactEmail" as "tenantEmail",
         i.total as amount,
-        i."amountPaid" as "amountPaid",
-        i."amountDue" as "amountDue",
+        i.amount_paid as "amountPaid",
+        i.amount_due as "amountDue",
         i.status,
         i.currency,
-        i."dueDate" as "dueDate",
-        i."paidAt" as "paidAt",
-        i."issueDate" as "issueDate",
-        i."periodStart" as "periodStart",
-        i."periodEnd" as "periodEnd",
+        i.due_date as "dueDate",
+        i.paid_at as "paidAt",
+        i.issue_date as "issueDate",
+        i.period_start as "periodStart",
+        i.period_end as "periodEnd",
         i."createdAt" as "createdAt"
       FROM billing.invoices i
-      LEFT JOIN auth.tenants t ON t.id::text = i."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = i.tenant_id
       WHERE i.id = $1
     `,
       [invoiceId],
@@ -239,6 +240,7 @@ export class InvoiceManagementService {
    */
   async getStats(): Promise<InvoiceStats> {
     // Execute all 5 independent queries in parallel
+    // billing.invoices uses snake_case column names (owned by billing-service)
     const [totalResult, statusResult, currencyResult, paymentTimeResult, thisMonthResult] =
       await Promise.all([
         // Total invoices and amounts
@@ -246,7 +248,7 @@ export class InvoiceManagementService {
           SELECT
             COUNT(*) as count,
             COALESCE(SUM(total), 0) as "totalAmount",
-            COALESCE(SUM("amountPaid"), 0) as "totalPaid"
+            COALESCE(SUM(amount_paid), 0) as "totalPaid"
           FROM billing.invoices
         `),
 
@@ -272,9 +274,9 @@ export class InvoiceManagementService {
         // Average payment time
         this.dataSource.query(`
           SELECT
-            AVG(EXTRACT(EPOCH FROM ("paidAt" - "issueDate")) / 86400) as "avgDays"
+            AVG(EXTRACT(EPOCH FROM (paid_at - issue_date)) / 86400) as "avgDays"
           FROM billing.invoices
-          WHERE status = 'paid' AND "paidAt" IS NOT NULL
+          WHERE status = 'paid' AND paid_at IS NOT NULL
         `),
 
         // This month stats
@@ -283,7 +285,7 @@ export class InvoiceManagementService {
             COALESCE(SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END), 0) as paid,
             COALESCE(SUM(CASE WHEN status IN ('pending', 'sent') THEN total ELSE 0 END), 0) as pending
           FROM billing.invoices
-          WHERE "issueDate" >= DATE_TRUNC('month', CURRENT_DATE)
+          WHERE issue_date >= DATE_TRUNC('month', CURRENT_DATE)
         `),
       ]);
 
@@ -370,10 +372,10 @@ export class InvoiceManagementService {
     await this.dataSource.query(
       `
       UPDATE billing.invoices SET
-        "amountPaid" = $1,
-        "amountDue" = $2,
+        amount_paid = $1,
+        amount_due = $2,
         status = $3,
-        "paidAt" = $4,
+        paid_at = $4,
         "updatedAt" = NOW()
       WHERE id = $5
     `,
@@ -457,7 +459,7 @@ export class InvoiceManagementService {
         status = 'overdue',
         "updatedAt" = NOW()
       WHERE status IN ('pending', 'sent')
-        AND "dueDate" < NOW()
+        AND due_date < NOW()
       RETURNING id
     `,
     );

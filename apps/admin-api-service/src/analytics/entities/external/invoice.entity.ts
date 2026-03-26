@@ -20,18 +20,19 @@ export enum InvoiceStatus {
 }
 
 // C-6 fix: billing-service stores invoices in the 'billing' schema, not 'public'
+// Column names explicitly mapped to snake_case as defined by billing-service schema
 @Entity('invoices', { schema: 'billing', synchronize: false })
 export class InvoiceReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column()
+  @Column({ name: 'tenant_id' })
   tenantId!: string;
 
-  @Column({ unique: true })
+  @Column({ name: 'invoice_number', unique: true })
   invoiceNumber!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ name: 'subscription_id', type: 'uuid', nullable: true })
   subscriptionId!: string | null;
 
   @Column({ type: 'enum', enum: InvoiceStatus, default: InvoiceStatus.DRAFT })
@@ -43,28 +44,28 @@ export class InvoiceReadOnly {
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   total!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ name: 'amount_paid', type: 'decimal', precision: 12, scale: 2, default: 0 })
   amountPaid!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ name: 'amount_due', type: 'decimal', precision: 12, scale: 2 })
   amountDue!: number;
 
   @Column({ default: 'USD' })
   currency!: string;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ name: 'issue_date', type: 'timestamptz' })
   issueDate!: Date;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ name: 'due_date', type: 'timestamptz' })
   dueDate!: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
   paidAt!: Date | null;
 
-  @Column({ type: 'date' })
+  @Column({ name: 'period_start', type: 'date' })
   periodStart!: Date;
 
-  @Column({ type: 'date' })
+  @Column({ name: 'period_end', type: 'date' })
   periodEnd!: Date;
 
   @CreateDateColumn()

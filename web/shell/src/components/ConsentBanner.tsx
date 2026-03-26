@@ -26,9 +26,40 @@ const ConsentBanner: React.FC = () => {
     isBulkRecording,
   } = useConsent();
 
-  const [dismissed, setDismissed] = useState(false);
+  /**
+   * Persist dismissal in localStorage so the banner does not reappear on
+   * every route transition. The key includes a version suffix so that a
+   * future consent-version bump can resurface the banner automatically.
+   */
+  const DISMISSED_KEY = 'consent_banner_dismissed';
+
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(DISMISSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [expanded, setExpanded] = useState(false);
   const [localConsents, setLocalConsents] = useState<Record<ConsentType, boolean>>({} as Record<ConsentType, boolean>);
+
+  /**
+   * GDPR compliance: When the server reports that consent is outdated
+   * (e.g. a new consent version was published), clear the localStorage
+   * dismissal flag so the banner resurfaces for the user to re-consent.
+   * This ensures users always see the banner when their consent becomes
+   * stale, even if they previously dismissed it.
+   */
+  useEffect(() => {
+    if (isOutdated) {
+      try {
+        localStorage.removeItem(DISMISSED_KEY);
+      } catch {
+        // Ignore localStorage errors
+      }
+      setDismissed(false);
+    }
+  }, [isOutdated, DISMISSED_KEY]);
 
   // Initialize local consent state from server status
   useEffect(() => {
@@ -51,6 +82,20 @@ const ConsentBanner: React.FC = () => {
     !statusError &&
     (isOutdated || (status && status.consents.length === 0));
 
+  /**
+   * Persists the dismissed flag both in React state and in localStorage.
+   * Called by all three consent action handlers so the banner stays hidden
+   * across SPA navigations and full page reloads.
+   */
+  const persistDismissal = useCallback(() => {
+    setDismissed(true);
+    try {
+      localStorage.setItem(DISMISSED_KEY, 'true');
+    } catch {
+      // localStorage unavailable -- the in-memory flag is enough for this session
+    }
+  }, [DISMISSED_KEY]);
+
   const handleAcceptAll = useCallback(async () => {
     const allConsentTypes: ConsentType[] = [
       'ESSENTIAL',
@@ -69,8 +114,8 @@ const ConsentBanner: React.FC = () => {
     } catch {
       // Don't block the user if consent recording fails
     }
-    setDismissed(true);
-  }, [recordBulkConsent]);
+    persistDismissal();
+  }, [recordBulkConsent, persistDismissal]);
 
   const handleSavePreferences = useCallback(async () => {
     const consents = Object.entries(localConsents).map(([consentType, granted]) => ({
@@ -91,8 +136,8 @@ const ConsentBanner: React.FC = () => {
     } catch {
       // Don't block the user if consent recording fails
     }
-    setDismissed(true);
-  }, [localConsents, recordBulkConsent]);
+    persistDismissal();
+  }, [localConsents, recordBulkConsent, persistDismissal]);
 
   const handleEssentialOnly = useCallback(async () => {
     const allConsentTypes: ConsentType[] = [
@@ -115,8 +160,8 @@ const ConsentBanner: React.FC = () => {
     } catch {
       // Don't block the user if consent recording fails
     }
-    setDismissed(true);
-  }, [recordBulkConsent]);
+    persistDismissal();
+  }, [recordBulkConsent, persistDismissal]);
 
   const handleToggleConsent = useCallback((consentType: ConsentType) => {
     if (consentType === 'ESSENTIAL') return; // Essential cannot be toggled

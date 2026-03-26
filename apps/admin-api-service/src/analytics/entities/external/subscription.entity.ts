@@ -40,48 +40,49 @@ export interface PlanPricing {
 }
 
 // C-6 fix: billing-service stores subscriptions in the 'billing' schema, not 'public'
+// Column names explicitly mapped to snake_case as defined by billing-service schema
 @Entity('subscriptions', { schema: 'billing', synchronize: false })
 export class SubscriptionReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column()
+  @Column({ name: 'tenant_id' })
   tenantId!: string;
 
-  @Column({ type: 'enum', enum: PlanTier })
+  @Column({ name: 'plan_tier', type: 'enum', enum: PlanTier })
   planTier!: PlanTier;
 
-  @Column()
+  @Column({ name: 'plan_name' })
   planName!: string;
 
   @Column({ type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.TRIAL })
   status!: SubscriptionStatus;
 
-  @Column({ type: 'enum', enum: BillingCycle })
+  @Column({ name: 'billing_cycle', type: 'enum', enum: BillingCycle })
   billingCycle!: BillingCycle;
 
   @Column('jsonb')
   pricing!: PlanPricing;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ name: 'start_date', type: 'timestamptz' })
   startDate!: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'end_date', type: 'timestamptz', nullable: true })
   endDate!: Date | null;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ name: 'current_period_start', type: 'timestamptz' })
   currentPeriodStart!: Date;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ name: 'current_period_end', type: 'timestamptz' })
   currentPeriodEnd!: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'trial_end_date', type: 'timestamptz', nullable: true })
   trialEndDate!: Date | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ name: 'cancelled_at', type: 'timestamptz', nullable: true })
   cancelledAt!: Date | null;
 
-  @Column({ default: true })
+  @Column({ name: 'auto_renew', default: true })
   autoRenew!: boolean;
 
   @CreateDateColumn()

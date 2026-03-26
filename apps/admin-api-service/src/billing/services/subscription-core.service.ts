@@ -43,24 +43,25 @@ export class SubscriptionCoreService {
     subscriptions: SubscriptionOverview[];
     total: number;
   }> {
+    // billing.subscriptions uses snake_case column names (owned by billing-service)
     let query = `
       SELECT
         s.id,
-        s."tenantId" as "tenantId",
+        s.tenant_id as "tenantId",
         t.name as "tenantName",
-        s."planTier" as "planTier",
-        s."planName" as "planName",
+        s.plan_tier as "planTier",
+        s.plan_name as "planName",
         s.status,
-        s."billingCycle" as "billingCycle",
-        s."currentPeriodStart" as "currentPeriodStart",
-        s."currentPeriodEnd" as "currentPeriodEnd",
+        s.billing_cycle as "billingCycle",
+        s.current_period_start as "currentPeriodStart",
+        s.current_period_end as "currentPeriodEnd",
         (s.pricing->>'basePrice')::decimal as "monthlyPrice",
-        s."autoRenew" as "autoRenew",
-        s."trialEndDate" as "trialEndDate",
-        s."cancelledAt" as "cancelledAt",
+        s.auto_renew as "autoRenew",
+        s.trial_end_date as "trialEndDate",
+        s.cancelled_at as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
+      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
       WHERE 1=1
     `;
 
@@ -74,31 +75,31 @@ export class SubscriptionCoreService {
     }
 
     if (filters.planTier && filters.planTier.length > 0) {
-      query += ` AND s."planTier" = ANY($${paramIndex})`;
+      query += ` AND s.plan_tier = ANY($${paramIndex})`;
       params.push(filters.planTier);
       paramIndex++;
     }
 
     if (filters.billingCycle && filters.billingCycle.length > 0) {
-      query += ` AND s."billingCycle" = ANY($${paramIndex})`;
+      query += ` AND s.billing_cycle = ANY($${paramIndex})`;
       params.push(filters.billingCycle);
       paramIndex++;
     }
 
     if (filters.autoRenew !== undefined) {
-      query += ` AND s."autoRenew" = $${paramIndex}`;
+      query += ` AND s.auto_renew = $${paramIndex}`;
       params.push(filters.autoRenew);
       paramIndex++;
     }
 
     if (filters.search) {
-      query += ` AND (t.name ILIKE $${paramIndex} OR s."planName" ILIKE $${paramIndex})`;
+      query += ` AND (t.name ILIKE $${paramIndex} OR s.plan_name ILIKE $${paramIndex})`;
       params.push(`%${filters.search}%`);
       paramIndex++;
     }
 
     if (filters.expiringWithinDays) {
-      query += ` AND s."currentPeriodEnd" <= NOW() + ($${paramIndex}::integer * INTERVAL '1 day')`;
+      query += ` AND s.current_period_end <= NOW() + ($${paramIndex}::integer * INTERVAL '1 day')`;
       params.push(filters.expiringWithinDays);
       paramIndex++;
     }
@@ -137,22 +138,22 @@ export class SubscriptionCoreService {
       `
       SELECT
         s.id,
-        s."tenantId" as "tenantId",
+        s.tenant_id as "tenantId",
         t.name as "tenantName",
-        s."planTier" as "planTier",
-        s."planName" as "planName",
+        s.plan_tier as "planTier",
+        s.plan_name as "planName",
         s.status,
-        s."billingCycle" as "billingCycle",
-        s."currentPeriodStart" as "currentPeriodStart",
-        s."currentPeriodEnd" as "currentPeriodEnd",
+        s.billing_cycle as "billingCycle",
+        s.current_period_start as "currentPeriodStart",
+        s.current_period_end as "currentPeriodEnd",
         (s.pricing->>'basePrice')::decimal as "monthlyPrice",
-        s."autoRenew" as "autoRenew",
-        s."trialEndDate" as "trialEndDate",
-        s."cancelledAt" as "cancelledAt",
+        s.auto_renew as "autoRenew",
+        s.trial_end_date as "trialEndDate",
+        s.cancelled_at as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s."tenantId"
-      WHERE s."tenantId" = $1
+      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
+      WHERE s.tenant_id = $1
     `,
       [tenantId],
     );
@@ -183,13 +184,13 @@ export class SubscriptionCoreService {
         `
         UPDATE billing.subscriptions SET
           status = $1,
-          "cancelledAt" = NOW(),
-          "cancellationReason" = $2,
-          "autoRenew" = false,
-          "endDate" = $3,
+          cancelled_at = NOW(),
+          cancellation_reason = $2,
+          auto_renew = false,
+          end_date = $3,
           "updatedAt" = NOW(),
-          "updatedBy" = $4
-        WHERE "tenantId" = $5
+          updated_by = $4
+        WHERE tenant_id = $5
       `,
         [
           cancelImmediately ? SubscriptionStatus.CANCELLED : subscription.status,
@@ -255,13 +256,13 @@ export class SubscriptionCoreService {
       `
       UPDATE billing.subscriptions SET
         status = 'active',
-        "cancelledAt" = NULL,
-        "cancellationReason" = NULL,
-        "autoRenew" = true,
-        "endDate" = NULL,
+        cancelled_at = NULL,
+        cancellation_reason = NULL,
+        auto_renew = true,
+        end_date = NULL,
         "updatedAt" = NOW(),
-        "updatedBy" = $1
-      WHERE "tenantId" = $2
+        updated_by = $1
+      WHERE tenant_id = $2
     `,
       [reactivatedBy, tenantId],
     );
@@ -300,11 +301,11 @@ export class SubscriptionCoreService {
     await this.dataSource.query(
       `
       UPDATE billing.subscriptions SET
-        "trialEndDate" = $1,
-        "currentPeriodEnd" = $1,
+        trial_end_date = $1,
+        current_period_end = $1,
         "updatedAt" = NOW(),
-        "updatedBy" = $2
-      WHERE "tenantId" = $3
+        updated_by = $2
+      WHERE tenant_id = $3
     `,
       [newTrialEnd, extendedBy, tenantId],
     );
@@ -367,7 +368,7 @@ export class SubscriptionCoreService {
 
     // Check if subscription already exists
     const existingSubscription = await this.dataSource.query(
-      `SELECT id FROM billing.subscriptions WHERE "tenantId" = $1`,
+      `SELECT id FROM billing.subscriptions WHERE tenant_id = $1`,
       [tenantId],
     );
 
@@ -435,17 +436,18 @@ export class SubscriptionCoreService {
     // Execute in transaction
     const subscriptionId = await this.dataSource.transaction(async (manager) => {
       // Create subscription record
+      // billing.subscriptions uses snake_case columns (owned by billing-service)
       const subscriptionResult = await manager.query(
         `
         INSERT INTO billing.subscriptions (
-          id, "tenantId", "planTier", "planName", status, "billingCycle",
-          "currentPeriodStart", "currentPeriodEnd", "trialEndDate",
-          limits, pricing, "autoRenew", currency,
-          "createdAt", "updatedAt", "createdBy"
+          id, tenant_id, plan_tier, plan_name, status, billing_cycle,
+          current_period_start, current_period_end, trial_end_date,
+          limits, pricing, auto_renew, start_date, version,
+          "createdAt", "updatedAt", created_by
         ) VALUES (
           gen_random_uuid(), $1, $2, $3, $4, $5,
           $6, $7, $8,
-          $9, $10, true, $11,
+          $9, $10, true, $6, 1,
           NOW(), NOW(), $12
         )
         RETURNING id
@@ -476,7 +478,7 @@ export class SubscriptionCoreService {
 
         for (const moduleConfig of modules) {
           valuesClauses.push(
-            `(gen_random_uuid(), $1, $${bulkParamIndex}, $${bulkParamIndex + 1}, $${bulkParamIndex + 2}, $${bulkParamIndex + 3}, $${bulkParamIndex + 4}, true, NOW(), NOW())`,
+            `(gen_random_uuid(), $1, $${bulkParamIndex}, $${bulkParamIndex + 1}, $${bulkParamIndex + 2}, $${bulkParamIndex + 3}, $${bulkParamIndex + 4}, 'active', NOW(), NOW())`,
           );
           bulkParams.push(
             moduleConfig.moduleId,
@@ -488,14 +490,15 @@ export class SubscriptionCoreService {
           bulkParamIndex += 5;
         }
 
+        // subscription_module_items uses snake_case columns (owned by billing-service)
         const bulkInsertResult = await manager.query(
           `
           INSERT INTO billing.subscription_module_items (
-            id, "subscriptionId", "moduleId", "moduleCode",
-            quantities, "monthlyPrice", "lineItems",
-            "isActive", "createdAt", "updatedAt"
+            id, subscription_id, module_id, module_code,
+            quantities, subtotal, line_items,
+            status, "createdAt", "updatedAt"
           ) VALUES ${valuesClauses.join(', ')}
-          RETURNING id, "moduleId", "moduleCode"
+          RETURNING id, module_id as "moduleId", module_code as "moduleCode"
         `,
           bulkParams,
         );

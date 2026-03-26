@@ -81,8 +81,17 @@ export async function apiFetch<T>(
         error.code = errorBody.code;
         error.details = errorBody.details;
 
-        // Don't retry client errors (4xx)
+        // Don't retry client errors (4xx) -- they indicate invalid
+        // requests that will fail identically on every attempt.
         if (response.status >= 400 && response.status < 500) {
+          throw error;
+        }
+
+        // Don't retry 500 Internal Server Error -- these indicate
+        // server bugs, not transient infrastructure issues. Retrying
+        // creates unnecessary load on an already-struggling server.
+        // Only 502/503/504 (gateway/unavailable/timeout) are retried.
+        if (response.status === 500) {
           throw error;
         }
 

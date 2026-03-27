@@ -29,7 +29,27 @@ import {
   ID,
   registerEnumType,
 } from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
 import { WaterQualityParameterConfig } from './water-quality-parameter-config.entity';
+
+/**
+ * Lightweight GraphQL type for equipment references.
+ * Avoids circular import of the full Equipment entity.
+ */
+@ObjectType('EquipmentRef')
+class EquipmentRef {
+  @Field(() => ID)
+  id: string;
+
+  @Field()
+  name: string;
+
+  @Field()
+  code: string;
+
+  @Field({ nullable: true })
+  description?: string;
+}
 
 // ============================================================================
 // ENUMS
@@ -119,9 +139,10 @@ export class WaterQualityParamEquipment {
   @JoinColumn({ name: 'parameterConfigId' })
   parameterConfig: WaterQualityParameterConfig;
 
+  @Field(() => EquipmentRef, { nullable: true })
   @ManyToOne('Equipment')
   @JoinColumn({ name: 'equipmentId' })
-  equipment: unknown; // string ref avoids circular import; typed at runtime by TypeORM
+  equipment?: EquipmentRef;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS

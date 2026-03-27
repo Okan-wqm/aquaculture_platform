@@ -23,6 +23,7 @@ import type { ScadaPackageJSON } from '../types';
 const SCREEN_OVERVIEW = 'scr-ras-overview';
 const SCREEN_FEEDING = 'scr-feeding-control';
 const SCREEN_ALARMS = 'scr-alarms';
+const SCREEN_VFD = 'scr-vfd-control';
 
 /* ------------------------------------------------------------------ */
 /*  Widget IDs                                                         */
@@ -48,6 +49,16 @@ const W_ALARM_BANNER = 'w-alarm-banner';
 const W_STATUS_P1 = 'w-status-p1';
 const W_STATUS_P2 = 'w-status-p2';
 const W_STATUS_UV = 'w-status-uv';
+const W_VFD_MINI_P1 = 'w-vfd-mini-p1';
+const W_VFD_MINI_P2 = 'w-vfd-mini-p2';
+
+// Screen 4 — VFD Motor Control
+const W_VFD_HEADER = 'w-vfd-header';
+const W_VFD_DRIVE_P1 = 'w-vfd-drive-p1';
+const W_VFD_DRIVE_P2 = 'w-vfd-drive-p2';
+const W_VFD_GROUP = 'w-vfd-group';
+const W_VFD_TREND = 'w-vfd-trend';
+const W_VFD_STATUS_TEXT = 'w-vfd-status-text';
 // Pipe segments
 const W_PIPE_FT_P1 = 'w-pipe-ft-p1';
 const W_PIPE_P1_DF = 'w-pipe-p1-df';
@@ -604,6 +615,34 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
           zIndex: 60,
         },
 
+        // ---- VFD Mini Widgets (compact drive info next to pumps) ----
+        {
+          id: W_VFD_MINI_P1,
+          widgetType: 'vfdMini',
+          name: 'VFD P1 — Circulation Pump',
+          position: { col: 4, row: 2, w: 2, h: 1 },
+          config: {
+            vfdDeviceId: 'vfd-pump1',
+            displayName: 'P1 VFD',
+            brand: 'ABB',
+            demoState: 'RUNNING',
+          },
+          zIndex: 65,
+        },
+        {
+          id: W_VFD_MINI_P2,
+          widgetType: 'vfdMini',
+          name: 'VFD P2 — Return Pump',
+          position: { col: 4, row: 6, w: 2, h: 1 },
+          config: {
+            vfdDeviceId: 'vfd-pump2',
+            displayName: 'P2 VFD',
+            brand: 'SIEMENS',
+            demoState: 'RUNNING',
+          },
+          zIndex: 65,
+        },
+
         // ---- Status Indicators ----
         {
           id: W_STATUS_P1,
@@ -895,6 +934,135 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
       ],
       edges: [],
     },
+
+    /* ============================================================== */
+    /*  Screen 4: VFD Motor Control                                    */
+    /* ============================================================== */
+    {
+      id: SCREEN_VFD,
+      name: 'VFD Motor Control',
+      screenType: 'control',
+      isDefault: false,
+      icon: 'Zap',
+      layout: { type: 'grid', cols: 12, rows: 10 },
+      widgets: [
+        {
+          id: W_VFD_HEADER,
+          widgetType: 'staticText',
+          name: 'VFD Control Header',
+          position: { col: 0, row: 0, w: 12, h: 1 },
+          config: {
+            text: 'VFD Motor Control \u2014 Remote Programming & Monitoring',
+            fontSize: 20,
+            fontWeight: 'bold',
+            textAlign: 'center',
+            verticalAlign: 'middle',
+            color: '#7c2d12',
+            backgroundColor: '#fff7ed',
+            borderWidth: 0,
+            padding: 8,
+          },
+          zIndex: 90,
+        },
+        {
+          id: W_VFD_DRIVE_P1,
+          widgetType: 'vfdDrive',
+          name: 'VFD \u2014 Circulation Pump P1',
+          position: { col: 0, row: 1, w: 4, h: 5 },
+          config: {
+            vfdDeviceId: 'vfd-pump1',
+            displayName: 'Circulation Pump P1',
+            brand: 'ABB',
+            showQuickActions: true,
+            showTemperature: true,
+            showFrequency: true,
+            showCurrent: true,
+            showSpeed: true,
+            showPower: true,
+            temperatureWarningThreshold: 65,
+            currentWarningThreshold: 25,
+            sizePreset: 'standard',
+            demoState: 'RUNNING',
+          },
+          zIndex: 50,
+        },
+        {
+          id: W_VFD_DRIVE_P2,
+          widgetType: 'vfdDrive',
+          name: 'VFD \u2014 Return Pump P2',
+          position: { col: 4, row: 1, w: 4, h: 5 },
+          config: {
+            vfdDeviceId: 'vfd-pump2',
+            displayName: 'Return Pump P2',
+            brand: 'SIEMENS',
+            showQuickActions: true,
+            showTemperature: true,
+            showFrequency: true,
+            showCurrent: true,
+            showSpeed: true,
+            showPower: true,
+            temperatureWarningThreshold: 70,
+            currentWarningThreshold: 20,
+            sizePreset: 'standard',
+            demoState: 'RUNNING',
+          },
+          zIndex: 50,
+        },
+        {
+          id: W_VFD_GROUP,
+          widgetType: 'vfdGroup',
+          name: 'All VFDs Overview',
+          position: { col: 8, row: 1, w: 4, h: 3 },
+          config: {
+            vfdDeviceIds: ['vfd-pump1', 'vfd-pump2'],
+            title: 'Pump Station VFDs',
+            showTotalPower: true,
+            showAvgFrequency: true,
+          },
+          zIndex: 50,
+        },
+        {
+          id: W_VFD_STATUS_TEXT,
+          widgetType: 'staticText',
+          name: 'VFD Programming Info',
+          position: { col: 8, row: 4, w: 4, h: 2 },
+          config: {
+            text: 'Programming Status\n\u2022 P1: Last change LOW risk\n\u2022 P2: Pending approval \u2014 MEDIUM risk\n\nClick any VFD for remote programming',
+            fontSize: 12,
+            fontWeight: 'normal',
+            textAlign: 'left',
+            verticalAlign: 'top',
+            color: '#374151',
+            backgroundColor: '#f9fafb',
+            borderWidth: 1,
+            padding: 12,
+          },
+          zIndex: 50,
+        },
+        {
+          id: W_VFD_TREND,
+          widgetType: 'trendChart',
+          name: 'VFD Motor Trends',
+          position: { col: 0, row: 6, w: 12, h: 4 },
+          config: {
+            tags: [
+              'vfd_pump1_frequency',
+              'vfd_pump1_current',
+              'vfd_pump1_temperature',
+              'vfd_pump2_frequency',
+              'vfd_pump2_current',
+              'vfd_pump2_temperature',
+            ],
+            showGrid: true,
+            showLegend: true,
+            defaultRange: '4h',
+            chartHeightMode: 'auto',
+          },
+          zIndex: 40,
+        },
+      ],
+      edges: [],
+    },
   ],
 
   /* ================================================================ */
@@ -961,6 +1129,66 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
       deadband: 0.1,
       delay: 5,
     },
+    {
+      id: 'alarm-vfd-p1-overtemp',
+      tag: 'vfd_pump1_temperature',
+      condition: '>',
+      value: 70,
+      severity: 'critical',
+      message: 'VFD P1 drive overtemperature - risk of shutdown',
+      deadband: 2,
+      delay: 5,
+    },
+    {
+      id: 'alarm-vfd-p1-overcurrent',
+      tag: 'vfd_pump1_current',
+      condition: '>',
+      value: 25,
+      severity: 'warning',
+      message: 'VFD P1 current above rated - check motor load',
+      deadband: 1,
+      delay: 10,
+    },
+    {
+      id: 'alarm-vfd-p2-overtemp',
+      tag: 'vfd_pump2_temperature',
+      condition: '>',
+      value: 75,
+      severity: 'critical',
+      message: 'VFD P2 drive overtemperature - risk of shutdown',
+      deadband: 2,
+      delay: 5,
+    },
+    {
+      id: 'alarm-vfd-p2-overcurrent',
+      tag: 'vfd_pump2_current',
+      condition: '>',
+      value: 20,
+      severity: 'warning',
+      message: 'VFD P2 current above rated - check motor load',
+      deadband: 1,
+      delay: 10,
+    },
+    {
+      id: 'alarm-vfd-p1-fault',
+      tag: 'vfd_pump1_fault',
+      condition: '>',
+      value: 0,
+      severity: 'critical',
+      message: 'VFD P1 FAULT - check fault code on drive panel',
+      deadband: 0,
+      delay: 0,
+    },
+    {
+      id: 'alarm-vfd-p2-fault',
+      tag: 'vfd_pump2_fault',
+      condition: '>',
+      value: 0,
+      severity: 'critical',
+      message: 'VFD P2 FAULT - check fault code on drive panel',
+      deadband: 0,
+      delay: 0,
+    },
   ],
 
   /* ================================================================ */
@@ -995,6 +1223,12 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
       'co2_level',
       'feed_rate',
       'feed_total_daily',
+      'vfd_pump1_frequency',
+      'vfd_pump1_current',
+      'vfd_pump1_temperature',
+      'vfd_pump2_frequency',
+      'vfd_pump2_current',
+      'vfd_pump2_temperature',
     ],
   },
 };

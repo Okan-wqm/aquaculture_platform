@@ -112,6 +112,7 @@ export interface WaterQualityFilters {
   pondId?: string;
   siteId?: string;
   batchId?: string;
+  systemId?: string;
   status?: WaterQualityStatus;
   source?: MeasurementSource;
   fromDate?: string;
@@ -420,6 +421,95 @@ export function useWaterQualityStatistics(tankId: string | null, days: number = 
     },
     enabled: !!token && !!tankId,
     staleTime: 300000, // 5 minute cache for statistics
+  });
+}
+
+// ============================================================================
+// SYSTEM-LEVEL HOOKS
+// ============================================================================
+
+const GET_WATER_QUALITY_CHART_BY_SYSTEM = `
+  query WaterQualityChartBySystem($systemId: ID!, $fromDate: DateTime!, $toDate: DateTime!) {
+    waterQualityChartBySystem(systemId: $systemId, fromDate: $fromDate, toDate: $toDate) {
+      id
+      measuredAt
+      tankId
+      temperature
+      dissolvedOxygen
+      pH
+      ammonia
+      nitrite
+      overallStatus
+      parameters
+    }
+  }
+`;
+
+const GET_WATER_QUALITY_STATISTICS_BY_SYSTEM = `
+  query WaterQualityStatisticsBySystem($systemId: ID!, $days: Int) {
+    waterQualityStatisticsBySystem(systemId: $systemId, days: $days) {
+      avgTemperature
+      avgDO
+      avgPH
+      avgAmmonia
+      avgNitrite
+      measurementCount
+      criticalCount
+      warningCount
+      lastMeasurement {
+        ${WATER_QUALITY_FRAGMENT}
+      }
+    }
+  }
+`;
+
+/**
+ * Fetch chart data for all tanks in a system
+ */
+export function useWaterQualityChartBySystem(
+  systemId: string | null,
+  fromDate: Date | null,
+  toDate: Date | null,
+) {
+  const { token } = useAuth();
+
+  return useQuery({
+    queryKey: ['waterQuality', 'chartBySystem', systemId, fromDate?.toISOString(), toDate?.toISOString()],
+    queryFn: async () => {
+      if (!systemId || !fromDate || !toDate) return [];
+      const response = await graphqlClient.request<{
+        waterQualityChartBySystem: WaterQualityMeasurement[];
+      }>(GET_WATER_QUALITY_CHART_BY_SYSTEM, {
+        systemId,
+        fromDate: fromDate.toISOString(),
+        toDate: toDate.toISOString(),
+      });
+      return response.waterQualityChartBySystem;
+    },
+    enabled: !!token && !!systemId && !!fromDate && !!toDate,
+  });
+}
+
+/**
+ * Fetch aggregate statistics for all tanks in a system
+ */
+export function useWaterQualityStatisticsBySystem(
+  systemId: string | null,
+  days: number = 7,
+) {
+  const { token } = useAuth();
+
+  return useQuery({
+    queryKey: ['waterQuality', 'statisticsBySystem', systemId, days],
+    queryFn: async () => {
+      if (!systemId) return null;
+      const response = await graphqlClient.request<{
+        waterQualityStatisticsBySystem: WaterQualityStatistics;
+      }>(GET_WATER_QUALITY_STATISTICS_BY_SYSTEM, { systemId, days });
+      return response.waterQualityStatisticsBySystem;
+    },
+    enabled: !!token && !!systemId,
+    staleTime: 300000,
   });
 }
 

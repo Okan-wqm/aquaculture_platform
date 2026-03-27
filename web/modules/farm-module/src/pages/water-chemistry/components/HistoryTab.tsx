@@ -22,6 +22,8 @@ import {
   useWaterQualityList,
   useWaterQualityChart,
   useWaterQualityStatistics,
+  useWaterQualityChartBySystem,
+  useWaterQualityStatisticsBySystem,
   getStatusColor,
   getStatusLabel,
   getSourceLabel,
@@ -31,6 +33,7 @@ import {
   type WaterQualityMeasurement,
 } from '../../../hooks/useWaterQuality';
 import { useTanksList } from '../../../hooks/useTanks';
+import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
 
 // ============================================================================
@@ -126,8 +129,10 @@ function resolveParameterValue(m: WaterQualityMeasurement, code: string): number
 // ============================================================================
 
 export const HistoryTab: React.FC = () => {
-  // Filter state
+  // View mode: individual tank or aggregate system
+  const [viewMode, setViewMode] = useState<'tank' | 'system'>('tank');
   const [selectedTankId, setSelectedTankId] = useState('');
+  const [selectedSystemId, setSelectedSystemId] = useState('');
   const [days, setDays] = useState(30);
   const [customRange, setCustomRange] = useState(false);
   const [customFrom, setCustomFrom] = useState('');
@@ -151,6 +156,11 @@ export const HistoryTab: React.FC = () => {
   // Data hooks
   const { data: tanksData } = useTanksList();
   const tanks = tanksData?.items ?? [];
+  const { data: systemsData } = useSystemList();
+  const systems = systemsData?.items ?? [];
+
+  // Active selection depends on view mode
+  const activeId = viewMode === 'tank' ? selectedTankId : selectedSystemId;
 
   // Dynamic parameter configs with fallback
   const { data: paramConfigs } = useParameterConfigList({ isActive: true });
@@ -161,25 +171,40 @@ export const HistoryTab: React.FC = () => {
     return configs.length > 0 ? configs : FALLBACK_COLUMNS;
   }, [paramConfigs]);
 
-  const statisticsQuery = useWaterQualityStatistics(
-    selectedTankId || null,
+  // Tank-level hooks (only active in tank mode)
+  const tankStatsQuery = useWaterQualityStatistics(
+    viewMode === 'tank' ? (selectedTankId || null) : null,
     days,
   );
-
-  const chartQuery = useWaterQualityChart(
-    selectedTankId || null,
-    selectedTankId ? fromDate : null,
-    selectedTankId ? toDate : null,
+  const tankChartQuery = useWaterQualityChart(
+    viewMode === 'tank' ? (selectedTankId || null) : null,
+    viewMode === 'tank' && selectedTankId ? fromDate : null,
+    viewMode === 'tank' && selectedTankId ? toDate : null,
   );
 
+  // System-level hooks (only active in system mode)
+  const systemStatsQuery = useWaterQualityStatisticsBySystem(
+    viewMode === 'system' ? (selectedSystemId || null) : null,
+    days,
+  );
+  const systemChartQuery = useWaterQualityChartBySystem(
+    viewMode === 'system' ? (selectedSystemId || null) : null,
+    viewMode === 'system' && selectedSystemId ? fromDate : null,
+    viewMode === 'system' && selectedSystemId ? toDate : null,
+  );
+
+  // Unified references for the rest of the component
+  const statisticsQuery = viewMode === 'tank' ? tankStatsQuery : systemStatsQuery;
+  const chartQuery = viewMode === 'tank' ? tankChartQuery : systemChartQuery;
+
   const listFilters = useMemo<WaterQualityFilters>(() => ({
-    tankId: selectedTankId || undefined,
+    ...(viewMode === 'tank' ? { tankId: selectedTankId || undefined } : { systemId: selectedSystemId || undefined }),
     status: (statusFilter as WaterQualityStatus) || undefined,
     fromDate: fromDate.toISOString(),
     toDate: toDate.toISOString(),
     limit: PAGE_SIZE,
     offset: (page - 1) * PAGE_SIZE,
-  }), [selectedTankId, statusFilter, fromDate, toDate, page]);
+  }), [viewMode, selectedTankId, selectedSystemId, statusFilter, fromDate, toDate, page]);
 
   const listQuery = useWaterQualityList(listFilters);
 
@@ -259,19 +284,61 @@ export const HistoryTab: React.FC = () => {
       {/* Filter Bar */}
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex flex-wrap items-center gap-4">
-          {/* Tank Select */}
+          {/* View Mode Toggle */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tank</label>
-            <select
-              value={selectedTankId}
-              onChange={handleTankChange}
-              className="block w-full min-w-[200px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            >
-              <option value="">All Tanks</option>
-              {tanks.map((t) => (
-                <option key={t.id} value={t.id}>{t.name || t.code}</option>
-              ))}
-            </select>
+            <label className="block text-sm font-medium text-gray-700 mb-1">View</label>
+            <div className="flex rounded-md shadow-sm">
+              <button
+                onClick={() => { setViewMode('tank'); setSelectedSystemId(''); }}
+                className={`px-3 py-2 text-sm font-medium rounded-l-md border ${
+                  viewMode === 'tank'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Tank
+              </button>
+              <button
+                onClick={() => { setViewMode('system'); setSelectedTankId(''); }}
+                className={`px-3 py-2 text-sm font-medium rounded-r-md border-t border-b border-r ${
+                  viewMode === 'system'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                System
+              </button>
+            </div>
+          </div>
+
+          {/* Tank / System Select */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {viewMode === 'tank' ? 'Tank' : 'System'}
+            </label>
+            {viewMode === 'tank' ? (
+              <select
+                value={selectedTankId}
+                onChange={handleTankChange}
+                className="block w-full min-w-[200px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="">All Tanks</option>
+                {tanks.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name || t.code}</option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={selectedSystemId}
+                onChange={(e) => { setSelectedSystemId(e.target.value); setPage(1); }}
+                className="block w-full min-w-[200px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="">Select System...</option>
+                {systems.map((s: { id: string; name: string; code?: string; type?: string }) => (
+                  <option key={s.id} value={s.id}>{s.name}{s.type ? ` (${s.type})` : ''}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Time Range Buttons */}
@@ -345,7 +412,7 @@ export const HistoryTab: React.FC = () => {
       </div>
 
       {/* Statistics Cards */}
-      {selectedTankId && (
+      {activeId && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {statCards.map((config: ParameterConfig) => {
             const statField = STAT_FIELD_MAP[config.code];
@@ -385,7 +452,7 @@ export const HistoryTab: React.FC = () => {
       )}
 
       {/* Trend Chart */}
-      {selectedTankId && (
+      {activeId && (
         <div className="bg-white rounded-lg shadow p-4">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Water Quality Trends</h3>
           {chartQuery.isLoading ? (

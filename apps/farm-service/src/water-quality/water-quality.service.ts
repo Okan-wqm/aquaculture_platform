@@ -8,9 +8,10 @@
  */
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource } from './entities/water-quality-measurement.entity';
+import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 
 // ============================================================================
@@ -63,6 +64,7 @@ export interface WaterQualityFilters {
   pondId?: string;
   siteId?: string;
   batchId?: string;
+  systemId?: string;
   status?: WaterQualityStatus;
   source?: MeasurementSource;
   fromDate?: Date;
@@ -84,6 +86,8 @@ export class WaterQualityService {
   constructor(
     @InjectRepository(WaterQualityMeasurement)
     private readonly repository: Repository<WaterQualityMeasurement>,
+    @InjectRepository(Tank)
+    private readonly tankRepository: Repository<Tank>,
     private readonly evaluationService: WaterQualityEvaluationService,
   ) {}
 
@@ -169,6 +173,7 @@ export class WaterQualityService {
       pondId,
       siteId,
       batchId,
+      systemId,
       status,
       source,
       fromDate,
@@ -179,7 +184,20 @@ export class WaterQualityService {
 
     const where: FindOptionsWhere<WaterQualityMeasurement> = { tenantId };
 
-    if (tankId) where.tankId = tankId;
+    // System-level: find all tanks in the system, then filter by those tankIds
+    if (systemId) {
+      const tanks = await this.tankRepository.find({
+        where: { tenantId, systemId } as FindOptionsWhere<Tank>,
+        select: ['id'],
+      });
+      const tankIds = tanks.map(t => t.id);
+      if (tankIds.length === 0) {
+        return createStandardPaginatedResult([], 0, 1, limit);
+      }
+      where.tankId = In(tankIds);
+    } else if (tankId) {
+      where.tankId = tankId;
+    }
     if (pondId) where.pondId = pondId;
     if (siteId) where.siteId = siteId;
     if (batchId) where.batchId = batchId;
@@ -384,6 +402,106 @@ export class WaterQualityService {
       measurementCount: parseInt(stats.measurementCount) || 0,
       criticalCount: parseInt(stats.criticalCount) || 0,
       warningCount: parseInt(stats.warningCount) || 0,
+      lastMeasurement,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // SYSTEM-LEVEL QUERIES
+  // -------------------------------------------------------------------------
+
+  /**
+   * Get chart data for all tanks in a system
+   */
+  async findBySystemForChart(
+    tenantId: string,
+    systemId: string,
+    fromDate: Date,
+    toDate: Date,
+  ): Promise<WaterQualityMeasurement[]> {
+    const tanks = await this.tankRepository.find({
+      where: { tenantId, systemId } as FindOptionsWhere<Tank>,
+      select: ['id'],
+    });
+    const tankIds = tanks.map(t => t.id);
+    if (tankIds.length === 0) return [];
+
+    return this.repository.find({
+      where: {
+        tenantId,
+        tankId: In(tankIds),
+        measuredAt: Between(fromDate, toDate),
+      },
+      order: { measuredAt: 'ASC' },
+      select: ['id', 'measuredAt', 'tankId', 'temperature', 'dissolvedOxygen', 'pH', 'ammonia', 'nitrite', 'overallStatus', 'parameters'],
+      relations: ['tank'],
+    });
+  }
+
+  /**
+   * Get aggregate statistics for all tanks in a system
+   */
+  async getSystemStatistics(
+    tenantId: string,
+    systemId: string,
+    days: number = 7,
+  ): Promise<{
+    avgTemperature: number | null;
+    avgDO: number | null;
+    avgPH: number | null;
+    avgAmmonia: number | null;
+    avgNitrite: number | null;
+    measurementCount: number;
+    criticalCount: number;
+    warningCount: number;
+    lastMeasurement: WaterQualityMeasurement | null;
+  }> {
+    const tanks = await this.tankRepository.find({
+      where: { tenantId, systemId } as FindOptionsWhere<Tank>,
+      select: ['id'],
+    });
+    const tankIds = tanks.map(t => t.id);
+    if (tankIds.length === 0) {
+      return {
+        avgTemperature: null, avgDO: null, avgPH: null,
+        avgAmmonia: null, avgNitrite: null,
+        measurementCount: 0, criticalCount: 0, warningCount: 0,
+        lastMeasurement: null,
+      };
+    }
+
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - days);
+
+    const stats = await this.repository
+      .createQueryBuilder('wq')
+      .select('AVG(wq.temperature)', 'avgTemperature')
+      .addSelect('AVG(wq.dissolvedOxygen)', 'avgDO')
+      .addSelect('AVG(wq.pH)', 'avgPH')
+      .addSelect('AVG(wq.ammonia)', 'avgAmmonia')
+      .addSelect('AVG(wq.nitrite)', 'avgNitrite')
+      .addSelect('COUNT(*)', 'measurementCount')
+      .addSelect("SUM(CASE WHEN wq.\"overallStatus\" = 'critical' THEN 1 ELSE 0 END)", 'criticalCount')
+      .addSelect("SUM(CASE WHEN wq.\"overallStatus\" = 'warning' THEN 1 ELSE 0 END)", 'warningCount')
+      .where('wq.tenantId = :tenantId', { tenantId })
+      .andWhere('wq.tankId IN (:...tankIds)', { tankIds })
+      .andWhere('wq.measuredAt >= :fromDate', { fromDate })
+      .getRawOne();
+
+    const lastMeasurement = await this.repository.findOne({
+      where: { tenantId, tankId: In(tankIds) },
+      order: { measuredAt: 'DESC' },
+    });
+
+    return {
+      avgTemperature: stats?.avgTemperature ? parseFloat(stats.avgTemperature) : null,
+      avgDO: stats?.avgDO ? parseFloat(stats.avgDO) : null,
+      avgPH: stats?.avgPH ? parseFloat(stats.avgPH) : null,
+      avgAmmonia: stats?.avgAmmonia ? parseFloat(stats.avgAmmonia) : null,
+      avgNitrite: stats?.avgNitrite ? parseFloat(stats.avgNitrite) : null,
+      measurementCount: parseInt(stats?.measurementCount) || 0,
+      criticalCount: parseInt(stats?.criticalCount) || 0,
+      warningCount: parseInt(stats?.warningCount) || 0,
       lastMeasurement,
     };
   }

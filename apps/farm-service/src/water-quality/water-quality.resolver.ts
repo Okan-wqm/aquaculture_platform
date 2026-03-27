@@ -141,6 +141,33 @@ export class WaterQualityResolver {
     return this.waterQualityService.getTankStatistics(tenantId, tankId, days);
   }
 
+  /**
+   * System-level chart data — aggregates all tanks in a production system
+   */
+  @Query(() => [WaterQualityMeasurement], { name: 'waterQualityChartBySystem' })
+  async getWaterQualityChartBySystem(
+    @Args('systemId', { type: () => ID }) systemId: string,
+    @Args('fromDate') fromDate: Date,
+    @Args('toDate') toDate: Date,
+    @CurrentTenant() tenantId: string,
+  ): Promise<WaterQualityMeasurement[]> {
+    this.logger.debug(`Getting water quality chart data for system: ${systemId}`);
+    return this.waterQualityService.findBySystemForChart(tenantId, systemId, fromDate, toDate);
+  }
+
+  /**
+   * System-level statistics — aggregate stats across all tanks in a system
+   */
+  @Query(() => WaterQualityStatistics, { name: 'waterQualityStatisticsBySystem' })
+  async getWaterQualityStatisticsBySystem(
+    @Args('systemId', { type: () => ID }) systemId: string,
+    @Args('days', { type: () => Int, defaultValue: 7 }) days: number,
+    @CurrentTenant() tenantId: string,
+  ): Promise<WaterQualityStatistics> {
+    this.logger.debug(`Getting water quality statistics for system: ${systemId}, days: ${days}`);
+    return this.waterQualityService.getSystemStatistics(tenantId, systemId, days);
+  }
+
   // -------------------------------------------------------------------------
   // MUTATIONS
   // -------------------------------------------------------------------------

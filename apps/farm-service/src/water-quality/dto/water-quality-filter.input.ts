@@ -28,6 +28,11 @@ export class WaterQualityFilterInput {
   @IsUUID()
   batchId?: string;
 
+  @Field(() => ID, { nullable: true, description: 'System ID — aggregates all equipment in the system' })
+  @IsOptional()
+  @IsUUID()
+  systemId?: string;
+
   @Field(() => WaterQualityStatus, { nullable: true, description: 'Durum filtresi' })
   @IsOptional()
   @IsEnum(WaterQualityStatus)

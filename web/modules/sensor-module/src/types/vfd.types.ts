@@ -833,3 +833,192 @@ export const VFD_DEFAULT_BACNET_IP_CONFIG: BacnetIpConfig = {
   maxApduLength: 1476,
   segmentationSupported: true,
 };
+
+// ============================================================================
+// VFD Remote Programming Types (Phase 4-9)
+// ============================================================================
+
+// Parameter categories used in the programming UI (superset of monitoring categories)
+export enum VfdProgrammingParameterCategory {
+  MOTOR = 'MOTOR',
+  CONTROL = 'CONTROL',
+  COMMUNICATION = 'COMMUNICATION',
+  PROTECTION = 'PROTECTION',
+  SPEED = 'SPEED',
+  TORQUE = 'TORQUE',
+  IO = 'IO',
+  PID = 'PID',
+  APPLICATION = 'APPLICATION',
+  DISPLAY = 'DISPLAY',
+  NETWORK = 'NETWORK',
+}
+
+export enum VfdChangeSetStatus {
+  DRAFT = 'DRAFT',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  APPLYING = 'APPLYING',
+  APPLIED = 'APPLIED',
+  PARTIALLY_APPLIED = 'PARTIALLY_APPLIED',
+  FAILED = 'FAILED',
+  ROLLED_BACK = 'ROLLED_BACK',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum VfdRiskLevel {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export interface VfdParameterGroup {
+  name: string;
+  displayName: string;
+  description: string;
+  parameterCount: number;
+}
+
+/**
+ * Parameter definition used in the VFD programming UI.
+ * Maps to backend VfdParameterDefinitionEntity.
+ */
+export interface VfdParameterDefinition {
+  id: string;
+  tenantId: string;
+  brand: string;
+  modelSeries: string;
+  parameterName: string;
+  displayName: string;
+  description: string;
+  category: string;
+  group: string;
+  registerAddress: number;
+  registerCount: number;
+  functionCode: number;
+  dataType: string;
+  scalingFactor: number;
+  offset: number;
+  unit: string;
+  byteOrder: string;
+  wordOrder: string;
+  minValue: number | null;
+  maxValue: number | null;
+  defaultValue: number | null;
+  step: number | null;
+  riskLevel: VfdRiskLevel;
+  requiresMotorStop: boolean;
+  isReadable: boolean;
+  isWritable: boolean;
+  isActive: boolean;
+  displayOrder: number;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Runtime field: current value read from device */
+  currentValue?: number;
+}
+
+export interface VfdChangeSetItem {
+  id: string;
+  changeSetId: string;
+  parameterDefinitionId: string;
+  parameterName: string;
+  previousValue: number | null;
+  requestedValue: number;
+  appliedValue: number | null;
+  status: string;
+  errorMessage: string | null;
+  appliedAt: string | null;
+  createdAt: string;
+}
+
+export interface VfdChangeSet {
+  id: string;
+  tenantId: string;
+  vfdDeviceId: string;
+  status: VfdChangeSetStatus;
+  description: string;
+  createdBy: string;
+  approvedBy: string | null;
+  rejectedBy: string | null;
+  rejectionReason: string | null;
+  appliedAt: string | null;
+  verifiedAt: string | null;
+  scheduledAt: string | null;
+  automationRuleId: string | null;
+  rollbackOfId: string | null;
+  metadata: Record<string, unknown> | null;
+  items: VfdChangeSetItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VfdParameterAuditLog {
+  id: string;
+  tenantId: string;
+  vfdDeviceId: string;
+  changeSetId: string | null;
+  parameterName: string;
+  previousValue: number | null;
+  newValue: number;
+  action: string;
+  performedBy: string;
+  clientIp: string | null;
+  userAgent: string | null;
+  automationRuleId: string | null;
+  metadata: Record<string, unknown> | null;
+  timestamp: string;
+}
+
+export interface VfdAutomationRule {
+  id: string;
+  tenantId: string;
+  name: string;
+  description: string;
+  triggerCondition: Record<string, unknown>;
+  targetVfdDeviceIds: string[];
+  parameterChanges: Record<string, unknown>[];
+  requiresApproval: boolean;
+  priority: number;
+  isActive: boolean;
+  lastTriggeredAt: string | null;
+  triggerCount: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateChangeSetInput {
+  vfdDeviceId: string;
+  description: string;
+  scheduledAt?: string | null;
+  items: CreateChangeSetItemInput[];
+}
+
+export interface CreateChangeSetItemInput {
+  parameterDefinitionId: string;
+  parameterName: string;
+  requestedValue: number;
+}
+
+export interface CreateAutomationRuleInput {
+  name: string;
+  description: string;
+  triggerCondition: Record<string, unknown>;
+  targetVfdDeviceIds: string[];
+  parameterChanges: Record<string, unknown>[];
+  requiresApproval: boolean;
+  priority: number;
+}
+
+export interface UpdateAutomationRuleInput {
+  name?: string;
+  description?: string;
+  triggerCondition?: Record<string, unknown>;
+  targetVfdDeviceIds?: string[];
+  parameterChanges?: Record<string, unknown>[];
+  requiresApproval?: boolean;
+  priority?: number;
+}

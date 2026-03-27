@@ -45,6 +45,9 @@ const PlcConnectionsPage = lazy(() => import('./pages/plc/PlcConnectionsPage'));
 const PlcFeedingParamsPage = lazy(() => import('./pages/plc/PlcFeedingParamsPage'));
 const PlcAlarmsPage = lazy(() => import('./pages/plc/PlcAlarmsPage'));
 
+// VFD Programming Page (lazy loaded)
+const VfdProgrammingPage = lazy(() => import('./pages/VfdProgrammingPage'));
+
 // Loading fallback
 function PageLoader() {
   return (
@@ -123,6 +126,10 @@ const SensorModule: React.FC = () => {
         <Route path="plc/connections" element={<PlcConnectionsPage />} />
         <Route path="plc/feeding" element={<PlcFeedingParamsPage />} />
         <Route path="plc/alarms" element={<PlcAlarmsPage />} />
+
+        {/* VFD Programming */}
+        <Route path="vfd-programming" element={<VfdProgrammingPage />} />
+        <Route path="vfd-programming/:deviceId" element={<VfdProgrammingPage />} />
 
         {/* Unknown routes */}
         <Route path="*" element={<Navigate to="/sensor" replace />} />

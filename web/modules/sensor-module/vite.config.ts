@@ -23,6 +23,7 @@ export default defineConfig({
         './Devices': './src/pages/DevicesPage.tsx',
         './Readings': './src/pages/ReadingsPage.tsx',
         './Alerts': './src/pages/AlertsPage.tsx',
+        './VfdProgramming': './src/pages/VfdProgrammingPage.tsx',
       },
       shared: {
         react: { singleton: true, requiredVersion: '^18.2.0' },

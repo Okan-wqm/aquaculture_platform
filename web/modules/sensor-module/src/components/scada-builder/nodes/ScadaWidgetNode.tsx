@@ -30,6 +30,7 @@ import {
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
 import { useScadaPackageStore } from '../../../store/scadaPackageStore';
+import type { SimTagValue } from '../../../store/scada/types';
 // FIX: useScadaRuntime throw eder — doğrudan context kullanarak Rules of Hooks ihlalini önlüyoruz
 // FIX: useScadaRuntime throws — use context directly to prevent Rules of Hooks violation
 import { ScadaRuntimeContext } from '../../../engine/ScadaRuntime';
@@ -53,7 +54,7 @@ const NOOP_EVENT_BUS: WidgetEventBus = {
   register: () => () => {},
   dispatch: () => {},
   clear: () => {},
-} as WidgetEventBus;
+} as unknown as WidgetEventBus;
 
 /* ------------------------------------------------------------------ */
 /*  Size constraints per widget type (from centralized constants)      */
@@ -233,8 +234,8 @@ const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, s
           pressTimerRef.current = null;
           useScadaPackageStore.getState().setSimTagValue(tagName, false);
         }, 200);
-      } else if (command === 'writeTag' && value !== undefined) {
-        store.setSimTagValue(tagName, value);
+      } else if (command === 'writeTag' && value !== undefined && value !== null) {
+        store.setSimTagValue(tagName, value as SimTagValue);
       }
     }
   }, [tagName]);

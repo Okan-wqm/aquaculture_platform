@@ -414,7 +414,7 @@ export const SimulationSidebar: React.FC = () => {
       for (const vb of currentBinding.variableBindings) {
         if ((vb.scope === 'INPUT' || vb.scope === 'INOUT') && vb.boundTag) {
           const val = store.simTagValues[vb.boundTag];
-          if (val !== undefined) {
+          if (val !== undefined && val !== null) {
             simulation.setInputDirect(vb.varName, val);
           }
         }

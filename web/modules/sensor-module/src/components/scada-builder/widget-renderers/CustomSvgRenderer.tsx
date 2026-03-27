@@ -13,7 +13,7 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 // SVG sanitizasyon konfigurasyonu -- XSS vektorlerini engeller
 // Security config: foreignObject, script, iframe gibi tehlikeli tag'lar yasakli
 // FORBID_ATTR: xlink:href data-URI injection, formaction hijacking onler
-const DOMPURIFY_CONFIG: DOMPurify.Config = {
+const DOMPURIFY_CONFIG: Parameters<typeof DOMPurify.sanitize>[1] = {
   USE_PROFILES: { svg: true, svgFilters: true },
   FORBID_TAGS: ['foreignObject', 'script', 'iframe', 'embed', 'object', 'base', 'form'],
   FORBID_ATTR: ['xlink:href', 'formaction', 'action', 'srcdoc'],
@@ -31,7 +31,7 @@ const DOMPURIFY_CONFIG: DOMPurify.Config = {
  * Enterprise-grade: DOMPurify DOM parser kullanir, regex bypass edilemez
  */
 function sanitizeSvg(raw: string): string {
-  return DOMPurify.sanitize(raw, DOMPURIFY_CONFIG);
+  return DOMPurify.sanitize(raw, DOMPURIFY_CONFIG) as unknown as string;
 }
 
 const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({

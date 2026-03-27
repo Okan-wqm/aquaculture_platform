@@ -26,7 +26,7 @@ const MAX_SVG_SIZE_BYTES = 500 * 1024; // 500KB
 
 // DOMPurify config -- must match the renderer's config exactly so that
 // what is stored is identical to what is rendered after re-sanitization
-const DOMPURIFY_CONFIG: DOMPurify.Config = {
+const DOMPURIFY_CONFIG: Parameters<typeof DOMPurify.sanitize>[1] = {
   USE_PROFILES: { svg: true, svgFilters: true },
   FORBID_TAGS: ['foreignObject', 'script', 'iframe', 'embed', 'object', 'base', 'form'],
   FORBID_ATTR: ['xlink:href', 'formaction', 'action', 'srcdoc'],
@@ -78,7 +78,7 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
     }
 
     // Security: sanitize at upload time so malicious content never enters the store
-    const sanitized = DOMPurify.sanitize(text, DOMPURIFY_CONFIG);
+    const sanitized = DOMPurify.sanitize(text, DOMPURIFY_CONFIG) as unknown as string;
 
     // Extract viewBox dimensions if available
     const vbMatch = sanitized.match(/viewBox\s*=\s*["']([^"']+)["']/);

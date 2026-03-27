@@ -268,7 +268,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
         const pngBytes = new Uint8Array(arrayBuffer);
         const pdfBytes = buildPdfFromPng(pngBytes, width * resolution, height * resolution);
 
-        const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const pdfBlob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
         const url = URL.createObjectURL(pdfBlob);
         const anchor = document.createElement('a');
         anchor.href = url;

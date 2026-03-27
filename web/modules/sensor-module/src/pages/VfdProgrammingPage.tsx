@@ -231,7 +231,7 @@ export function VfdProgrammingPage() {
               error={automationHook.error}
               onToggle={automationHook.toggleRule}
               onDelete={automationHook.deleteRule}
-              onCreate={automationHook.createRule as (input: Record<string, unknown>) => Promise<unknown>}
+              onCreate={automationHook.createRule as unknown as (input: Record<string, unknown>) => Promise<unknown>}
               onUpdate={automationHook.updateRule as (id: string, input: Record<string, unknown>) => Promise<unknown>}
             />
           </div>

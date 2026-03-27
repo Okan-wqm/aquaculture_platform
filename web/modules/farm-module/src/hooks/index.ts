@@ -160,3 +160,4 @@ export {
 export * from './useWeather';
 export * from './useWorkers';
 export * from './useAOIDrawing';
+export * from './useParameterConfigs';

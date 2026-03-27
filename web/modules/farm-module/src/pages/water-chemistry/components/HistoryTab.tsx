@@ -3,6 +3,9 @@
  *
  * Shows historical water quality measurements with statistics,
  * trend charts (Recharts), and a paginated data table.
+ *
+ * Uses dynamic parameter configs when available, falling back to
+ * hardcoded columns (Temp, DO, pH, NH3, NO2) for backward compatibility.
  */
 import React, { useState, useMemo } from 'react';
 import {
@@ -25,8 +28,10 @@ import {
   formatParameterValue,
   type WaterQualityFilters,
   type WaterQualityStatus,
+  type WaterQualityMeasurement,
 } from '../../../hooks/useWaterQuality';
 import { useTanksList } from '../../../hooks/useTanks';
+import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
 
 // ============================================================================
 // CONSTANTS
@@ -46,6 +51,27 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'WARNING', label: 'Warning' },
   { value: 'CRITICAL', label: 'Critical' },
 ];
+
+// ============================================================================
+// FALLBACK HARDCODED CONFIGS (used when dynamic configs are not yet loaded)
+// ============================================================================
+
+const FALLBACK_COLUMNS: ParameterConfig[] = [
+  { id: 'fb-temp', code: 'temperature', name: 'Temp', unit: '\u00B0C', dataType: 'number', precision: 1, group: 'basic', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#3b82f6', icon: null, displayOrder: 1, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
+  { id: 'fb-do', code: 'dissolvedOxygen', name: 'DO', unit: 'mg/L', dataType: 'number', precision: 1, group: 'basic', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#22c55e', icon: null, displayOrder: 2, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
+  { id: 'fb-ph', code: 'pH', name: 'pH', unit: '', dataType: 'number', precision: 2, group: 'basic', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#8b5cf6', icon: null, displayOrder: 3, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
+  { id: 'fb-nh3', code: 'ammonia', name: 'NH\u2083', unit: 'mg/L', dataType: 'number', precision: 3, group: 'nitrogen_cycle', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#ef4444', icon: null, displayOrder: 4, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'right', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
+  { id: 'fb-no2', code: 'nitrite', name: 'NO\u2082', unit: 'mg/L', dataType: 'number', precision: 3, group: 'nitrogen_cycle', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#f97316', icon: null, displayOrder: 5, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'right', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
+];
+
+/** Maps parameter codes to the fixed statistics API fields */
+const STAT_FIELD_MAP: Record<string, 'avgTemperature' | 'avgDO' | 'avgPH' | 'avgAmmonia' | 'avgNitrite'> = {
+  temperature: 'avgTemperature',
+  dissolvedOxygen: 'avgDO',
+  pH: 'avgPH',
+  ammonia: 'avgAmmonia',
+  nitrite: 'avgNitrite',
+};
 
 // ============================================================================
 // HELPERS
@@ -74,6 +100,25 @@ function formatShortDate(dateStr: string): string {
   } catch {
     return dateStr;
   }
+}
+
+/**
+ * Resolve a parameter value from a measurement, checking both the
+ * top-level shorthand fields and the nested `parameters` JSONB.
+ */
+function resolveParameterValue(m: WaterQualityMeasurement, code: string): number | null {
+  // Top-level shorthand fields
+  const topLevel = m[code as keyof WaterQualityMeasurement];
+  if (topLevel != null && typeof topLevel === 'number') return topLevel;
+
+  // Nested parameters JSONB
+  const params = m.parameters as Record<string, unknown> | undefined;
+  if (params) {
+    const nested = params[code];
+    if (nested != null && typeof nested === 'number') return nested;
+  }
+
+  return null;
 }
 
 // ============================================================================
@@ -107,6 +152,15 @@ export const HistoryTab: React.FC = () => {
   const { data: tanksData } = useTanksList();
   const tanks = tanksData?.items ?? [];
 
+  // Dynamic parameter configs with fallback
+  const { data: paramConfigs } = useParameterConfigList({ isActive: true });
+  const visibleConfigs = useMemo(() => {
+    const configs = (paramConfigs ?? [])
+      .filter((c: ParameterConfig) => c.isVisible && c.dataType === 'number')
+      .sort((a: ParameterConfig, b: ParameterConfig) => a.displayOrder - b.displayOrder);
+    return configs.length > 0 ? configs : FALLBACK_COLUMNS;
+  }, [paramConfigs]);
+
   const statisticsQuery = useWaterQualityStatistics(
     selectedTankId || null,
     days,
@@ -136,18 +190,43 @@ export const HistoryTab: React.FC = () => {
     return map;
   }, [tanks]);
 
-  // Chart data transformation
+  // Chart data transformation - flatten parameters into top-level keys
   const chartData = useMemo(() => {
     if (!chartQuery.data || !Array.isArray(chartQuery.data)) return [];
-    return chartQuery.data.map((m) => ({
-      date: formatShortDate(m.measuredAt),
-      temperature: m.temperature ?? null,
-      dissolvedOxygen: m.dissolvedOxygen ?? null,
-      pH: m.pH ?? null,
-      ammonia: m.ammonia ?? null,
-      nitrite: m.nitrite ?? null,
-    }));
-  }, [chartQuery.data]);
+    return chartQuery.data.map((m: WaterQualityMeasurement) => {
+      const flat: Record<string, string | number | null> = {
+        date: formatShortDate(m.measuredAt),
+      };
+      for (const config of visibleConfigs) {
+        flat[config.code] = resolveParameterValue(m, config.code);
+      }
+      return flat;
+    });
+  }, [chartQuery.data, visibleConfigs]);
+
+  // Build Y-axis labels from visible configs
+  const leftAxisLabel = useMemo(() => {
+    return visibleConfigs
+      .filter((c: ParameterConfig) => c.chartAxisGroup !== 'right')
+      .map((c: ParameterConfig) => `${c.name}${c.unit ? ` (${c.unit})` : ''}`)
+      .join(' / ');
+  }, [visibleConfigs]);
+
+  const rightAxisLabel = useMemo(() => {
+    return visibleConfigs
+      .filter((c: ParameterConfig) => c.chartAxisGroup === 'right')
+      .map((c: ParameterConfig) => `${c.name}${c.unit ? ` (${c.unit})` : ''}`)
+      .join(' / ');
+  }, [visibleConfigs]);
+
+  const hasRightAxis = visibleConfigs.some((c: ParameterConfig) => c.chartAxisGroup === 'right');
+
+  // Statistics card configs (visible params that have stat mappings, max 4)
+  const statCards = useMemo(() => {
+    return visibleConfigs
+      .filter((c: ParameterConfig) => STAT_FIELD_MAP[c.code] != null)
+      .slice(0, 4);
+  }, [visibleConfigs]);
 
   // Pagination helpers
   const totalItems = listQuery.data?.total ?? 0;
@@ -268,24 +347,22 @@ export const HistoryTab: React.FC = () => {
       {/* Statistics Cards */}
       {selectedTankId && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm font-medium text-gray-500">Avg Temperature</p>
-            <p className="text-2xl font-semibold text-gray-900">
-              {stats?.avgTemperature != null ? `${stats.avgTemperature.toFixed(1)} °C` : '-'}
-            </p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm font-medium text-gray-500">Avg Dissolved Oxygen</p>
-            <p className="text-2xl font-semibold text-gray-900">
-              {stats?.avgDO != null ? `${stats.avgDO.toFixed(1)} mg/L` : '-'}
-            </p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm font-medium text-gray-500">Avg pH</p>
-            <p className="text-2xl font-semibold text-gray-900">
-              {stats?.avgPH != null ? `${stats.avgPH.toFixed(2)}` : '-'}
-            </p>
-          </div>
+          {statCards.map((config: ParameterConfig) => {
+            const statField = STAT_FIELD_MAP[config.code];
+            const statValue = statField && stats ? stats[statField] : null;
+            return (
+              <div key={config.code} className="bg-white rounded-lg shadow p-4">
+                <p className="text-sm font-medium text-gray-500">
+                  Avg {config.name}
+                </p>
+                <p className="text-2xl font-semibold text-gray-900">
+                  {statValue != null
+                    ? `${statValue.toFixed(config.precision)} ${config.unit}`
+                    : '-'}
+                </p>
+              </div>
+            );
+          })}
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm font-medium text-gray-500">Measurements</p>
             <p className="text-2xl font-semibold text-gray-900">
@@ -326,65 +403,30 @@ export const HistoryTab: React.FC = () => {
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis
                   yAxisId="left"
-                  label={{ value: 'Temp (°C) / DO (mg/L) / pH', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
+                  label={leftAxisLabel ? { value: leftAxisLabel, angle: -90, position: 'insideLeft', style: { fontSize: 11 } } : undefined}
                 />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  label={{ value: 'NH₃ / NO₂ (mg/L)', angle: 90, position: 'insideRight', style: { fontSize: 11 } }}
-                />
+                {hasRightAxis && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    label={rightAxisLabel ? { value: rightAxisLabel, angle: 90, position: 'insideRight', style: { fontSize: 11 } } : undefined}
+                  />
+                )}
                 <Tooltip />
                 <Legend />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="temperature"
-                  name="Temperature"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="dissolvedOxygen"
-                  name="DO"
-                  stroke="#22c55e"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="pH"
-                  name="pH"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="ammonia"
-                  name="Ammonia"
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="nitrite"
-                  name="Nitrite"
-                  stroke="#f97316"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
+                {visibleConfigs.map((config: ParameterConfig) => (
+                  <Line
+                    key={config.code}
+                    yAxisId={config.chartAxisGroup === 'right' ? 'right' : 'left'}
+                    type="monotone"
+                    dataKey={config.code}
+                    name={`${config.name}${config.unit ? ` (${config.unit})` : ''}`}
+                    stroke={config.chartColor}
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                  />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -411,11 +453,11 @@ export const HistoryTab: React.FC = () => {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tank</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Temp (°C)</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">DO (mg/L)</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">pH</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">NH₃ (mg/L)</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">NO₂ (mg/L)</th>
+                    {visibleConfigs.map((config: ParameterConfig) => (
+                      <th key={config.code} className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                        {config.name} {config.unit ? `(${config.unit})` : ''}
+                      </th>
+                    ))}
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
                   </tr>
@@ -423,7 +465,7 @@ export const HistoryTab: React.FC = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {listQuery.data?.items?.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={visibleConfigs.length + 4} className="px-4 py-12 text-center text-gray-500">
                         No water quality measurements found for the selected filters.
                       </td>
                     </tr>
@@ -436,21 +478,14 @@ export const HistoryTab: React.FC = () => {
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                         {m.tankId ? (tankMap[m.tankId] || m.tankId.slice(0, 8)) : '-'}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                        {m.temperature != null ? m.temperature.toFixed(1) : '-'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                        {m.dissolvedOxygen != null ? m.dissolvedOxygen.toFixed(1) : '-'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                        {m.pH != null ? m.pH.toFixed(2) : '-'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                        {m.ammonia != null ? m.ammonia.toFixed(3) : '-'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                        {m.nitrite != null ? m.nitrite.toFixed(3) : '-'}
-                      </td>
+                      {visibleConfigs.map((config: ParameterConfig) => {
+                        const val = resolveParameterValue(m, config.code);
+                        return (
+                          <td key={config.code} className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
+                            {val != null ? Number(val).toFixed(config.precision) : '-'}
+                          </td>
+                        );
+                      })}
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}>
                           {getStatusLabel(m.overallStatus)}

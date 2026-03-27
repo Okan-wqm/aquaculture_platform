@@ -76,6 +76,7 @@ import {
   VfdParameterAuditLog,
   VfdAutomationRule,
 } from './vfd-programming/entities';
+import { VfdProgrammingModule } from './vfd-programming/vfd-programming.module';
 import { DeviceGroupModule } from './device-group/device-group.module';
 import { DeviceGroup } from './device-group/entities/device-group.entity';
 import { DeviceGroupMember } from './device-group/entities/device-group-member.entity';
@@ -334,6 +335,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // VFD (Variable Frequency Drive) module
     VfdModule,
+
+    // VFD Programming module (remote parameter programming, Maker-Checker workflow)
+    VfdProgrammingModule,
 
     // Data ingestion module (MQTT listener, data processing)
     IngestionModule,

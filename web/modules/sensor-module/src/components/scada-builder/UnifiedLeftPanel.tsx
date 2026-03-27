@@ -19,7 +19,7 @@ import {
   CheckCircle, LayoutDashboard, Droplets, Link2, Type,
   GitCommitHorizontal, Square, Circle, Minus, FileImage, Calendar,
   Video, MapPinned, Ellipsis, Spline, Image, Hexagon,
-  Triangle, Diamond, ArrowRight, Package,
+  Triangle, Diamond, ArrowRight, Package, Zap,
 } from 'lucide-react';
 
 import { SceneTreePanel } from './SceneTreePanel';
@@ -59,7 +59,7 @@ const ICONS: Record<string, React.FC<{ className?: string }>> = {
   CheckCircle, LayoutDashboard, Droplets, Link2, Type,
   GitCommitHorizontal, Square, Circle, Minus, FileImage, Calendar,
   Video, MapPinned, Ellipsis, Spline, Image, Hexagon, Triangle,
-  Diamond, ArrowRight,
+  Diamond, ArrowRight, Zap,
 };
 
 function icon(key: string, cls = 'w-4 h-4'): React.ReactNode {

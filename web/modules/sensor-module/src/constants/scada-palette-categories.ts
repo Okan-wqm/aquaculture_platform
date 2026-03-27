@@ -122,6 +122,11 @@ export const PALETTE_CATEGORIES: PaletteCategory[] = [
     { type: 'equipment' as ScadaWidgetType, label: 'Condenser', iconKey: 'Square', defaultConfig: { equipmentSubType: 'condenser' } },
     { type: 'equipment' as ScadaWidgetType, label: 'Evaporator', iconKey: 'Square', defaultConfig: { equipmentSubType: 'evaporator' } },
   ]},
+  { name: 'VFD / Motor Drives', widgets: [
+    { type: 'vfdDrive' as ScadaWidgetType, label: 'VFD Drive', iconKey: 'Zap', defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+    { type: 'vfdMini' as ScadaWidgetType, label: 'VFD Mini', iconKey: 'Zap', defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+    { type: 'vfdGroup' as ScadaWidgetType, label: 'VFD Group', iconKey: 'Zap', defaultConfig: { title: 'VFD Group' } },
+  ]},
 ];
 
 /** Default categories to expand on first load */

@@ -212,6 +212,15 @@ export class WaterQualityMeasurement {
   @Column('uuid', { nullable: true })
   siteId?: string;
 
+  @Field({ nullable: true })
+  @Column('uuid', { nullable: true })
+  @Index()
+  equipmentId?: string;
+
+  @ManyToOne('Equipment', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'equipmentId' })
+  equipment?: unknown; // String ref for Equipment to avoid circular import
+
   // -------------------------------------------------------------------------
   // ÖLÇÜM BİLGİLERİ
   // -------------------------------------------------------------------------

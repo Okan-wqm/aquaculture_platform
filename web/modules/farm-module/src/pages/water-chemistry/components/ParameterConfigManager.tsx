@@ -21,8 +21,10 @@ import {
   CreateParameterConfigInput,
   UpdateParameterConfigInput,
 } from '../../../hooks/useParameterConfigs';
+import { useParamEquipmentMappings } from '../../../hooks/useParamEquipmentMapping';
 import { TemplatePickerModal } from './TemplatePickerModal';
 import { ConfigFormModal, ConfigFormData, EMPTY_FORM } from './ConfigFormModal';
+import { EquipmentMappingPanel } from './EquipmentMappingPanel';
 
 // ============================================================================
 // TYPES
@@ -109,6 +111,7 @@ export const ParameterConfigManager: React.FC = () => {
   const [editingConfig, setEditingConfig] = useState<ParameterConfig | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ParameterConfig | null>(null);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [equipmentMappingTarget, setEquipmentMappingTarget] = useState<ParameterConfig | null>(null);
 
   const filter = useMemo<ParameterConfigFilter>(() => ({
     group: groupFilter || undefined,
@@ -119,6 +122,19 @@ export const ParameterConfigManager: React.FC = () => {
   const updateMutation = useUpdateParameterConfig();
   const deleteMutation = useDeleteParameterConfig();
   const applyTemplateMutation = useApplyParameterTemplate();
+
+  // Fetch all mappings (no filter) to count equipment per parameter
+  const { data: allMappings } = useParamEquipmentMappings();
+
+  // Build a lookup: parameterConfigId -> count of mapped equipment
+  const equipmentCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!allMappings) return map;
+    for (const m of allMappings) {
+      map.set(m.parameterConfigId, (map.get(m.parameterConfigId) ?? 0) + 1);
+    }
+    return map;
+  }, [allMappings]);
 
   const sortedConfigs = useMemo(() => {
     if (!configs) return [];
@@ -266,6 +282,7 @@ export const ParameterConfigManager: React.FC = () => {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Group</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Optimal Range</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Critical Range</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Equipment</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Color</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Active</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -274,7 +291,7 @@ export const ParameterConfigManager: React.FC = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedConfigs.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                     No parameter configurations found. Click &quot;Add Parameter&quot; or &quot;Apply Template&quot; to get started.
                   </td>
                 </tr>
@@ -305,6 +322,18 @@ export const ParameterConfigManager: React.FC = () => {
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                     {config.criticalMin != null && config.criticalMax != null
                       ? `${config.criticalMin} - ${config.criticalMax}` : '-'}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap text-center">
+                    <button
+                      onClick={() => setEquipmentMappingTarget(config)}
+                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                      title="Map Equipment"
+                    >
+                      <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                      </svg>
+                      {equipmentCountMap.get(config.id) ?? 0}
+                    </button>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-center">
                     {config.chartColor ? (
@@ -364,6 +393,14 @@ export const ParameterConfigManager: React.FC = () => {
           onApply={handleApplyTemplate}
           onClose={() => setShowTemplatePicker(false)}
           isSubmitting={applyTemplateMutation.isPending}
+        />
+      )}
+
+      {equipmentMappingTarget && (
+        <EquipmentMappingPanel
+          parameterConfigId={equipmentMappingTarget.id}
+          parameterName={equipmentMappingTarget.name}
+          onClose={() => setEquipmentMappingTarget(null)}
         />
       )}
     </div>

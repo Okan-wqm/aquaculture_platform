@@ -161,3 +161,4 @@ export * from './useWeather';
 export * from './useWorkers';
 export * from './useAOIDrawing';
 export * from './useParameterConfigs';
+export * from './useParamEquipmentMapping';

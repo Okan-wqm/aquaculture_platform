@@ -21,9 +21,11 @@ import { CqrsModule } from '@platform/cqrs';
 // Entities
 import { WaterQualityMeasurement } from './entities/water-quality-measurement.entity';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
+import { WaterQualityParamEquipment } from './entities/water-quality-param-equipment.entity';
 
 // Related entities
 import { Tank } from '../tank/entities/tank.entity';
+import { Equipment } from '../equipment/entities/equipment.entity';
 
 // Service
 import { WaterQualityService } from './water-quality.service';
@@ -39,6 +41,10 @@ import {
   DeleteParameterConfigHandler,
   BulkCreateFromTemplateHandler,
   ReorderParameterConfigsHandler,
+  CreateParamEquipmentHandler,
+  UpdateParamEquipmentHandler,
+  DeleteParamEquipmentHandler,
+  BulkMapParamsEquipmentHandler,
 } from './handlers';
 
 // Parameter Config Query Handlers
@@ -54,6 +60,10 @@ const CommandHandlers = [
   DeleteParameterConfigHandler,
   BulkCreateFromTemplateHandler,
   ReorderParameterConfigsHandler,
+  CreateParamEquipmentHandler,
+  UpdateParamEquipmentHandler,
+  DeleteParamEquipmentHandler,
+  BulkMapParamsEquipmentHandler,
 ];
 
 @Module({
@@ -61,7 +71,9 @@ const CommandHandlers = [
     TypeOrmModule.forFeature([
       WaterQualityMeasurement,
       WaterQualityParameterConfig,
+      WaterQualityParamEquipment,
       Tank,
+      Equipment,
     ]),
     CqrsModule,
   ],

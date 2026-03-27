@@ -6,3 +6,6 @@ export * from './update-parameter-config.input';
 export * from './parameter-config-filter.input';
 export * from './apply-parameter-template.input';
 export * from './reorder-parameter-configs.input';
+export * from './create-param-equipment.input';
+export * from './update-param-equipment.input';
+export * from './bulk-map-params-equipment.input';

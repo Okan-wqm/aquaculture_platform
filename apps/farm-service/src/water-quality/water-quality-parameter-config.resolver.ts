@@ -11,6 +11,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
+import { WaterQualityParamEquipment } from './entities/water-quality-param-equipment.entity';
 
 // DTOs
 import { CreateParameterConfigInput } from './dto/create-parameter-config.input';
@@ -18,6 +19,9 @@ import { UpdateParameterConfigInput } from './dto/update-parameter-config.input'
 import { ParameterConfigFilterInput } from './dto/parameter-config-filter.input';
 import { ApplyParameterTemplateInput } from './dto/apply-parameter-template.input';
 import { ReorderParameterConfigsInput } from './dto/reorder-parameter-configs.input';
+import { CreateParamEquipmentInput } from './dto/create-param-equipment.input';
+import { UpdateParamEquipmentInput } from './dto/update-param-equipment.input';
+import { BulkMapParamsEquipmentInput } from './dto/bulk-map-params-equipment.input';
 
 // Commands
 import { CreateParameterConfigCommand } from './commands/create-parameter-config.command';
@@ -25,12 +29,18 @@ import { UpdateParameterConfigCommand } from './commands/update-parameter-config
 import { DeleteParameterConfigCommand } from './commands/delete-parameter-config.command';
 import { BulkCreateFromTemplateCommand } from './commands/bulk-create-from-template.command';
 import { ReorderParameterConfigsCommand } from './commands/reorder-parameter-configs.command';
+import { CreateParamEquipmentCommand } from './commands/create-param-equipment.command';
+import { UpdateParamEquipmentCommand } from './commands/update-param-equipment.command';
+import { DeleteParamEquipmentCommand } from './commands/delete-param-equipment.command';
+import { BulkMapParamsEquipmentCommand } from './commands/bulk-map-params-equipment.command';
 
 // Queries
 import { ListParameterConfigsQuery } from './queries/list-parameter-configs.query';
 import { GetParameterConfigQuery } from './queries/get-parameter-config.query';
 import { GetParameterConfigByCodeQuery } from './queries/get-parameter-config-by-code.query';
 import { ListParameterTemplatesQuery } from './queries/list-parameter-templates.query';
+import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
+import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -199,6 +209,107 @@ export class WaterQualityParameterConfigResolver {
     this.logger.log(`Reordering ${input.orderedIds.length} parameter configs for tenant ${tenantId}`);
     return this.commandBus.execute(
       new ReorderParameterConfigsCommand(tenantId, input.orderedIds),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // PARAM-EQUIPMENT QUERIES
+  // -------------------------------------------------------------------------
+
+  /**
+   * Lists parameter-equipment mappings with optional filters
+   */
+  @Query(() => [WaterQualityParamEquipment], { name: 'parameterEquipmentMappings' })
+  async listParamEquipmentMappings(
+    @CurrentTenant() tenantId: string,
+    @Args('equipmentId', { type: () => ID, nullable: true }) equipmentId?: string,
+    @Args('parameterConfigId', { type: () => ID, nullable: true }) parameterConfigId?: string,
+    @Args('isActive', { nullable: true }) isActive?: boolean,
+  ): Promise<WaterQualityParamEquipment[]> {
+    this.logger.debug(`Listing param-equipment mappings for tenant: ${tenantId}`);
+    return this.queryBus.execute(
+      new ListParamEquipmentQuery(tenantId, { equipmentId, parameterConfigId, isActive }),
+    );
+  }
+
+  /**
+   * Gets all active parameter mappings for a specific equipment
+   */
+  @Query(() => [WaterQualityParamEquipment], { name: 'equipmentParameters' })
+  async getEquipmentParameters(
+    @Args('equipmentId', { type: () => ID }) equipmentId: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<WaterQualityParamEquipment[]> {
+    this.logger.debug(`Getting equipment parameters for equipment: ${equipmentId}`);
+    return this.queryBus.execute(new GetEquipmentParamsQuery(tenantId, equipmentId));
+  }
+
+  // -------------------------------------------------------------------------
+  // PARAM-EQUIPMENT MUTATIONS
+  // -------------------------------------------------------------------------
+
+  /**
+   * Creates a single parameter-equipment mapping
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => WaterQualityParamEquipment)
+  async createParamEquipmentMapping(
+    @Args('input') input: CreateParamEquipmentInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<WaterQualityParamEquipment> {
+    this.logger.log(
+      `Creating param-equipment mapping: param=${input.parameterConfigId}, equip=${input.equipmentId} for tenant ${tenantId}`,
+    );
+    return this.commandBus.execute(
+      new CreateParamEquipmentCommand(tenantId, input, user.sub),
+    );
+  }
+
+  /**
+   * Updates an existing parameter-equipment mapping
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => WaterQualityParamEquipment)
+  async updateParamEquipmentMapping(
+    @Args('input') input: UpdateParamEquipmentInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<WaterQualityParamEquipment> {
+    this.logger.log(`Updating param-equipment mapping ${input.id} for tenant ${tenantId}`);
+    return this.commandBus.execute(
+      new UpdateParamEquipmentCommand(tenantId, input.id, input, user.sub),
+    );
+  }
+
+  /**
+   * Hard-deletes a parameter-equipment mapping
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => Boolean)
+  async deleteParamEquipmentMapping(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<boolean> {
+    this.logger.log(`Deleting param-equipment mapping ${id} for tenant ${tenantId}`);
+    return this.commandBus.execute(new DeleteParamEquipmentCommand(tenantId, id));
+  }
+
+  /**
+   * Bulk maps multiple parameters to a single equipment
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => [WaterQualityParamEquipment])
+  async bulkMapParamsToEquipment(
+    @Args('input') input: BulkMapParamsEquipmentInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<WaterQualityParamEquipment[]> {
+    this.logger.log(
+      `Bulk mapping ${input.parameterConfigIds.length} params to equipment ${input.equipmentId} for tenant ${tenantId}`,
+    );
+    return this.commandBus.execute(
+      new BulkMapParamsEquipmentCommand(tenantId, input, user.sub),
     );
   }
 }

@@ -9,15 +9,15 @@ import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 // TYPES
 // ============================================================================
 
-export type ParameterDataType = 'number' | 'enum' | 'boolean';
+export type ParameterDataType = 'NUMBER' | 'ENUM' | 'BOOLEAN';
 
 export type ParameterGroup =
-  | 'basic'
-  | 'nitrogen_cycle'
-  | 'metals'
-  | 'biological'
-  | 'organic'
-  | 'custom';
+  | 'BASIC'
+  | 'NITROGEN_CYCLE'
+  | 'METALS'
+  | 'BIOLOGICAL'
+  | 'ORGANIC'
+  | 'CUSTOM';
 
 export interface ParameterConfig {
   id: string;
@@ -413,18 +413,18 @@ export function useReorderParameterConfigs() {
  */
 export function getGroupLabel(group: ParameterGroup): string {
   switch (group) {
-    case 'basic':
-      return 'Temel Parametreler';
-    case 'nitrogen_cycle':
-      return 'Azot Dongüsü';
-    case 'metals':
-      return 'Metaller';
-    case 'biological':
-      return 'Biyolojik';
-    case 'organic':
-      return 'Organik';
-    case 'custom':
-      return 'Özel';
+    case 'BASIC':
+      return 'Basic';
+    case 'NITROGEN_CYCLE':
+      return 'Nitrogen Cycle';
+    case 'METALS':
+      return 'Metals';
+    case 'BIOLOGICAL':
+      return 'Biological';
+    case 'ORGANIC':
+      return 'Organic';
+    case 'CUSTOM':
+      return 'Custom';
     default:
       return group;
   }
@@ -435,17 +435,17 @@ export function getGroupLabel(group: ParameterGroup): string {
  */
 export function getGroupColor(group: ParameterGroup): string {
   switch (group) {
-    case 'basic':
+    case 'BASIC':
       return 'text-blue-600 bg-blue-100';
-    case 'nitrogen_cycle':
+    case 'NITROGEN_CYCLE':
       return 'text-green-600 bg-green-100';
-    case 'metals':
+    case 'METALS':
       return 'text-gray-600 bg-gray-100';
-    case 'biological':
+    case 'BIOLOGICAL':
       return 'text-purple-600 bg-purple-100';
-    case 'organic':
+    case 'ORGANIC':
       return 'text-amber-600 bg-amber-100';
-    case 'custom':
+    case 'CUSTOM':
       return 'text-teal-600 bg-teal-100';
     default:
       return 'text-gray-600 bg-gray-100';
@@ -454,17 +454,17 @@ export function getGroupColor(group: ParameterGroup): string {
 
 /** Dropdown options for parameter groups */
 export const GROUP_OPTIONS: { value: ParameterGroup; label: string }[] = [
-  { value: 'basic', label: 'Temel Parametreler' },
-  { value: 'nitrogen_cycle', label: 'Azot Dongüsü' },
-  { value: 'metals', label: 'Metaller' },
-  { value: 'biological', label: 'Biyolojik' },
-  { value: 'organic', label: 'Organik' },
-  { value: 'custom', label: 'Özel' },
+  { value: 'BASIC', label: 'Basic' },
+  { value: 'NITROGEN_CYCLE', label: 'Nitrogen Cycle' },
+  { value: 'METALS', label: 'Metals' },
+  { value: 'BIOLOGICAL', label: 'Biological' },
+  { value: 'ORGANIC', label: 'Organic' },
+  { value: 'CUSTOM', label: 'Custom' },
 ];
 
 /** Dropdown options for parameter data types */
 export const DATA_TYPE_OPTIONS: { value: ParameterDataType; label: string }[] = [
-  { value: 'number', label: 'Sayısal' },
-  { value: 'enum', label: 'Seçenek Listesi' },
-  { value: 'boolean', label: 'Evet/Hayır' },
+  { value: 'NUMBER', label: 'Numeric' },
+  { value: 'ENUM', label: 'Selection List' },
+  { value: 'BOOLEAN', label: 'Yes/No' },
 ];

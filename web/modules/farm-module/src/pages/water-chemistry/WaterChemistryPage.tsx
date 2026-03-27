@@ -6,6 +6,7 @@
  * Ported from Python v1.py PyQt5 application.
  */
 import React, { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   LineChart,
   Line,
@@ -37,6 +38,7 @@ import InputPanel, { WaterChemistryInputs } from './components/InputPanel';
 import DeffeyesChart from './components/DeffeyesChart';
 import ResultsPanel from './components/ResultsPanel';
 import OnDemandPanel from './components/OnDemandPanel';
+import { HistoryTab } from './components/HistoryTab';
 // ============================================================================
 // CHART CARD WRAPPER
 // ============================================================================
@@ -578,20 +580,58 @@ const OverviewContent: React.FC = () => {
 // MAIN COMPONENT
 // ============================================================================
 
+type TabId = 'calculator' | 'history';
+
 const WaterChemistryPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: TabId = (tabParam === 'history') ? 'history' : 'calculator';
+
+  const handleTabChange = (tabId: TabId) => {
+    setSearchParams(prev => {
+      prev.set('tab', tabId);
+      return prev;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white shadow">
-        <div className="px-4 sm:px-6 py-4">
-          <h1 className="text-xl font-bold text-gray-900">Water Chemistry</h1>
-          <p className="text-xs text-gray-500">Advanced calculator with Millero thermodynamic equations</p>
+        <div className="px-4 sm:px-6 py-6">
+          <h1 className="text-2xl font-bold text-gray-900">Water Chemistry</h1>
+          <p className="mt-1 text-sm text-gray-500">Calculator, analysis, and historical water quality data</p>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="px-4 sm:px-6 py-4">
-        <OverviewContent />
+      {/* Tabs */}
+      <div className="px-4 sm:px-6">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+            {[
+              { id: 'calculator' as TabId, name: 'Calculator' },
+              { id: 'history' as TabId, name: 'History' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {tab.name}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      <div className="px-4 sm:px-6 py-6">
+        {activeTab === 'calculator' && <OverviewContent />}
+        {activeTab === 'history' && <HistoryTab />}
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ import { Repository, DataSource, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { ReorderParameterConfigsCommand } from '../commands/reorder-parameter-configs.command';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
+import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
 
 @Injectable()
 @CommandHandler(ReorderParameterConfigsCommand)
@@ -25,6 +26,7 @@ export class ReorderParameterConfigsHandler
     @InjectRepository(WaterQualityParameterConfig)
     private readonly configRepository: Repository<WaterQualityParameterConfig>,
     private readonly dataSource: DataSource,
+    private readonly configCache: ParameterConfigCacheService,
   ) {}
 
   async execute(
@@ -56,6 +58,8 @@ export class ReorderParameterConfigsHandler
     } finally {
       await queryRunner.release();
     }
+
+    this.configCache.invalidate(tenantId);
 
     // Return updated configs sorted by displayOrder
     const updatedConfigs = await this.configRepository.find({

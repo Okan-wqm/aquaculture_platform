@@ -12,6 +12,7 @@ import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { CreateParameterConfigCommand } from '../commands/create-parameter-config.command';
 import { WaterQualityParameterConfig, ParameterDataType, ParameterGroup } from '../entities/water-quality-parameter-config.entity';
+import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
 
 @Injectable()
 @CommandHandler(CreateParameterConfigCommand)
@@ -23,6 +24,7 @@ export class CreateParameterConfigHandler
   constructor(
     @InjectRepository(WaterQualityParameterConfig)
     private readonly configRepository: Repository<WaterQualityParameterConfig>,
+    private readonly configCache: ParameterConfigCacheService,
   ) {}
 
   async execute(command: CreateParameterConfigCommand): Promise<WaterQualityParameterConfig> {
@@ -68,6 +70,8 @@ export class CreateParameterConfigHandler
     });
 
     const saved = await this.configRepository.save(config);
+
+    this.configCache.invalidate(tenantId);
 
     this.logger.log(
       `Parameter config "${saved.code}" created with ID ${saved.id} for tenant ${tenantId}`,

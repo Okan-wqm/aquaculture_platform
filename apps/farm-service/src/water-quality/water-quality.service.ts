@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource } from './entities/water-quality-measurement.entity';
+import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 
 // ============================================================================
 // INTERNAL INTERFACES (Service layer only)
@@ -83,6 +84,7 @@ export class WaterQualityService {
   constructor(
     @InjectRepository(WaterQualityMeasurement)
     private readonly repository: Repository<WaterQualityMeasurement>,
+    private readonly evaluationService: WaterQualityEvaluationService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -111,8 +113,16 @@ export class WaterQualityService {
       hasAlarm: false,
     });
 
-    // Parametreleri değerlendir
-    measurement.evaluateParameters();
+    // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
+    const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters);
+    if (summary.evaluations.length > 0) {
+      measurement.overallStatus = summary.overallStatus;
+      measurement.summary = summary;
+      measurement.hasAlarm = summary.criticalCount > 0;
+    } else {
+      // Fallback: no tenant configs, use hardcoded defaults
+      measurement.evaluateParameters();
+    }
 
     const saved = await this.repository.save(measurement);
     this.logger.log(`Created water quality measurement ${saved.id} with status ${saved.overallStatus}`);
@@ -286,8 +296,15 @@ export class WaterQualityService {
       measurement.weatherConditions = input.weatherConditions;
     }
 
-    // Yeniden değerlendir
-    measurement.evaluateParameters();
+    // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
+    const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters);
+    if (summary.evaluations.length > 0) {
+      measurement.overallStatus = summary.overallStatus;
+      measurement.summary = summary;
+      measurement.hasAlarm = summary.criticalCount > 0;
+    } else {
+      measurement.evaluateParameters();
+    }
 
     return this.repository.save(measurement);
   }

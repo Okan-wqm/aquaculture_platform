@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DeleteParameterConfigCommand } from '../commands/delete-parameter-config.command';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
+import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
 
 @Injectable()
 @CommandHandler(DeleteParameterConfigCommand)
@@ -22,6 +23,7 @@ export class DeleteParameterConfigHandler
   constructor(
     @InjectRepository(WaterQualityParameterConfig)
     private readonly configRepository: Repository<WaterQualityParameterConfig>,
+    private readonly configCache: ParameterConfigCacheService,
   ) {}
 
   async execute(command: DeleteParameterConfigCommand): Promise<boolean> {
@@ -42,6 +44,8 @@ export class DeleteParameterConfigHandler
     config.isActive = false;
 
     await this.configRepository.save(config);
+
+    this.configCache.invalidate(tenantId);
 
     this.logger.log(`Parameter config ${configId} soft-deleted for tenant ${tenantId}`);
 

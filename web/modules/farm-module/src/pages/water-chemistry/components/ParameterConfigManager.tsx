@@ -194,9 +194,9 @@ export const ParameterConfigManager: React.FC = () => {
     }
   };
 
-  const handleApplyTemplate = async (templateId: string, _overwrite: boolean) => {
+  const handleApplyTemplate = async (templateId: string, overwrite: boolean) => {
     try {
-      await applyTemplateMutation.mutateAsync(templateId);
+      await applyTemplateMutation.mutateAsync({ templateId, overwrite });
       setShowTemplatePicker(false);
     } catch {
       // Error handled

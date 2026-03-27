@@ -12,6 +12,7 @@ import { Repository, Not } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { UpdateParameterConfigCommand } from '../commands/update-parameter-config.command';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
+import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
 
 @Injectable()
 @CommandHandler(UpdateParameterConfigCommand)
@@ -23,6 +24,7 @@ export class UpdateParameterConfigHandler
   constructor(
     @InjectRepository(WaterQualityParameterConfig)
     private readonly configRepository: Repository<WaterQualityParameterConfig>,
+    private readonly configCache: ParameterConfigCacheService,
   ) {}
 
   async execute(command: UpdateParameterConfigCommand): Promise<WaterQualityParameterConfig> {
@@ -78,6 +80,8 @@ export class UpdateParameterConfigHandler
     if (payload.templateSource !== undefined) config.templateSource = payload.templateSource;
 
     const saved = await this.configRepository.save(config);
+
+    this.configCache.invalidate(tenantId);
 
     this.logger.log(`Parameter config ${configId} updated for tenant ${tenantId}`);
 

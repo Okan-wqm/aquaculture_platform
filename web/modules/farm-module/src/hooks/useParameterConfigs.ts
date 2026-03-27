@@ -207,16 +207,18 @@ const DELETE_PARAMETER_CONFIG = `
 `;
 
 const APPLY_PARAMETER_TEMPLATE = `
-  mutation ApplyParameterTemplate($templateId: String!) {
-    applyParameterTemplate(templateId: $templateId) {
+  mutation ApplyParameterTemplate($input: ApplyParameterTemplateInput!) {
+    applyParameterTemplate(input: $input) {
       ${PARAMETER_CONFIG_FRAGMENT}
     }
   }
 `;
 
 const REORDER_PARAMETER_CONFIGS = `
-  mutation ReorderParameterConfigs($input: [ReorderParameterConfigInput!]!) {
-    reorderParameterConfigs(input: $input)
+  mutation ReorderParameterConfigs($input: ReorderParameterConfigsInput!) {
+    reorderParameterConfigs(input: $input) {
+      ${PARAMETER_CONFIG_FRAGMENT}
+    }
   }
 `;
 
@@ -370,10 +372,10 @@ export function useApplyParameterTemplate() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (templateId: string) => {
+    mutationFn: async (input: { templateId: string; overwrite: boolean }) => {
       const response = await graphqlClient.request<{
         applyParameterTemplate: ParameterConfig[];
-      }>(APPLY_PARAMETER_TEMPLATE, { templateId });
+      }>(APPLY_PARAMETER_TEMPLATE, { input });
       return response.applyParameterTemplate;
     },
     onSuccess: () => {
@@ -390,10 +392,10 @@ export function useReorderParameterConfigs() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (input: ReorderInput[]) => {
+    mutationFn: async (orderedIds: string[]) => {
       const response = await graphqlClient.request<{
-        reorderParameterConfigs: boolean;
-      }>(REORDER_PARAMETER_CONFIGS, { input });
+        reorderParameterConfigs: ParameterConfig[];
+      }>(REORDER_PARAMETER_CONFIGS, { input: { orderedIds } });
       return response.reorderParameterConfigs;
     },
     onSuccess: () => {

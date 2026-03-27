@@ -8,7 +8,7 @@
  */
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { BulkCreateFromTemplateCommand } from '../commands/bulk-create-from-template.command';
 import {
@@ -17,6 +17,7 @@ import {
   ParameterGroup,
 } from '../entities/water-quality-parameter-config.entity';
 import { getTemplateById, ParameterTemplateEntry } from '../data/parameter-templates.data';
+import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
 
 @Injectable()
 @CommandHandler(BulkCreateFromTemplateCommand)
@@ -28,6 +29,8 @@ export class BulkCreateFromTemplateHandler
   constructor(
     @InjectRepository(WaterQualityParameterConfig)
     private readonly configRepository: Repository<WaterQualityParameterConfig>,
+    private readonly configCache: ParameterConfigCacheService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: BulkCreateFromTemplateCommand): Promise<WaterQualityParameterConfig[]> {
@@ -45,13 +48,7 @@ export class BulkCreateFromTemplateHandler
 
     let existingCodes = new Set<string>();
 
-    if (overwrite) {
-      // Delete all existing configs for this tenant
-      const deleted = await this.configRepository.delete({ tenantId });
-      this.logger.log(
-        `Overwrite mode: removed ${deleted.affected ?? 0} existing configs for tenant ${tenantId}`,
-      );
-    } else {
+    if (!overwrite) {
       // Find existing codes to skip
       const existingConfigs = await this.configRepository.find({
         where: { tenantId },
@@ -76,11 +73,34 @@ export class BulkCreateFromTemplateHandler
       entitiesToCreate.push(entity);
     }
 
+    // Wrap delete (if overwrite) + bulk insert in a transaction
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     let created: WaterQualityParameterConfig[] = [];
 
-    if (entitiesToCreate.length > 0) {
-      created = await this.configRepository.save(entitiesToCreate);
+    try {
+      if (overwrite) {
+        const deleted = await queryRunner.manager.delete(WaterQualityParameterConfig, { tenantId });
+        this.logger.log(
+          `Overwrite mode: removed ${deleted.affected ?? 0} existing configs for tenant ${tenantId}`,
+        );
+      }
+
+      if (entitiesToCreate.length > 0) {
+        created = await queryRunner.manager.save(entitiesToCreate);
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
+
+    this.configCache.invalidate(tenantId);
 
     this.logger.log(
       `Template "${templateId}": created ${created.length} configs, skipped ${skippedCount} existing for tenant ${tenantId}`,

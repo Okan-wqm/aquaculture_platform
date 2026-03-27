@@ -157,6 +157,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'growth_measurements',
       'mortality_records',
       'water_quality_measurements',
+      'water_quality_parameter_configs',
       'health_events',
       'harvest_plans',
       'harvest_records',

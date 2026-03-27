@@ -336,9 +336,12 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
         ...DEFAULT_CONTROL_PERMISSIONS,
         securityLevels: { ...DEFAULT_CONTROL_PERMISSIONS.securityLevels },
       };
-      state.trendConfig = json.trendConfig || {
+      state.trendConfig = {
         ...DEFAULT_TREND_CONFIG,
-        tags: [...DEFAULT_TREND_CONFIG.tags],
+        ...json.trendConfig,
+        tags: Array.isArray(json.trendConfig?.tags)
+          ? [...json.trendConfig.tags]
+          : [...DEFAULT_TREND_CONFIG.tags],
       };
       state.isDirty = false;
       state.selectedWidgetId = null;

@@ -28,19 +28,21 @@ export const PropertiesTrendsTab: React.FC<PropertiesTrendsTabProps> = ({
   trendConfig,
   onTrendConfigChange,
 }) => {
+  const tags = trendConfig.tags ?? [];
+
   const addTrendTag = () => {
-    onTrendConfigChange?.({ ...trendConfig, tags: [...trendConfig.tags, ''] });
+    onTrendConfigChange?.({ ...trendConfig, tags: [...tags, ''] });
   };
 
   const updateTrendTag = (index: number, value: string) => {
-    const updated = trendConfig.tags.map((t, i) => (i === index ? value : t));
+    const updated = tags.map((t, i) => (i === index ? value : t));
     onTrendConfigChange?.({ ...trendConfig, tags: updated });
   };
 
   const removeTrendTag = (index: number) => {
     onTrendConfigChange?.({
       ...trendConfig,
-      tags: trendConfig.tags.filter((_, i) => i !== index),
+      tags: tags.filter((_, i) => i !== index),
     });
   };
 
@@ -75,7 +77,7 @@ export const PropertiesTrendsTab: React.FC<PropertiesTrendsTabProps> = ({
           </button>
         </div>
         <div className="space-y-1">
-          {trendConfig.tags.map((tag, i) => (
+          {tags.map((tag, i) => (
             <div key={i} className="flex items-center gap-1">
               <input
                 type="text"
@@ -93,7 +95,7 @@ export const PropertiesTrendsTab: React.FC<PropertiesTrendsTabProps> = ({
               </button>
             </div>
           ))}
-          {trendConfig.tags.length === 0 && (
+          {tags.length === 0 && (
             <p className="text-xs text-gray-500 text-center py-2">No tags added yet</p>
           )}
         </div>

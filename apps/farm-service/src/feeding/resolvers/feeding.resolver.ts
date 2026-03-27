@@ -1186,22 +1186,17 @@ export class FeedingResolver {
   /**
    * Is feeding below plan
    */
-  @ResolveField(() => Boolean)
+  @ResolveField(() => Boolean, { description: 'Whether actual amount is below planned' })
   isBelowPlan(@Parent() record: FeedingRecord): boolean {
-    return Number(record.actualAmount) < Number(record.plannedAmount);
+    return Number(record.variance) < 0;
   }
 
   /**
    * Is variance acceptable (within ±10%)
    */
-  @ResolveField(() => Boolean)
+  @ResolveField(() => Boolean, { description: 'Whether variance is within acceptable threshold (±10%)' })
   isVarianceAcceptable(@Parent() record: FeedingRecord): boolean {
-    const planned = Number(record.plannedAmount);
-    if (planned <= 0) return true;
-    const variancePercent = Math.abs(
-      ((Number(record.actualAmount) - planned) / planned) * 100,
-    );
-    return variancePercent <= 10;
+    return Math.abs(Number(record.variancePercent)) <= 10;
   }
 }
 

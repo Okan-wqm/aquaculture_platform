@@ -98,7 +98,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         feedingDurationMinutes: payload.feedingDurationMinutes,
 
         feedCost: payload.feedCost || this.calculateFeedCost(feed, payload.actualAmount),
-        currency: payload.currency || 'TRY',
+        currency: payload.currency || 'NOK',
 
         fedBy: payload.fedBy || userId,
         notes: payload.notes,

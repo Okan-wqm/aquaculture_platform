@@ -7,7 +7,7 @@
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { UpdateFeedingRecordCommand } from '../commands/update-feeding-record.command';
 import { FeedingRecord } from '../entities/feeding-record.entity';
@@ -21,6 +21,7 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
     private readonly feedingRecordRepository: Repository<FeedingRecord>,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: UpdateFeedingRecordCommand): Promise<FeedingRecord> {
@@ -70,32 +71,47 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
     // Varyans yeniden hesapla
     feedingRecord.calculateVariance();
 
-    // Kaydet
-    const saved = await this.feedingRecordRepository.save(feedingRecord);
+    // Transaction ile hem feeding record hem batch güncellemesi yap
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // Batch'in yem tüketimini güncelle (eğer miktar değiştiyse)
-    if (payload.actualAmount !== undefined || payload.feedCost !== undefined) {
-      const newActualAmount = Number(saved.actualAmount);
-      const newFeedCost = Number(saved.feedCost || 0);
+    try {
+      // Kaydet (transaction içinde)
+      const saved = await queryRunner.manager.save(feedingRecord);
 
-      const amountDiff = newActualAmount - oldActualAmount;
-      const costDiff = newFeedCost - oldFeedCost;
+      // Batch'in yem tüketimini güncelle (eğer miktar değiştiyse)
+      if (payload.actualAmount !== undefined || payload.feedCost !== undefined) {
+        const newActualAmount = Number(saved.actualAmount);
+        const newFeedCost = Number(saved.feedCost || 0);
 
-      if (amountDiff !== 0 || costDiff !== 0) {
-        await this.updateBatchFeedConsumption(saved.batchId, tenantId, amountDiff, costDiff);
+        const amountDiff = newActualAmount - oldActualAmount;
+        const costDiff = newFeedCost - oldFeedCost;
+
+        if (amountDiff !== 0 || costDiff !== 0) {
+          await this.updateBatchFeedConsumption(queryRunner.manager, saved.batchId, tenantId, amountDiff, costDiff);
+        }
       }
-    }
 
-    return saved;
+      await queryRunner.commitTransaction();
+
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   private async updateBatchFeedConsumption(
+    manager: EntityManager,
     batchId: string,
     tenantId: string,
     amountDiff: number,
     costDiff: number,
   ): Promise<void> {
-    const batch = await this.batchRepository.findOne({
+    const batch = await manager.findOne(Batch, {
       where: { id: batchId, tenantId },
     });
 
@@ -103,7 +119,7 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
       batch.totalFeedConsumed = Number(batch.totalFeedConsumed || 0) + amountDiff;
       batch.totalFeedCost = Number(batch.totalFeedCost || 0) + costDiff;
 
-      await this.batchRepository.save(batch);
+      await manager.save(batch);
     }
   }
 }

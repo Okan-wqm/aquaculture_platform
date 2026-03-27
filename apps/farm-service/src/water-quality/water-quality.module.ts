@@ -10,6 +10,7 @@
  * - Limit bazlı değerlendirme
  * - Alarm entegrasyonu
  * - Trend analizi
+ * - Dinamik parametre konfigurasyonu (CRUD + template)
  *
  * @module WaterQuality
  */
@@ -19,6 +20,7 @@ import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { WaterQualityMeasurement } from './entities/water-quality-measurement.entity';
+import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
 
 // Related entities
 import { Tank } from '../tank/entities/tank.entity';
@@ -26,24 +28,57 @@ import { Tank } from '../tank/entities/tank.entity';
 // Service
 import { WaterQualityService } from './water-quality.service';
 
-// Resolver
+// Resolvers
 import { WaterQualityResolver } from './water-quality.resolver';
+import { WaterQualityParameterConfigResolver } from './water-quality-parameter-config.resolver';
+
+// Parameter Config Command Handlers
+import {
+  CreateParameterConfigHandler,
+  UpdateParameterConfigHandler,
+  DeleteParameterConfigHandler,
+  BulkCreateFromTemplateHandler,
+  ReorderParameterConfigsHandler,
+} from './handlers';
+
+// Parameter Config Query Handlers
+import { WaterQualityQueryHandlers } from './query-handlers';
+
+// Parameter Config Services
+import { ParameterConfigCacheService } from './services/parameter-config-cache.service';
+import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
+
+const CommandHandlers = [
+  CreateParameterConfigHandler,
+  UpdateParameterConfigHandler,
+  DeleteParameterConfigHandler,
+  BulkCreateFromTemplateHandler,
+  ReorderParameterConfigsHandler,
+];
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       WaterQualityMeasurement,
+      WaterQualityParameterConfig,
       Tank,
     ]),
     CqrsModule,
   ],
   providers: [
     WaterQualityService,
+    ParameterConfigCacheService,
+    WaterQualityEvaluationService,
     WaterQualityResolver,
+    WaterQualityParameterConfigResolver,
+    ...CommandHandlers,
+    ...WaterQualityQueryHandlers,
   ],
   exports: [
     TypeOrmModule,
     WaterQualityService,
+    ParameterConfigCacheService,
+    WaterQualityEvaluationService,
   ],
 })
 export class WaterQualityModule {}

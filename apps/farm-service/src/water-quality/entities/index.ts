@@ -4,3 +4,4 @@
  */
 
 export * from './water-quality-measurement.entity';
+export * from './water-quality-parameter-config.entity';

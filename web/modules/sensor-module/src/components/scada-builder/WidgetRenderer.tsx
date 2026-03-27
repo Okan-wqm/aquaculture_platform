@@ -93,6 +93,9 @@ const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<Widg
   knob:              React.lazy(() => import('./widget-renderers/KnobRenderer')),
   dropdownSelect:    React.lazy(() => import('./widget-renderers/DropdownSelectRenderer')),
   fuxaWidget:        React.lazy(() => import('./widget-renderers/FuxaWidgetRenderer')),
+  vfdDrive:          React.lazy(() => import('./widget-renderers/VfdDriveWidget')),
+  vfdMini:           React.lazy(() => import('./widget-renderers/VfdMiniWidget')),
+  vfdGroup:          React.lazy(() => import('./widget-renderers/VfdGroupWidget')),
 };
 
 /* ------------------------------------------------------------------ */

@@ -55,7 +55,10 @@ export type ScadaWidgetType =
   | 'pieChart'
   | 'knob'
   | 'dropdownSelect'
-  | 'fuxaWidget';
+  | 'fuxaWidget'
+  | 'vfdDrive'
+  | 'vfdMini'
+  | 'vfdGroup';
 
 /* ------------------------------------------------------------------ */
 /*  Equipment sub-types                                                */

@@ -42,6 +42,7 @@ import { PieChartConfig } from './PieChartConfig';
 import { KnobConfig } from './KnobConfig';
 import { DropdownSelectConfig } from './DropdownSelectConfig';
 import { FuxaWidgetConfig } from './FuxaWidgetConfig';
+import { VfdDriveWidgetConfig } from './VfdDriveWidgetConfig';
 
 interface WidgetConfigProps {
   config: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- legacy config components use any
@@ -100,4 +101,7 @@ export const widgetConfigMap: Record<string, React.FC<WidgetConfigProps>> = {
   knob: KnobConfig,
   dropdownSelect: DropdownSelectConfig,
   fuxaWidget: FuxaWidgetConfig,
+  vfdDrive: VfdDriveWidgetConfig,
+  vfdMini: VfdDriveWidgetConfig,
+  vfdGroup: VfdDriveWidgetConfig,
 };

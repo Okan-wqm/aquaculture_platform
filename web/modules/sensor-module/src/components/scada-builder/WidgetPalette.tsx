@@ -49,6 +49,9 @@ import {
   Disc3,
   ChevronDownSquare,
   Puzzle,
+  Zap,
+  Minimize2,
+  LayoutGrid,
 } from 'lucide-react';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
@@ -315,6 +318,14 @@ const WIDGET_CATEGORIES: WidgetCategory[] = [
       { type: 'equipment' as ScadaWidgetType, label: 'Air Cooler', icon: HX_ICON, defaultConfig: { equipmentSubType: 'airCooler' } },
       { type: 'equipment' as ScadaWidgetType, label: 'Condenser', icon: HX_ICON, defaultConfig: { equipmentSubType: 'condenser' } },
       { type: 'equipment' as ScadaWidgetType, label: 'Evaporator', icon: HX_ICON, defaultConfig: { equipmentSubType: 'evaporator' } },
+    ],
+  },
+  {
+    name: 'VFD / Motor Drives',
+    widgets: [
+      { type: 'vfdDrive' as ScadaWidgetType, label: 'VFD Drive', icon: Zap, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+      { type: 'vfdMini' as ScadaWidgetType, label: 'VFD Mini', icon: Minimize2, defaultConfig: { brand: 'ABB', demoState: 'RUNNING' } },
+      { type: 'vfdGroup' as ScadaWidgetType, label: 'VFD Group', icon: LayoutGrid, defaultConfig: { title: 'VFD Group' } },
     ],
   },
 ];

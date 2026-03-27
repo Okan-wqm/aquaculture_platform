@@ -133,6 +133,10 @@ export const WIDGET_SIZES: Record<string, WidgetSizeDef> = {
   dropdownSelect:    { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 4,  maxH: 3 },
   // Phase 10A: FUXA community SVG widgets
   fuxaWidget:        { defaultW: 2, defaultH: 2, minW: 1, minH: 1, maxW: 12, maxH: 8 },
+  // VFD Motor Drive widgets
+  vfdDrive:          { defaultW: 3, defaultH: 4, minW: 2, minH: 3, maxW: 6,  maxH: 6 },
+  vfdMini:           { defaultW: 2, defaultH: 1, minW: 2, minH: 1, maxW: 4,  maxH: 2 },
+  vfdGroup:          { defaultW: 6, defaultH: 3, minW: 4, minH: 2, maxW: 12, maxH: 6 },
 };
 
 /* ------------------------------------------------------------------ */

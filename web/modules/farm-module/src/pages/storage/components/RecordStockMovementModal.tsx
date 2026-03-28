@@ -287,6 +287,9 @@ export const RecordStockMovementModal: React.FC<Props> = ({
       expiryDate: expiryDate || undefined,
       reference: reference.trim() || undefined,
       reason: reason.trim() || undefined,
+      // Include the idempotency key generated on mount — the backend uses this
+      // to guarantee at-most-once execution on network retries or double-clicks.
+      idempotencyKey,
     };
 
     try {
@@ -302,7 +305,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
         toast({
           title: 'Movement Recorded with Warnings',
           description: warningMessages,
-          variant: 'warning' as 'success',
+          variant: 'destructive',
         });
       } else {
         toast({

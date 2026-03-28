@@ -67,15 +67,15 @@ export const StockMovementsTab: React.FC = () => {
           type="date"
           value={fromDate}
           onChange={e => setFromDate(e.target.value)}
+          aria-label="Filter movements from date"
           className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          placeholder="From date"
         />
         <input
           type="date"
           value={toDate}
           onChange={e => setToDate(e.target.value)}
+          aria-label="Filter movements to date"
           className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          placeholder="To date"
         />
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
           className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">

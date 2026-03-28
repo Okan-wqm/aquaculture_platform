@@ -119,6 +119,8 @@ export interface RecordStockMovementInput {
   expiryDate?: string;
   reference?: string;
   reason?: string;
+  /** Client-generated UUID for at-most-once delivery (prevents duplicate movements on retry) */
+  idempotencyKey?: string;
 }
 
 export interface TransferStockInput {

@@ -8,7 +8,8 @@
  *  - "Transfer Stock" opens the simplified transfer-only modal
  */
 import React, { useState } from 'react';
-import { useStockMovements } from '../../../hooks/useStorageInventory';
+import { useStockMovements, useLotTrace } from '../../../hooks/useStorageInventory';
+import type { StockMovement } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { TransferStockModal } from './TransferStockModal';
 
@@ -31,6 +32,13 @@ export const StockMovementsTab: React.FC = () => {
   const [showMovementModal, setShowMovementModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
 
+  /* Lot Trace mode — when active, switches the view from chronological
+     movement history to a focused lot-level traceability chain showing
+     every movement that affected a specific production lot. Required for
+     EU Regulation 178/2002 Article 18 compliance audits. */
+  const [lotTraceMode, setLotTraceMode] = useState(false);
+  const [lotTraceNumber, setLotTraceNumber] = useState('');
+
   // Build the filter object dynamically — backend already accepts fromDate/toDate
   // params for audit queries ("show me all movements in January") and
   // troubleshooting ("what happened last week?").
@@ -43,11 +51,26 @@ export const StockMovementsTab: React.FC = () => {
   })();
   const { data: movementsData, isLoading, error, refetch } = useStockMovements(filter);
 
+  /* Lot trace query — only fires when lot trace mode is active and the
+     user has entered at least 2 characters. The hook internally gates on
+     the lotNumber parameter being non-null. */
+  const {
+    data: lotTraceData,
+    isLoading: isLotTraceLoading,
+    error: lotTraceError,
+  } = useLotTrace(lotTraceMode ? lotTraceNumber : null);
+
   const movements = movementsData?.items || [];
   const filtered = movements.filter(m => {
     return m.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (m.performedBy || '').toLowerCase().includes(searchTerm.toLowerCase());
   });
+
+  /* Determine which dataset to render: lot trace results when trace mode
+     is active with results, otherwise the standard filtered movement list. */
+  const displayMovements: StockMovement[] = lotTraceMode && lotTraceData
+    ? lotTraceData
+    : filtered as StockMovement[];
 
   return (
     <div>
@@ -89,6 +112,23 @@ export const StockMovementsTab: React.FC = () => {
             goods receipt (IN), waste disposal (WASTE), and inter-location
             transfers (TRANSFER). */}
         <div className="flex gap-2">
+          {/* Lot Trace search — EU 178/2002 Article 18 compliance tool.
+              Switches the view from chronological movement history to a
+              focused lot-level traceability chain showing every movement
+              that affected a specific production lot. */}
+          <button
+            onClick={() => {
+              setLotTraceMode(!lotTraceMode);
+              if (lotTraceMode) setLotTraceNumber('');
+            }}
+            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              lotTraceMode
+                ? 'bg-purple-600 text-white'
+                : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {lotTraceMode ? '\u2715 Exit Lot Trace' : 'Lot Trace'}
+          </button>
           <button
             onClick={() => setShowMovementModal(true)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
@@ -104,77 +144,170 @@ export const StockMovementsTab: React.FC = () => {
         </div>
       </div>
 
-      {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+      {/* Lot trace search panel — visible only when trace mode is active.
+          The input triggers the traceLot GraphQL query once the user has
+          typed at least 2 characters, matching the backend minimum length
+          to avoid overly broad searches. */}
+      {lotTraceMode && (
+        <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+          <label className="block text-sm font-medium text-purple-800 mb-1">
+            Lot Number (EU 178/2002 Traceability)
+          </label>
+          <input
+            type="text"
+            value={lotTraceNumber}
+            onChange={e => setLotTraceNumber(e.target.value)}
+            placeholder="Enter lot number to trace..."
+            className="w-full px-3 py-2 border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+          {lotTraceNumber.length > 0 && lotTraceNumber.length < 2 && (
+            <p className="mt-1 text-xs text-purple-600">
+              Type at least 2 characters to begin tracing.
+            </p>
+          )}
         </div>
       )}
 
-      {error && (
+      {/* Loading state — accounts for both standard and lot trace queries */}
+      {(isLoading || isLotTraceLoading) && (
+        <div className="flex items-center justify-center py-12">
+          <div className={`animate-spin w-8 h-8 border-4 ${lotTraceMode ? 'border-purple-500' : 'border-blue-500'} border-t-transparent rounded-full`} />
+        </div>
+      )}
+
+      {/* Error state — shows the appropriate error based on active mode */}
+      {(error || lotTraceError) && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load movements.</p>
+          <p className="text-red-600">
+            {lotTraceMode ? 'Failed to trace lot movements.' : 'Failed to load movements.'}
+          </p>
           <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
         </div>
       )}
 
-      {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">From / To</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filtered.map(m => (
-                <tr key={m.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
-                    <div className="text-xs text-gray-400">
-                      {new Date(m.performedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 text-gray-800'}`}>
-                      {m.movementType}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">{m.itemName}</div>
-                    <div className="text-xs text-gray-500">{m.itemType}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm font-medium">
-                    <span className={m.movementType === 'OUT' || m.movementType === 'WASTE' ? 'text-red-600' : 'text-green-600'}>
-                      {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {m.fromLocationName && m.toLocationName ? (
-                      <>{m.fromLocationName} <span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
-                    ) : m.fromLocationName ? (
-                      m.fromLocationName
-                    ) : m.toLocationName ? (
-                      <><span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{m.performedBy}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {m.reference || m.reason || '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">No movements found.</div>
+      {!isLoading && !isLotTraceLoading && !error && !lotTraceError && (
+        <>
+          {/* Lot trace chain summary — shows the lifecycle overview when trace
+              results are available. Maps the movement types into a human-readable
+              chain: Received (IN) -> Stored -> Transferred -> Consumed/Disposed.
+              This gives auditors an at-a-glance view of the lot's journey. */}
+          {lotTraceMode && lotTraceData && lotTraceData.length > 0 && (
+            <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+              <h4 className="text-sm font-semibold text-purple-900 mb-2">
+                Lot Trace Chain: {lotTraceNumber}
+              </h4>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {lotTraceData.map((m, idx) => {
+                  const labelMap: Record<string, string> = {
+                    IN: 'Received',
+                    TRANSFER: 'Transferred',
+                    OUT: 'Consumed',
+                    WASTE: 'Disposed',
+                    ADJUSTMENT: 'Adjusted',
+                    RETURN: 'Returned',
+                  };
+                  const label = labelMap[m.movementType] || m.movementType;
+                  const location = m.toLocationName || m.fromLocationName || 'Unknown';
+                  return (
+                    <React.Fragment key={m.id}>
+                      {idx > 0 && (
+                        <span className="text-purple-400">&rarr;</span>
+                      )}
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                          typeBadge[m.movementType] || 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {label} @ {location}
+                        <span className="ml-1 text-gray-500">
+                          ({new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })})
+                        </span>
+                      </span>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-purple-600">
+                {lotTraceData.length} movement{lotTraceData.length !== 1 ? 's' : ''} found for this lot.
+              </p>
+            </div>
           )}
-        </div>
+
+          <div className={`bg-white rounded-lg shadow-sm border overflow-hidden ${
+            lotTraceMode ? 'border-purple-200' : 'border-gray-200'
+          }`}>
+            <table className="min-w-full divide-y divide-gray-200">
+              {/* Table header — purple when in lot trace mode to provide
+                  a clear visual distinction from the standard movement view */}
+              <thead className={lotTraceMode ? 'bg-purple-50' : 'bg-gray-50'}>
+                <tr>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Date</th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Type</th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Item</th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Quantity</th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>From / To</th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>By</th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Reference</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {displayMovements.map(m => (
+                  <tr key={m.id} className={lotTraceMode ? 'hover:bg-purple-50' : 'hover:bg-gray-50'}>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
+                      <div className="text-xs text-gray-400">
+                        {new Date(m.performedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 text-gray-800'}`}>
+                        {m.movementType}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">{m.itemName}</div>
+                      <div className="text-xs text-gray-500">{m.itemType}</div>
+                      {/* Show lot number in standard view when available,
+                          since it helps staff cross-reference delivery notes */}
+                      {!lotTraceMode && m.lotNumber && (
+                        <div className="text-xs text-purple-500">Lot: {m.lotNumber}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium">
+                      <span className={m.movementType === 'OUT' || m.movementType === 'WASTE' ? 'text-red-600' : 'text-green-600'}>
+                        {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {m.fromLocationName && m.toLocationName ? (
+                        <>{m.fromLocationName} <span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
+                      ) : m.fromLocationName ? (
+                        m.fromLocationName
+                      ) : m.toLocationName ? (
+                        <><span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {m.performedByName || m.performedBy}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {m.reference || m.reason || '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {displayMovements.length === 0 && (
+              <div className="text-center py-12 text-gray-500 text-sm">
+                {lotTraceMode
+                  ? lotTraceNumber.length < 2
+                    ? 'Enter a lot number above to trace its movement history.'
+                    : 'No movements found for this lot number.'
+                  : 'No movements found.'}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Stock movement and transfer modals.

@@ -18,6 +18,7 @@ import { Chemical } from '../chemical/entities/chemical.entity';
 import { Consumable } from '../consumable/entities/consumable.entity';
 
 import { StorageResolver } from './storage.resolver';
+import { FeedingStorageEventHandler } from './event-handlers/feeding-storage-event.handler';
 
 import { CreateStorageLocationHandler } from './handlers/create-storage-location.handler';
 import { UpdateStorageLocationHandler } from './handlers/update-storage-location.handler';
@@ -42,6 +43,7 @@ import { GetPurchaseOrderHandler } from './handlers/get-purchase-order.handler';
 import { GetPendingDeliveriesHandler } from './handlers/get-pending-deliveries.handler';
 import { ListInventoryCountsHandler } from './handlers/list-inventory-counts.handler';
 import { GetInventoryCountHandler } from './handlers/get-inventory-count.handler';
+import { TraceLotHandler } from './handlers/trace-lot.handler';
 
 const CommandHandlers = [
   CreateStorageLocationHandler,
@@ -69,6 +71,11 @@ const QueryHandlers = [
   GetPendingDeliveriesHandler,
   ListInventoryCountsHandler,
   GetInventoryCountHandler,
+  TraceLotHandler,
+];
+
+const EventHandlers = [
+  FeedingStorageEventHandler,
 ];
 
 @Module({
@@ -92,6 +99,7 @@ const QueryHandlers = [
     StorageResolver,
     ...CommandHandlers,
     ...QueryHandlers,
+    ...EventHandlers,
   ],
   exports: [
     TypeOrmModule,

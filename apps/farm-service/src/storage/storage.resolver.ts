@@ -25,6 +25,7 @@ import { ListStorageLocationsQuery } from './queries/list-storage-locations.quer
 import { GetStorageInventoryQuery } from './queries/get-storage-inventory.query';
 import { ListStockMovementsQuery } from './queries/list-stock-movements.query';
 import { GetStorageOverviewQuery } from './queries/get-storage-overview.query';
+import { TraceLotQuery } from './queries/trace-lot.query';
 import { StorageItemType } from './entities/storage-inventory.entity';
 import { PurchaseOrderResponse, PaginatedPurchaseOrdersResponse } from './dto/purchase-order.response';
 import { CreatePurchaseOrderInput } from './dto/create-purchase-order.input';
@@ -251,6 +252,28 @@ export class StorageResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<StorageOverviewResponse> {
     const query = new GetStorageOverviewQuery(tenantId);
+    return this.queryBus.execute(query);
+  }
+
+  // === Lot Traceability ===
+
+  /**
+   * Trace all stock movements for a given lot number (EU 178/2002 Article 18).
+   *
+   * Returns chronological history: delivery IN -> storage TRANSFER -> feeding OUT -> WASTE.
+   * Used by farm managers and auditors to answer:
+   * - Forward: "Where did lot LOT-2026-0042 go?" (which tanks, feeding events)
+   * - Backward: "Where did the feed in Tank A come from?" (supplier, delivery)
+   * - Recall: "Find all consumption points for recalled lot X"
+   */
+  @Query(() => [StockMovementResponse], {
+    description: 'Trace all stock movements for a lot number (regulatory traceability)',
+  })
+  async traceLot(
+    @Args('lotNumber', { type: () => String }) lotNumber: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<StockMovementResponse[]> {
+    const query = new TraceLotQuery(lotNumber, tenantId);
     return this.queryBus.execute(query);
   }
 

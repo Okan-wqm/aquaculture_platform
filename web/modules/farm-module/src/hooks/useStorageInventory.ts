@@ -253,6 +253,24 @@ const RECORD_STOCK_MOVEMENT_MUTATION = `
   }
 `;
 
+/**
+ * Lot traceability query — retrieves the full movement chain for a single
+ * lot number across all storage locations. This is the core data source for
+ * EU Regulation 178/2002 Article 18 compliance, which requires every feed
+ * and chemical lot to be traceable one-step-back (supplier) and
+ * one-step-forward (consumer/disposal point).
+ */
+const TRACE_LOT_QUERY = `
+  query TraceLot($lotNumber: String!) {
+    traceLot(lotNumber: $lotNumber) {
+      id movementType itemType itemId itemName quantity unit
+      fromLocationId toLocationId fromLocationName toLocationName
+      lotNumber expiryDate reference reason
+      performedBy performedByName performedAt createdAt
+    }
+  }
+`;
+
 const TRANSFER_STOCK_MUTATION = `
   mutation TransferStock($input: TransferStockInput!) {
     transferStock(input: $input) {
@@ -347,6 +365,36 @@ export function useRecordStockMovement() {
       queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
       queryClient.invalidateQueries({ queryKey: ['consumables', 'list'] });
     },
+  });
+}
+
+/**
+ * Trace all movements for a specific lot number across all locations.
+ * Required for EU Regulation 178/2002 Article 18 compliance: every feed
+ * and chemical lot must be traceable from supplier delivery (IN) through
+ * storage (TRANSFER) to consumption (OUT) or disposal (WASTE).
+ *
+ * Usage: Enter a lot number from a supplier delivery note to see the
+ * complete chain of movements including which locations stored it,
+ * when it was transferred, and where it was ultimately consumed.
+ *
+ * The query is only enabled when the lot number has at least 2 characters,
+ * which avoids flooding the backend with single-character wildcard searches
+ * that would return too many results to be useful.
+ */
+export function useLotTrace(lotNumber: string | null) {
+  const { token, tenantId } = useAuth();
+  return useQuery<StockMovement[]>({
+    queryKey: ['lotTrace', lotNumber],
+    queryFn: async () => {
+      const data = await graphqlClient.request<{ traceLot: StockMovement[] }>(
+        TRACE_LOT_QUERY,
+        { lotNumber }
+      );
+      return data.traceLot;
+    },
+    enabled: !!token && !!tenantId && !!lotNumber && lotNumber.length >= 2,
+    staleTime: 30000,
   });
 }
 

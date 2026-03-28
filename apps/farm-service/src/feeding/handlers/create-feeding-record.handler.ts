@@ -13,7 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
-import { FeedInventoryLowEvent } from '@platform/event-contracts';
+import { FeedInventoryLowEvent, FeedingRecordedEvent } from '@platform/event-contracts';
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
 import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
@@ -127,6 +127,41 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       );
 
       await queryRunner.commitTransaction();
+
+      // Publish FeedingRecordedEvent for cross-module integration.
+      // The storage module consumes this to auto-deduct feed from inventory,
+      // eliminating the need for manual stock OUT movements after feeding.
+      // This is the key integration that connects farm operations to inventory
+      // management — a core differentiator vs generic WMS platforms.
+      if (this.eventBus) {
+        try {
+          const feedingEvent: FeedingRecordedEvent = {
+            eventId: randomUUID(),
+            eventType: 'FeedingRecorded',
+            tenantId,
+            timestamp: new Date(),
+            version: 1,
+            userId,
+            batchId: payload.batchId,
+            tankId: payload.tankId,
+            feedId: payload.feedId,
+            plannedAmountKg: payload.plannedAmount ?? 0,
+            actualAmountKg: payload.actualAmount,
+            feedingDate: new Date(payload.feedingDate),
+            feedingTime: payload.feedingTime || '',
+            variance: (payload.actualAmount - (payload.plannedAmount ?? 0)),
+          };
+          await this.eventBus.publish(feedingEvent);
+          this.logger.debug(
+            `Published FeedingRecordedEvent for batch=${payload.batchId}, feed=${payload.feedId}, amount=${payload.actualAmount}kg`,
+          );
+        } catch (e) {
+          // Best-effort delivery: the feeding record is the source of truth.
+          // If the event fails to publish, the storage module will not auto-deduct
+          // but the feeding record remains valid. Manual stock adjustment can reconcile.
+          this.logger.warn(`Failed to publish FeedingRecordedEvent: ${(e as Error).message}`);
+        }
+      }
 
       return saved;
     } catch (error) {

@@ -37,6 +37,16 @@ import { ListPurchaseOrdersQuery } from './queries/list-purchase-orders.query';
 import { GetPurchaseOrderQuery } from './queries/get-purchase-order.query';
 import { GetPendingDeliveriesQuery } from './queries/get-pending-deliveries.query';
 import { PurchaseOrderCategory, PurchaseOrderStatus } from './entities/purchase-order.entity';
+import { InventoryCountResponse, PaginatedInventoryCountsResponse } from './dto/inventory-count.response';
+import { CreateInventoryCountInput } from './dto/create-inventory-count.input';
+import { UpdateInventoryCountItemsInput } from './dto/update-inventory-count-items.input';
+import { CreateInventoryCountCommand } from './commands/create-inventory-count.command';
+import { UpdateInventoryCountCommand } from './commands/update-inventory-count.command';
+import { SubmitInventoryCountCommand } from './commands/submit-inventory-count.command';
+import { ApproveInventoryCountCommand } from './commands/approve-inventory-count.command';
+import { ListInventoryCountsQuery } from './queries/list-inventory-counts.query';
+import { GetInventoryCountQuery } from './queries/get-inventory-count.query';
+import { InventoryCountStatus } from './entities/inventory-count.entity';
 import { InputType, Field, Int } from '@nestjs/graphql';
 import { IsOptional, IsString, IsEnum, IsUUID, IsInt } from 'class-validator';
 
@@ -82,6 +92,29 @@ export class PurchaseOrderFilterInput {
   @IsOptional()
   @IsEnum(PurchaseOrderStatus)
   status?: PurchaseOrderStatus;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  page?: number;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  limit?: number;
+}
+
+@InputType()
+export class InventoryCountFilterInput {
+  @Field(() => InventoryCountStatus, { nullable: true })
+  @IsOptional()
+  @IsEnum(InventoryCountStatus)
+  status?: InventoryCountStatus;
+
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  locationId?: string;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -298,6 +331,79 @@ export class StorageResolver {
   ): Promise<PurchaseOrderResponse> {
     const input = { id, status: PurchaseOrderStatus.CANCELLED } as UpdatePurchaseOrderStatusInput;
     const command = new UpdatePurchaseOrderStatusCommand(input, tenantId, user.sub);
+    return this.commandBus.execute(command);
+  }
+
+  // === Inventory Counts ===
+
+  @Query(() => PaginatedInventoryCountsResponse)
+  async inventoryCounts(
+    @Args('filter', { type: () => InventoryCountFilterInput, nullable: true }) filter: InventoryCountFilterInput | undefined,
+    @CurrentTenant() tenantId: string,
+  ): Promise<PaginatedInventoryCountsResponse> {
+    const query = new ListInventoryCountsQuery(
+      tenantId,
+      filter?.status,
+      filter?.locationId,
+      filter?.page,
+      filter?.limit,
+    );
+    const result = await this.queryBus.execute<ListInventoryCountsQuery, PaginatedQueryResult<InventoryCountResponse>>(query);
+    return fromCqrsPaginated(result);
+  }
+
+  @Query(() => InventoryCountResponse, { nullable: true })
+  async inventoryCount(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<InventoryCountResponse> {
+    const query = new GetInventoryCountQuery(id, tenantId);
+    return this.queryBus.execute(query);
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => InventoryCountResponse)
+  async createInventoryCount(
+    @Args('input') input: CreateInventoryCountInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; firstName?: string; lastName?: string },
+  ): Promise<InventoryCountResponse> {
+    const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
+    const command = new CreateInventoryCountCommand(input, tenantId, user.sub, userName);
+    return this.commandBus.execute(command);
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Mutation(() => InventoryCountResponse)
+  async updateInventoryCountItems(
+    @Args('input') input: UpdateInventoryCountItemsInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<InventoryCountResponse> {
+    const command = new UpdateInventoryCountCommand(input, tenantId, user.sub);
+    return this.commandBus.execute(command);
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => InventoryCountResponse)
+  async submitInventoryCount(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<InventoryCountResponse> {
+    const command = new SubmitInventoryCountCommand(id, tenantId, user.sub);
+    return this.commandBus.execute(command);
+  }
+
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => InventoryCountResponse)
+  async approveInventoryCount(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; firstName?: string; lastName?: string },
+  ): Promise<InventoryCountResponse> {
+    const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
+    const command = new ApproveInventoryCountCommand(id, tenantId, user.sub, userName);
     return this.commandBus.execute(command);
   }
 }

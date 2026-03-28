@@ -10,6 +10,8 @@ import { StorageInventory } from './entities/storage-inventory.entity';
 import { StockMovement } from './entities/stock-movement.entity';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
+import { InventoryCount } from './entities/inventory-count.entity';
+import { InventoryCountItem } from './entities/inventory-count-item.entity';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
@@ -25,6 +27,10 @@ import { TransferStockHandler } from './handlers/transfer-stock.handler';
 import { CreatePurchaseOrderHandler } from './handlers/create-purchase-order.handler';
 import { UpdatePurchaseOrderStatusHandler } from './handlers/update-purchase-order-status.handler';
 import { ReceiveDeliveryHandler } from './handlers/receive-delivery.handler';
+import { CreateInventoryCountHandler } from './handlers/create-inventory-count.handler';
+import { UpdateInventoryCountHandler } from './handlers/update-inventory-count.handler';
+import { SubmitInventoryCountHandler } from './handlers/submit-inventory-count.handler';
+import { ApproveInventoryCountHandler } from './handlers/approve-inventory-count.handler';
 
 import { GetStorageLocationHandler } from './handlers/get-storage-location.handler';
 import { ListStorageLocationsHandler } from './handlers/list-storage-locations.handler';
@@ -34,6 +40,8 @@ import { GetStorageOverviewHandler } from './handlers/get-storage-overview.handl
 import { ListPurchaseOrdersHandler } from './handlers/list-purchase-orders.handler';
 import { GetPurchaseOrderHandler } from './handlers/get-purchase-order.handler';
 import { GetPendingDeliveriesHandler } from './handlers/get-pending-deliveries.handler';
+import { ListInventoryCountsHandler } from './handlers/list-inventory-counts.handler';
+import { GetInventoryCountHandler } from './handlers/get-inventory-count.handler';
 
 const CommandHandlers = [
   CreateStorageLocationHandler,
@@ -44,6 +52,10 @@ const CommandHandlers = [
   CreatePurchaseOrderHandler,
   UpdatePurchaseOrderStatusHandler,
   ReceiveDeliveryHandler,
+  CreateInventoryCountHandler,
+  UpdateInventoryCountHandler,
+  SubmitInventoryCountHandler,
+  ApproveInventoryCountHandler,
 ];
 
 const QueryHandlers = [
@@ -55,6 +67,8 @@ const QueryHandlers = [
   ListPurchaseOrdersHandler,
   GetPurchaseOrderHandler,
   GetPendingDeliveriesHandler,
+  ListInventoryCountsHandler,
+  GetInventoryCountHandler,
 ];
 
 @Module({
@@ -65,6 +79,8 @@ const QueryHandlers = [
       StockMovement,
       PurchaseOrder,
       PurchaseOrderItem,
+      InventoryCount,
+      InventoryCountItem,
       Site,
       Feed,
       Chemical,

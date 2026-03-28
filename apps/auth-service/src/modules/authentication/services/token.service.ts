@@ -29,6 +29,14 @@ export interface JwtPayload {
   tenantId: string | null;
   modules?: string[];
   resourcePermissions?: string[];
+  /**
+   * User's first and last name, included in the JWT so that downstream services
+   * can denormalize the display name into audit trail records (e.g., stock
+   * movements, task completions) without cross-service queries to auth-service.
+   * These fields are optional — older tokens without them will still work.
+   */
+  firstName?: string;
+  lastName?: string;
   jti?: string; // JWT ID for blacklisting
   iat?: number;
   exp?: number;
@@ -145,6 +153,11 @@ export class TokenService {
       tenantId: user.tenantId ?? null,
       modules: moduleCodes.length > 0 ? moduleCodes : undefined,
       resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
+      // Include user display name for audit trail denormalization in downstream
+      // services. Farm-service stores this on stock movements so the movement
+      // history shows WHO performed each action without cross-service queries.
+      firstName: user.firstName ?? undefined,
+      lastName: user.lastName ?? undefined,
       jti,
     };
 

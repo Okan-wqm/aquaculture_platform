@@ -640,8 +640,14 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       # Download frontend artifacts - upload strips common ancestor 'web/',
-      # so we extract into 'web/' to restore original paths (web/shell/dist, web/modules/*/dist)
+      # so we extract into 'web/' to restore original paths (web/shell/dist, web/modules/*/dist).
+      # SKIP for aquamobil: it builds inside its own Dockerfile (monorepo-aware)
+      # and does not need the pre-built dist/ artifacts. Without this condition,
+      # aquamobil's Docker build fails with "Artifact not found" when the
+      # build-frontend-artifacts job did not produce a frontend-dist artifact
+      # (e.g., when only aquamobil files changed and no NX modules were affected).
       - name: Download frontend artifacts
+        if: matrix.module != 'aquamobil'
         # SEC-CI-002: pinned to SHA
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:

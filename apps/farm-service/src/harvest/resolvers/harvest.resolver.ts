@@ -26,8 +26,6 @@ import { TenantGuard, Tenant, CurrentUser, Roles, Role, StandardPaginatedRespons
 // Entities
 import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../entities/harvest-record.entity';
 import { HarvestPlan } from '../entities/harvest-plan.entity';
-import { Batch } from '../../batch/entities/batch.entity';
-
 // DTOs
 import { CreateHarvestRecordInput } from '../dto/create-harvest-record.input';
 import { UpdateHarvestRecordInput } from '../dto/update-harvest-record.input';
@@ -333,13 +331,14 @@ export class HarvestResolver {
   /**
    * Create a new harvest record
    */
-  @Mutation(() => Batch, { description: 'Create a harvest record and update batch/tank quantities' })
+  // Return HarvestRecord (not Batch) so the frontend receives harvest-specific fields
+  @Mutation(() => HarvestRecord, { description: 'Create a harvest record and update batch/tank quantities' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createHarvestRecord(
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
     @Args('input') input: CreateHarvestRecordInput,
-  ): Promise<Batch> {
+  ): Promise<HarvestRecord> {
     this.logger.log(`Creating harvest record for tenant ${tenantId} by user ${user.sub}`);
 
     return this.commandBus.execute(

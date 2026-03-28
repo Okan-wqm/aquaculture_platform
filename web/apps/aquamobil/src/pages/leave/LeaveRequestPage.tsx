@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, CalendarOff, CheckCircle, AlertCircle } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
-import { useSubmitLeaveRequest } from '@/hooks/useLeave';
+import { useLeaveTypes, useMyLeaveBalances, useSubmitLeaveRequest } from '@/hooks/useLeave';
 import { useAuth } from '@/hooks/useAuth';
 import type { LeaveType } from '@/types';
 import { clsx } from 'clsx';
@@ -20,8 +19,11 @@ export function LeaveRequestPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addToQueue, isOnline } = useOfflineQueue();
-  const { data: leaveTypes, fetch: fetchLeaveTypes } = useLeaveTypes();
-  const { data: balances, fetch: fetchBalances } = useMyLeaveBalances();
+  // WHY no imperative fetch calls: React Query auto-fetches on mount when
+  // enabled conditions are met, and the data is shared/deduplicated across
+  // components that use the same queryKey.
+  const { data: leaveTypes = [] } = useLeaveTypes();
+  const { data: balances = [] } = useMyLeaveBalances(new Date().getFullYear());
   const { submit: submitRequest } = useSubmitLeaveRequest();
 
   const [selectedTypeId, setSelectedTypeId] = useState('');
@@ -32,11 +34,6 @@ export function LeaveRequestPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
-
-  useEffect(() => {
-    fetchLeaveTypes();
-    fetchBalances(new Date().getFullYear());
-  }, [fetchLeaveTypes, fetchBalances]);
 
   // Set default start date to tomorrow
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, CheckCircle, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -33,9 +33,19 @@ export function AttendancePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addToQueue, isOnline } = useOfflineQueue();
-  const { data: todayRecords, fetch: fetchToday } = useTodaysAttendance();
-  const { data: recentRecords, fetch: fetchRecent } = useMyAttendanceRecords();
-  const { data: summary, fetch: fetchSummary } = useMyAttendanceSummary();
+
+  const employeeId = user?.employeeId || user?.id || '';
+
+  // WHY React Query hooks accept params directly instead of imperative fetch():
+  // React Query auto-fetches when params change, deduplicates identical requests,
+  // and serves stale data instantly while revalidating in the background.
+  const { data: todayRecords, refetch: refetchToday } = useTodaysAttendance(employeeId);
+  const { data: recentRecords } = useMyAttendanceRecords({
+    startDate: new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+    limit: 7,
+  });
+  const { data: summary } = useMyAttendanceSummary();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -44,21 +54,8 @@ export function AttendancePage() {
   const [location, setLocation] = useState<GeoLocation | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
 
-  const employeeId = user?.employeeId || user?.id || '';
   const todayRecord = todayRecords?.find((r) => r.employeeId === employeeId);
   const isClockedIn = todayRecord?.clockIn && !todayRecord?.clockOut;
-
-  // Fetch data on mount
-  useEffect(() => {
-    fetchToday(employeeId);
-    // Last 7 days
-    const endDate = new Date().toISOString().split('T')[0]!;
-    const startDate = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]!;
-    fetchRecent(startDate, endDate, 7);
-    // This month summary
-    const now = new Date();
-    fetchSummary(now.getMonth() + 1, now.getFullYear());
-  }, [employeeId, fetchToday, fetchRecent, fetchSummary]);
 
   const getLocation = useCallback(async (): Promise<GeoLocation | null> => {
     if (!navigator.geolocation) return null;
@@ -99,7 +96,7 @@ export function AttendancePage() {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        fetchToday(employeeId);
+        refetchToday();
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clock in');
@@ -122,7 +119,7 @@ export function AttendancePage() {
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
-        fetchToday(employeeId);
+        refetchToday();
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clock out');
@@ -290,7 +287,7 @@ export function AttendancePage() {
       <div className="px-4 mt-5">
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent (7 Days)</h3>
         <div className="space-y-2">
-          {recentRecords.map((record: AttendanceRecord) => (
+          {(recentRecords ?? []).map((record: AttendanceRecord) => (
             <div
               key={record.id}
               className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800 flex items-center justify-between"
@@ -309,7 +306,7 @@ export function AttendancePage() {
               </span>
             </div>
           ))}
-          {recentRecords.length === 0 && (
+          {(!recentRecords || recentRecords.length === 0) && (
             <div className="text-center py-6 text-gray-400">
               <Clock size={32} className="mx-auto mb-2 opacity-50" />
               <p className="text-sm">No recent records</p>

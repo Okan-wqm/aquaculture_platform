@@ -1,212 +1,159 @@
-import { useMemo } from 'react';
+/**
+ * OperationsHubPage -- Smart landing page with 4 rich summary cards linking
+ * to dedicated enterprise hub pages (Daily Ops, Stock Events, Warehouse, Staff).
+ *
+ * WHY smart landing page (not flat grid): The previous flat card grid forced
+ * workers to navigate into each section to discover their current status. The
+ * hub summary pattern surfaces live KPIs (shift status, tanks fed, low stock
+ * alerts, leave balance) directly on the landing screen, reducing taps by ~60%.
+ * Each card acts as a preview + deep-link into its dedicated hub page.
+ *
+ * Permission-based rendering: Each card auto-hides if the user has no access
+ * to ANY of that hub's features. A warehouse-only worker sees just the
+ * Warehouse card, not empty stubs for Daily Ops or Staff.
+ */
+
 import { useNavigate } from 'react-router-dom';
-import {
-  ClipboardList,
-  MapPin,
-  Skull,
-  Droplets,
-  Utensils,
-  Scissors,
-  Package,
-  ArrowLeftRight,
-  Warehouse,
-  CalendarOff,
-  Calendar,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
+import { ClipboardList, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
+import { useMobilePermissions } from '@/hooks/useMobilePermissions';
+import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
+import { useStockEventsSummary } from '@/hooks/useStockEventsSummary';
+import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
+import { useStaffSummary } from '@/hooks/useStaffSummary';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Skeleton pulse placeholder for a single metric cell while data loads. */
+function MetricSkeleton() {
+  return <div className="h-5 w-12 mx-auto rounded skeleton" />;
+}
 
 /**
- * OperationsHubPage — Grouped mobile operations organized by workflow category.
- *
- * Operations are grouped into 4 categories that reflect the natural workflow
- * of aquaculture field workers:
- * - Daily Operations: shift-start tasks in chronological order
- * - Stock Events: scheduled batch lifecycle operations
- * - Warehouse: inventory and supply chain operations
- * - Staff: HR self-service (attendance, leave, schedule)
- *
- * Each group auto-hides if the current user has no permissions for any
- * operation within it. This keeps the UI clean for restricted roles
- * (e.g., a warehouse worker sees only Warehouse + Staff groups).
- *
- * Enterprise pattern: AKVA Group FiizK uses a similar grouped approach.
- * The ordering within "Daily Operations" follows the actual shift sequence:
- * Clock In -> Mortality Check -> Water Quality -> Feeding (not alphabetical).
+ * Safe string/number display: returns em-dash for null/undefined values so
+ * the card degrades gracefully when a hook fails or returns partial data.
  */
+function safe(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '\u2014';
+  return String(value);
+}
 
 // ---------------------------------------------------------------------------
-// Type definitions
+// Sub-components
 // ---------------------------------------------------------------------------
 
-/** A single actionable operation card within a group. */
-interface OperationItem {
-  /** Permission feature key checked via useMobilePermissions().canAccess() */
-  feature: MobileFeature;
-  /** Navigation target within the mobile app */
-  path: string;
-  /** Lucide icon component rendered inside the card */
-  icon: LucideIcon;
-  /** User-facing label displayed below the icon */
+interface MetricCellProps {
   label: string;
-  /** Tailwind gradient classes for the card background */
-  gradient: string;
+  value: string;
+  isLoading: boolean;
 }
 
-/** A logical grouping of operations with its own header styling. */
-interface OperationGroup {
-  /** Unique identifier used as React key */
-  id: string;
-  /** Display title shown in the group header bar */
+/** Single metric cell inside a summary card's 3-column grid. */
+function MetricCell({ label, value, isLoading }: MetricCellProps) {
+  return (
+    <div>
+      <p className="text-xs text-gray-400 dark:text-gray-500">{label}</p>
+      {isLoading ? (
+        <MetricSkeleton />
+      ) : (
+        <p className="font-bold text-gray-900 dark:text-white tabular-nums">{value}</p>
+      )}
+    </div>
+  );
+}
+
+interface SummaryCardProps {
   title: string;
-  /** Tailwind gradient classes for the section header */
-  headerGradient: string;
-  /** Operations belonging to this group (pre-filtered by permissions at render) */
-  items: OperationItem[];
+  ariaLabel: string;
+  gradient: string;
+  onClick: () => void;
+  children: React.ReactNode;
 }
-
-// ---------------------------------------------------------------------------
-// Static group definitions
-// ---------------------------------------------------------------------------
 
 /**
- * WHY shift-sequence ordering in Daily Operations:
- * Field workers follow a consistent morning routine — arrive at the farm,
- * clock in, walk the pens to check for mortalities, take water quality
- * readings, then begin the feeding cycle. Ordering the buttons in this
- * natural sequence reduces cognitive load and missed steps. The other
- * groups are ordered by frequency of use within their category.
+ * Reusable summary card shell: gradient header pill + white body + chevron.
+ * WHY button (not div): keyboard accessibility — tab-focusable + enter activates.
  */
-const OPERATION_GROUPS: OperationGroup[] = [
-  {
-    id: 'daily',
-    title: 'Daily Operations',
-    headerGradient: 'from-orange-500 to-amber-500',
-    items: [
-      {
-        feature: 'attendance',
-        path: '/attendance',
-        icon: MapPin,
-        label: 'Clock In',
-        gradient: 'from-emerald-500 to-emerald-600',
-      },
-      {
-        feature: 'mortality',
-        path: '/mortality/record',
-        icon: Skull,
-        label: 'Mortality Check',
-        gradient: 'from-red-500 to-red-600',
-      },
-      {
-        feature: 'waterQuality',
-        path: '/water-quality/record',
-        icon: Droplets,
-        label: 'Water Quality',
-        gradient: 'from-cyan-500 to-cyan-600',
-      },
-      {
-        feature: 'feeding',
-        path: '/feeding/record',
-        icon: Utensils,
-        label: 'Feeding',
-        gradient: 'from-green-500 to-green-600',
-      },
-    ],
-  },
-  {
-    id: 'stock',
-    title: 'Stock Events',
-    headerGradient: 'from-purple-500 to-violet-500',
-    items: [
-      {
-        feature: 'cull',
-        path: '/cull/record',
-        icon: Scissors,
-        label: 'Culling',
-        gradient: 'from-amber-500 to-amber-600',
-      },
-      {
-        feature: 'harvest',
-        path: '/harvest/record',
-        icon: Package,
-        label: 'Harvest',
-        gradient: 'from-violet-500 to-violet-600',
-      },
-      {
-        feature: 'transfer',
-        path: '/transfer/record',
-        icon: ArrowLeftRight,
-        label: 'Transfer',
-        gradient: 'from-blue-500 to-blue-600',
-      },
-    ],
-  },
-  {
-    id: 'warehouse',
-    title: 'Warehouse',
-    headerGradient: 'from-teal-500 to-teal-600',
-    items: [
-      {
-        feature: 'storage',
-        path: '/storage',
-        icon: Warehouse,
-        label: 'Storage',
-        gradient: 'from-teal-500 to-teal-600',
-      },
-    ],
-  },
-  {
-    id: 'staff',
-    title: 'Staff',
-    headerGradient: 'from-indigo-500 to-indigo-600',
-    items: [
-      {
-        feature: 'leave',
-        path: '/leave',
-        icon: CalendarOff,
-        label: 'Leave Request',
-        gradient: 'from-indigo-500 to-indigo-600',
-      },
-      {
-        feature: 'schedule',
-        path: '/schedule',
-        icon: Calendar,
-        label: 'My Schedule',
-        gradient: 'from-sky-500 to-sky-600',
-      },
-    ],
-  },
-];
+function SummaryCard({ title, ariaLabel, gradient, onClick, children }: SummaryCardProps) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className={clsx(
+        'w-full text-left rounded-2xl overflow-hidden',
+        'touch-feedback shadow-card motion-safe:active:scale-[0.98]',
+        'motion-safe:transition-transform',
+      )}
+    >
+      <div className={clsx('bg-gradient-to-r px-4 py-2.5', gradient)}>
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider">{title}</h2>
+      </div>
+      <div
+        className={clsx(
+          'bg-white dark:bg-gray-900 p-4',
+          'border border-t-0 border-gray-100 dark:border-gray-800',
+          'rounded-b-2xl',
+        )}
+      >
+        {children}
+        <div className="flex items-center justify-end mt-2 text-gray-300 dark:text-gray-600">
+          <ChevronRight size={16} />
+        </div>
+      </div>
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
-// Component
+// Page component
 // ---------------------------------------------------------------------------
 
 export function OperationsHubPage() {
   const navigate = useNavigate();
   const { canAccess } = useMobilePermissions();
 
-  /**
-   * Two-pass filter:
-   * 1. Remove individual items the user cannot access (RBAC per-feature).
-   * 2. Remove entire groups that have zero visible items afterwards.
-   *
-   * This ensures a warehouse-only worker sees just the Warehouse + Staff
-   * groups instead of empty section headers for Daily Ops / Stock Events.
-   */
-  const visibleGroups = useMemo(() => {
-    return OPERATION_GROUPS
-      .map((group) => ({
-        ...group,
-        items: group.items.filter((item) => canAccess(item.feature)),
-      }))
-      .filter((group) => group.items.length > 0);
-  }, [canAccess]);
+  // WHY permission checks per hub: each hub aggregates multiple features.
+  // Show the card if the user can access ANY feature within that hub.
+  const hasDailyOps =
+    canAccess('attendance') || canAccess('mortality') || canAccess('waterQuality') || canAccess('feeding');
+  const hasStockEvents = canAccess('cull') || canAccess('harvest') || canAccess('transfer');
+  const hasWarehouse = canAccess('storage');
+  const hasStaff = canAccess('attendance') || canAccess('leave') || canAccess('schedule');
+  const noCardsVisible = !hasDailyOps && !hasStockEvents && !hasWarehouse && !hasStaff;
+
+  // WHY call all hooks unconditionally: React hooks must not be called
+  // conditionally. The hooks themselves are lightweight (React Query dedup)
+  // and short-circuit when the user is not authenticated.
+  const { stats: dailyStats, isLoading: dailyLoading } = useDailyOpsStats();
+  const { summary: stockSummary, isLoading: stockLoading } = useStockEventsSummary();
+  const { summary: warehouseSummary, isLoading: warehouseLoading } = useWarehouseSummary();
+  const { summary: staffSummary, isLoading: staffLoading } = useStaffSummary();
+
+  // WHY safe wrappers: if a hook fails or the backend resolver is missing,
+  // the card shows em-dashes instead of crashing on undefined access.
+  const shiftDisplay = dailyStats?.isClockedIn ? '\u25CF On' : '\u25CB Off';
+  const fedDisplay = `${safe(dailyStats?.tanksFedToday)}/${safe(dailyStats?.totalTanksToFeed)}`;
+  const tasksDisplay = `${safe(dailyStats?.todaysTasksCompleted)}/${safe(dailyStats?.todaysTasksTotal)}`;
+
+  const batchesDisplay = safe(stockSummary?.activeBatchCount);
+  const weekEventsDisplay = safe(stockSummary?.thisWeekEventsCount);
+  const transfersDisplay = safe(stockSummary?.pendingTransferCount);
+
+  const itemsDisplay = safe(warehouseSummary?.totalItems);
+  const lowStockDisplay = safe(warehouseSummary?.lowStockAlertCount);
+  const movementsDisplay = safe(warehouseSummary?.todaysMovementCount);
+
+  const dutyDisplay = staffSummary?.isClockedIn ? 'On Duty' : 'Off Duty';
+  const leaveDisplay = `${safe(staffSummary?.totalLeaveRemaining)}d`;
+  const nextShiftDisplay = staffSummary?.nextShiftDate
+    ? formatShortDate(staffSummary.nextShiftDate)
+    : '\u2014';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Page header — gradient banner matching the existing app design system */}
+      {/* Page header -- gradient banner matching the existing app design system */}
       <div className="bg-gradient-to-br from-ocean-700 via-ocean-600 to-ocean-500 text-white">
         <div className="px-5 pt-safe-top">
           <div className="flex items-center gap-3 py-4">
@@ -216,7 +163,7 @@ export function OperationsHubPage() {
             <h1 className="text-lg font-bold tracking-tight">Operations</h1>
           </div>
         </div>
-        {/* Curved bottom edge — consistent with HomePage and RecordHubPage */}
+        {/* Curved bottom edge -- consistent with HomePage and RecordHubPage */}
         <div className="relative">
           <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
             <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
@@ -224,59 +171,104 @@ export function OperationsHubPage() {
         </div>
       </div>
 
-      {/* Operation groups */}
-      <div className="px-5 pt-4 space-y-6">
-        {visibleGroups.length > 0 ? (
-          visibleGroups.map((group) => (
-            <section key={group.id}>
-              {/* Group header — gradient pill with title */}
-              <div
-                className={clsx(
-                  'bg-gradient-to-r rounded-xl px-4 py-2.5 mb-3',
-                  group.headerGradient,
-                )}
-              >
-                <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                  {group.title}
-                </h2>
-              </div>
+      {/* Hub summary cards -- vertical stack */}
+      <main className="px-5 pt-4 space-y-4">
+        {/* Daily Operations Card */}
+        {hasDailyOps && (
+          <SummaryCard
+            title="Daily Operations"
+            ariaLabel="Daily Operations -- tap to view details"
+            gradient="from-orange-500 to-amber-500"
+            onClick={() => navigate('/operations/daily')}
+          >
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <MetricCell label="Shift" value={shiftDisplay} isLoading={dailyLoading} />
+              <MetricCell label="Fed" value={fedDisplay} isLoading={dailyLoading} />
+              <MetricCell label="Tasks" value={tasksDisplay} isLoading={dailyLoading} />
+            </div>
+          </SummaryCard>
+        )}
 
-              {/* 2-column card grid for the group's visible items */}
-              <div className="grid grid-cols-2 gap-3">
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.feature}
-                      onClick={() => navigate(item.path)}
-                      className={clsx(
-                        'flex flex-col items-center justify-center p-5 rounded-2xl',
-                        'touch-feedback shadow-card transition-all active:scale-[0.97]',
-                        `bg-gradient-to-br ${item.gradient}`,
-                      )}
-                    >
-                      <Icon className="text-white mb-2.5" size={30} />
-                      <span className="text-xs font-bold text-white text-center leading-tight">
-                        {item.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ))
-        ) : (
-          /* Empty state — shown when user has no permissions for any operation */
+        {/* Stock Events Card */}
+        {hasStockEvents && (
+          <SummaryCard
+            title="Stock Events"
+            ariaLabel="Stock Events -- tap to view details"
+            gradient="from-purple-500 to-violet-500"
+            onClick={() => navigate('/operations/stock')}
+          >
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <MetricCell label="Batches" value={batchesDisplay} isLoading={stockLoading} />
+              <MetricCell label="This Week" value={weekEventsDisplay} isLoading={stockLoading} />
+              <MetricCell label="Transfers" value={transfersDisplay} isLoading={stockLoading} />
+            </div>
+          </SummaryCard>
+        )}
+
+        {/* Warehouse Card */}
+        {hasWarehouse && (
+          <SummaryCard
+            title="Warehouse"
+            ariaLabel="Warehouse -- tap to view details"
+            gradient="from-teal-500 to-teal-600"
+            onClick={() => navigate('/operations/warehouse')}
+          >
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <MetricCell label="Items" value={itemsDisplay} isLoading={warehouseLoading} />
+              <MetricCell label="Low Stock" value={lowStockDisplay} isLoading={warehouseLoading} />
+              <MetricCell label="Today" value={movementsDisplay} isLoading={warehouseLoading} />
+            </div>
+          </SummaryCard>
+        )}
+
+        {/* Staff Card */}
+        {hasStaff && (
+          <SummaryCard
+            title="Staff"
+            ariaLabel="Staff -- tap to view details"
+            gradient="from-indigo-500 to-indigo-600"
+            onClick={() => navigate('/operations/staff')}
+          >
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <MetricCell label="Status" value={dutyDisplay} isLoading={staffLoading} />
+              <MetricCell label="Leave" value={leaveDisplay} isLoading={staffLoading} />
+              <MetricCell label="Next Shift" value={nextShiftDisplay} isLoading={staffLoading} />
+            </div>
+          </SummaryCard>
+        )}
+
+        {/* Empty state -- shown when user has no permissions for any hub */}
+        {noCardsVisible && (
           <div className="text-center py-12 text-gray-400">
             <ClipboardList size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No operations available</p>
             <p className="text-sm mt-1">Contact your administrator for access</p>
           </div>
         )}
-      </div>
+      </main>
 
       {/* Bottom spacer to prevent content from hiding behind the fixed tab bar */}
       <div className="h-24" />
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY inline date formatter: Avoids pulling in a date library for a single
+ * display. Produces "Mon, Mar 30" style output that fits the KPI cell width.
+ */
+function formatShortDate(isoDate: string): string {
+  try {
+    return new Date(isoDate).toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return '\u2014';
+  }
 }

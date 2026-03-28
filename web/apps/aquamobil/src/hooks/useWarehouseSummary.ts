@@ -1,0 +1,85 @@
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from './useAuth';
+import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import { GET_WAREHOUSE_SUMMARY } from '@/graphql/operations';
+import type { WarehouseSummary } from '@/types';
+
+// WHY 1h TTL: warehouse data changes a few times per day (stock movements).
+// Keeping stale data available offline for 1 hour lets field workers see
+// approximate stock levels even without connectivity.
+const CACHE_TTL_1H = 1000 * 60 * 60;
+
+// WHY inline response type: the backend response wraps WarehouseSummary
+// inside a `warehouseSummary` key. This shape is an internal GraphQL detail.
+interface WarehouseSummaryResponse {
+  warehouseSummary: WarehouseSummary;
+}
+
+// WHY default constant: avoids re-creating the object on every render cycle
+// when the query hasn't resolved yet or the backend resolver is missing.
+const DEFAULT_SUMMARY: WarehouseSummary = {
+  totalItems: 0,
+  lowStockAlertCount: 0,
+  todaysMovementCount: 0,
+  lowStockItems: [],
+  recentMovements: [],
+};
+
+/**
+ * Fetches warehouse KPI data for the Warehouse hub page.
+ *
+ * WHY single query: unlike DailyOpsStats which aggregates 4 sources, the
+ * warehouse hub gets all its data from one backend aggregate resolver. This
+ * keeps the hook simple — one useQuery with IndexedDB offline fallback.
+ *
+ * Pattern follows useTanks.ts: network-first with IndexedDB fallback.
+ */
+export function useWarehouseSummary(): {
+  summary: WarehouseSummary;
+  isLoading: boolean;
+} {
+  const { tenantId, isAuthenticated } = useAuth();
+
+  const cacheKey = `warehouseSummary-${tenantId}`;
+
+  const { data, isLoading } = useQuery<WarehouseSummary>({
+    // WHY tenantId in queryKey: prevents cross-tenant cache collisions
+    // in multi-tenant scenarios.
+    queryKey: ['warehouseSummary', tenantId],
+    queryFn: async () => {
+      try {
+        const result = await graphqlRequest<WarehouseSummaryResponse>(
+          GET_WAREHOUSE_SUMMARY,
+        );
+        const summary = result.warehouseSummary;
+
+        // WHY fire-and-forget cache write: IndexedDB serves as offline fallback
+        // only. React Query's gcTime handles the in-memory caching layer.
+        await cacheData(cacheKey, summary, CACHE_TTL_1H);
+        return summary;
+      } catch (error) {
+        // WHY IndexedDB fallback first: warehouse staff on fish farms often
+        // have spotty connectivity. Showing stale stock levels is better than
+        // showing nothing.
+        const cached = await getCachedData<WarehouseSummary>(cacheKey);
+        if (cached) return cached;
+
+        // WHY swallow on total failure: if both network and cache fail, return
+        // defaults so the hub page renders with zeros rather than crashing.
+        // This also handles the case where the backend resolver doesn't exist yet.
+        console.warn('useWarehouseSummary: network and cache both failed', error);
+        return DEFAULT_SUMMARY;
+      }
+    },
+    enabled: isAuthenticated && !!tenantId,
+    // WHY 5min staleTime: warehouse movements happen a few times per day.
+    // 5 minutes keeps the data reasonably fresh without aggressive refetching.
+    staleTime: 1000 * 60 * 5,
+    // WHY 30min gcTime: the warehouse hub is a secondary page. 30 minutes
+    // of in-memory retention covers typical browse-and-return navigation.
+    gcTime: 1000 * 60 * 30,
+  });
+
+  return { summary: data ?? DEFAULT_SUMMARY, isLoading };
+}

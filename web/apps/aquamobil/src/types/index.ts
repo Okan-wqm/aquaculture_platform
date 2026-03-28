@@ -408,3 +408,75 @@ export interface GraphQLResponse<T> {
     extensions?: Record<string, unknown>;
   }>;
 }
+
+// ============================================================================
+// Operations Hub Types — ADR-011
+// ============================================================================
+
+/** Aggregated KPI data for the Daily Operations hub page. */
+export interface DailyOpsStats {
+  isClockedIn: boolean;
+  clockedInSince: string | null;
+  tanksFedToday: number;
+  totalTanksToFeed: number;
+  mortalityCountToday: number;
+  wqReadingsToday: number;
+  todaysTasksCompleted: number;
+  todaysTasksTotal: number;
+}
+
+/** Aggregated KPI data for the Stock Events hub page. */
+export interface StockEventsSummary {
+  activeBatchCount: number;
+  thisWeekEventsCount: number;
+  pendingTransferCount: number;
+  recentEvents: StockEvent[];
+}
+
+/** A single stock event (cull, harvest, transfer, mortality). */
+export interface StockEvent {
+  id: string;
+  type: 'CULL' | 'HARVEST' | 'TRANSFER' | 'MORTALITY';
+  tankName: string;
+  quantity: number;
+  createdAt: string;
+  note?: string;
+}
+
+/** Aggregated KPI data for the Warehouse hub page. */
+export interface WarehouseSummary {
+  totalItems: number;
+  lowStockAlertCount: number;
+  todaysMovementCount: number;
+  lowStockItems: LowStockItem[];
+  recentMovements: RecentStockMovement[];
+}
+
+/** An item below its minimum stock threshold. */
+export interface LowStockItem {
+  id: string;
+  name: string;
+  itemType: StorageItemType;
+  currentQty: number;
+  minQty: number;
+  unit: string;
+}
+
+/** A recent stock movement for display in the warehouse hub. */
+export interface RecentStockMovement {
+  id: string;
+  movementType: StockMovementType;
+  itemName: string;
+  quantity: number;
+  unit: string;
+  createdAt: string;
+}
+
+/** Aggregated KPI data for the Staff hub page. */
+export interface StaffSummary {
+  isClockedIn: boolean;
+  clockedInSince: string | null;
+  totalLeaveRemaining: number;
+  nextShiftDate: string | null;
+  schedulePreviewDays: number;
+}

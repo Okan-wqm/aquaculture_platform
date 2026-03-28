@@ -182,9 +182,10 @@ export const CLOCK_OUT = `
 `;
 
 // Leave queries and mutations
+// Backend accepts "page" not "offset" — fix parameter name to match resolver signature
 export const GET_MY_LEAVE_REQUESTS = `
-  query MyLeaveRequests($status: LeaveRequestStatus, $limit: Int, $offset: Int) {
-    myLeaveRequests(status: $status, limit: $limit, offset: $offset) {
+  query MyLeaveRequests($status: LeaveRequestStatus, $limit: Int, $page: Int) {
+    myLeaveRequests(status: $status, limit: $limit, page: $page) {
       id
       employeeId
       leaveTypeId
@@ -454,3 +455,65 @@ export const RECORD_TRANSFER = `
 // QUAL-01: AUTH mutations (LOGIN, REFRESH_TOKEN) are intentionally defined inline
 // in hooks/useAuth.tsx where they are used. The duplicate exports previously in this
 // file have been removed to avoid maintenance drift between two copies.
+
+// ============================================================================
+// Operations Hub Aggregate Queries — ADR-011
+// ============================================================================
+// WHY separate aggregate queries: hub pages need lightweight KPI counts, not
+// the full entity lists. These queries minimize payload size and network time
+// for the hub page initial render. Graceful fallback: if the backend resolver
+// is not yet deployed, the hooks handle the error and default to zero values.
+
+export const GET_TODAYS_DAILY_OPS_COUNTS = `
+  query GetTodaysDailyOpsCounts {
+    todaysDailyOpsCounts {
+      mortalityCount
+      wqReadingsCount
+      feedingCompletedCount
+      feedingTotalCount
+    }
+  }
+`;
+
+export const GET_STOCK_EVENTS_SUMMARY = `
+  query GetStockEventsSummary($daysBack: Int) {
+    stockEventsSummary(daysBack: $daysBack) {
+      thisWeekEventsCount
+      pendingTransferCount
+      recentEvents {
+        id
+        type
+        tankName
+        quantity
+        createdAt
+        note
+      }
+    }
+  }
+`;
+
+export const GET_WAREHOUSE_SUMMARY = `
+  query GetWarehouseSummary {
+    warehouseSummary {
+      totalItems
+      lowStockAlertCount
+      todaysMovementCount
+      lowStockItems {
+        id
+        name
+        itemType
+        currentQty
+        minQty
+        unit
+      }
+      recentMovements {
+        id
+        movementType
+        itemName
+        quantity
+        unit
+        createdAt
+      }
+    }
+  }
+`;

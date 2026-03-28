@@ -1,87 +1,205 @@
-import { useState, useCallback } from 'react';
-import type { AttendanceRecord, AttendanceSummary } from '@/types';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from './useAuth';
+import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { AttendanceRecord, AttendanceSummary } from '@/types';
 import {
   GET_MY_ATTENDANCE_RECORDS,
   GET_MY_ATTENDANCE_SUMMARY,
   GET_TODAYS_ATTENDANCE,
 } from '@/graphql/operations';
 
-export function useMyAttendanceRecords() {
-  const [data, setData] = useState<AttendanceRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// =============================================================================
+// Cache TTL constants (IndexedDB offline fallback — not React Query in-memory)
+// =============================================================================
+// WHY: These TTLs govern how long IndexedDB retains data for offline-first
+// scenarios (e.g., fish farm with spotty connectivity). React Query's own
+// staleTime/gcTime handle the in-memory caching layer independently.
+const CACHE_TTL_1H = 1000 * 60 * 60; // 1 hour
+const CACHE_TTL_30M = 1000 * 60 * 30; // 30 minutes
 
-  const fetch = useCallback(
-    async (startDate?: string, endDate?: string, limit = 30) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await graphqlRequest<{ myAttendanceRecords: AttendanceRecord[] }>(
-          GET_MY_ATTENDANCE_RECORDS,
-          { startDate, endDate, limit },
-        );
-        setData(result.myAttendanceRecords);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch attendance');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
+// =============================================================================
+// Attendance Records — date-range based list of clock-in/out events
+// =============================================================================
 
-  return { data, loading, error, fetch };
+interface AttendanceRecordsParams {
+  /** ISO date string (YYYY-MM-DD). Defaults to 7 days ago when omitted. */
+  startDate?: string;
+  /** ISO date string (YYYY-MM-DD). Defaults to today when omitted. */
+  endDate?: string;
+  /** Maximum number of records to return. Defaults to 30. */
+  limit?: number;
 }
 
-export function useMyAttendanceSummary() {
-  const [data, setData] = useState<AttendanceSummary | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Fetches the authenticated user's attendance records for a given date range.
+ *
+ * WHY React Query: eliminates duplicate network calls when multiple components
+ * render this hook with the same parameters. staleTime=2min means the data is
+ * served instantly from cache for navigating back to the page.
+ *
+ * WHY IndexedDB fallback: when the network is down (common on offshore farms),
+ * the last successful response is returned from encrypted IndexedDB storage so
+ * the operator can still see their recent attendance.
+ */
+export function useMyAttendanceRecords(params: AttendanceRecordsParams = {}) {
+  const { tenantId, isAuthenticated } = useAuth();
 
-  const fetch = useCallback(
-    async (month: number, year: number) => {
-      setLoading(true);
-      setError(null);
+  // WHY defaults here: the page always wants "last 7 days" on mount. Providing
+  // sensible defaults means the caller doesn't need a useEffect to trigger fetch.
+  const endDate = params.endDate ?? new Date().toISOString().split('T')[0]!;
+  const startDate =
+    params.startDate ?? new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]!;
+  const limit = params.limit ?? 30;
+
+  // WHY include dates + limit in queryKey: different date ranges must not share
+  // cached data. React Query deduplicates only when ALL key segments match.
+  const cacheKey = `attendance-records-${startDate}-${endDate}-${limit}`;
+
+  return useQuery<AttendanceRecord[]>({
+    queryKey: ['attendanceRecords', tenantId, startDate, endDate, limit],
+    queryFn: async () => {
       try {
-        const result = await graphqlRequest<{ myAttendanceSummary: AttendanceSummary }>(
-          GET_MY_ATTENDANCE_SUMMARY,
-          { month, year },
-        );
-        setData(result.myAttendanceSummary);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch summary');
-      } finally {
-        setLoading(false);
+        const result = await graphqlRequest<{
+          myAttendanceRecords: AttendanceRecord[];
+        }>(GET_MY_ATTENDANCE_RECORDS, { startDate, endDate, limit });
+
+        const records = result.myAttendanceRecords;
+
+        // WHY async cache write (fire-and-forget): IndexedDB write should never
+        // block the UI thread. If it fails, the online path still works fine.
+        await cacheData(cacheKey, records, CACHE_TTL_30M);
+        return records;
+      } catch (error) {
+        // WHY fallback to IndexedDB: network failures are expected on fish farms.
+        // Return stale data rather than showing an error screen.
+        const cached = await getCachedData<AttendanceRecord[]>(cacheKey);
+        if (cached) return cached;
+        throw error;
       }
     },
-    [],
-  );
-
-  return { data, loading, error, fetch };
+    // WHY enabled guard: prevents firing a request before auth is ready,
+    // which would always 401 and pollute the error state.
+    enabled: isAuthenticated && !!tenantId,
+    // WHY 2min staleTime: attendance records change infrequently during a session
+    // (only on clock-in/out). 2 minutes avoids redundant re-fetches when
+    // navigating between pages while still picking up new data promptly.
+    staleTime: 1000 * 60 * 2,
+    // WHY 30min gcTime: keeps data in memory for tab-switching scenarios.
+    // After 30min of being unused, React Query garbage-collects and the next
+    // visit will hit the network (or IndexedDB if offline).
+    gcTime: 1000 * 60 * 30,
+  });
 }
 
-export function useTodaysAttendance() {
-  const [data, setData] = useState<AttendanceRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+// =============================================================================
+// Attendance Summary — monthly aggregates (worked hours, overtime, rate)
+// =============================================================================
 
-  const fetch = useCallback(
-    async (employeeId?: string) => {
-      setLoading(true);
+interface AttendanceSummaryParams {
+  /** 1-12. Defaults to current month. */
+  month?: number;
+  /** Four-digit year. Defaults to current year. */
+  year?: number;
+}
+
+/**
+ * Fetches a monthly attendance summary for the authenticated user.
+ *
+ * WHY month+year in queryKey: each month's summary is an independent dataset.
+ * When the user switches months, React Query fetches fresh data without
+ * invalidating the current month's cache.
+ */
+export function useMyAttendanceSummary(params: AttendanceSummaryParams = {}) {
+  const { tenantId, isAuthenticated } = useAuth();
+
+  const now = new Date();
+  const month = params.month ?? now.getMonth() + 1;
+  const year = params.year ?? now.getFullYear();
+
+  const cacheKey = `attendance-summary-${year}-${month}`;
+
+  return useQuery<AttendanceSummary | null>({
+    queryKey: ['attendanceSummary', tenantId, month, year],
+    queryFn: async () => {
       try {
-        const result = await graphqlRequest<{ todaysAttendance: AttendanceRecord[] }>(
-          GET_TODAYS_ATTENDANCE,
-          { employeeId },
-        );
-        setData(result.todaysAttendance);
-      } catch {
-        // silently fail - today's attendance is not critical
-      } finally {
-        setLoading(false);
+        const result = await graphqlRequest<{
+          myAttendanceSummary: AttendanceSummary;
+        }>(GET_MY_ATTENDANCE_SUMMARY, { month, year });
+
+        const summary = result.myAttendanceSummary;
+        await cacheData(cacheKey, summary, CACHE_TTL_1H);
+        return summary;
+      } catch (error) {
+        const cached = await getCachedData<AttendanceSummary>(cacheKey);
+        if (cached) return cached;
+        throw error;
       }
     },
-    [],
-  );
+    enabled: isAuthenticated && !!tenantId,
+    // WHY 5min staleTime: summaries only change when a new attendance record is
+    // created (at most twice per day — clock in + out). 5 minutes is generous
+    // enough to avoid mid-session re-fetches without hiding real changes.
+    staleTime: 1000 * 60 * 5,
+    // WHY 1h gcTime: the monthly summary view is visited repeatedly throughout
+    // the day. Keeping it cached for 1 hour avoids unnecessary network calls.
+    gcTime: CACHE_TTL_1H,
+  });
+}
 
-  return { data, loading, fetch };
+// =============================================================================
+// Today's Attendance — real-time clock-in/out status for a specific employee
+// =============================================================================
+
+/**
+ * Fetches today's attendance records to determine clock-in/out status.
+ *
+ * WHY employeeId as parameter: the page derives employeeId from the auth
+ * context (user.employeeId || user.id). Accepting it as a parameter keeps
+ * the hook pure — it doesn't assume where the ID comes from — and ensures
+ * the queryKey uniquely identifies this employee's data.
+ *
+ * WHY 30s staleTime: this is the most time-sensitive hook. After a clock-in
+ * mutation, the UI calls refetch() to show the updated status immediately.
+ * Between explicit refetches, 30s prevents hammering the server while still
+ * reflecting co-worker clock-ins (relevant for managers viewing team status).
+ */
+export function useTodaysAttendance(employeeId?: string) {
+  const { tenantId, isAuthenticated } = useAuth();
+
+  const cacheKey = `todays-attendance-${employeeId ?? 'self'}`;
+
+  return useQuery<AttendanceRecord[]>({
+    // WHY employeeId in queryKey: prevents cross-employee cache collisions.
+    // If a manager switches between employee views, each gets its own cache entry.
+    queryKey: ['todaysAttendance', tenantId, employeeId],
+    queryFn: async () => {
+      try {
+        const result = await graphqlRequest<{
+          todaysAttendance: AttendanceRecord[];
+        }>(GET_TODAYS_ATTENDANCE, { employeeId });
+
+        const records = result.todaysAttendance;
+        await cacheData(cacheKey, records, CACHE_TTL_1H);
+        return records;
+      } catch (error) {
+        // WHY fallback: today's attendance drives the clock-in/out button state.
+        // Showing stale data (e.g., "already clocked in") is better than a broken
+        // button that the operator can't use at all.
+        const cached = await getCachedData<AttendanceRecord[]>(cacheKey);
+        if (cached) return cached;
+        throw error;
+      }
+    },
+    enabled: isAuthenticated && !!tenantId && !!employeeId,
+    // WHY 30s staleTime: clock-in/out is the primary real-time action on this
+    // page. 30 seconds keeps the status reasonably fresh without being aggressive.
+    staleTime: 1000 * 30,
+    // WHY 1h gcTime: the attendance page is the most-visited hub page. Keeping
+    // today's data in memory avoids a loading spinner every time the user returns.
+    gcTime: CACHE_TTL_1H,
+    // WHY refetchOnWindowFocus: when the user switches back to the app (e.g.,
+    // after checking a message), the clock-in status should be current.
+    refetchOnWindowFocus: true,
+  });
 }

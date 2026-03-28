@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
 import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest } from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
@@ -17,21 +18,23 @@ type Tab = 'balances' | 'requests';
 
 export function MyLeavesPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>('balances');
-  const { data: balances, loading: balancesLoading, fetch: fetchBalances } = useMyLeaveBalances();
-  const { data: requests, loading: requestsLoading, fetch: fetchRequests } = useMyLeaveRequests();
-  const { cancel, loading: cancelling } = useCancelLeaveRequest();
 
-  useEffect(() => {
-    const year = new Date().getFullYear();
-    fetchBalances(year);
-    fetchRequests(undefined, 30);
-  }, [fetchBalances, fetchRequests]);
+  // WHY parameters instead of imperative fetch(): React Query auto-fetches
+  // when the component mounts and refetches when params change declaratively.
+  const currentYear = new Date().getFullYear();
+  const { data: balances = [], isLoading: balancesLoading } = useMyLeaveBalances(currentYear);
+  const { data: requests = [], isLoading: requestsLoading } = useMyLeaveRequests(undefined, 30);
+  const { cancel, loading: cancelling } = useCancelLeaveRequest();
 
   const handleCancel = async (id: string) => {
     try {
       await cancel(id);
-      fetchRequests(undefined, 30);
+      // WHY invalidate instead of imperative fetch: tells React Query that
+      // cached data is stale, triggering an automatic background refetch.
+      await queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
+      await queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
     } catch {
       // error handled internally
     }

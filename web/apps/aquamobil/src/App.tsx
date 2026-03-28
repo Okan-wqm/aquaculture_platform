@@ -6,6 +6,7 @@ import { MobileLayout } from './layouts/MobileLayout';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { InstallPrompt } from './components/InstallPrompt';
+import { MultiFeatureRoute } from './components/MultiFeatureRoute';
 
 // PERF-02: Lazy-load page components so the initial bundle only contains the
 // login and home pages. Feature pages are code-split and loaded on demand.
@@ -77,6 +78,17 @@ const TankDetailPage2 = lazy(() =>
   import('./pages/tank/TankDetailPage').then((m) => ({ default: m.TankDetailPage }))
 );
 
+// Operations hub sub-pages — enterprise-grade dedicated hubs per ADR-011
+const DailyOpsHubPage = lazy(() =>
+  import('./pages/operations/DailyOpsHubPage').then((m) => ({ default: m.DailyOpsHubPage }))
+);
+const StockEventsHubPage = lazy(() =>
+  import('./pages/operations/StockEventsHubPage').then((m) => ({ default: m.StockEventsHubPage }))
+);
+const StaffHubPage = lazy(() =>
+  import('./pages/operations/StaffHubPage').then((m) => ({ default: m.StaffHubPage }))
+);
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
@@ -142,6 +154,41 @@ export function App() {
                       <Route path="/tank/:tankId" element={<TankDetailPage2 />} />
                       {/* New primary routes for the 4-tab navigation */}
                       <Route path="/operations" element={<OperationsHubPage />} />
+
+                      {/* Operations Hub sub-pages — dedicated enterprise hubs (ADR-011) */}
+                      <Route
+                        path="/operations/daily"
+                        element={
+                          <MultiFeatureRoute features={['attendance', 'mortality', 'waterQuality', 'feeding']}>
+                            <DailyOpsHubPage />
+                          </MultiFeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/operations/stock"
+                        element={
+                          <MultiFeatureRoute features={['cull', 'harvest', 'transfer']}>
+                            <StockEventsHubPage />
+                          </MultiFeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/operations/warehouse"
+                        element={
+                          <FeatureRoute feature="storage">
+                            <StorageHubPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/operations/staff"
+                        element={
+                          <MultiFeatureRoute features={['attendance', 'leave', 'schedule']}>
+                            <StaffHubPage />
+                          </MultiFeatureRoute>
+                        }
+                      />
+
                       <Route path="/account" element={<AccountPage />} />
 
                       {/* Backward-compatible redirect: old /record tab now goes to /operations */}

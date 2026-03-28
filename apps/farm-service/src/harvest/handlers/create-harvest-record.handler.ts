@@ -24,7 +24,8 @@ import { Tank } from '../../tank/entities/tank.entity';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
-export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvestRecordCommand, Batch> {
+// Return HarvestRecord so the GraphQL resolver can expose harvest-specific fields to clients
+export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvestRecordCommand, HarvestRecord> {
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(HarvestRecord)
@@ -39,7 +40,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankRepository: Repository<Tank>,
   ) {}
 
-  async execute(command: CreateHarvestRecordCommand): Promise<Batch> {
+  async execute(command: CreateHarvestRecordCommand): Promise<HarvestRecord> {
     const { tenantId, input, recordedBy } = command;
 
     // Parse harvestDate early (no DB needed)
@@ -234,7 +235,8 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       // Commit transaction
       await queryRunner.commitTransaction();
 
-      return batch;
+      // Return the created harvest record so clients get harvest-specific fields
+      return harvestRecord;
     } catch (error) {
       // Rollback transaction on any error
       await queryRunner.rollbackTransaction();

@@ -21,6 +21,7 @@ import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.han
 import { AuthEventHandler } from './event-handlers/auth-event.handler';
 import { BillingEventHandler } from './event-handlers/billing-event.handler';
 import { TaskEventHandler } from './event-handlers/task-event.handler';
+import { MessagingEventHandler } from './event-handlers/messaging-event.handler';
 
 // Resolvers
 import { NotificationResolver } from './resolvers/notification.resolver';
@@ -58,6 +59,7 @@ import { NotificationResolver } from './resolvers/notification.resolver';
     AuthEventHandler,
     BillingEventHandler,
     TaskEventHandler,
+    MessagingEventHandler,
 
     // Resolvers
     NotificationResolver,

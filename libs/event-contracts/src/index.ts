@@ -15,6 +15,7 @@ export * from './ai-events';
 export * from './task-events';
 export * from './edge-device-events';
 export * from './water-quality-events';
+export * from './messaging-events';
 
 // Security events (auth failures, rate limit, CSP violations, etc.)
 export * from './security';
@@ -32,6 +33,7 @@ import type { AIEvent } from './ai-events';
 import type { TaskEvent } from './task-events';
 import type { EdgeDeviceEvent } from './edge-device-events';
 import type { WaterQualityEvent } from './water-quality-events';
+import type { MessagingEvent } from './messaging-events';
 
 /**
  * Union type for all platform events.
@@ -49,4 +51,5 @@ export type AnyPlatformEvent =
   | AIEvent
   | TaskEvent
   | EdgeDeviceEvent
-  | WaterQualityEvent;
+  | WaterQualityEvent
+  | MessagingEvent;

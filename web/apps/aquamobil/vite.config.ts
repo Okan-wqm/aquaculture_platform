@@ -129,6 +129,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
     },
   },
   optimizeDeps: {

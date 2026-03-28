@@ -17,7 +17,8 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@aquaculture/farm-shared": ["../../../libs/farm-shared/src"]
     },
     "types": []
   },

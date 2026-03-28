@@ -1006,3 +1006,68 @@ Before marking this redesign as complete, verify:
 - [ ] Feature-gated operations hide correctly when permissions are denied
 - [ ] Build succeeds with zero TypeScript errors
 - [ ] All existing tests pass (especially `offline-queue.spec.ts` and `useMobilePermissions.spec.ts`)
+
+---
+
+## 12. Enterprise Review Findings (4 Reviewers, 2026-03-28)
+
+### Security Review: 7/7 PASS
+- Zero new attack surface. Pure UI restructuring reusing existing secure abstractions.
+- CSP inline script nonce: verify nginx `Content-Security-Policy` allows the dark mode inline script.
+
+### UX/Mobile Review: REVISE — 5 Required Fixes
+
+1. **Operations tab nested route active-state**: Routes like `/feeding/record` don't start with `/operations`. Add `childPaths` array to tab definition matching all sub-route prefixes.
+2. **Stale-data timestamps**: Home dashboard must show "Last refreshed: X min ago" for cached data. Offline form submissions need explicit "Saved locally" confirmation toast.
+3. **Accessibility section needed**: ARIA landmarks (`role="tablist"`, `aria-selected`), focus trap for bottom sheet, contrast audit for 10px text on gradients, `prefers-reduced-motion` support.
+4. **Pull-to-refresh**: Add to Phase 2 scope. Platform-standard interaction every competitor implements.
+5. **useMyTasks hook**: Cannot be called conditionally in MobileLayout. Extract to `<TaskBadgeProvider>` child component or use `enabled` parameter.
+
+### Technical Architecture Review: REVISE — 3 Required Fixes
+
+1. **Cache clear = data loss**: "Clear Cache" button must NOT call `clearAllOperations()`. Separate into "Clear Cache" (safe) and "Clear Offline Queue" (destructive with confirmation showing pending count).
+2. **Konsta Page dark mode**: Move compatibility check from Phase 3 to Phase 1. Replace `<Page>` with `<div>` if needed — this blocks the entire dark mode feature.
+3. **Testing section**: Add automated tests for useDarkMode, OperationsHubPage permissions, redirect routes. 8+ test cases minimum.
+
+### Aquaculture Domain Review: REVISE — 5 Critical Additions
+
+1. **Emergency Rapid Entry Mode**: Persistent red "Emergency" button. Batch mortality recording (multi-tank, single form). Emergency alert creation (push to all managers). The TankActionSheet adds a tap to mortality recording — keep inline for this critical action.
+2. **Regulatory/Compliance Features**: Add "Treatments" operation card. Audit log viewer (read-only, filterable). Operator stamp on every record. Protect unsynced regulatory records from cache clear.
+3. **Shift-Aware Workflow**: Reorder Daily Operations to: Clock In → Mortality → Water Quality → Feeding (matches actual shift sequence). Add shift handoff card to dashboard.
+4. **Multi-Site Support**: Site selector in header. Filter tanks/tasks/notifications by site. Tag offline operations with site context.
+5. **Environmental UX**: Increase 3-dot menu trigger to 48x48px. Consider outdoor high-contrast theme. Document that sunlight readability relies on OS brightness.
+
+### Revised Phase Structure
+
+```
+Phase 1: Foundation (Week 1) — UPDATED
+  - Task 1.0: Konsta <Page> dark mode compatibility (MOVED from Phase 3)
+  - Task 1.1: useDarkMode hook + index.html flash prevention
+  - Task 1.2: AccountPage (separate Clear Cache from Clear Queue)
+  - Task 1.3: OperationsHubPage (shift-aware ordering)
+  - Task 1.4: Tab navigation (4 tabs + childPaths active-state fix)
+
+Phase 2: Consistency + UX (Week 2) — UPDATED
+  - Task 2.1: Home dashboard (stale-data timestamp + shift handoff card)
+  - Task 2.2: SyncStatusPage Tailwind rewrite
+  - Task 2.3: Back buttons + gradient header standardization
+  - Task 2.4: Skeleton loaders + pull-to-refresh
+  - Task 2.5: Accessibility pass (ARIA, focus trap, contrast audit)
+
+Phase 3: Polish + Domain (Week 3) — UPDATED
+  - Task 3.1: TankActionSheet (keep mortality inline, 3-dot for others)
+  - Task 3.2: TankCard refactor
+  - Task 3.3: Clean up old pages
+  - Task 3.4: Emergency rapid entry mode (batch mortality, alert creation)
+  - Task 3.5: Automated tests (8+ test cases)
+
+Phase 4: Backlog (Future)
+  - Treatments/compliance operation card
+  - Audit log viewer
+  - Multi-site selector
+  - Seasonal operation prioritization
+  - Global search
+  - Swipe-to-action
+  - i18n support
+  - Shift-contextual suggestions
+```

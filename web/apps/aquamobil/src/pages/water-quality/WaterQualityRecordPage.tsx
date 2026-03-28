@@ -136,7 +136,10 @@ export function WaterQualityRecordPage() {
       );
       return result.equipmentList?.items ?? [];
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId && isOnline,
+    // Offline-capable: React Query serves stale cache when offline (gcTime: 1h).
+    // Removing isOnline from enabled ensures the form is usable at remote cage
+    // sites with intermittent connectivity — equipment list loads from cache.
+    enabled: isAuthenticated && !!accessToken && !!tenantId,
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
@@ -186,7 +189,8 @@ export function WaterQualityRecordPage() {
         })
         .sort((a, b) => a.displayOrder - b.displayOrder);
     },
-    enabled: !!selectedEquipmentId && isAuthenticated && !!accessToken && isOnline,
+    // Offline-capable: parameter configs served from React Query cache when offline.
+    enabled: !!selectedEquipmentId && isAuthenticated && !!accessToken,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
   });

@@ -127,6 +127,15 @@ const MUTATIONS: Record<OperationType, string> = {
       }
     }
   `,
+  createWaterQuality: `
+    mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
+      createWaterQualityMeasurement(input: $input) {
+        id
+        overallStatus
+        hasAlarm
+      }
+    }
+  `,
 };
 
 export function OfflineProvider({ children }: { children: ReactNode }) {

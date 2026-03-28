@@ -37,21 +37,18 @@ const MyLeavesPage = lazy(() =>
   import('./pages/leave/MyLeavesPage').then((m) => ({ default: m.MyLeavesPage }))
 );
 
-// New lazy-loaded pages
-const RecordHubPage = lazy(() =>
-  import('./pages/record/RecordHubPage').then((m) => ({ default: m.RecordHubPage }))
-);
 const MyTasksPage = lazy(() =>
   import('./pages/tasks/MyTasksPage').then((m) => ({ default: m.MyTasksPage }))
 );
 const TaskDetailPage = lazy(() =>
   import('./pages/tasks/TaskDetailPage').then((m) => ({ default: m.TaskDetailPage }))
 );
-const HrHubPage = lazy(() =>
-  import('./pages/hr/HrHubPage').then((m) => ({ default: m.HrHubPage }))
+// New primary tab destinations — Operations merges Record + HR, Account replaces More
+const OperationsHubPage = lazy(() =>
+  import('./pages/operations/OperationsHubPage').then((m) => ({ default: m.OperationsHubPage }))
 );
-const MorePage = lazy(() =>
-  import('./pages/more/MorePage').then((m) => ({ default: m.MorePage }))
+const AccountPage = lazy(() =>
+  import('./pages/account/AccountPage').then((m) => ({ default: m.AccountPage }))
 );
 const NotificationsPage = lazy(() =>
   import('./pages/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
@@ -143,7 +140,12 @@ export function App() {
                     <Routes>
                       <Route path="/" element={<HomePage />} />
                       <Route path="/tank/:tankId" element={<TankDetailPage2 />} />
-                      <Route path="/record" element={<RecordHubPage />} />
+                      {/* New primary routes for the 4-tab navigation */}
+                      <Route path="/operations" element={<OperationsHubPage />} />
+                      <Route path="/account" element={<AccountPage />} />
+
+                      {/* Backward-compatible redirect: old /record tab now goes to /operations */}
+                      <Route path="/record" element={<Navigate to="/operations" replace />} />
                       <Route
                         path="/tasks"
                         element={
@@ -160,8 +162,9 @@ export function App() {
                           </FeatureRoute>
                         }
                       />
-                      <Route path="/hr" element={<HrHubPage />} />
-                      <Route path="/more" element={<MorePage />} />
+                      {/* Backward-compatible redirects: old HR and More tabs */}
+                      <Route path="/hr" element={<Navigate to="/operations" replace />} />
+                      <Route path="/more" element={<Navigate to="/account" replace />} />
                       <Route path="/notifications" element={<NotificationsPage />} />
                       <Route
                         path="/mortality/record"
@@ -324,6 +327,7 @@ export function App() {
                         }
                       />
                       <Route path="/sync" element={<SyncStatusPage />} />
+
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </Suspense>

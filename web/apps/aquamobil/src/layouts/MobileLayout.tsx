@@ -1,7 +1,10 @@
 import { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Page } from 'konsta/react';
-import { Home, ClipboardList, CheckSquare, Users, MoreHorizontal, CloudOff } from 'lucide-react';
+// WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
+// classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
+// These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
+// to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
+import { Home, ClipboardList, CheckSquare, User, CloudOff } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -20,6 +23,10 @@ interface TabItem {
   activeBg?: string;
   // If features is set, tab shows if ANY of these features are enabled
   features?: MobileFeature[];
+  // Child paths that should highlight this tab even though they don't start
+  // with the tab's primary path. Essential for the Operations tab where routes
+  // like /feeding/record don't share a /operations URL prefix.
+  childPaths?: string[];
 }
 
 // WHY: MobileLayout is the single shell for all authenticated pages — consistent bottom nav,
@@ -31,44 +38,38 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   const { canAccess } = useMobilePermissions();
   const { unreadCount } = useNotifications();
 
-  // WHY: Tab definitions with feature guards — tabs only appear if the user has access to at least
-  // one feature in that category. This prevents showing nav items that lead to "no access" screens.
+  /**
+   * Bottom tab navigation — 4 tabs following Fitts's Law for wider touch targets.
+   * Reduced from 5 tabs to 4 based on enterprise UX review:
+   * - HR self-service merged into Operations (low-frequency for field workers)
+   * - More replaced by Account (proper profile page)
+   *
+   * The Operations tab uses a `childPaths` array for active-state detection
+   * because its child routes (e.g., /feeding/record, /attendance) don't start
+   * with /operations. Without this, the tab appears inactive during operations.
+   */
   const allTabs: TabItem[] = [
-    { id: 'home', icon: Home, label: 'Home', path: '/', activeColor: 'text-ocean-600', activeBg: 'bg-ocean-50 dark:bg-ocean-900/30' },
     {
-      id: 'record',
-      icon: ClipboardList,
-      label: 'Record',
-      path: '/record',
-      activeColor: 'text-orange-600',
-      activeBg: 'bg-orange-50 dark:bg-orange-900/30',
-      features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer', 'waterQuality', 'storage'],
+      id: 'home', icon: Home, label: 'Home', path: '/',
+      activeColor: 'text-ocean-600', activeBg: 'bg-ocean-50 dark:bg-ocean-900/30',
     },
     {
-      id: 'tasks',
-      icon: CheckSquare,
-      label: 'Tasks',
-      path: '/tasks',
-      activeColor: 'text-green-600',
-      activeBg: 'bg-green-50 dark:bg-green-900/30',
+      id: 'operations', icon: ClipboardList, label: 'Operations', path: '/operations',
+      activeColor: 'text-orange-600', activeBg: 'bg-orange-50 dark:bg-orange-900/30',
+      features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer', 'waterQuality', 'storage', 'attendance', 'leave', 'schedule'],
+      // Child paths that should highlight the Operations tab even though they
+      // don't start with /operations. This includes all operation sub-routes
+      // and the hub pages they navigate to.
+      childPaths: ['/feeding', '/mortality', '/cull', '/harvest', '/transfer', '/water-quality', '/storage', '/attendance', '/leave', '/schedule'],
+    },
+    {
+      id: 'tasks', icon: CheckSquare, label: 'Tasks', path: '/tasks',
+      activeColor: 'text-green-600', activeBg: 'bg-green-50 dark:bg-green-900/30',
       features: ['tasks'],
     },
     {
-      id: 'hr',
-      icon: Users,
-      label: 'HR',
-      path: '/hr',
-      activeColor: 'text-violet-600',
-      activeBg: 'bg-violet-50 dark:bg-violet-900/30',
-      features: ['attendance', 'leave', 'schedule'],
-    },
-    {
-      id: 'more',
-      icon: MoreHorizontal,
-      label: 'More',
-      path: '/more',
-      activeColor: 'text-gray-600',
-      activeBg: 'bg-gray-100 dark:bg-gray-800',
+      id: 'account', icon: User, label: 'Account', path: '/account',
+      activeColor: 'text-gray-600', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
     },
   ];
 
@@ -78,20 +79,26 @@ export function MobileLayout({ children }: MobileLayoutProps) {
     return tab.features.some((f) => canAccess(f));
   });
 
-  const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/';
-    return location.pathname.startsWith(path);
+  // Active state detection: a tab is active if the current path matches
+  // the tab's path directly, OR if it matches any of the tab's childPaths.
+  // This is essential for the Operations tab which owns routes that don't
+  // share a common URL prefix (e.g., /feeding/record, /attendance).
+  const isActive = (tab: TabItem) => {
+    if (tab.path === '/' && location.pathname === '/') return true;
+    if (tab.path !== '/' && location.pathname.startsWith(tab.path)) return true;
+    if (tab.childPaths?.some(cp => location.pathname.startsWith(cp))) return true;
+    return false;
   };
 
-  // WHY: Badge count aggregation — More tab shows pending sync count, we can also show
-  // unread notifications as a combined indicator. Tasks tab could show today's count.
+  // Badge count aggregation — Account tab shows combined pending sync + unread
+  // notifications so the user knows there are actionable items without navigating.
   const getBadge = (tabId: string): number => {
-    if (tabId === 'more') return pendingCount + unreadCount;
+    if (tabId === 'account') return pendingCount + unreadCount;
     return 0;
   };
 
   return (
-    <Page className="pb-safe">
+    <div className="flex flex-col h-full w-full overflow-auto pb-safe bg-gray-50 dark:bg-gray-950">
       {/* WHY: Offline banner appears above all content — field workers need clear indication that
           their actions are queuing locally, not syncing to the server in real-time. */}
       {!isOnline && (
@@ -118,7 +125,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
         <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
           {tabs.map((tab) => {
             const Icon = tab.icon;
-            const active = isActive(tab.path);
+            const active = isActive(tab);
             const badge = getBadge(tab.id);
 
             return (
@@ -165,6 +172,6 @@ export function MobileLayout({ children }: MobileLayoutProps) {
           })}
         </div>
       </nav>
-    </Page>
+    </div>
   );
 }

@@ -39,6 +39,7 @@ import DeffeyesChart from './components/DeffeyesChart';
 import ResultsPanel from './components/ResultsPanel';
 import OnDemandPanel from './components/OnDemandPanel';
 import { HistoryTab } from './components/HistoryTab';
+import { RecordTab } from './components/RecordTab';
 import { ParameterConfigManager } from './components/ParameterConfigManager';
 // ============================================================================
 // CHART CARD WRAPPER
@@ -581,12 +582,13 @@ const OverviewContent: React.FC = () => {
 // MAIN COMPONENT
 // ============================================================================
 
-type TabId = 'calculator' | 'history' | 'parameters';
+type TabId = 'calculator' | 'record' | 'history' | 'parameters';
 
 const WaterChemistryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const activeTab: TabId = (tabParam === 'history') ? 'history'
+  const activeTab: TabId = (tabParam === 'record') ? 'record'
+    : (tabParam === 'history') ? 'history'
     : (tabParam === 'parameters') ? 'parameters'
     : 'calculator';
 
@@ -613,6 +615,7 @@ const WaterChemistryPage: React.FC = () => {
           <nav className="-mb-px flex space-x-8" aria-label="Tabs">
             {[
               { id: 'calculator' as TabId, name: 'Calculator' },
+              { id: 'record' as TabId, name: 'Record' },
               { id: 'history' as TabId, name: 'History' },
               { id: 'parameters' as TabId, name: 'Parameters' },
             ].map((tab) => (
@@ -635,6 +638,7 @@ const WaterChemistryPage: React.FC = () => {
       {/* Tab Content */}
       <div className="px-4 sm:px-6 py-6">
         {activeTab === 'calculator' && <OverviewContent />}
+        {activeTab === 'record' && <RecordTab />}
         {activeTab === 'history' && <HistoryTab />}
         {activeTab === 'parameters' && <ParameterConfigManager />}
       </div>

@@ -90,12 +90,21 @@ interface StoredOperation extends Omit<QueuedOperation, 'payload'> {
  */
 const DEDUP_WINDOW_MS = 5_000;
 
+/** Maximum number of operations that can be queued offline (H6) */
+export const MAX_QUEUE_SIZE = 200;
+/** Threshold at which the UI should warn the user the queue is nearly full. */
+export const QUEUE_WARNING_THRESHOLD = 180;
+
 /**
  * Extract a stable resource identifier from a payload for dedup comparison.
  * Uses batchId+tankId for farm operations, employeeId for HR, or task id.
  */
 function extractResourceId(type: OperationType, payload: OperationPayload): string {
   const p = payload as Record<string, unknown>;
+  // Water quality operations identify by equipmentId (H7)
+  if (type === 'createWaterQuality') {
+    return String(p['equipmentId'] || '');
+  }
   // Task mutations use { id } directly
   if (type === 'completeTask' || type === 'startTask') {
     return String(p['id'] || '');

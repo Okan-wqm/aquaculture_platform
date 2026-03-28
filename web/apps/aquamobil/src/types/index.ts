@@ -224,9 +224,9 @@ export interface CreateLeaveRequestInput {
 }
 
 // Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality';
 
-export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput;
+export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput;
 
 export interface QueuedOperation {
   id: string;
@@ -318,6 +318,41 @@ export interface TransferInput {
   biomassKg?: number;
   transferReason?: string;
   transferredAt?: string;
+}
+
+// Water quality types
+export type MeasurementSource =
+  | 'MANUAL'
+  | 'SENSOR_AUTOMATIC'
+  | 'SENSOR_TRIGGERED'
+  | 'LAB_ANALYSIS'
+  | 'CALIBRATION';
+
+export interface WaterQualityParameters {
+  temperature?: number;
+  dissolvedOxygen?: number;
+  pH?: number;
+  ammonia?: number;
+  nitrite?: number;
+  nitrate?: number;
+  salinity?: number;
+  turbidity?: number;
+  alkalinity?: number;
+  hardness?: number;
+}
+
+export interface CreateWaterQualityInput {
+  tankId?: string;
+  pondId?: string;
+  siteId?: string;
+  batchId?: string;
+  equipmentId?: string;
+  measuredAt: string;
+  source: MeasurementSource;
+  measuredBy?: string;
+  parameters: WaterQualityParameters;
+  notes?: string;
+  weatherConditions?: string;
 }
 
 // GraphQL response types

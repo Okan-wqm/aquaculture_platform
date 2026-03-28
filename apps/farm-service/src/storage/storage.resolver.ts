@@ -179,9 +179,12 @@ export class StorageResolver {
   async recordStockMovement(
     @Args('input') input: RecordStockMovementInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: { sub: string; firstName?: string; lastName?: string },
   ): Promise<StockMovementResponse> {
-    const command = new RecordStockMovementCommand(input, tenantId, user.sub);
+    // Construct display name from JWT payload for audit trail denormalization.
+    // Shows WHO performed the movement in both web panel and mobile app history.
+    const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
+    const command = new RecordStockMovementCommand(input, tenantId, user.sub, userName);
     return this.commandBus.execute(command);
   }
 
@@ -190,9 +193,10 @@ export class StorageResolver {
   async transferStock(
     @Args('input') input: TransferStockInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: { sub: string; firstName?: string; lastName?: string },
   ): Promise<StockMovementResponse> {
-    const command = new TransferStockCommand(input, tenantId, user.sub);
+    const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
+    const command = new TransferStockCommand(input, tenantId, user.sub, userName);
     return this.commandBus.execute(command);
   }
 

@@ -63,8 +63,12 @@ export interface StockMovement {
   reference?: string;
   reason?: string;
   performedBy: string;
+  /** Display name of the user who performed this movement (from JWT at write time) */
+  performedByName?: string;
   performedAt: string;
   createdAt: string;
+  lotNumber?: string;
+  expiryDate?: string;
   warnings?: ConditionWarning[];
 }
 
@@ -211,8 +215,11 @@ const STOCK_MOVEMENTS_QUERY = `
         reference
         reason
         performedBy
+        performedByName
         performedAt
         createdAt
+        lotNumber
+        expiryDate
       }
       total
       page

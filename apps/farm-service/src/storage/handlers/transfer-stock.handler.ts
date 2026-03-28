@@ -31,7 +31,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
   ) {}
 
   async execute(command: TransferStockCommand): Promise<StockMovement> {
-    const { input, tenantId, userId } = command;
+    const { input, tenantId, userId, userName } = command;
 
     if (input.quantity <= 0) {
       throw new BadRequestException('Quantity must be positive');
@@ -143,6 +143,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         reference: input.reference,
         reason: input.reason,
         performedBy: userId,
+        performedByName: userName,
         performedAt: new Date(),
       });
 

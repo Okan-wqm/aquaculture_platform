@@ -113,6 +113,14 @@ export class StockMovement {
   @Column({ type: 'uuid', name: 'performed_by' })
   performedBy: string;
 
+  /**
+   * Denormalized display name of the user who performed this movement.
+   * Stored at write time from the JWT payload (firstName + lastName) so that
+   * the audit trail is self-contained — no cross-service query needed at read time.
+   */
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'performed_by_name' })
+  performedByName?: string;
+
   @Column({ type: 'timestamptz', default: () => 'NOW()', name: 'performed_at' })
   performedAt: Date;
 

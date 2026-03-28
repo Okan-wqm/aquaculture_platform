@@ -41,7 +41,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
   ) {}
 
   async execute(command: RecordStockMovementCommand): Promise<StockMovement & { warnings?: ConditionWarning[] }> {
-    const { input, tenantId, userId } = command;
+    const { input, tenantId, userId, userName } = command;
     const { movementType, itemType, itemId, quantity } = input;
 
     this.logger.log(`Recording ${movementType} movement for ${itemType} ${itemId}`);
@@ -170,6 +170,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         // Idempotency key for at-most-once delivery guarantee on retries.
         idempotencyKey: input.idempotencyKey,
         performedBy: userId,
+        performedByName: userName,
         performedAt: new Date(),
       });
 

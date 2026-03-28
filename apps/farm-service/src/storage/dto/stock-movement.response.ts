@@ -64,13 +64,25 @@ export class StockMovementResponse {
   @Field(() => ID)
   performedBy!: string;
 
+  /** Display name of the user who performed this movement (denormalized from JWT) */
+  @Field({ nullable: true })
+  performedByName?: string;
+
   @Field()
   performedAt!: Date;
 
   @Field()
   createdAt!: Date;
 
-  // Denormalized
+  /** Lot number for regulatory traceability (EU 178/2002) */
+  @Field({ nullable: true })
+  lotNumber?: string;
+
+  /** Expiry date of the lot (HACCP audit trail) */
+  @Field({ nullable: true })
+  expiryDate?: Date;
+
+  // Denormalized location names
   @Field({ nullable: true })
   fromLocationName?: string;
 

@@ -1,10 +1,15 @@
 # Storage Data Entry — Implementation Plan
 
-**Goal:** Enable full data entry across all 9 storage tabs — stock movements, transfers, inventory CRUD, and inventory counts.
+**Goal:** Enable full data entry across all 9 storage tabs — stock movements, transfers, inventory CRUD, and inventory counts — with mobile support and enterprise-grade data integrity.
 
-**Architecture:** Backend is 100% complete (6 tables, 8 CQRS commands, 9 GraphQL mutations). Frontend hooks exist but are disconnected from UI. This plan wires existing hooks to new forms and builds the missing inventory count backend.
+**Architecture:** Backend CQRS is structurally complete but has critical data integrity gaps (enterprise review score: 34/100). Phase 0 addresses these before any UI work. Frontend hooks exist but are disconnected. 0/8 core warehouse workflows are complete.
 
 **Tech Stack:** React + TypeScript, GraphQL mutations via useStorageInventory/usePurchaseOrders hooks, NestJS CQRS backend, TypeORM entities, PostgreSQL
+
+**Enterprise Review Results (3 agents, 2026-03-28):**
+- Enterprise Architect: 34/100 — 5 critical gaps (race condition, FEFO, lot trace, events, healthcare bug)
+- Security/Compliance Auditor: 3.7/5 — 3 CRITICAL + 5 HIGH findings (EU 178/2002, HACCP, OWASP)
+- UX/Workflow Analyst: 0/8 workflows complete — 5 quick wins identified
 
 ---
 
@@ -200,6 +205,14 @@ The 4 stock tabs (Feed, Chemical, Consumable, Healthcare) are read-only. Add a q
 
 - [ ] When category=HEALTHCARE, use a dedicated healthcare/consumable list instead of reusing chemicalsData
 
+### Task 2.3: Quick Wins (UX Analyst recommendations — minimal effort, high value)
+
+- [ ] **Date range filter on Movements tab** (~15min) — backend already accepts fromDate/toDate, add 2 date inputs to StockMovementsTab filter row
+- [ ] **Expiry date highlighting** (~20min) — amber for <30 days, red for expired, on all 4 stock tabs
+- [ ] **Low stock → Reorder action** (~30min) — "Reorder" button on each OverviewTab low stock alert → opens CreatePurchaseOrderModal pre-filled
+- [ ] **Pagination on Movements and PO tabs** (~30min) — backend returns total/page/totalPages, add Previous/Next controls
+- [ ] **Stock status badges** (~20min) — compute LOW_STOCK/EXPIRED/OK status client-side, apply statusColors map already defined in FeedStockTab
+
 ## Phase 3: Inventory Count (Major — Backend + Frontend)
 
 **Priority: MEDIUM — new feature, requires backend entity + CQRS**
@@ -331,18 +344,70 @@ inventory_count_items: id, tenant_id, inventory_count_id (FK), item_type, item_i
 
 ---
 
+## Phase 6: Aquaculture-Specific Features (Competitor Parity)
+
+**Priority: HIGH — differentiates from generic WMS (AKVA Group, InnovaSea, Observe Tech patterns)**
+
+### Task 6.1: Feed Consumption Auto-Deduct
+
+- [ ] When FeedingRecord created → emit NATS event → create OUT movement in storage_inventory
+- [ ] Link feeding record ID via stock_movement.reference field
+- [ ] FCR widget on OverviewTab: total feed OUT / biomass gain
+
+### Task 6.2: Chemical Withdrawal Period Tracking
+
+- [ ] When CHEMICAL/HEALTHCARE OUT movement recorded with destination tank → create withdrawal_period record
+- [ ] Block harvest actions on that tank until withdrawal period expires
+- [ ] Visual indicator on tank detail page
+
+### Task 6.3: Lot Traceability Search
+
+- [ ] "Lot Trace" search on Movements tab → enter lot number → show complete chain (IN → TRANSFER → OUT)
+- [ ] Forward trace: which tanks consumed this lot?
+- [ ] Backward trace: which supplier/PO delivered this lot?
+- [ ] Required for EU Reg 178/2002 Article 18 + BAP/ASC certification
+
+### Task 6.4: Expiry Management Dashboard
+
+- [ ] Items expiring within 30/60/90 days with proactive NATS alerts
+- [ ] Auto-quarantine expired items (status change + movement block)
+- [ ] FEFO enforcement warnings when non-expired items are consumed before expiring ones
+
+---
+
+## Enterprise Roadmap (6-12 months)
+
+| Tier | Feature | Effort |
+|------|---------|--------|
+| Tier 3 | Barcode/QR scanning (camera API) for receiving + counting | 2 weeks |
+| Tier 3 | Label printing (item + location QR codes) | 1 week |
+| Tier 3 | CSV/Excel export on all tables | 3 days |
+| Tier 4 | Seasonal demand forecasting from historical data | 3 weeks |
+| Tier 4 | Supplier performance scoring | 2 weeks |
+| Tier 4 | Automated PO generation on reorder point | 1 week |
+| Tier 5 | Cold chain IoT monitoring (sensor module integration) | 4 weeks |
+| Tier 5 | Multi-site consolidated inventory view | 3 weeks |
+| Tier 5 | Dual-control approval workflows (high-value adjustments) | 2 weeks |
+| Tier 5 | ERP integration (SAP/Visma financial reconciliation) | 6 weeks |
+
+---
+
 ## Execution Strategy
 
-- Phase 1+2 can be done in 1 session (forms only, backend ready)
-- Phase 3 requires separate session (new backend entities + migration)
-- Phase 4 is low priority, can be deferred
-- Phase 5 can run in parallel with Phase 1+2 (independent frontend)
+- **Phase 0**: BLOCKER — must complete before any UI work (race condition, FEFO, lot trace, healthcare bug)
+- **Phase 1+2**: 1 session (forms + quick wins, backend ready)
+- **Phase 3**: Separate session (new backend entities + migration + frontend)
+- **Phase 4**: Low priority, defer
+- **Phase 5**: Parallel with Phase 1+2 (independent mobile frontend)
+- **Phase 6**: After Phase 3, requires cross-module NATS integration
 
 ## Agent Orchestration
 
 | Phase | Implementation Agents | Review Agent |
 |-------|----------------------|--------------|
-| 1+2 | 2x coder (modal components + tab wiring) | 1x reviewer |
-| 3.1-3.2 | 1x backend-dev (entity + CQRS) | 1x reviewer |
+| 0 | 1x backend-dev (entity fixes + migration + handler fixes) | 1x security-auditor |
+| 1+2 | 2x coder (modal components + tab wiring + quick wins) | 1x reviewer |
+| 3.1-3.2 | 1x backend-dev (entity + CQRS + immutability triggers) | 1x reviewer |
 | 3.3 | 1x coder (frontend hooks + components) | 1x reviewer |
 | 5 | 1x mobile-dev (AquaMobil pages + offline) | 1x reviewer |
+| 6 | 1x backend-dev (NATS events) + 1x coder (UI) | 1x security-auditor |

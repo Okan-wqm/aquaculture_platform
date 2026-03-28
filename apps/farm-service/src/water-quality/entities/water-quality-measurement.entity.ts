@@ -181,6 +181,7 @@ export interface SensorInfo {
 @Index(['tankId', 'measuredAt'])
 @Index(['overallStatus', 'tenantId'])
 @Index(['tenantId', 'equipmentId', 'measuredAt'])
+@Index(['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotencyKey" IS NOT NULL' })
 export class WaterQualityMeasurement {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

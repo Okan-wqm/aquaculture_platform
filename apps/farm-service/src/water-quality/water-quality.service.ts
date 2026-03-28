@@ -113,18 +113,52 @@ export class WaterQualityService {
   async create(tenantId: string, input: CreateWaterQualityData): Promise<WaterQualityMeasurement> {
     this.logger.log(`Creating water quality measurement for tenant ${tenantId}`);
 
+    // C3: Idempotency check — return existing if same key within recent window
+    if (input.idempotencyKey) {
+      const existing = await this.repository.findOne({
+        where: { tenantId, idempotencyKey: input.idempotencyKey },
+      });
+      if (existing) {
+        this.logger.debug(`Idempotent hit: returning existing measurement ${existing.id} for key ${input.idempotencyKey}`);
+        return existing;
+      }
+    }
+
+    // C2: Validate dynamic parameters against tenant configs if provided
+    if (input.dynamicParameters && Object.keys(input.dynamicParameters).length > 0) {
+      const validation = await this.validationService.validate(
+        tenantId,
+        input.dynamicParameters,
+        input.equipmentId,
+      );
+      if (!validation.valid) {
+        throw new BadRequestException({
+          message: 'Dynamic parameter validation failed',
+          errors: validation.errors,
+        });
+      }
+    }
+
+    // Merge static parameters + dynamic parameters into single JSONB
+    const mergedParameters = {
+      ...(input.parameters || {}),
+      ...(input.dynamicParameters || {}),
+    };
+
     const measurement = this.repository.create({
       tenantId,
       tankId: input.tankId,
       pondId: input.pondId,
       siteId: input.siteId,
       batchId: input.batchId,
+      equipmentId: input.equipmentId,
       measuredAt: input.measuredAt,
       source: input.source,
       measuredBy: input.measuredBy,
-      parameters: input.parameters,
+      parameters: mergedParameters,
       notes: input.notes,
       weatherConditions: input.weatherConditions,
+      idempotencyKey: input.idempotencyKey,
       overallStatus: WaterQualityStatus.UNKNOWN,
       hasAlarm: false,
     });

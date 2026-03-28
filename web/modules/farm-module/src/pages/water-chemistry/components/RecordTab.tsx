@@ -63,8 +63,15 @@ export const RecordTab: React.FC = () => {
 
   // ----- Data hooks -----
   const systemsQuery = useSystemList();
+  // BUG-FIX: Previously used { status: 'ACTIVE' } which only returns tank equipment
+  // (EquipmentStatus.ACTIVE is tank-specific = "has fish"). Non-tank equipment
+  // like sensors, pumps, filters have status = 'operational' and were excluded.
+  // Using { isActive: true } returns ALL active equipment regardless of status,
+  // matching the EquipmentMappingPanel (parameters tab) behavior.
   const equipmentQuery = useEquipmentList(
-    selectedSystemId ? { status: 'ACTIVE' } : { status: 'ACTIVE' },
+    selectedSystemId
+      ? { isActive: true, systemId: selectedSystemId }
+      : { isActive: true },
   );
   const parameterConfigs = useEquipmentParameterConfigs(selectedEquipmentId);
   const createMutation = useCreateWaterQuality();
@@ -79,14 +86,12 @@ export const RecordTab: React.FC = () => {
   // ----- Derived data -----
   const systems: System[] = systemsQuery.data?.items ?? [];
 
-  const filteredEquipment: Equipment[] = useMemo(() => {
-    const items = equipmentQuery.data?.items ?? [];
-    if (!selectedSystemId) return items;
-    return items.filter((eq) =>
-      eq.systemIds?.includes(selectedSystemId) ||
-      eq.systems?.some((s) => s.systemId === selectedSystemId),
-    );
-  }, [equipmentQuery.data, selectedSystemId]);
+  // System filtering is now done server-side via { systemId } in the query filter
+  // (see equipmentQuery above), so no client-side filter needed.
+  const filteredEquipment: Equipment[] = useMemo(
+    () => equipmentQuery.data?.items ?? [],
+    [equipmentQuery.data],
+  );
 
   // Sort equipment: MRU first
   const sortedEquipment = useMemo(() => {

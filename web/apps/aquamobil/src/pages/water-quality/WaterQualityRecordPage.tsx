@@ -37,9 +37,15 @@ type FieldValue = number | string | boolean;
 // GRAPHQL
 // ============================================================================
 
+/**
+ * Fetch all active equipment using the equipmentList query.
+ * Uses { isActive: true } filter to match the web RecordTab behavior,
+ * ensuring non-tank equipment (sensors, pumps, filters) with
+ * status='operational' are included alongside tank equipment (status='active').
+ */
 const EQUIPMENT_LIST_QUERY = `
-  query EquipmentList {
-    equipment { items { id name code equipmentType { category name } } }
+  query EquipmentList($filter: EquipmentFilterInput) {
+    equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
   }
 `;
 
@@ -98,13 +104,15 @@ export function WaterQualityRecordPage() {
   }, [routeEquipmentId]);
 
   // -- Equipment list --------------------------------------------------------
+  // Uses isActive filter to include ALL active equipment (tanks, sensors, pumps)
+  // regardless of operational status. This matches the web RecordTab behavior.
   const { data: equipmentData, isLoading: equipmentLoading } = useQuery<EquipmentItem[]>({
     queryKey: ['equipment-list', tenantId],
     queryFn: async () => {
-      const result = await graphqlRequest<{ equipment: { items: EquipmentItem[] } }>(
-        EQUIPMENT_LIST_QUERY, {},
+      const result = await graphqlRequest<{ equipmentList: { items: EquipmentItem[] } }>(
+        EQUIPMENT_LIST_QUERY, { filter: { isActive: true } },
       );
-      return result.equipment?.items ?? [];
+      return result.equipmentList?.items ?? [];
     },
     enabled: isAuthenticated && !!accessToken && !!tenantId && isOnline,
     staleTime: 1000 * 60 * 10,

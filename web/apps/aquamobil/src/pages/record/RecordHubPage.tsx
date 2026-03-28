@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Utensils, Skull, Scissors, Package, ArrowLeftRight, ClipboardList } from 'lucide-react';
+import { Utensils, Skull, Scissors, Package, ArrowLeftRight, ClipboardList, Droplets } from 'lucide-react';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { clsx } from 'clsx';
 
@@ -13,6 +13,7 @@ interface RecordAction {
 
 const allActions: RecordAction[] = [
   { feature: 'feeding', path: '/feeding/record', icon: Utensils, label: 'Feeding', gradient: 'from-orange-500 to-orange-600' },
+  { feature: 'waterQuality', path: '/water-quality/record', icon: Droplets, label: 'Water Quality', gradient: 'from-cyan-500 to-blue-500' },
   { feature: 'mortality', path: '/mortality/record', icon: Skull, label: 'Mortality Record', gradient: 'from-red-500 to-red-600' },
   { feature: 'cull', path: '/cull/record', icon: Scissors, label: 'Culling', gradient: 'from-amber-500 to-amber-600' },
   { feature: 'harvest', path: '/harvest/record', icon: Package, label: 'Harvest', gradient: 'from-green-500 to-green-600' },

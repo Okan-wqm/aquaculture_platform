@@ -324,17 +324,28 @@ export const RecordStockMovementModal: React.FC<Props> = ({
     }
   };
 
+  /* Close modal on Escape key press for keyboard accessibility */
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-record-stock-movement">
       <div className="flex items-center justify-center min-h-screen px-4">
         {/* Backdrop — clicking outside the modal closes it without submitting */}
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleSubmit}>
             <div className="px-6 pt-5 pb-4 space-y-4">
-              <h3 className="text-lg font-medium text-gray-900">Record Stock Movement</h3>
+              <h3 id="modal-title-record-stock-movement" className="text-lg font-medium text-gray-900">Record Stock Movement</h3>
 
               {/* Inline error banner — shown when the GraphQL mutation fails */}
               {submitError && (

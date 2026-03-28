@@ -257,12 +257,23 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
     }
   };
 
+  /* Close modal on Escape key press for keyboard accessibility */
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen || !countId) return null;
 
   const isBusy = updateItems.isPending || submitCount.isPending || approveCount.isPending;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-inventory-count-detail">
       <div className="flex items-center justify-center min-h-screen px-4">
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -271,7 +282,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
           <div className="px-6 pt-5 pb-4">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h3 className="text-lg font-medium text-gray-900">
+                <h3 id="modal-title-inventory-count-detail" className="text-lg font-medium text-gray-900">
                   {isLoading ? 'Loading...' : count?.countNumber || 'Inventory Count'}
                 </h3>
                 {count && (

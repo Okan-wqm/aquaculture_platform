@@ -159,7 +159,10 @@ export function StockMovementPage() {
       );
       return result.storageItems?.items ?? [];
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId && !!selectedItemType && isOnline,
+    // Data fetches when online; when offline, React Query serves the stale cache
+    // from gcTime (1h). This ensures the form is usable at remote cage sites with
+    // intermittent connectivity -- workers can still browse cached items.
+    enabled: isAuthenticated && !!accessToken && !!tenantId && !!selectedItemType,
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
@@ -173,7 +176,8 @@ export function StockMovementPage() {
       );
       return result.storageLocations?.items ?? [];
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId && isOnline,
+    // Same offline strategy as items: serve stale cache when offline
+    enabled: isAuthenticated && !!accessToken && !!tenantId,
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
@@ -278,17 +282,20 @@ export function StockMovementPage() {
     setIsSubmitting(true);
     setSubmitError(null);
 
+    // Backend uses separate fromLocationId / toLocationId:
+    // - IN: stock arrives at toLocationId (destination warehouse)
+    // - OUT / WASTE: stock leaves fromLocationId (source warehouse)
     const input: StockMovementInput = {
       movementType,
       itemType: selectedItemType!,
       itemId: selectedItemId,
       quantity: parseFloat(quantity),
-      unit: selectedItem.unit,
-      locationId: selectedLocationId,
+      ...(movementType === 'IN'
+        ? { toLocationId: selectedLocationId }
+        : { fromLocationId: selectedLocationId }),
       idempotencyKey: crypto.randomUUID(),
       ...(lotNumber.trim() ? { lotNumber: lotNumber.trim() } : {}),
       ...(expiryDate ? { expiryDate } : {}),
-      ...(notes.trim() ? { notes: notes.trim() } : {}),
       ...(movementType === 'WASTE' && notes.trim() ? { reason: notes.trim() } : {}),
     };
 

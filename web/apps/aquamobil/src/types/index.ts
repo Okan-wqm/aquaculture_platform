@@ -359,29 +359,44 @@ export interface CreateWaterQualityInput {
 export type StockMovementType = 'IN' | 'OUT' | 'WASTE';
 export type StorageItemType = 'FEED' | 'CHEMICAL' | 'CONSUMABLE' | 'HEALTHCARE';
 
+/**
+ * Matches backend RecordStockMovementInput exactly.
+ *
+ * The backend uses separate fromLocationId/toLocationId fields:
+ * - IN movement: toLocationId is required (destination warehouse)
+ * - OUT/WASTE movement: fromLocationId is required (source warehouse)
+ *
+ * The reference field maps to free-text reference (e.g. supplier invoice number).
+ */
 export interface StockMovementInput {
   movementType: StockMovementType;
   itemType: StorageItemType;
   itemId: string;
   quantity: number;
-  unit: string;
-  locationId: string;
+  fromLocationId?: string;
+  toLocationId?: string;
   lotNumber?: string;
   expiryDate?: string;
-  notes?: string;
+  reference?: string;
   reason?: string;
-  idempotencyKey: string;
+  idempotencyKey?: string;
 }
 
+/**
+ * Matches backend TransferStockInput exactly.
+ *
+ * Note: the backend does NOT accept 'unit' or 'idempotencyKey' --
+ * those are mobile-only offline queue metadata, not sent in the GraphQL mutation.
+ */
 export interface StockTransferInput {
   itemType: StorageItemType;
   itemId: string;
   fromLocationId: string;
   toLocationId: string;
   quantity: number;
-  unit: string;
-  notes?: string;
-  idempotencyKey: string;
+  lotNumber?: string;
+  reference?: string;
+  reason?: string;
 }
 
 // GraphQL response types

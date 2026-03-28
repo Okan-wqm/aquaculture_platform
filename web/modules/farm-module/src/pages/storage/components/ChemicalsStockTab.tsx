@@ -1,121 +1,19 @@
 /**
- * Chemicals Stock Tab - View chemical inventory from storage
+ * Chemicals Stock Tab - Thin wrapper around GenericStockTab for chemical inventory.
+ *
+ * Columns: itemName, location, lotNumber, quantity, expiry.
+ * Chemical items require lot number (EU 178/2002) and expiry tracking (HACCP).
  */
-import React, { useState } from 'react';
-import { useStorageInventory, StorageItemType, MovementType } from '../../../hooks/useStorageInventory';
-import { RecordStockMovementModal } from './RecordStockMovementModal';
+import React from 'react';
+import { StorageItemType } from '../../../hooks/useStorageInventory';
+import { GenericStockTab } from './GenericStockTab';
 
-/**
- * Determines the visual urgency class for an inventory row based on expiry date.
- * Red = expired (safety hazard), amber = expiring within 30 days (action needed),
- * transparent = normal. This follows HACCP Critical Control Point guidance for
- * perishable aquaculture supplies (feed, chemicals, medications).
- */
-function getExpiryRowClass(expiryDate?: string): string {
-  if (!expiryDate) return '';
-  const expiry = new Date(expiryDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  if (expiry < today) return 'bg-red-50';
-  const thirtyDaysFromNow = new Date(today);
-  thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-  if (expiry <= thirtyDaysFromNow) return 'bg-amber-50';
-  return '';
-}
-
-export const ChemicalsStockTab: React.FC = () => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalDefaults, setModalDefaults] = useState<{ movementType?: MovementType; itemId?: string; itemName?: string }>({});
-  const { data: inventory, isLoading, error, refetch } = useStorageInventory(undefined, StorageItemType.CHEMICAL);
-
-  const items = inventory || [];
-  const filtered = items.filter(item => {
-    return (item.itemName || '').toLowerCase().includes(searchTerm.toLowerCase());
-  });
-
-  return (
-    <div>
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1 max-w-md">
-          <input type="text" placeholder="Search chemicals..." value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-          <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </div>
-        <button onClick={() => { setModalDefaults({ movementType: MovementType.IN }); setModalOpen(true); }}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap">
-          + Add Stock
-        </button>
-      </div>
-
-      {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
-        </div>
-      )}
-
-      {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load chemical stock.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
-        </div>
-      )}
-
-      {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Chemical</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lot Number</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filtered.map(item => (
-                <tr key={item.id} className={`hover:bg-gray-50 ${getExpiryRowClass(item.expiryDate)}`}>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.itemName || '-'}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{item.locationName || '-'}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500 font-mono">{item.lotNumber || '-'}</td>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.quantity} {item.unit}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-'}
-                    {item.expiryDate && new Date(item.expiryDate) < new Date() && (
-                      <span className="ml-2 text-xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">EXPIRED</span>
-                    )}
-                    {item.expiryDate && new Date(item.expiryDate) >= new Date() &&
-                      new Date(item.expiryDate) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
-                      <span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">EXPIRING SOON</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex gap-1 justify-end">
-                      <button onClick={() => { setModalDefaults({ movementType: MovementType.ADJUSTMENT, itemId: item.itemId, itemName: item.itemName }); setModalOpen(true); }}
-                        className="text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded">Adjust</button>
-                      <button onClick={() => { setModalDefaults({ movementType: MovementType.WASTE, itemId: item.itemId, itemName: item.itemName }); setModalOpen(true); }}
-                        className="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded">Write Off</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">No chemical stock items found.</div>
-          )}
-        </div>
-      )}
-      <RecordStockMovementModal isOpen={modalOpen} onClose={() => { setModalOpen(false); setModalDefaults({}); refetch(); }}
-        defaultItemType={StorageItemType.CHEMICAL} defaultMovementType={modalDefaults.movementType}
-        defaultItemId={modalDefaults.itemId} defaultItemName={modalDefaults.itemName} />
-    </div>
-  );
-};
+export const ChemicalsStockTab: React.FC = () => (
+  <GenericStockTab
+    itemType={StorageItemType.CHEMICAL}
+    itemLabel="chemicals"
+    columns={['itemName', 'location', 'lotNumber', 'quantity', 'expiry']}
+  />
+);
 
 export default ChemicalsStockTab;

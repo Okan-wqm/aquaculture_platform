@@ -33,6 +33,28 @@ interface EquipmentParameterConfig {
 
 type FieldValue = number | string | boolean;
 
+/**
+ * Measurement entry for a single parameter in a water quality record.
+ * The backend accepts these as dynamic parameters keyed by parameterCode.
+ */
+interface MeasurementEntry {
+  parameterCode: string;
+  value: number | string;
+}
+
+/**
+ * Typed input for the CreateWaterQualityMeasurement mutation.
+ * Replaces Record<string, unknown> to ensure compile-time safety.
+ */
+interface CreateWqMeasurementInput {
+  equipmentId: string;
+  measuredAt: string;
+  idempotencyKey: string;
+  measurements: MeasurementEntry[];
+  notes?: string;
+  weatherConditions?: string;
+}
+
 // ============================================================================
 // GRAPHQL
 // ============================================================================
@@ -171,7 +193,7 @@ export function WaterQualityRecordPage() {
 
   // -- Create mutation -------------------------------------------------------
   const { mutateAsync: createMeasurement, isPending: isSubmitting } = useMutation({
-    mutationFn: async (input: Record<string, unknown>) =>
+    mutationFn: async (input: CreateWqMeasurementInput) =>
       graphqlRequest<{ createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean } }>(
         CREATE_WQ_MUTATION, { input },
       ),
@@ -184,11 +206,11 @@ export function WaterQualityRecordPage() {
   const handleSubmit = useCallback(
     async (values: Record<string, FieldValue>, notes: string, weatherConditions?: string) => {
       setSubmitError(null);
-      const measurements = Object.entries(values).map(([parameterCode, value]) => ({
+      const measurements: MeasurementEntry[] = Object.entries(values).map(([parameterCode, value]) => ({
         parameterCode,
         value: typeof value === 'boolean' ? String(value) : value,
       }));
-      const input: Record<string, unknown> = {
+      const input: CreateWqMeasurementInput = {
         equipmentId: selectedEquipmentId,
         measuredAt: new Date().toISOString(),
         idempotencyKey: crypto.randomUUID(),

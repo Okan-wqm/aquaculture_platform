@@ -29,6 +29,9 @@ registerEnumType(MovementType, {
 @Index(['tenantId', 'movementType'])
 @Index(['itemType', 'itemId'])
 @Index(['performedAt'])
+// Composite index for TraceLot queries: enables efficient lot traceability
+// without full table scan, required by EU 178/2002 Article 18 audits.
+@Index(['tenantId', 'lotNumber'])
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
   id: string;

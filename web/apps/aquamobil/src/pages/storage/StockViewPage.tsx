@@ -133,7 +133,9 @@ export function StockViewPage() {
       );
       return result.storageLocations?.items ?? [];
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId && isOnline,
+    // Allow offline access via React Query stale cache so workers can still
+    // select a location and view cached stock at remote cage sites.
+    enabled: isAuthenticated && !!accessToken && !!tenantId,
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });

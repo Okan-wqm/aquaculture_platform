@@ -122,7 +122,9 @@ export function StockTransferPage() {
       );
       return result.storageItems?.items ?? [];
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId && !!selectedItemType && isOnline,
+    // Data fetches when online; when offline, React Query serves the stale cache
+    // from gcTime (1h). Workers at remote sites can still browse cached items.
+    enabled: isAuthenticated && !!accessToken && !!tenantId && !!selectedItemType,
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
@@ -136,7 +138,8 @@ export function StockTransferPage() {
       );
       return result.storageLocations?.items ?? [];
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId && isOnline,
+    // Same offline strategy: serve stale cache when offline
+    enabled: isAuthenticated && !!accessToken && !!tenantId,
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
@@ -194,14 +197,13 @@ export function StockTransferPage() {
     setIsSubmitting(true);
     setSubmitError(null);
 
+    // Matches backend TransferStockInput exactly: no 'unit' or 'idempotencyKey'
     const input: StockTransferInput = {
       itemType: selectedItemType!,
       itemId: selectedItemId,
       fromLocationId,
       toLocationId,
       quantity: parseFloat(quantity),
-      unit: selectedItem.unit,
-      idempotencyKey: crypto.randomUUID(),
     };
 
     try {

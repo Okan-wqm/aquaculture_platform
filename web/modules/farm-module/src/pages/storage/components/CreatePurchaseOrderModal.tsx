@@ -1,7 +1,7 @@
 /**
  * Create Purchase Order Modal
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast, formatCurrency, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
 import { useCreatePurchaseOrder, PurchaseOrderCategory, CreatePurchaseOrderInput } from '../../../hooks/usePurchaseOrders';
 import { useFeedList } from '../../../hooks/useFeeds';
@@ -72,7 +72,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
     setItems(items.filter(i => i.itemId !== itemId));
   };
 
-  const updateItem = (itemId: string, field: keyof LineItem, value: any) => {
+  const updateItem = (itemId: string, field: keyof LineItem, value: string | number | undefined) => {
     setItems(items.map(i => i.itemId === itemId ? { ...i, [field]: value } : i));
   };
 
@@ -119,16 +119,27 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
 
   const totalAmount = items.reduce((sum, i) => sum + (i.unitPrice ? i.unitPrice * i.quantity : 0), 0);
 
+  /* Close modal on Escape key press for keyboard accessibility */
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-create-purchase-order">
       <div className="flex items-center justify-center min-h-screen px-4">
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleSubmit}>
             <div className="px-6 pt-5 pb-4 space-y-4">
-              <h3 className="text-lg font-medium text-gray-900">New Purchase Order</h3>
+              <h3 id="modal-title-create-purchase-order" className="text-lg font-medium text-gray-900">New Purchase Order</h3>
 
               {/* Category */}
               <div>

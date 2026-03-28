@@ -56,38 +56,41 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
       throw new NotFoundException(`Target location "${input.toLocationId}" not found`);
     }
 
-    // Get item name
+    // Get item name (read-only lookup, safe to run before the transaction)
     const itemName = await this.getItemName(input.itemType as StorageItemType, input.itemId, tenantId);
     if (!itemName) {
       throw new NotFoundException(`${input.itemType} with ID "${input.itemId}" not found`);
     }
 
-    // Get unit from source inventory
-    const sourceInventory = await this.inventoryRepository.findOne({
-      where: {
-        tenantId,
-        storageLocationId: input.fromLocationId,
-        itemType: input.itemType as StorageItemType,
-        itemId: input.itemId,
-        lotNumber: input.lotNumber ?? undefined,
-      },
-    });
-
-    if (!sourceInventory) {
-      throw new BadRequestException('No inventory found at source location for this item');
-    }
-
-    if (Number(sourceInventory.quantity) < input.quantity) {
-      throw new BadRequestException(
-        `Insufficient stock at source. Available: ${sourceInventory.quantity}, Requested: ${input.quantity}`
-      );
-    }
-
-    const unit = sourceInventory.unit;
-
     return this.dataSource.transaction(async (manager) => {
       const inventoryRepo = manager.getRepository(StorageInventory);
       const movementRepo = manager.getRepository(StockMovement);
+
+      // F-3: Read source inventory INSIDE the transaction with a pessimistic_write lock.
+      // Without this lock, two concurrent transfers could both read the same available
+      // quantity and both succeed, causing negative inventory (race condition).
+      const sourceInventory = await inventoryRepo.findOne({
+        where: {
+          tenantId,
+          storageLocationId: input.fromLocationId,
+          itemType: input.itemType as StorageItemType,
+          itemId: input.itemId,
+          lotNumber: input.lotNumber ?? undefined,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!sourceInventory) {
+        throw new BadRequestException('No inventory found at source location for this item');
+      }
+
+      if (Number(sourceInventory.quantity) < input.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock at source. Available: ${sourceInventory.quantity}, Requested: ${input.quantity}`
+        );
+      }
+
+      const unit = sourceInventory.unit;
 
       // Decrease from source
       sourceInventory.quantity = Number(sourceInventory.quantity) - input.quantity;
@@ -129,7 +132,9 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         await inventoryRepo.save(destInventory);
       }
 
-      // Create TRANSFER movement
+      // F-4: Capture lotNumber + expiryDate on the transfer movement record.
+      // Without these fields, transfers are invisible to TraceLot queries and
+      // lot traceability chain is broken (EU 178/2002 Article 18 gap).
       const movement = movementRepo.create({
         tenantId,
         movementType: MovementType.TRANSFER,
@@ -142,6 +147,8 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         toLocationId: input.toLocationId,
         reference: input.reference,
         reason: input.reason,
+        lotNumber: input.lotNumber ?? sourceInventory.lotNumber,
+        expiryDate: sourceInventory.expiryDate,
         performedBy: userId,
         performedByName: userName,
         performedAt: new Date(),

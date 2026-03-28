@@ -12,11 +12,13 @@ import { StorageOverviewResponse } from './dto/storage-overview.response';
 import { CreateStorageLocationInput } from './dto/create-storage-location.input';
 import { UpdateStorageLocationInput } from './dto/update-storage-location.input';
 import { StorageLocationFilterInput } from './dto/storage-location-filter.input';
+import { StockMovementFilterInput } from './dto/stock-movement-filter.input';
+import { InventoryCountFilterInput } from './dto/inventory-count-filter.input';
 import { RecordStockMovementInput } from './dto/record-stock-movement.input';
 import { TransferStockInput } from './dto/transfer-stock.input';
 import { PaginationInput } from '../site/dto/site-filter.input';
 import { CreateStorageLocationCommand } from './commands/create-storage-location.command';
-import { UpdateStorageLocationCommand } from './commands/update-storage-location.command';
+import { UpdateStorageLocationCommand, UpdateStorageLocationData } from './commands/update-storage-location.command';
 import { DeleteStorageLocationCommand } from './commands/delete-storage-location.command';
 import { RecordStockMovementCommand } from './commands/record-stock-movement.command';
 import { TransferStockCommand } from './commands/transfer-stock.command';
@@ -49,39 +51,13 @@ import { ListInventoryCountsQuery } from './queries/list-inventory-counts.query'
 import { GetInventoryCountQuery } from './queries/get-inventory-count.query';
 import { InventoryCountStatus } from './entities/inventory-count.entity';
 import { InputType, Field, Int } from '@nestjs/graphql';
-import { IsOptional, IsString, IsEnum, IsUUID, IsInt } from 'class-validator';
+import { IsOptional, IsEnum, IsInt } from 'class-validator';
 
-@InputType()
-export class StockMovementFilterInput {
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsString()
-  movementType?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  @IsString()
-  itemType?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  itemId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  locationId?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  fromDate?: Date;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  toDate?: Date;
-}
-
+/**
+ * PurchaseOrderFilterInput remains inline because it is only used here
+ * and is tightly coupled to the PO query resolver. StockMovementFilterInput
+ * and InventoryCountFilterInput were moved to dedicated DTO files (F-10).
+ */
 @InputType()
 export class PurchaseOrderFilterInput {
   @Field(() => PurchaseOrderCategory, { nullable: true })
@@ -93,29 +69,6 @@ export class PurchaseOrderFilterInput {
   @IsOptional()
   @IsEnum(PurchaseOrderStatus)
   status?: PurchaseOrderStatus;
-
-  @Field(() => Int, { nullable: true })
-  @IsOptional()
-  @IsInt()
-  page?: number;
-
-  @Field(() => Int, { nullable: true })
-  @IsOptional()
-  @IsInt()
-  limit?: number;
-}
-
-@InputType()
-export class InventoryCountFilterInput {
-  @Field(() => InventoryCountStatus, { nullable: true })
-  @IsOptional()
-  @IsEnum(InventoryCountStatus)
-  status?: InventoryCountStatus;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  locationId?: string;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -158,8 +111,10 @@ export class StorageResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<StorageLocationResponse> {
-    const { id, ...updateData } = input;
-    const command = new UpdateStorageLocationCommand(id, updateData as any, tenantId, user.sub);
+    // F-9: Properly typed spread — the `id` is extracted as `locationId` and the
+    // remaining fields match UpdateStorageLocationData (Omit<Input, 'id'>).
+    const { id, ...updateData }: UpdateStorageLocationInput = input;
+    const command = new UpdateStorageLocationCommand(id, updateData as UpdateStorageLocationData, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
 
@@ -200,9 +155,11 @@ export class StorageResolver {
   async storageInventory(
     @Args('locationId', { type: () => ID, nullable: true }) locationId: string | undefined,
     @Args('itemType', { type: () => StorageItemType, nullable: true }) itemType: StorageItemType | undefined,
+    @Args('limit', { type: () => Int, nullable: true }) limit: number | undefined,
+    @Args('offset', { type: () => Int, nullable: true }) offset: number | undefined,
     @CurrentTenant() tenantId: string,
   ): Promise<StorageInventoryResponse[]> {
-    const query = new GetStorageInventoryQuery(tenantId, locationId, itemType);
+    const query = new GetStorageInventoryQuery(tenantId, locationId, itemType, limit, offset);
     return this.queryBus.execute(query);
   }
 

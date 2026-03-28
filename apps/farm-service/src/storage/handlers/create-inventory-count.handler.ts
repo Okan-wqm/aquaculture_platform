@@ -15,8 +15,11 @@ import { Logger, NotFoundException } from '@nestjs/common';
 import { CreateInventoryCountCommand } from '../commands/create-inventory-count.command';
 import { InventoryCount, InventoryCountStatus } from '../entities/inventory-count.entity';
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';
-import { StorageInventory } from '../entities/storage-inventory.entity';
+import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
+import { Feed } from '../../feed/entities/feed.entity';
+import { Chemical } from '../../chemical/entities/chemical.entity';
+import { Consumable } from '../../consumable/entities/consumable.entity';
 
 @CommandHandler(CreateInventoryCountCommand)
 export class CreateInventoryCountHandler implements ICommandHandler<CreateInventoryCountCommand, InventoryCount> {
@@ -27,6 +30,12 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
     private readonly countRepository: Repository<InventoryCount>,
     @InjectRepository(StorageLocation)
     private readonly locationRepository: Repository<StorageLocation>,
+    @InjectRepository(Feed)
+    private readonly feedRepository: Repository<Feed>,
+    @InjectRepository(Chemical)
+    private readonly chemicalRepository: Repository<Chemical>,
+    @InjectRepository(Consumable)
+    private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -97,15 +106,17 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
         }));
       }
 
-      // Enrich item names from the inventory's notes or a simple fallback.
-      // In a full implementation this would join to feed/chemical/consumable entities,
-      // but for performance we use the inventory metadata. The item name can be
-      // updated later if needed — it is a denormalized convenience field.
-      // For now, use itemType + itemId as a fallback identifier.
+      // F-6: Enrich item names from the actual Feed/Chemical/Consumable entities.
+      // A human-readable name is critical for warehouse workers performing physical
+      // counts — "Salmon Grower 5mm" is actionable, "feed:3a7b2c9d" is not.
       for (const item of itemEntities) {
-        // Use the storage_inventory lotNumber + itemType as a readable reference
+        const resolvedName = await this.resolveItemName(
+          item.itemType as StorageItemType, item.itemId, tenantId,
+        );
         const lotSuffix = item.lotNumber ? ` (${item.lotNumber})` : '';
-        item.itemName = `${item.itemType}:${item.itemId.slice(0, 8)}${lotSuffix}`;
+        item.itemName = resolvedName
+          ? `${resolvedName}${lotSuffix}`
+          : `${item.itemType}:${item.itemId.slice(0, 8)}${lotSuffix}`;
       }
 
       const savedItems = await itemRepo.save(itemEntities);
@@ -118,5 +129,30 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
       savedCount.items = savedItems;
       return savedCount;
     });
+  }
+
+  /**
+   * Resolve the human-readable item name from the corresponding domain entity.
+   * Returns null if the item is not found (deleted or orphaned inventory row).
+   */
+  private async resolveItemName(
+    itemType: StorageItemType, itemId: string, tenantId: string,
+  ): Promise<string | null> {
+    switch (itemType) {
+      case StorageItemType.FEED: {
+        const feed = await this.feedRepository.findOne({ where: { id: itemId, tenantId } });
+        return feed?.name ?? null;
+      }
+      case StorageItemType.CHEMICAL: {
+        const chem = await this.chemicalRepository.findOne({ where: { id: itemId, tenantId } });
+        return chem?.name ?? null;
+      }
+      case StorageItemType.CONSUMABLE: {
+        const cons = await this.consumableRepository.findOne({ where: { id: itemId, tenantId } });
+        return cons?.name ?? null;
+      }
+      default:
+        return null;
+    }
   }
 }

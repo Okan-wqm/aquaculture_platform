@@ -7,7 +7,7 @@
  *
  * Only active locations are shown — decommissioned locations cannot be counted.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast } from '@aquaculture/shared-ui';
 import { useCreateInventoryCount } from '../../../hooks/useInventoryCounts';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
@@ -62,16 +62,27 @@ export const StartInventoryCountModal: React.FC<Props> = ({ isOpen, onClose }) =
     }
   };
 
+  /* Close modal on Escape key press for keyboard accessibility */
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-start-inventory-count">
       <div className="flex items-center justify-center min-h-screen px-4">
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md">
           <form onSubmit={handleSubmit}>
             <div className="px-6 pt-5 pb-4 space-y-4">
-              <h3 className="text-lg font-medium text-gray-900">Start Inventory Count</h3>
+              <h3 id="modal-title-start-inventory-count" className="text-lg font-medium text-gray-900">Start Inventory Count</h3>
               <p className="text-sm text-gray-500">
                 Select a storage location to begin a new cycle count. The system will
                 automatically populate expected quantities from current inventory records.

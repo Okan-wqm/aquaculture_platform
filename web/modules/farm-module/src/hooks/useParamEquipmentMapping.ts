@@ -286,6 +286,11 @@ export function getFrequencyLabel(frequency: MonitoringFrequency): string {
   return found?.label ?? frequency;
 }
 
+/**
+ * All equipment categories available for parameter-to-equipment mapping.
+ * Must include every EquipmentCategory from the backend enum so that
+ * all equipment visible in the Record tab can also be mapped in Parameters.
+ */
 export const EQUIPMENT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: 'TANK', label: 'Tank' },
   { value: 'POND', label: 'Pond' },
@@ -293,4 +298,14 @@ export const EQUIPMENT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: 'FILTRATION', label: 'Filtration' },
   { value: 'WATER_TREATMENT', label: 'Water Treatment' },
   { value: 'AERATION', label: 'Aeration' },
+  { value: 'PUMP', label: 'Pump' },
+  { value: 'MONITORING', label: 'Monitoring' },
+  { value: 'HEATING_COOLING', label: 'Heating / Cooling' },
+  { value: 'FEEDING', label: 'Feeding' },
+  { value: 'HARVESTING', label: 'Harvesting' },
+  { value: 'TRANSPORT', label: 'Transport' },
+  { value: 'ELECTRICAL', label: 'Electrical' },
+  { value: 'PLUMBING', label: 'Plumbing' },
+  { value: 'SAFETY', label: 'Safety' },
+  { value: 'OTHER', label: 'Other' },
 ];

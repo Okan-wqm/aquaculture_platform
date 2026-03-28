@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff } from 'lucide-react';
+import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -52,6 +52,14 @@ const allQuickActions: QuickAction[] = [
     icon: Package,
     label: 'Harvest',
     gradient: 'from-harvest to-violet-700',
+    iconColor: 'text-white',
+  },
+  {
+    feature: 'waterQuality',
+    path: '/water-quality/record',
+    icon: Droplets,
+    label: 'Water Quality',
+    gradient: 'from-cyan-500 to-blue-500',
     iconColor: 'text-white',
   },
   {

@@ -67,7 +67,7 @@ const FALLBACK_SETTINGS: MobileSettings = {
     cull: true,
     harvest: true,
     feeding: true,
-    waterQuality: false,
+    waterQuality: true,
     tankView: true,
     schedule: true,
     attendance: true,

@@ -29,6 +29,16 @@ export class MobileSettingsService {
       });
       settings = await this.repo.save(settings);
       this.logger.debug(`Created default mobile settings for user ${userId}`);
+    } else {
+      // Forward-compatibility: merge new feature flags into existing JSONB.
+      // When new features (e.g., storage, waterQuality) are added to
+      // DEFAULT_MOBILE_FEATURES, existing user records in the DB won't have
+      // them. Spreading defaults underneath ensures new features default to
+      // their configured value rather than being silently absent (undefined).
+      settings.allowedFeatures = {
+        ...DEFAULT_MOBILE_FEATURES,
+        ...settings.allowedFeatures,
+      };
     }
 
     return settings;

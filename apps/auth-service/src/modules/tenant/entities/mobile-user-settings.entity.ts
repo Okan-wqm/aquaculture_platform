@@ -56,6 +56,11 @@ export class MobileAllowedFeatures {
   /** WHY: Task assignments drive daily operational workflow on-site */
   @Field(() => Boolean, { defaultValue: true })
   tasks!: boolean;
+
+  /** WHY: Warehouse staff need mobile stock entry (receive, dispense, transfer, count)
+      from the warehouse floor without returning to a desktop computer. */
+  @Field(() => Boolean, { defaultValue: true })
+  storage!: boolean;
 }
 
 /**
@@ -63,18 +68,26 @@ export class MobileAllowedFeatures {
  * Tenant admin can restrict per-user via the AccessType settings UI.
  * waterQuality remains false — it requires specialized sensor training.
  */
+/**
+ * Default mobile feature flags for newly created users.
+ * All core aquaculture operations default to true — warehouse staff and
+ * field workers need immediate access without admin configuration.
+ * waterQuality and storage were previously false but are now enabled
+ * because they are core operational features, not optional add-ons.
+ */
 export const DEFAULT_MOBILE_FEATURES: MobileAllowedFeatures = {
   mortality: true,
   cull: true,
   harvest: true,
   feeding: true,
-  waterQuality: false,
+  waterQuality: true,
   tankView: true,
   transfer: true,
   schedule: true,
   attendance: true,
   leave: true,
   tasks: true,
+  storage: true,
 };
 
 /**

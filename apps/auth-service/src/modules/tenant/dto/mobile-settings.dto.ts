@@ -41,6 +41,11 @@ export class UpdateMobileUserSettingsInput {
   @IsOptional()
   @IsBoolean()
   tankView?: boolean;
+
+  @Field(() => Boolean, { nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  storage?: boolean;
 }
 
 @InputType()
@@ -82,4 +87,9 @@ export class BulkUpdateMobileSettingsInput {
   @IsOptional()
   @IsBoolean()
   tankView?: boolean;
+
+  @Field(() => Boolean, { nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  storage?: boolean;
 }

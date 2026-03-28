@@ -17,6 +17,17 @@
 - Cross-tenant data access is physically impossible (separate PostgreSQL schemas)
 - Mobile app sends X-Tenant-Id header on every request, validated by TenantSchemaMiddleware
 
+### Data Source Integrity (Setup Module Integration)
+- ALL dropdown data in forms must come from existing setup/management modules — never hard-coded
+- Supplier list: from supplier management (farm-service supplier entity)
+- Feed items: from feed management (useFeedList hook → feeds table)
+- Chemical items: from chemical management (useChemicalList hook → chemicals table)
+- Consumable items: from consumable management (useConsumableList hook → consumables table)
+- Healthcare items: dedicated healthcare entity (currently missing — use consumable with type filter)
+- Storage locations: from storage locations tab (useStorageLocations hook)
+- Sites: from site management (useSiteList hook)
+- Equipment: from equipment management (useEquipmentList hook)
+
 ### Security Best Practices
 - All mutations require @Roles() decorator (TENANT_ADMIN, MODULE_MANAGER, MODULE_USER)
 - Input validation via class-validator on every DTO (no raw user input to DB)
@@ -46,6 +57,75 @@
 | Transfer Stock | COMPLETE (mutation + handler) | Hook exists, NO form | BACKEND ONLY |
 | Stock Tabs (Feed/Chemical/Consumable/Healthcare) | COMPLETE (read) | Read-only tables, no Add/Edit | READ ONLY |
 | Inventory Count | NOT IMPLEMENTED | MOCK DATA | NOT IMPLEMENTED |
+
+## Phase 0: Critical Backend Fixes (Pre-requisite — Before Any UI Work)
+
+**Priority: BLOCKER — data integrity issues found by enterprise architecture review (34/100 score)**
+
+### Task 0.1: Prevent Negative Inventory (Race Condition Fix)
+
+**Files:**
+- Modify: `apps/farm-service/src/storage/entities/storage-inventory.entity.ts` (add @VersionColumn)
+- Create migration: add CHECK (quantity >= 0) constraint + version column
+- Modify: `apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts` (use pessimistic_write lock)
+
+- [ ] Add `@VersionColumn() version: number` to StorageInventory entity
+- [ ] Create migration: `ALTER TABLE storage_inventory ADD CONSTRAINT chk_quantity_non_negative CHECK (quantity >= 0)`
+- [ ] In decreaseInventory(): use `findOne({ lock: { mode: 'pessimistic_write' } })` to prevent concurrent decrement race
+- [ ] Add `CHECK (quantity > 0)` on stock_movements table
+
+### Task 0.2: FEFO Picking Strategy (Expiry Safety)
+
+**File:** `apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts`
+
+- [ ] When lotNumber is NOT specified on OUT/WASTE movements, query inventory ordered by `expiryDate ASC NULLS LAST` (First Expired First Out)
+- [ ] Add `pickingStrategy` field to StorageLocation entity (FIFO | LIFO | FEFO, default FEFO)
+
+### Task 0.3: Lot Traceability on Movements
+
+**File:** `apps/farm-service/src/storage/entities/stock-movement.entity.ts`
+
+- [ ] Add `lotNumber VARCHAR(100)` column to stock_movements table
+- [ ] Add `expiryDate DATE` column to stock_movements table
+- [ ] Populate in RecordStockMovementHandler and ReceiveDeliveryHandler
+
+### Task 0.4: Fix Healthcare Item Type Bug
+
+**File:** `apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts` (lines 149-168)
+
+- [ ] Add `case StorageItemType.HEALTHCARE:` in getItemDetails() — currently throws NotFoundException
+- [ ] Add healthcare case in updateItemTotalQuantity()
+
+### Task 0.5: Emit Domain Events (Wire NatsEventBus)
+
+**Files:**
+- Modify: `apps/farm-service/src/storage/storage.module.ts` (import EventBusModule if needed)
+- Modify: `apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts`
+- Modify: `apps/farm-service/src/storage/handlers/receive-delivery.handler.ts`
+- Create: `libs/event-contracts/src/storage-events.ts`
+
+- [ ] Define StorageEvent types: StockMovementRecorded, DeliveryReceived, LowStockDetected
+- [ ] Inject NatsEventBus into handlers
+- [ ] Emit events after successful transactions
+- [ ] Add to event-contracts barrel export
+
+### Task 0.6: Idempotency Keys on Mutations
+
+**Files:**
+- Modify: `apps/farm-service/src/storage/dto/record-stock-movement.input.ts`
+- Modify: `apps/farm-service/src/storage/dto/transfer-stock.input.ts`
+
+- [ ] Add optional `idempotencyKey: string` field to DTOs
+- [ ] Add unique index on stock_movements.idempotencyKey
+- [ ] Return existing movement on duplicate key instead of creating new
+
+### Task 0.7: Fix Overview Movement Count Bug
+
+**File:** `apps/farm-service/src/storage/handlers/get-storage-overview.handler.ts`
+
+- [ ] getRecentMovementsCount() creates sevenDaysAgo but never uses it in WHERE — fix to filter last 7 days
+
+---
 
 ## Phase 1: Stock Movement Entry (Critical)
 

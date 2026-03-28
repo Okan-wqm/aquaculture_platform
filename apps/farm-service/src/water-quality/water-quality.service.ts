@@ -6,10 +6,14 @@
  *
  * @module WaterQuality
  */
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+
+import { Injectable, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
+import { NatsEventBus } from '@platform/event-bus';
+import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent } from '@platform/event-contracts';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource } from './entities/water-quality-measurement.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
@@ -26,7 +30,7 @@ export interface CreateWaterQualityData {
   measuredAt: Date;
   source: MeasurementSource;
   measuredBy?: string;
-  parameters: {
+  parameters?: {
     temperature?: number;
     dissolvedOxygen?: number;
     pH?: number;
@@ -38,6 +42,9 @@ export interface CreateWaterQualityData {
     alkalinity?: number;
     hardness?: number;
   };
+  equipmentId?: string;
+  dynamicParameters?: Record<string, number | string | boolean>;
+  idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;
 }
@@ -89,6 +96,8 @@ export class WaterQualityService {
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly evaluationService: WaterQualityEvaluationService,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -130,6 +139,63 @@ export class WaterQualityService {
 
     const saved = await this.repository.save(measurement);
     this.logger.log(`Created water quality measurement ${saved.id} with status ${saved.overallStatus}`);
+
+    // Publish NATS domain events (non-blocking — failure does not affect measurement creation)
+    if (this.eventBus) {
+      try {
+        const createdEvent: WaterQualityMeasurementCreatedEvent = {
+          eventId: randomUUID(),
+          eventType: 'WaterQualityMeasurementCreated',
+          tenantId,
+          timestamp: new Date(),
+          version: 1,
+          measurementId: saved.id,
+          equipmentId: saved.equipmentId ?? null,
+          tankId: saved.tankId ?? null,
+          source: saved.source,
+          overallStatus: saved.overallStatus,
+          hasAlarm: saved.hasAlarm,
+          measuredBy: saved.measuredBy ?? null,
+          measuredAt: saved.measuredAt.toISOString(),
+          parameterCount: Object.keys(saved.parameters || {}).length,
+        };
+        await this.eventBus.publish(createdEvent);
+        this.logger.debug(`Published WaterQualityMeasurementCreatedEvent for measurement ${saved.id}`);
+
+        // High-priority critical event for alert-service
+        if (saved.hasAlarm && saved.summary?.evaluations) {
+          const criticalParams = saved.summary.evaluations
+            .filter(e => e.status === 'CRITICAL_LOW' || e.status === 'CRITICAL_HIGH')
+            .map(e => ({
+              code: e.parameter,
+              name: e.parameter,
+              value: e.value,
+              threshold: e.status === 'CRITICAL_LOW' ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
+              direction: (e.status === 'CRITICAL_LOW' ? 'below' : 'above') as 'above' | 'below',
+              unit: e.unit,
+            }));
+
+          if (criticalParams.length > 0) {
+            const criticalEvent: WaterQualityCriticalEvent = {
+              eventId: randomUUID(),
+              eventType: 'WaterQualityCritical',
+              tenantId,
+              timestamp: new Date(),
+              version: 1,
+              measurementId: saved.id,
+              equipmentId: saved.equipmentId ?? null,
+              tankId: saved.tankId ?? null,
+              criticalParameters: criticalParams,
+              measuredAt: saved.measuredAt.toISOString(),
+            };
+            await this.eventBus.publish(criticalEvent);
+            this.logger.debug(`Published WaterQualityCriticalEvent for measurement ${saved.id} with ${criticalParams.length} critical parameters`);
+          }
+        }
+      } catch (eventError) {
+        this.logger.warn(`Failed to publish WQ event: ${(eventError as Error).message}`);
+      }
+    }
 
     return saved;
   }

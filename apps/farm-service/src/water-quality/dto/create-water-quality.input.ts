@@ -2,9 +2,11 @@
  * CreateWaterQualityMeasurement Input DTO
  */
 import { InputType, Field, ID, Float } from '@nestjs/graphql';
-import { IsUUID, IsOptional, IsDate, IsEnum, IsNumber, Min, Max, IsString } from 'class-validator';
+import { IsUUID, IsOptional, IsDate, IsEnum, IsNumber, Min, Max, IsString, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
+import GraphQLJSON from 'graphql-type-json';
 import { MeasurementSource } from '../entities/water-quality-measurement.entity';
+import { ValidateDynamicParameters } from '../validators/dynamic-parameters.validator';
 
 @InputType()
 export class WaterParametersInput {
@@ -108,16 +110,34 @@ export class CreateWaterQualityInput {
   @IsUUID()
   measuredBy?: string;
 
-  @Field(() => WaterParametersInput, { description: 'Su parametreleri' })
-  parameters: WaterParametersInput;
+  @Field(() => WaterParametersInput, { nullable: true, description: 'Su parametreleri' })
+  @IsOptional()
+  parameters?: WaterParametersInput;
+
+  @Field(() => ID, { nullable: true, description: 'Equipment ID' })
+  @IsOptional()
+  @IsUUID()
+  equipmentId?: string;
+
+  @Field(() => GraphQLJSON, { nullable: true, description: 'Dynamic parameters (tenant-configured JSONB)' })
+  @IsOptional()
+  @ValidateDynamicParameters()
+  dynamicParameters?: Record<string, number | string | boolean>;
+
+  @Field(() => ID, { nullable: true, description: 'Idempotency key for offline retry safety' })
+  @IsOptional()
+  @IsUUID()
+  idempotencyKey?: string;
 
   @Field({ nullable: true, description: 'Notlar' })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 
   @Field({ nullable: true, description: 'Hava durumu' })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   weatherConditions?: string;
 }

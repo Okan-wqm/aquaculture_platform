@@ -10,7 +10,7 @@ import { RecordStockMovementCommand } from '../commands/record-stock-movement.co
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
-import { Feed } from '../../feed/entities/feed.entity';
+import { Feed, FeedStatus } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
@@ -504,9 +504,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         const feed = await manager.getRepository(Feed).findOne({ where: { id: itemId, tenantId } });
         if (feed) {
           feed.quantity = totalQuantity;
-          if (totalQuantity <= 0) feed.status = 'out_of_stock';
-          else if (totalQuantity <= Number(feed.minStock)) feed.status = 'low_stock';
-          else feed.status = 'available';
+          // Use the FeedStatus enum to ensure type-safe status assignment.
+          // String literals cause TS2322 in production webpack builds (strict mode).
+          if (totalQuantity <= 0) feed.status = FeedStatus.OUT_OF_STOCK;
+          else if (totalQuantity <= Number(feed.minStock)) feed.status = FeedStatus.LOW_STOCK;
+          else feed.status = FeedStatus.AVAILABLE;
           await manager.getRepository(Feed).save(feed);
         }
         break;

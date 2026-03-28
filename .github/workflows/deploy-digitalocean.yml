@@ -550,8 +550,16 @@ jobs:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
 
-      # Upload frontend artifacts (web/shell/dist + web/modules/*/dist)
-      # Note: aquamobil (web/apps/aquamobil) builds inside its own Dockerfile — not uploaded here.
+      # Upload frontend artifacts (web/shell/dist + web/modules/*/dist).
+      # ARCH-CI-016: Always produce a frontend-dist artifact, even when empty.
+      # Downstream build-frontend-images job depends on this artifact existing.
+      # Without if-no-files-found: warn, the upload fails when no modules were
+      # built (e.g., only aquamobil changed). The .gitkeep placeholder ensures
+      # the artifact is always non-empty, preventing "Artifact not found" errors
+      # in the download step of build-frontend-images matrix entries that need it.
+      - name: Ensure frontend-dist artifact is always producible
+        run: mkdir -p web/.artifact-marker && echo "placeholder" > web/.artifact-marker/.gitkeep
+
       - name: Upload frontend artifacts
         # SEC-CI-002: pinned to SHA
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
@@ -560,6 +568,8 @@ jobs:
           path: |
             web/shell/dist/
             web/modules/*/dist/
+            web/.artifact-marker/
+          if-no-files-found: warn
           retention-days: 1
 
   # ===========================================================================
@@ -639,15 +649,13 @@ jobs:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # Download frontend artifacts - upload strips common ancestor 'web/',
+      # Download frontend artifacts — upload strips common ancestor 'web/',
       # so we extract into 'web/' to restore original paths (web/shell/dist, web/modules/*/dist).
-      # SKIP for aquamobil: it builds inside its own Dockerfile (monorepo-aware)
-      # and does not need the pre-built dist/ artifacts. Without this condition,
-      # aquamobil's Docker build fails with "Artifact not found" when the
-      # build-frontend-artifacts job did not produce a frontend-dist artifact
-      # (e.g., when only aquamobil files changed and no NX modules were affected).
+      # ARCH-CI-016: The upstream upload step always produces a frontend-dist artifact
+      # (with at least a placeholder file), so this download never fails with "not found".
+      # Aquamobil does not use the downloaded dist/ files (it builds inside its Dockerfile),
+      # but downloading the artifact is harmless and avoids special-casing the matrix.
       - name: Download frontend artifacts
-        if: matrix.module != 'aquamobil'
         # SEC-CI-002: pinned to SHA
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:

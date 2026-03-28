@@ -180,6 +180,7 @@ export interface SensorInfo {
 @Index(['tenantId', 'measuredAt'])
 @Index(['tankId', 'measuredAt'])
 @Index(['overallStatus', 'tenantId'])
+@Index(['tenantId', 'equipmentId', 'measuredAt'])
 export class WaterQualityMeasurement {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -319,6 +320,15 @@ export class WaterQualityMeasurement {
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   batchId?: string;                  // Hangi batch için önemli
+
+  // -------------------------------------------------------------------------
+  // IDEMPOTENCY
+  // -------------------------------------------------------------------------
+
+  @Field({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  idempotencyKey?: string;
 
   // -------------------------------------------------------------------------
   // NOTLAR

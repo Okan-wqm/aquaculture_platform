@@ -8,15 +8,17 @@
  */
 import { randomUUID } from 'crypto';
 
-import { Injectable, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { NatsEventBus } from '@platform/event-bus';
 import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent } from '@platform/event-contracts';
-import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource } from './entities/water-quality-measurement.entity';
+import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource, ParameterStatus } from './entities/water-quality-measurement.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
+import { WaterQualityValidationService } from './services/water-quality-validation.service';
+import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';
 
 // ============================================================================
 // INTERNAL INTERFACES (Service layer only)
@@ -96,6 +98,7 @@ export class WaterQualityService {
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly evaluationService: WaterQualityEvaluationService,
+    private readonly validationService: WaterQualityValidationService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -165,13 +168,13 @@ export class WaterQualityService {
         // High-priority critical event for alert-service
         if (saved.hasAlarm && saved.summary?.evaluations) {
           const criticalParams = saved.summary.evaluations
-            .filter(e => e.status === 'CRITICAL_LOW' || e.status === 'CRITICAL_HIGH')
+            .filter(e => e.status === ParameterStatus.CRITICAL_LOW || e.status === ParameterStatus.CRITICAL_HIGH)
             .map(e => ({
               code: e.parameter,
               name: e.parameter,
               value: e.value,
-              threshold: e.status === 'CRITICAL_LOW' ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
-              direction: (e.status === 'CRITICAL_LOW' ? 'below' : 'above') as 'above' | 'below',
+              threshold: e.status === ParameterStatus.CRITICAL_LOW ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
+              direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as 'above' | 'below',
               unit: e.unit,
             }));
 
@@ -197,6 +200,128 @@ export class WaterQualityService {
       }
     }
 
+    return saved;
+  }
+
+  // -------------------------------------------------------------------------
+  // BATCH CREATE
+  // -------------------------------------------------------------------------
+
+  /**
+   * Batch creation of water quality measurements for multiple equipment.
+   * Validates all items first (fail-fast), then bulk inserts in a single transaction.
+   */
+  async createBatch(
+    tenantId: string,
+    input: CreateBatchWaterQualityInput,
+    userId: string,
+  ): Promise<WaterQualityMeasurement[]> {
+    this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
+
+    // 1. Validate ALL items first (fail-fast)
+    for (const item of input.measurements) {
+      const result = await this.validationService.validate(tenantId, item.dynamicParameters, item.equipmentId);
+      if (!result.valid) {
+        throw new BadRequestException({
+          message: `Validation failed for equipment ${item.equipmentId}`,
+          errors: result.errors,
+        });
+      }
+    }
+
+    // 2. Build entities
+    const entities: WaterQualityMeasurement[] = [];
+    for (const item of input.measurements) {
+      const measurement = this.repository.create({
+        tenantId,
+        equipmentId: item.equipmentId,
+        measuredAt: input.measuredAt,
+        source: input.source,
+        measuredBy: userId,
+        parameters: item.dynamicParameters as unknown as Record<string, unknown> as WaterQualityMeasurement['parameters'],
+        notes: item.notes,
+        idempotencyKey: item.idempotencyKey,
+        overallStatus: WaterQualityStatus.UNKNOWN,
+        hasAlarm: false,
+      });
+
+      // Evaluate thresholds
+      const summary = await this.evaluationService.evaluate(
+        tenantId,
+        item.dynamicParameters as unknown as Record<string, unknown>,
+      );
+      if (summary.evaluations.length > 0) {
+        measurement.overallStatus = summary.overallStatus;
+        measurement.summary = summary;
+        measurement.hasAlarm = summary.criticalCount > 0;
+      } else {
+        measurement.evaluateParameters();
+      }
+
+      entities.push(measurement);
+    }
+
+    // 3. Bulk INSERT in single transaction
+    const saved = await this.repository.save(entities);
+
+    // 4. Emit NATS events (non-blocking)
+    if (this.eventBus) {
+      for (const measurement of saved) {
+        try {
+          const createdEvent: WaterQualityMeasurementCreatedEvent = {
+            eventId: randomUUID(),
+            eventType: 'WaterQualityMeasurementCreated',
+            tenantId,
+            timestamp: new Date(),
+            version: 1,
+            measurementId: measurement.id,
+            equipmentId: measurement.equipmentId ?? null,
+            tankId: measurement.tankId ?? null,
+            source: measurement.source,
+            overallStatus: measurement.overallStatus,
+            hasAlarm: measurement.hasAlarm,
+            measuredBy: measurement.measuredBy ?? null,
+            measuredAt: measurement.measuredAt.toISOString(),
+            parameterCount: Object.keys(measurement.parameters || {}).length,
+          };
+          await this.eventBus.publish(createdEvent);
+
+          // High-priority critical event for alert-service
+          if (measurement.hasAlarm && measurement.summary?.evaluations) {
+            const criticalParams = measurement.summary.evaluations
+              .filter(e => e.status === ParameterStatus.CRITICAL_LOW || e.status === ParameterStatus.CRITICAL_HIGH)
+              .map(e => ({
+                code: e.parameter,
+                name: e.parameter,
+                value: e.value,
+                threshold: e.status === ParameterStatus.CRITICAL_LOW ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
+                direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as 'above' | 'below',
+                unit: e.unit,
+              }));
+
+            if (criticalParams.length > 0) {
+              const criticalEvent: WaterQualityCriticalEvent = {
+                eventId: randomUUID(),
+                eventType: 'WaterQualityCritical',
+                tenantId,
+                timestamp: new Date(),
+                version: 1,
+                measurementId: measurement.id,
+                equipmentId: measurement.equipmentId ?? null,
+                tankId: measurement.tankId ?? null,
+                criticalParameters: criticalParams,
+                measuredAt: measurement.measuredAt.toISOString(),
+              };
+              await this.eventBus.publish(criticalEvent);
+            }
+          }
+        } catch (eventError) {
+          this.logger.warn(`Failed to publish WQ event for measurement ${measurement.id}: ${(eventError as Error).message}`);
+        }
+      }
+    }
+
+    this.logger.log(`Created batch of ${saved.length} WQ measurements for tenant ${tenantId}`);
     return saved;
   }
 

@@ -19,6 +19,7 @@ import {
   UserContextMiddleware,
   SourceSchemaBootstrapService,
   ServiceIdentityGuard,
+  ThrottlerModule,
 } from '@aquaculture/backend-common';
 
 /**
@@ -85,6 +86,9 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
       envFilePath: ['.env', '.env.local'],
       cache: true,
     }),
+
+    // Rate limiting (custom sliding-window implementation from backend-common)
+    ThrottlerModule,
 
     // Database connection - NO explicit schema!
     // Schema isolation is handled by TenantSchemaMiddleware via PostgreSQL search_path

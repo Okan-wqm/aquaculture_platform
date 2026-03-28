@@ -9,8 +9,10 @@ import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int, Float } fr
 import { UseGuards, Logger } from '@nestjs/common';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
 import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
+import { Throttle } from '@aquaculture/backend-common';
 import { WaterQualityService } from './water-quality.service';
 import { CreateWaterQualityInput } from './dto/create-water-quality.input';
+import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';
 import { UpdateWaterQualityInput } from './dto/update-water-quality.input';
 import { WaterQualityFilterInput } from './dto/water-quality-filter.input';
 
@@ -176,6 +178,7 @@ export class WaterQualityResolver {
    * Yeni ölçüm oluşturur
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Throttle({ limit: 30, ttl: 60 })
   @Mutation(() => WaterQualityMeasurement)
   async createWaterQualityMeasurement(
     @Args('input') input: CreateWaterQualityInput,
@@ -187,6 +190,21 @@ export class WaterQualityResolver {
       ...input,
       measuredBy: input.measuredBy || user.sub,
     });
+  }
+
+  /**
+   * Batch creation of water quality measurements for multiple equipment
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Throttle({ limit: 10, ttl: 60 })
+  @Mutation(() => [WaterQualityMeasurement])
+  async createBatchWaterQualityMeasurements(
+    @Args('input') input: CreateBatchWaterQualityInput,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
+  ): Promise<WaterQualityMeasurement[]> {
+    this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
+    return this.waterQualityService.createBatch(tenantId, input, user.sub);
   }
 
   /**

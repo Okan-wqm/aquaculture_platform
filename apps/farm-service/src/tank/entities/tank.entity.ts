@@ -197,6 +197,7 @@ export interface AerationInfo {
 @Index(['tenantId', 'waterType'])
 @Index(['tenantId', 'isActive'])
 @Index(['departmentId', 'status'])
+@Index(['tenantId', 'systemId'])
 export class Tank {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

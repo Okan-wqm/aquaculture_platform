@@ -62,6 +62,19 @@ const RecordTransferPage = lazy(() =>
 const WaterQualityRecordPage = lazy(() =>
   import('./pages/water-quality/WaterQualityRecordPage').then((m) => ({ default: m.WaterQualityRecordPage }))
 );
+// Storage pages — warehouse floor operations for receiving, dispensing, transferring, and viewing stock
+const StorageHubPage = lazy(() =>
+  import('./pages/storage/StorageHubPage').then((m) => ({ default: m.StorageHubPage }))
+);
+const StockMovementPage = lazy(() =>
+  import('./pages/storage/StockMovementPage').then((m) => ({ default: m.StockMovementPage }))
+);
+const StockTransferPage = lazy(() =>
+  import('./pages/storage/StockTransferPage').then((m) => ({ default: m.StockTransferPage }))
+);
+const StockViewPage = lazy(() =>
+  import('./pages/storage/StockViewPage').then((m) => ({ default: m.StockViewPage }))
+);
 // BUG-06: Tank detail page — navigated to from TankCard
 const TankDetailPage2 = lazy(() =>
   import('./pages/tank/TankDetailPage').then((m) => ({ default: m.TankDetailPage }))
@@ -243,6 +256,38 @@ export function App() {
                         element={
                           <FeatureRoute feature="waterQuality">
                             <WaterQualityRecordPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/storage"
+                        element={
+                          <FeatureRoute feature="storage">
+                            <StorageHubPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/storage/movement"
+                        element={
+                          <FeatureRoute feature="storage">
+                            <StockMovementPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/storage/transfer"
+                        element={
+                          <FeatureRoute feature="storage">
+                            <StockTransferPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/storage/view"
+                        element={
+                          <FeatureRoute feature="storage">
+                            <StockViewPage />
                           </FeatureRoute>
                         }
                       />

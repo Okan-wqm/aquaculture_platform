@@ -224,9 +224,9 @@ export interface CreateLeaveRequestInput {
 }
 
 // Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock';
 
-export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput;
+export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput;
 
 export interface QueuedOperation {
   id: string;
@@ -353,6 +353,35 @@ export interface CreateWaterQualityInput {
   parameters: WaterQualityParameters;
   notes?: string;
   weatherConditions?: string;
+}
+
+// Storage types
+export type StockMovementType = 'IN' | 'OUT' | 'WASTE';
+export type StorageItemType = 'FEED' | 'CHEMICAL' | 'CONSUMABLE' | 'HEALTHCARE';
+
+export interface StockMovementInput {
+  movementType: StockMovementType;
+  itemType: StorageItemType;
+  itemId: string;
+  quantity: number;
+  unit: string;
+  locationId: string;
+  lotNumber?: string;
+  expiryDate?: string;
+  notes?: string;
+  reason?: string;
+  idempotencyKey: string;
+}
+
+export interface StockTransferInput {
+  itemType: StorageItemType;
+  itemId: string;
+  fromLocationId: string;
+  toLocationId: string;
+  quantity: number;
+  unit: string;
+  notes?: string;
+  idempotencyKey: string;
 }
 
 // GraphQL response types

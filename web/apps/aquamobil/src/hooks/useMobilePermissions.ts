@@ -3,7 +3,7 @@ import { get, set } from 'idb-keyval';
 import { useAuth } from './useAuth';
 import { authenticatedFetch } from '@/services/authenticated-fetch';
 
-export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer';
+export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer' | 'storage';
 
 interface MobileAllowedFeatures {
   mortality: boolean;
@@ -17,6 +17,7 @@ interface MobileAllowedFeatures {
   leave: boolean;
   tasks: boolean;
   transfer: boolean;
+  storage: boolean;
 }
 
 interface MobileSettings {
@@ -49,6 +50,7 @@ const DEFAULT_SETTINGS: MobileSettings = {
     leave: false,
     tasks: false,
     transfer: false,
+    storage: false,
   },
 };
 
@@ -74,6 +76,7 @@ const FALLBACK_SETTINGS: MobileSettings = {
     leave: true,
     tasks: true,
     transfer: true,
+    storage: true,
   },
 };
 

@@ -42,7 +42,7 @@ export function MobileLayout({ children }: MobileLayoutProps) {
       path: '/record',
       activeColor: 'text-orange-600',
       activeBg: 'bg-orange-50 dark:bg-orange-900/30',
-      features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer', 'waterQuality'],
+      features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer', 'waterQuality', 'storage'],
     },
     {
       id: 'tasks',

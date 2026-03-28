@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets } from 'lucide-react';
+import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets, Warehouse } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -84,6 +84,14 @@ const allQuickActions: QuickAction[] = [
     icon: CalendarOff,
     label: 'Leave',
     gradient: 'from-indigo-500 to-indigo-600',
+    iconColor: 'text-white',
+  },
+  {
+    feature: 'storage',
+    path: '/storage',
+    icon: Warehouse,
+    label: 'Storage',
+    gradient: 'from-teal-500 to-teal-600',
     iconColor: 'text-white',
   },
 ];

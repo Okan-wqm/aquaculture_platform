@@ -136,6 +136,23 @@ const MUTATIONS: Record<OperationType, string> = {
       }
     }
   `,
+  recordStockMovement: `
+    mutation RecordStockMovement($input: RecordStockMovementInput!) {
+      recordStockMovement(input: $input) {
+        id
+        movementType
+        quantity
+      }
+    }
+  `,
+  transferStock: `
+    mutation TransferStock($input: TransferStockInput!) {
+      transferStock(input: $input) {
+        id
+        quantity
+      }
+    }
+  `,
 };
 
 export function OfflineProvider({ children }: { children: ReactNode }) {

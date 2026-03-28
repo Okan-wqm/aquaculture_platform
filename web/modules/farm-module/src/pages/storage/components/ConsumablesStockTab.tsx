@@ -4,6 +4,24 @@
 import React, { useState } from 'react';
 import { useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
 
+/**
+ * Determines the visual urgency class for an inventory row based on expiry date.
+ * Red = expired (safety hazard), amber = expiring within 30 days (action needed),
+ * transparent = normal. This follows HACCP Critical Control Point guidance for
+ * perishable aquaculture supplies (feed, chemicals, medications).
+ */
+function getExpiryRowClass(expiryDate?: string): string {
+  if (!expiryDate) return '';
+  const expiry = new Date(expiryDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (expiry < today) return 'bg-red-50';
+  const thirtyDaysFromNow = new Date(today);
+  thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+  if (expiry <= thirtyDaysFromNow) return 'bg-amber-50';
+  return '';
+}
+
 export const ConsumablesStockTab: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const { data: inventory, isLoading, error, refetch } = useStorageInventory(undefined, StorageItemType.CONSUMABLE);
@@ -53,7 +71,7 @@ export const ConsumablesStockTab: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filtered.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50">
+                <tr key={item.id} className={`hover:bg-gray-50 ${getExpiryRowClass(item.expiryDate)}`}>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.itemName || '-'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{item.locationName || '-'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500 font-mono">{item.lotNumber || '-'}</td>

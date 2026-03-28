@@ -4,6 +4,24 @@
 import React, { useState } from 'react';
 import { useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
 
+/**
+ * Determines the visual urgency class for an inventory row based on expiry date.
+ * Red = expired (safety hazard), amber = expiring within 30 days (action needed),
+ * transparent = normal. This follows HACCP Critical Control Point guidance for
+ * perishable aquaculture supplies (feed, chemicals, medications).
+ */
+function getExpiryRowClass(expiryDate?: string): string {
+  if (!expiryDate) return '';
+  const expiry = new Date(expiryDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (expiry < today) return 'bg-red-50';
+  const thirtyDaysFromNow = new Date(today);
+  thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+  if (expiry <= thirtyDaysFromNow) return 'bg-amber-50';
+  return '';
+}
+
 export const ChemicalsStockTab: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const { data: inventory, isLoading, error, refetch } = useStorageInventory(undefined, StorageItemType.CHEMICAL);
@@ -53,13 +71,23 @@ export const ChemicalsStockTab: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filtered.map(item => (
-                <tr key={item.id} className="hover:bg-gray-50">
+                <tr key={item.id} className={`hover:bg-gray-50 ${getExpiryRowClass(item.expiryDate)}`}>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.itemName || '-'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{item.locationName || '-'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500 font-mono">{item.lotNumber || '-'}</td>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.quantity} {item.unit}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-'}
+                    {/* Visual badge indicates urgency level for warehouse staff scanning
+                        the inventory list. Red = must be disposed/used immediately.
+                        Amber = plan to use within 30 days or risk waste. */}
+                    {item.expiryDate && new Date(item.expiryDate) < new Date() && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">EXPIRED</span>
+                    )}
+                    {item.expiryDate && new Date(item.expiryDate) >= new Date() &&
+                      new Date(item.expiryDate) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">EXPIRING SOON</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -59,6 +59,9 @@ const NotificationsPage = lazy(() =>
 const RecordTransferPage = lazy(() =>
   import('./pages/transfer/RecordTransferPage').then((m) => ({ default: m.RecordTransferPage }))
 );
+const WaterQualityRecordPage = lazy(() =>
+  import('./pages/water-quality/WaterQualityRecordPage').then((m) => ({ default: m.WaterQualityRecordPage }))
+);
 // BUG-06: Tank detail page — navigated to from TankCard
 const TankDetailPage2 = lazy(() =>
   import('./pages/tank/TankDetailPage').then((m) => ({ default: m.TankDetailPage }))
@@ -224,6 +227,22 @@ export function App() {
                         element={
                           <FeatureRoute feature="transfer">
                             <RecordTransferPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/water-quality/record"
+                        element={
+                          <FeatureRoute feature="waterQuality">
+                            <WaterQualityRecordPage />
+                          </FeatureRoute>
+                        }
+                      />
+                      <Route
+                        path="/water-quality/record/:equipmentId"
+                        element={
+                          <FeatureRoute feature="waterQuality">
+                            <WaterQualityRecordPage />
                           </FeatureRoute>
                         }
                       />

@@ -8,6 +8,11 @@ const cacheStore = createStore('aquamobil-cache', 'cache');
 const QUEUE_PREFIX = 'pending_';
 const CACHE_PREFIX = 'cache_';
 
+/** Maximum number of operations that can be queued offline before requiring a sync. */
+export const MAX_QUEUE_SIZE = 200;
+/** Threshold at which the UI should warn the user the queue is nearly full. */
+export const QUEUE_WARNING_THRESHOLD = 180;
+
 // ============================================================================
 // SEC-03: Payload Encryption — AES-GCM with a per-session in-memory key
 // ============================================================================
@@ -95,6 +100,10 @@ function extractResourceId(type: OperationType, payload: OperationPayload): stri
   if (type === 'completeTask' || type === 'startTask') {
     return String(p['id'] || '');
   }
+  // Water quality measurements identify by equipmentId (sensor/probe ID)
+  if (type === 'createWaterQuality') {
+    return String(p['equipmentId'] || '');
+  }
   // Most farm operations identify by batchId+tankId
   if (p['batchId'] && p['tankId']) {
     return `${p['batchId']}:${p['tankId']}`;
@@ -119,6 +128,12 @@ export async function queueOperation(
   // rather than silently incrementing retryCount for an auth failure.
   hasValidAuth: boolean = false,
 ): Promise<string> {
+  // H6: Reject if queue is at capacity to prevent unbounded growth.
+  const currentCount = await getPendingCount();
+  if (currentCount >= MAX_QUEUE_SIZE) {
+    throw new Error('Offline queue is full (200 items). Please sync before adding more.');
+  }
+
   // Deduplication: reject operations with the same type + resourceId within DEDUP_WINDOW_MS.
   // This prevents double-tap / duplicate submissions common on slow mobile connections.
   const resourceId = extractResourceId(type, payload);

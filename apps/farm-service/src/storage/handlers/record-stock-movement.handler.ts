@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
 import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
@@ -120,8 +120,12 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       this.checkConditionWarnings(itemDetails, toLocation, warnings);
     }
 
-    // Execute in transaction
-    return this.dataSource.transaction(async (manager) => {
+    // Execute inventory mutations and movement creation in a single transaction.
+    // Domain events are emitted AFTER the transaction commits (not inside it)
+    // to prevent phantom events if the transaction rolls back. This follows the
+    // Outbox Pattern principle: only publish events for data that is confirmed
+    // persisted. NATS JetStream handles retry/DLQ for delivery failures.
+    const { saved, currentTotal } = await this.dataSource.transaction(async (manager) => {
       const inventoryRepo = manager.getRepository(StorageInventory);
       const movementRepo = manager.getRepository(StockMovement);
 
@@ -142,10 +146,10 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         );
       }
 
-      // Update item total quantity
+      // Update item total quantity and sync stock status back to source entity
       await this.updateItemTotalQuantity(manager, itemType as StorageItemType, itemId, tenantId);
 
-      // Create movement record
+      // Create immutable movement record (audit trail)
       const movement = movementRepo.create({
         tenantId,
         movementType,
@@ -169,89 +173,74 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         performedAt: new Date(),
       });
 
-      const saved = await movementRepo.save(movement);
+      const txSaved = await movementRepo.save(movement);
 
-      // --- Domain Event: StockMovementRecorded ---
-      // Emit domain event for cross-module integration after the movement is
-      // persisted within the transaction. Every stock change (IN, OUT, WASTE,
-      // ADJUSTMENT, RETURN) produces this event so that downstream consumers
-      // have a single, unified integration point.
-      //
-      // Consumers:
-      //   - notification-service: real-time dashboard updates and push notifications
-      //   - alert-engine: evaluates threshold rules for automated reorder workflows
-      //   - feeding module: correlates feed OUT movements with feeding records
-      //   - billing module: updates inventory valuation ledger for COGS reporting
-      if (this.eventBus) {
-        try {
-          const movementEvent: StockMovementRecordedEvent = {
-            eventId: randomUUID(),
-            eventType: 'StockMovementRecorded',
-            timestamp: new Date(),
-            tenantId,
-            version: 1,
-            userId,
-            movementId: saved.id,
-            movementType: saved.movementType,
-            itemType: saved.itemType,
-            itemId: saved.itemId,
-            itemName: saved.itemName,
-            quantity: saved.quantity,
-            unit: saved.unit,
-            fromLocationId: saved.fromLocationId,
-            toLocationId: saved.toLocationId,
-            lotNumber: saved.lotNumber,
-          };
-          await this.eventBus.publish(movementEvent);
-          this.logger.debug(`Published StockMovementRecordedEvent for movement ${saved.id}`);
-        } catch (eventError) {
-          // Event emission failure must NOT roll back the stock movement.
-          // The movement record is the source of truth; events are best-effort delivery.
-          // Failed events will be retried by NATS JetStream's built-in retry mechanism
-          // or caught by the dead-letter queue (DLQ) for manual reprocessing.
-          this.logger.warn(
-            `Failed to emit StockMovementRecorded event for movement ${saved.id}: ${(eventError as Error).message}`,
-          );
-        }
+      // Query aggregate quantity for low-stock detection (inside transaction
+      // to read the post-update state before commit).
+      let txCurrentTotal = 0;
+      if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
+        const stockResult = await manager.getRepository(StorageInventory)
+          .createQueryBuilder('inv')
+          .select('COALESCE(SUM(inv.quantity), 0)', 'total')
+          .where('inv.itemType = :itemType', { itemType })
+          .andWhere('inv.itemId = :itemId', { itemId })
+          .andWhere('inv.tenantId = :tenantId', { tenantId })
+          .getRawOne();
+        txCurrentTotal = parseFloat(stockResult?.total || '0');
       }
 
-      // --- Domain Event: LowStockDetected ---
-      // After stock-reducing movements (OUT, WASTE), check whether the item's
-      // total quantity has dropped below the minimum threshold or reached zero.
-      // This enables proactive alerting before stock-out situations, which is
-      // critical in aquaculture: running out of feed causes fish starvation,
-      // and running out of treatment chemicals prevents disease response.
-      if (this.eventBus && fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
-        try {
-          // Query the current aggregate quantity across all locations.
-          // The updateItemTotalQuantity call above already updated the item entity,
-          // but we need the raw number here for the event payload.
-          const stockResult = await manager.getRepository(StorageInventory)
-            .createQueryBuilder('inv')
-            .select('COALESCE(SUM(inv.quantity), 0)', 'total')
-            .where('inv.itemType = :itemType', { itemType })
-            .andWhere('inv.itemId = :itemId', { itemId })
-            .andWhere('inv.tenantId = :tenantId', { tenantId })
-            .getRawOne();
-          const currentTotal = parseFloat(stockResult?.total || '0');
+      return { saved: txSaved, currentTotal: txCurrentTotal };
+    });
 
-          // Determine severity: zero stock is an emergency; below-threshold is a warning.
+    // --- Domain Events (emitted AFTER transaction commit) ---
+    // Events are published outside the transaction to guarantee that only
+    // committed data triggers downstream consumers. If the transaction had
+    // rolled back, no events would be sent — preventing phantom notifications.
+    if (this.eventBus) {
+      // StockMovementRecorded: universal event for every stock change
+      try {
+        const movementEvent: StockMovementRecordedEvent = {
+          eventId: randomUUID(),
+          eventType: 'StockMovementRecorded',
+          timestamp: new Date(),
+          tenantId,
+          version: 1,
+          userId,
+          movementId: saved.id,
+          movementType: saved.movementType,
+          itemType: saved.itemType,
+          itemId: saved.itemId,
+          itemName: saved.itemName,
+          quantity: saved.quantity,
+          unit: saved.unit,
+          fromLocationId: saved.fromLocationId,
+          toLocationId: saved.toLocationId,
+          lotNumber: saved.lotNumber,
+        };
+        await this.eventBus.publish(movementEvent);
+        this.logger.debug(`Published StockMovementRecordedEvent for movement ${saved.id}`);
+      } catch (eventError) {
+        // Best-effort delivery: the movement record is the source of truth.
+        // NATS JetStream handles retry; DLQ captures persistent failures.
+        this.logger.warn(
+          `Failed to emit StockMovementRecorded event for movement ${saved.id}: ${(eventError as Error).message}`,
+        );
+      }
+
+      // LowStockDetected: proactive alerting for stock-reducing movements
+      if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
+        try {
           let severity: 'low_stock' | 'out_of_stock' | null = null;
           let minimumThreshold: number | undefined;
 
           if (currentTotal <= 0) {
             severity = 'out_of_stock';
-          } else {
-            // Look up the item's configured minimum stock threshold.
-            // Only Feed entities have an explicit minStock field today;
-            // Chemical and Consumable use updateStockStatus() which sets
-            // the status string. We check the Feed case explicitly.
-            if (itemType === StorageItemType.FEED) {
-              const feed = await manager.getRepository(Feed).findOne({ where: { id: itemId, tenantId } });
-              if (feed && feed.minStock > 0 && currentTotal <= Number(feed.minStock)) {
-                severity = 'low_stock';
-                minimumThreshold = Number(feed.minStock);
-              }
+          } else if (itemType === StorageItemType.FEED) {
+            // Feed entities have an explicit minStock field for threshold comparison
+            const feed = await this.feedRepository.findOne({ where: { id: itemId, tenantId } });
+            if (feed && feed.minStock > 0 && currentTotal <= Number(feed.minStock)) {
+              severity = 'low_stock';
+              minimumThreshold = Number(feed.minStock);
             }
           }
 
@@ -276,15 +265,13 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
             );
           }
         } catch (lowStockError) {
-          // Low-stock event emission is best-effort. A failure here must not
-          // affect the stock movement transaction or its response to the client.
           this.logger.warn(`Failed to check/emit low stock event: ${(lowStockError as Error).message}`);
         }
       }
+    }
 
-      // Return with warnings
-      return Object.assign(saved, { warnings: warnings.length > 0 ? warnings : undefined });
-    });
+    // Return with condition warnings (temperature/humidity mismatches)
+    return Object.assign(saved, { warnings: warnings.length > 0 ? warnings : undefined });
   }
 
   private async getItemDetails(
@@ -297,7 +284,18 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       }
       case StorageItemType.CHEMICAL: {
         const chem = await this.chemicalRepository.findOne({ where: { id: itemId, tenantId } });
-        return chem ? { name: chem.name, unit: chem.unit, storageTempMin: (chem as any).storageTempMin, storageTempMax: (chem as any).storageTempMax, storageHumidityMin: (chem as any).storageHumidityMin, storageHumidityMax: (chem as any).storageHumidityMax } : null;
+        // Chemical entity has storage condition fields added by migration 1771000000000.
+        // Previously used (chem as any) casts which are unnecessary — the entity is properly typed.
+        return chem
+          ? {
+              name: chem.name,
+              unit: chem.unit,
+              storageTempMin: chem.storageTempMin,
+              storageTempMax: chem.storageTempMax,
+              storageHumidityMin: chem.storageHumidityMin,
+              storageHumidityMax: chem.storageHumidityMax,
+            }
+          : null;
       }
       case StorageItemType.CONSUMABLE: {
         const cons = await this.consumableRepository.findOne({ where: { id: itemId, tenantId } });
@@ -487,7 +485,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
   }
 
   private async updateItemTotalQuantity(
-    manager: any,
+    manager: EntityManager,
     itemType: StorageItemType, itemId: string, tenantId: string,
   ): Promise<void> {
     // Sum all inventory for this item

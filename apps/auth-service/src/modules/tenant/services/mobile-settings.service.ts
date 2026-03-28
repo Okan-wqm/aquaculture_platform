@@ -31,14 +31,25 @@ export class MobileSettingsService {
       this.logger.debug(`Created default mobile settings for user ${userId}`);
     } else {
       // Forward-compatibility: merge new feature flags into existing JSONB.
-      // When new features (e.g., storage, waterQuality) are added to
-      // DEFAULT_MOBILE_FEATURES, existing user records in the DB won't have
-      // them. Spreading defaults underneath ensures new features default to
-      // their configured value rather than being silently absent (undefined).
-      settings.allowedFeatures = {
+      // When new features are added to DEFAULT_MOBILE_FEATURES, existing user
+      // records in the DB won't have them. Spreading defaults underneath ensures
+      // new features default to their configured value rather than being silently
+      // absent (undefined). Existing explicit user preferences are preserved.
+      const merged = {
         ...DEFAULT_MOBILE_FEATURES,
         ...settings.allowedFeatures,
       };
+
+      // One-time migration: waterQuality was seeded as false for all existing users
+      // before the feature was implemented. Now that it's a core operational feature
+      // (not an optional add-on), auto-enable it. This is safe because no admin ever
+      // intentionally disabled waterQuality — the false value comes from the original
+      // DEFAULT_MOBILE_FEATURES seed. TODO: Remove this block after 2026-06-01.
+      if (settings.allowedFeatures.waterQuality === false) {
+        merged.waterQuality = true;
+      }
+
+      settings.allowedFeatures = merged;
     }
 
     return settings;

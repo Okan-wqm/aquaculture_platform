@@ -2,7 +2,8 @@
  * Chemicals Stock Tab - View chemical inventory from storage
  */
 import React, { useState } from 'react';
-import { useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
+import { useStorageInventory, StorageItemType, MovementType } from '../../../hooks/useStorageInventory';
+import { RecordStockMovementModal } from './RecordStockMovementModal';
 
 /**
  * Determines the visual urgency class for an inventory row based on expiry date.
@@ -24,6 +25,8 @@ function getExpiryRowClass(expiryDate?: string): string {
 
 export const ChemicalsStockTab: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalDefaults, setModalDefaults] = useState<{ movementType?: MovementType; itemId?: string; itemName?: string }>({});
   const { data: inventory, isLoading, error, refetch } = useStorageInventory(undefined, StorageItemType.CHEMICAL);
 
   const items = inventory || [];
@@ -42,6 +45,10 @@ export const ChemicalsStockTab: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
+        <button onClick={() => { setModalDefaults({ movementType: MovementType.IN }); setModalOpen(true); }}
+          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap">
+          + Add Stock
+        </button>
       </div>
 
       {isLoading && (
@@ -67,6 +74,7 @@ export const ChemicalsStockTab: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lot Number</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expiry</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -78,9 +86,6 @@ export const ChemicalsStockTab: React.FC = () => {
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.quantity} {item.unit}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-'}
-                    {/* Visual badge indicates urgency level for warehouse staff scanning
-                        the inventory list. Red = must be disposed/used immediately.
-                        Amber = plan to use within 30 days or risk waste. */}
                     {item.expiryDate && new Date(item.expiryDate) < new Date() && (
                       <span className="ml-2 text-xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">EXPIRED</span>
                     )}
@@ -88,6 +93,14 @@ export const ChemicalsStockTab: React.FC = () => {
                       new Date(item.expiryDate) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && (
                       <span className="ml-2 text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">EXPIRING SOON</span>
                     )}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex gap-1 justify-end">
+                      <button onClick={() => { setModalDefaults({ movementType: MovementType.ADJUSTMENT, itemId: item.itemId, itemName: item.itemName }); setModalOpen(true); }}
+                        className="text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded">Adjust</button>
+                      <button onClick={() => { setModalDefaults({ movementType: MovementType.WASTE, itemId: item.itemId, itemName: item.itemName }); setModalOpen(true); }}
+                        className="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded">Write Off</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -98,6 +111,9 @@ export const ChemicalsStockTab: React.FC = () => {
           )}
         </div>
       )}
+      <RecordStockMovementModal isOpen={modalOpen} onClose={() => { setModalOpen(false); setModalDefaults({}); refetch(); }}
+        defaultItemType={StorageItemType.CHEMICAL} defaultMovementType={modalDefaults.movementType}
+        defaultItemId={modalDefaults.itemId} defaultItemName={modalDefaults.itemName} />
     </div>
   );
 };

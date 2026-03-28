@@ -1,5 +1,5 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID, Min, Max } from 'class-validator';
 import { MovementType } from '../entities/stock-movement.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 
@@ -19,6 +19,8 @@ export class RecordStockMovementInput {
 
   @Field(() => Float)
   @IsNumber()
+  @Min(0.01)
+  @Max(9999999)
   quantity: number;
 
   @Field(() => ID, { nullable: true, description: 'Source location (required for OUT, WASTE)' })
@@ -52,4 +54,19 @@ export class RecordStockMovementInput {
   @IsString()
   @MaxLength(2000)
   reason?: string;
+
+  /**
+   * Client-generated idempotency key (UUID v4 recommended). When provided,
+   * the server guarantees at-most-once execution: if a movement with this key
+   * already exists, the existing movement is returned instead of creating a
+   * duplicate. This protects against network retries and double-click submissions.
+   *
+   * Frontend should generate this via crypto.randomUUID() before the first
+   * submission attempt and include the same key on every retry.
+   */
+  @Field({ nullable: true, description: 'Client-generated idempotency key to prevent duplicate movements' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  idempotencyKey?: string;
 }

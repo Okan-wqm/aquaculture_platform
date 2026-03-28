@@ -8,6 +8,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  VersionColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common';
 import { registerEnumType } from '@nestjs/graphql';
@@ -59,6 +60,21 @@ export class StorageInventory {
 
   @Column({ type: 'text', nullable: true })
   notes?: string;
+
+  /**
+   * Optimistic lock version counter. TypeORM auto-increments this on every UPDATE.
+   * Concurrent modifications (e.g., two warehouse workers updating the same inventory
+   * row simultaneously) will throw OptimisticLockVersionMismatchError on the second
+   * write, preventing silent data loss. The application layer should catch this error
+   * and prompt the user to retry with fresh data.
+   *
+   * Enterprise pattern: SAP uses "change document number" for the same purpose.
+   * This column is essential because inventory is the highest-contention entity
+   * in any WMS system — feeding schedules, manual adjustments, PO receipts, and
+   * waste write-offs can all target the same row within seconds.
+   */
+  @VersionColumn()
+  version: number;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;

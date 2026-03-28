@@ -1,6 +1,6 @@
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, MoreThanOrEqual } from 'typeorm';
 import { GetStorageOverviewQuery } from '../queries/get-storage-overview.query';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StockMovement } from '../entities/stock-movement.entity';
@@ -151,12 +151,24 @@ export class GetStorageOverviewHandler implements IQueryHandler<GetStorageOvervi
     }));
   }
 
+  /**
+   * Count stock movements in the last 7 days for the overview dashboard KPI.
+   * Bug fix: previously counted ALL movements regardless of date because
+   * the sevenDaysAgo variable was created but never used in the WHERE clause.
+   */
   private async getRecentMovementsCount(tenantId: string): Promise<number> {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     return this.movementRepository.count({
-      where: { tenantId },
+      where: {
+        tenantId,
+        // Filter to movements performed within the last 7 days only.
+        // Without this filter, the dashboard KPI showed the total movement
+        // count across all time, which was misleading for operational teams
+        // who need to see recent activity trends.
+        performedAt: MoreThanOrEqual(sevenDaysAgo),
+      },
     });
   }
 

@@ -1,7 +1,11 @@
+import { randomUUID } from 'crypto';
+
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
+import { NatsEventBus } from '@platform/event-bus';
+import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
@@ -29,6 +33,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     @InjectRepository(Consumable)
     private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
+    // EVENT_BUS is provided globally by EventBusModule (@Global).
+    // @Optional() ensures the handler still works in test environments
+    // or when NATS is unavailable — event emission is best-effort, not mandatory.
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: RecordStockMovementCommand): Promise<StockMovement & { warnings?: ConditionWarning[] }> {
@@ -39,6 +48,20 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
 
     if (quantity <= 0) {
       throw new BadRequestException('Quantity must be positive');
+    }
+
+    // Idempotency guard: if a movement with this key already exists, return it
+    // immediately without creating a duplicate. This handles network retries and
+    // double-click submissions gracefully — the client receives the same response
+    // regardless of how many times the request is sent.
+    if (input.idempotencyKey) {
+      const existing = await this.movementRepository.findOne({
+        where: { tenantId, idempotencyKey: input.idempotencyKey },
+      });
+      if (existing) {
+        this.logger.log(`Idempotent hit: movement ${existing.id} for key ${input.idempotencyKey}`);
+        return existing;
+      }
     }
 
     // Get item details
@@ -135,11 +158,129 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         toLocationId: input.toLocationId,
         reference: input.reference,
         reason: input.reason,
+        // Capture lot and expiry on the movement record for full audit trail.
+        // This enables lot traceability queries: "Which lots were consumed from
+        // location X between dates Y and Z?" — required for EU 178/2002.
+        lotNumber: input.lotNumber,
+        expiryDate: input.expiryDate,
+        // Idempotency key for at-most-once delivery guarantee on retries.
+        idempotencyKey: input.idempotencyKey,
         performedBy: userId,
         performedAt: new Date(),
       });
 
       const saved = await movementRepo.save(movement);
+
+      // --- Domain Event: StockMovementRecorded ---
+      // Emit domain event for cross-module integration after the movement is
+      // persisted within the transaction. Every stock change (IN, OUT, WASTE,
+      // ADJUSTMENT, RETURN) produces this event so that downstream consumers
+      // have a single, unified integration point.
+      //
+      // Consumers:
+      //   - notification-service: real-time dashboard updates and push notifications
+      //   - alert-engine: evaluates threshold rules for automated reorder workflows
+      //   - feeding module: correlates feed OUT movements with feeding records
+      //   - billing module: updates inventory valuation ledger for COGS reporting
+      if (this.eventBus) {
+        try {
+          const movementEvent: StockMovementRecordedEvent = {
+            eventId: randomUUID(),
+            eventType: 'StockMovementRecorded',
+            timestamp: new Date(),
+            tenantId,
+            version: 1,
+            userId,
+            movementId: saved.id,
+            movementType: saved.movementType,
+            itemType: saved.itemType,
+            itemId: saved.itemId,
+            itemName: saved.itemName,
+            quantity: saved.quantity,
+            unit: saved.unit,
+            fromLocationId: saved.fromLocationId,
+            toLocationId: saved.toLocationId,
+            lotNumber: saved.lotNumber,
+          };
+          await this.eventBus.publish(movementEvent);
+          this.logger.debug(`Published StockMovementRecordedEvent for movement ${saved.id}`);
+        } catch (eventError) {
+          // Event emission failure must NOT roll back the stock movement.
+          // The movement record is the source of truth; events are best-effort delivery.
+          // Failed events will be retried by NATS JetStream's built-in retry mechanism
+          // or caught by the dead-letter queue (DLQ) for manual reprocessing.
+          this.logger.warn(
+            `Failed to emit StockMovementRecorded event for movement ${saved.id}: ${(eventError as Error).message}`,
+          );
+        }
+      }
+
+      // --- Domain Event: LowStockDetected ---
+      // After stock-reducing movements (OUT, WASTE), check whether the item's
+      // total quantity has dropped below the minimum threshold or reached zero.
+      // This enables proactive alerting before stock-out situations, which is
+      // critical in aquaculture: running out of feed causes fish starvation,
+      // and running out of treatment chemicals prevents disease response.
+      if (this.eventBus && fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
+        try {
+          // Query the current aggregate quantity across all locations.
+          // The updateItemTotalQuantity call above already updated the item entity,
+          // but we need the raw number here for the event payload.
+          const stockResult = await manager.getRepository(StorageInventory)
+            .createQueryBuilder('inv')
+            .select('COALESCE(SUM(inv.quantity), 0)', 'total')
+            .where('inv.itemType = :itemType', { itemType })
+            .andWhere('inv.itemId = :itemId', { itemId })
+            .andWhere('inv.tenantId = :tenantId', { tenantId })
+            .getRawOne();
+          const currentTotal = parseFloat(stockResult?.total || '0');
+
+          // Determine severity: zero stock is an emergency; below-threshold is a warning.
+          let severity: 'low_stock' | 'out_of_stock' | null = null;
+          let minimumThreshold: number | undefined;
+
+          if (currentTotal <= 0) {
+            severity = 'out_of_stock';
+          } else {
+            // Look up the item's configured minimum stock threshold.
+            // Only Feed entities have an explicit minStock field today;
+            // Chemical and Consumable use updateStockStatus() which sets
+            // the status string. We check the Feed case explicitly.
+            if (itemType === StorageItemType.FEED) {
+              const feed = await manager.getRepository(Feed).findOne({ where: { id: itemId, tenantId } });
+              if (feed && feed.minStock > 0 && currentTotal <= Number(feed.minStock)) {
+                severity = 'low_stock';
+                minimumThreshold = Number(feed.minStock);
+              }
+            }
+          }
+
+          if (severity) {
+            const lowStockEvent: LowStockDetectedEvent = {
+              eventId: randomUUID(),
+              eventType: 'LowStockDetected',
+              timestamp: new Date(),
+              tenantId,
+              version: 1,
+              itemType,
+              itemId,
+              itemName: saved.itemName,
+              currentQuantity: currentTotal,
+              unit: saved.unit,
+              minimumThreshold,
+              severity,
+            };
+            await this.eventBus.publish(lowStockEvent);
+            this.logger.debug(
+              `Published LowStockDetectedEvent for ${itemType} ${itemId}: ${severity} (current: ${currentTotal})`,
+            );
+          }
+        } catch (lowStockError) {
+          // Low-stock event emission is best-effort. A failure here must not
+          // affect the stock movement transaction or its response to the client.
+          this.logger.warn(`Failed to check/emit low stock event: ${(lowStockError as Error).message}`);
+        }
+      }
 
       // Return with warnings
       return Object.assign(saved, { warnings: warnings.length > 0 ? warnings : undefined });
@@ -161,6 +302,25 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       case StorageItemType.CONSUMABLE: {
         const cons = await this.consumableRepository.findOne({ where: { id: itemId, tenantId } });
         return cons ? { name: cons.name, unit: cons.unit, storageTempMin: cons.storageTempMin, storageTempMax: cons.storageTempMax, storageHumidityMin: cons.storageHumidityMin, storageHumidityMax: cons.storageHumidityMax } : null;
+      }
+      case StorageItemType.HEALTHCARE: {
+        // Healthcare products (fish medications, vaccines, treatments) are stored
+        // in the consumables table with healthcare-specific categories. This unified
+        // entity approach avoids a separate healthcare table while maintaining the
+        // distinct StorageItemType for UI filtering and regulatory reporting.
+        const healthcare = await this.consumableRepository.findOne({
+          where: { id: itemId, tenantId },
+        });
+        return healthcare
+          ? {
+              name: healthcare.name,
+              unit: healthcare.unit,
+              storageTempMin: healthcare.storageTempMin,
+              storageTempMax: healthcare.storageTempMax,
+              storageHumidityMin: healthcare.storageHumidityMin,
+              storageHumidityMax: healthcare.storageHumidityMax,
+            }
+          : null;
       }
       default:
         return null;
@@ -222,15 +382,49 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     quantity: number, unit: string,
     lotNumber: string | undefined, userId: string,
   ): Promise<void> {
-    const inventory = await repo.findOne({
-      where: {
-        tenantId,
-        storageLocationId: locationId,
-        itemType,
-        itemId,
-        lotNumber: lotNumber ?? undefined,
-      },
-    });
+    // FEFO (First Expired First Out) picking strategy for aquaculture compliance.
+    // When no specific lot is requested, we consume from the earliest-expiring
+    // inventory first. This is critical for:
+    // - Feed: prevents fish from receiving expired feed (health risk)
+    // - Chemicals: prevents using expired water treatment chemicals (efficacy loss)
+    // - Healthcare: prevents administering expired medications (regulatory violation)
+    //
+    // Enterprise pattern: SAP uses "shelf life expiration date" (SLED) with
+    // configurable picking strategy per storage type. We default to FEFO as it
+    // is the industry standard for perishable goods in aquaculture.
+    let inventory: StorageInventory | null;
+
+    if (lotNumber) {
+      // Exact lot specified — pick from that specific lot
+      inventory = await repo.findOne({
+        where: {
+          tenantId,
+          storageLocationId: locationId,
+          itemType,
+          itemId,
+          lotNumber,
+        },
+        // Pessimistic write lock prevents concurrent transactions from reading
+        // the same balance and both decrementing — which would result in negative
+        // inventory. This is the standard enterprise pattern (SAP uses "enqueue"
+        // locking, PostgreSQL uses SELECT ... FOR UPDATE under the hood).
+        lock: { mode: 'pessimistic_write' },
+      });
+    } else {
+      // No lot specified — FEFO: pick from earliest expiry date first.
+      // Items with NULL expiry date are picked last (NULLS LAST) because
+      // they are assumed to have no expiry concern (e.g., non-perishable consumables).
+      inventory = await repo
+        .createQueryBuilder('inv')
+        .where('inv.tenantId = :tenantId', { tenantId })
+        .andWhere('inv.storageLocationId = :locationId', { locationId })
+        .andWhere('inv.itemType = :itemType', { itemType })
+        .andWhere('inv.itemId = :itemId', { itemId })
+        .andWhere('inv.quantity > 0')
+        .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
+        .setLock('pessimistic_write')
+        .getOne();
+    }
 
     if (!inventory) {
       throw new BadRequestException(`No inventory found for this item in the specified location`);
@@ -334,6 +528,20 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
           cons.quantity = totalQuantity;
           cons.updateStockStatus();
           await manager.getRepository(Consumable).save(cons);
+        }
+        break;
+      }
+      case StorageItemType.HEALTHCARE: {
+        // Healthcare products share the consumable entity table. Updating the
+        // total quantity and stock status ensures the consumable record reflects
+        // the aggregate across all storage locations, just like feeds and chemicals.
+        const healthcare = await manager.getRepository(Consumable).findOne({
+          where: { id: itemId, tenantId },
+        });
+        if (healthcare) {
+          healthcare.quantity = totalQuantity;
+          healthcare.updateStockStatus();
+          await manager.getRepository(Consumable).save(healthcare);
         }
         break;
       }

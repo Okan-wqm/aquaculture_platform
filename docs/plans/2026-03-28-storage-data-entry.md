@@ -8,6 +8,33 @@
 
 ---
 
+## Security & Performance Requirements (Non-Negotiable)
+
+### Tenant Data Isolation
+- Every storage table uses schema-per-tenant pattern (tenant_xxx schema)
+- Every GraphQL query/mutation MUST use @CurrentTenant() decorator
+- Every TypeORM query MUST include WHERE tenant_id = :tenantId
+- Cross-tenant data access is physically impossible (separate PostgreSQL schemas)
+- Mobile app sends X-Tenant-Id header on every request, validated by TenantSchemaMiddleware
+
+### Security Best Practices
+- All mutations require @Roles() decorator (TENANT_ADMIN, MODULE_MANAGER, MODULE_USER)
+- Input validation via class-validator on every DTO (no raw user input to DB)
+- Stock movement records are immutable (no UPDATE/DELETE — append-only audit trail)
+- Supplier contact data sanitized against XSS
+- GraphQL depth limiting to prevent DoS via nested queries
+- Rate limiting on mutation endpoints (ThrottlerModule)
+
+### Performance Best Practices
+- Pagination on all list queries (max 100 items per page)
+- Database indexes on tenant_id, storage_location_id, item_type, performed_at
+- React Query caching with staleTime for read-heavy tabs (30s inventory, 60s locations)
+- Optimistic UI updates on mutations for perceived speed
+- Lazy loading of tab content (only fetch when tab is active)
+- Mobile: offline-first with IndexedDB queue for stock movements
+
+---
+
 ## Current State
 
 | Area | Backend | Frontend | Status |
@@ -157,12 +184,79 @@ inventory_count_items: id, tenant_id, inventory_count_id (FK), item_type, item_i
 
 ---
 
+## Phase 5: Mobile Storage (AquaMobil)
+
+**Priority: HIGH — warehouse workers operate on mobile devices in the field**
+
+### Task 5.1: Mobile Storage Hub Page
+
+**Files:**
+- Create: `web/apps/aquamobil/src/pages/storage/StorageHubPage.tsx`
+- Modify: `web/apps/aquamobil/src/App.tsx` (add route)
+- Modify: `web/apps/aquamobil/src/pages/record/RecordHubPage.tsx` (add storage entry)
+- Modify: `web/apps/aquamobil/src/pages/HomePage.tsx` (add quick action)
+- Modify: `web/apps/aquamobil/src/hooks/useMobilePermissions.ts` (add 'storage' feature)
+
+**Mobile-optimized actions (big touch targets, offline-capable):**
+- Record Stock In (receive delivery at dock)
+- Record Stock Out (dispense feed/chemical)
+- Transfer Between Locations
+- Quick Waste Write-Off
+- View Current Stock (by location)
+
+- [ ] Add 'storage' to MobileFeature type + FALLBACK_SETTINGS
+- [ ] Create StorageHubPage with action cards (same pattern as RecordHubPage)
+- [ ] Add route `/storage/*` to App.tsx with FeatureRoute guard
+- [ ] Add "Storage" quick action to HomePage + RecordHubPage
+- [ ] Add 'storage' to MobileLayout Record tab features
+
+### Task 5.2: Mobile Stock Movement Form
+
+**Files:**
+- Create: `web/apps/aquamobil/src/pages/storage/StockMovementPage.tsx`
+
+**Mobile-first design:**
+- Step 1: Select movement type (large icon buttons: IN / OUT / WASTE)
+- Step 2: Select item type + item (searchable dropdown)
+- Step 3: Enter quantity + select location
+- Step 4: Optional notes/reason
+- Step 5: Confirm and submit
+
+**Offline support:** Queue via existing offline-queue.ts with new OperationType 'recordStockMovement'
+
+- [ ] Create StockMovementPage with step-by-step wizard
+- [ ] Add 'recordStockMovement' to OperationType union in types.ts
+- [ ] Add mutation string to useOfflineQueue MUTATIONS record
+- [ ] Wire GraphQL mutation (same as web: recordStockMovement)
+- [ ] Add success/error feedback with haptic
+
+### Task 5.3: Mobile Stock Transfer Form
+
+**Files:**
+- Create: `web/apps/aquamobil/src/pages/storage/StockTransferPage.tsx`
+
+- [ ] Create StockTransferPage (from location → to location → item → quantity)
+- [ ] Add 'transferStock' to OperationType for offline support
+- [ ] Wire to transferStock mutation
+
+### Task 5.4: Mobile Stock View (Read-Only)
+
+**Files:**
+- Create: `web/apps/aquamobil/src/pages/storage/StockViewPage.tsx`
+
+- [ ] Location selector → show items in that location
+- [ ] Swipe-to-action: quick OUT or WASTE from item row
+- [ ] Pull-to-refresh
+- [ ] Cache stock data for offline viewing via cacheData()
+
+---
+
 ## Execution Strategy
 
-- Phase 1 can be done in 1 session (forms only, backend ready)
-- Phase 2 can be done in same session as Phase 1
+- Phase 1+2 can be done in 1 session (forms only, backend ready)
 - Phase 3 requires separate session (new backend entities + migration)
 - Phase 4 is low priority, can be deferred
+- Phase 5 can run in parallel with Phase 1+2 (independent frontend)
 
 ## Agent Orchestration
 
@@ -171,3 +265,4 @@ inventory_count_items: id, tenant_id, inventory_count_id (FK), item_type, item_i
 | 1+2 | 2x coder (modal components + tab wiring) | 1x reviewer |
 | 3.1-3.2 | 1x backend-dev (entity + CQRS) | 1x reviewer |
 | 3.3 | 1x coder (frontend hooks + components) | 1x reviewer |
+| 5 | 1x mobile-dev (AquaMobil pages + offline) | 1x reviewer |

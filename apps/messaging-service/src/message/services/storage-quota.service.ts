@@ -68,7 +68,9 @@ export class StorageQuotaService {
       this.logger.warn(`Redis cache read failed for storage usage: ${(err as Error).message}`);
     }
 
-    // DB fallback: SUM(file_size) for all attachments belonging to this tenant's messages
+    // DB fallback: SUM(file_size) for all attachments in this tenant's schema.
+    // Tenant isolation is enforced at the PostgreSQL schema level (tenant_* schemas),
+    // so no explicit tenantId WHERE clause is needed here.
     const result = await this.attachmentRepo
       .createQueryBuilder('att')
       .select('COALESCE(SUM(att."fileSize"), 0)', 'total')

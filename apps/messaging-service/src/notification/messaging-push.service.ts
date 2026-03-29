@@ -159,9 +159,10 @@ export class MessagingPushService implements OnModuleInit {
       this.logger.debug(
         `Push dispatched for ${offlineUsers.length} users in channel ${channelId}`,
       );
-    } catch (err) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(
-        `Failed to dispatch push notifications for message ${messageId}: ${(err as Error).message}`,
+        `Failed to dispatch push notifications for message ${messageId}: ${errMsg}`,
       );
     }
   }

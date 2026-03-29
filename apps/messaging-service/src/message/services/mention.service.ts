@@ -28,6 +28,18 @@ const MENTION_PATTERN = /@([\w][\w.\- ]*[\w]|[\w])/g;
 /** Maximum number of mentions allowed per message to prevent abuse. */
 const MAX_MENTIONS_PER_MESSAGE = 25;
 
+/**
+ * Sanitize a string for safe inclusion in an HTML/XML attribute.
+ * Prevents XSS via attribute breakout even if userId is not a UUID.
+ */
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 @Injectable()
 export class MentionService {
   private readonly logger = new Logger(MentionService.name);
@@ -109,7 +121,7 @@ export class MentionService {
         const matchedText = captured.substring(0, matchedLength);
         const remainder = captured.substring(matchedLength);
 
-        return `<mention userId="${matchedMember.userId}">@${matchedText}</mention>${remainder}`;
+        return `<mention userId="${escapeAttr(matchedMember.userId)}">@${escapeAttr(matchedText)}</mention>${remainder}`;
       },
     );
 

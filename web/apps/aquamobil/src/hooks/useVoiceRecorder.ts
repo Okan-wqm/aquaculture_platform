@@ -10,6 +10,8 @@
  *
  * WHY max 5 minutes: Voice notes longer than 5 minutes should be file
  * attachments. Auto-stop prevents accidentally recording a long meeting.
+ *
+ * @see ADR-012 section 5.3 (Voice Notes)
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -209,12 +211,13 @@ export function useVoiceRecorder(): UseVoiceRecorderReturn {
   /** Cancel recording without producing output. */
   const cancelRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
+    // Clear chunks BEFORE stopping so onstop handler produces an empty blob
+    chunksRef.current = [];
     if (recorder && recorder.state !== 'inactive') {
       // Clear the resolve callback so onstop does not emit a blob
       resolveStopRef.current = null;
       recorder.stop();
     }
-    chunksRef.current = [];
     stopTimer();
     releaseStream();
     setState('idle');

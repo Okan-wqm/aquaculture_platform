@@ -309,6 +309,9 @@ export class AiChatBridgeService {
    * Forward AI chat request via HTTP POST to a custom MCP server URL.
    * Falls back to NATS if the HTTP request fails.
    *
+   * SECURITY: validates that the URL uses HTTPS and does not target private
+   * IP ranges (SSRF prevention). Only public HTTPS endpoints are allowed.
+   *
    * @param url - Custom MCP server endpoint URL
    * @param request - AI chat request payload
    * @returns AI chat response from the custom server or NATS fallback
@@ -317,6 +320,14 @@ export class AiChatBridgeService {
     url: string,
     request: AiChatRequest,
   ): Promise<AiChatResponse> {
+    // SECURITY: SSRF prevention — only allow HTTPS URLs to public hosts
+    if (!this.isSafeExternalUrl(url)) {
+      this.logger.warn(
+        `Rejected unsafe AI service URL: ${url} (SSRF prevention)`,
+      );
+      return this.forwardViaNats(request, request.messageId);
+    }
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
@@ -342,6 +353,55 @@ export class AiChatBridgeService {
         `Custom AI service at ${url} failed (${errMsg}), falling back to NATS`,
       );
       return this.forwardViaNats(request, request.messageId);
+    }
+  }
+
+  /**
+   * Validate that a URL is safe for server-side HTTP requests (SSRF prevention).
+   * Rejects private IPs, localhost, non-HTTPS, and link-local addresses.
+   */
+  private isSafeExternalUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+
+      // Must be HTTPS
+      if (parsed.protocol !== 'https:') {
+        return false;
+      }
+
+      const hostname = parsed.hostname.toLowerCase();
+
+      // Block localhost and loopback
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname === '[::1]' ||
+        hostname === '0.0.0.0'
+      ) {
+        return false;
+      }
+
+      // Block private/internal IP ranges (RFC 1918, link-local, metadata endpoints)
+      const privatePatterns = [
+        /^10\./,                      // 10.0.0.0/8
+        /^172\.(1[6-9]|2\d|3[0-1])\./, // 172.16.0.0/12
+        /^192\.168\./,                // 192.168.0.0/16
+        /^169\.254\./,                // link-local / AWS metadata
+        /^100\.(6[4-9]|[7-9]\d|1[0-2]\d)\./, // CGNAT 100.64.0.0/10
+        /^fc[0-9a-f]{2}:/i,          // IPv6 unique local
+        /^fe80:/i,                    // IPv6 link-local
+      ];
+
+      for (const pattern of privatePatterns) {
+        if (pattern.test(hostname)) {
+          return false;
+        }
+      }
+
+      return true;
+    } catch {
+      return false;
     }
   }
 }

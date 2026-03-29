@@ -219,7 +219,7 @@ async function staleWhileRevalidateStrategy(request: Request): Promise<Response>
 
   if (cached) {
     // Serve from cache immediately, revalidate in background
-    fetchPromise; // fire-and-forget
+    void fetchPromise; // fire-and-forget — void suppresses unhandled promise warning
     return cached;
   }
 

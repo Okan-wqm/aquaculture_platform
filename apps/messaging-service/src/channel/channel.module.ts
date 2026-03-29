@@ -6,6 +6,7 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CqrsModule } from '@nestjs/cqrs';
 
 // Entities
 import { Channel } from './entities/channel.entity';
@@ -42,7 +43,7 @@ const queryHandlers = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Channel, ChannelMember])],
+  imports: [TypeOrmModule.forFeature([Channel, ChannelMember]), CqrsModule],
   providers: [
     ...commandHandlers,
     ...queryHandlers,

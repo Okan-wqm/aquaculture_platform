@@ -281,6 +281,21 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tool_execution_audit',
     ],
   },
+  {
+    moduleName: 'messaging',
+    sourceSchema: 'messaging',
+    referenceDataTables: [],
+    tables: [
+      'channels',
+      'channel_members',
+      'messages',
+      'message_attachments',
+      'message_receipts',
+      'message_reactions',
+      'pinned_messages',
+      'messaging_outbox',
+    ],
+  },
 ];
 
 /**

@@ -1,0 +1,278 @@
+/**
+ * @module AppModule
+ * @description Root module for the messaging-service. Configures TypeORM with
+ * tenant schema isolation, GraphQL Federation v2 subgraph, CQRS, NATS microservice
+ * transport, JWT auth, rate limiting, and all feature modules.
+ * @see ADR-012 section 1 (Architecture Overview)
+ */
+import { readFileSync } from 'fs';
+import { createHash } from 'crypto';
+import { join } from 'path';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { GraphQLModule } from '@nestjs/graphql';
+import { JwtModule } from '@nestjs/jwt';
+import { CqrsModule } from '@nestjs/cqrs';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { APP_GUARD } from '@nestjs/core';
+import {
+  ApolloFederationDriver,
+  ApolloFederationDriverConfig,
+} from '@nestjs/apollo';
+import { GraphQLError } from 'graphql';
+import depthLimit from 'graphql-depth-limit';
+import {
+  fieldExtensionsEstimator,
+  getComplexity,
+  simpleEstimator,
+} from 'graphql-query-complexity';
+import {
+  TenantContextMiddleware,
+  CorrelationIdMiddleware,
+  RequestContextMiddleware,
+  UserContextMiddleware,
+  RolesGuard,
+  TenantGuard,
+  ThrottlerModule,
+  ThrottlerGuard,
+  ServiceIdentityGuard,
+  SourceSchemaBootstrapService,
+  createTenantSchemaMiddleware,
+  createTenantConnectionBootstrap,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
+} from '@aquaculture/backend-common';
+
+// Tenant infrastructure — 'messaging' source schema for template tables
+const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');
+const TenantConnectionBootstrap = createTenantConnectionBootstrap('messaging');
+
+// Entities
+import { Channel } from './channel/entities/channel.entity';
+import { ChannelMember } from './channel/entities/channel-member.entity';
+import { Message } from './message/entities/message.entity';
+import { MessageAttachment } from './message/entities/message-attachment.entity';
+import { MessageReceipt } from './message/entities/message-receipt.entity';
+import { MessageReaction } from './message/entities/message-reaction.entity';
+import { PinnedMessage } from './message/entities/pinned-message.entity';
+import { MessagingOutbox } from './outbox/messaging-outbox.entity';
+
+// Feature modules
+import { HealthModule } from './health/health.module';
+import { ChannelModule } from './channel/channel.module';
+import { MessageModule } from './message/message.module';
+import { PresenceModule } from './presence/presence.module';
+import { PartitionModule } from './partition/partition.module';
+import { OutboxModule } from './outbox/outbox.module';
+import { GdprModule } from './gdpr/gdpr.module';
+import { EventHandlersModule } from './event-handlers/event-handlers.module';
+
+// Per-process complexity cache keyed by document hash
+const complexityCache = new Map<string, number>();
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env'],
+    }),
+
+    // Database connection — NO explicit schema!
+    // Schema isolation handled by TenantSchemaMiddleware via PostgreSQL search_path
+    // search_path set to: "tenant_xxx", messaging, public
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
+        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
+          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
+        }
+        return {
+          type: 'postgres',
+          host: configService.get('DATABASE_HOST', 'localhost'),
+          port: configService.get<number>('DATABASE_PORT', 5432),
+          username: configService.get('DATABASE_USER', 'postgres'),
+          password: dbPassword || 'postgres',
+          database: configService.get('DATABASE_NAME', 'aquaculture'),
+          entities: [
+            Channel,
+            ChannelMember,
+            Message,
+            MessageAttachment,
+            MessageReceipt,
+            MessageReaction,
+            PinnedMessage,
+            MessagingOutbox,
+          ],
+          // ALWAYS false — partitioned tables (messages, message_receipts)
+          // require migrations. TypeORM synchronize cannot handle PARTITION BY RANGE.
+          synchronize: false,
+          migrationsRun:
+            configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+          migrations: ['dist/migrations/*.js'],
+          logging: configService.get('NODE_ENV') === 'development',
+          ssl: (() => {
+            const sslEnabled = configService.get('DB_SSL') === 'true';
+            if (!sslEnabled) return false;
+
+            const isProduction = configService.get('NODE_ENV') === 'production';
+            const caPath = configService.get<string>('DATABASE_SSL_CA');
+            const rejectUnauthorized =
+              configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
+
+            if (isProduction && !rejectUnauthorized && !caPath) {
+              console.warn(
+                'WARNING: SSL certificate verification disabled in production!',
+              );
+            }
+
+            return {
+              rejectUnauthorized,
+              ...(caPath ? { ca: readFileSync(caPath) } : {}),
+            };
+          })(),
+          extra: {
+            max: configService.get<number>('DB_POOL_SIZE', 10),
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 10000,
+            options: '-c search_path=messaging,public',
+          },
+        };
+      },
+    }),
+
+    // GraphQL Federation subgraph
+    GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
+      driver: ApolloFederationDriver,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const isProduction = configService.get('NODE_ENV') === 'production';
+        return {
+          autoSchemaFile: {
+            federation: 2,
+            path: join('/tmp', 'messaging-schema.graphql'),
+          },
+          validationRules: [depthLimit(10)],
+          plugins: [
+            {
+              requestDidStart: async () => ({
+                async didResolveOperation({ request, document, schema }) {
+                  const docSource = request.query ?? '';
+                  const opName = request.operationName ?? '';
+                  const cacheKey = createHash('sha1')
+                    .update(docSource)
+                    .update('\x00')
+                    .update(opName)
+                    .digest('hex');
+
+                  let complexity = complexityCache.get(cacheKey);
+                  if (complexity === undefined) {
+                    complexity = getComplexity({
+                      schema,
+                      operationName: request.operationName,
+                      query: document,
+                      variables: request.variables,
+                      estimators: [
+                        fieldExtensionsEstimator(),
+                        simpleEstimator({ defaultComplexity: 1 }),
+                      ],
+                    });
+                    complexityCache.set(cacheKey, complexity);
+                  }
+
+                  const maxComplexity = 1000;
+                  if (complexity > maxComplexity) {
+                    throw new GraphQLError(
+                      `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                    );
+                  }
+                },
+              }),
+            },
+          ],
+          playground:
+            !isProduction &&
+            configService.get('GRAPHQL_PLAYGROUND', 'true') === 'true',
+          introspection:
+            !isProduction ||
+            configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
+          context: ({ req }: { req: Request }) => ({ req }),
+        };
+      },
+    }),
+
+    // CQRS for command/query separation
+    CqrsModule.forRoot(),
+
+    // Scheduled tasks (partition manager, outbox cleanup)
+    ScheduleModule.forRoot(),
+
+    // NATS client for publishing events
+    ClientsModule.register([
+      {
+        name: 'NATS_SERVICE',
+        transport: Transport.NATS,
+        options: {
+          servers: [process.env['NATS_URL'] || 'nats://localhost:4222'],
+        },
+      },
+    ]),
+
+    // JWT for authentication
+    JwtModule.registerAsync({
+      global: true,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
+        signOptions: {
+          expiresIn: configService.get('JWT_EXPIRES_IN', '1d'),
+        },
+      }),
+    }),
+
+    // Rate limiting
+    ThrottlerModule,
+
+    // Feature modules
+    HealthModule,
+    ChannelModule,
+    MessageModule,
+    PresenceModule,
+    PartitionModule,
+    OutboxModule,
+    GdprModule,
+    EventHandlersModule,
+  ],
+  providers: [
+    // SECURITY: Service identity guard — validates HMAC-signed service identity headers
+    { provide: APP_GUARD, useClass: ServiceIdentityGuard },
+    { provide: APP_GUARD, useClass: TenantGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+
+    // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)
+    SourceSchemaBootstrapService,
+    TenantConnectionBootstrap,
+    TenantSchemaSyncService,
+    SourceSchemaWriteGuardService,
+  ],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(
+        CorrelationIdMiddleware,
+        RequestContextMiddleware,
+        UserContextMiddleware,
+        TenantContextMiddleware,
+        TenantSchemaMiddleware,
+      )
+      .exclude('health', 'health/(.*)')
+      .forRoutes('*');
+  }
+}

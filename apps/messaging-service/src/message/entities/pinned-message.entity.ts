@@ -1,0 +1,58 @@
+/**
+ * @module PinnedMessage
+ * @description Entity representing a pinned message in a channel. Tracks who pinned
+ * it and when. Unique constraint ensures each message can only be pinned once per channel.
+ * @see ADR-012 section 4.5 (Pinned Messages)
+ */
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Index,
+  Unique,
+} from 'typeorm';
+import { ObjectType, Field, ID } from '@nestjs/graphql';
+import { Channel } from '../../channel/entities/channel.entity';
+import { Message } from './message.entity';
+
+@ObjectType()
+@Entity('pinned_messages')
+@Unique('uq_pin_channel_message', ['channelId', 'messageId'])
+@Index('idx_pins_channel', ['channelId', 'pinnedAt'])
+export class PinnedMessage {
+  @Field(() => ID)
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Field()
+  @Column({ type: 'uuid' })
+  channelId: string;
+
+  @Column({ type: 'uuid' })
+  messageId: string;
+
+  @Column({ type: 'timestamptz' })
+  messageCreatedAt: Date;
+
+  @Field()
+  @Column({ type: 'uuid' })
+  pinnedBy: string;
+
+  @Field()
+  @CreateDateColumn({ type: 'timestamptz' })
+  pinnedAt: Date;
+
+  @ManyToOne(() => Channel, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'channelId' })
+  channel: Channel;
+
+  @ManyToOne(() => Message, { onDelete: 'CASCADE' })
+  @JoinColumn([
+    { name: 'messageId', referencedColumnName: 'id' },
+    { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
+  ])
+  message: Message;
+}

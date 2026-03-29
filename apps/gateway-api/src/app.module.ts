@@ -352,6 +352,10 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'notification',
                 url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:4008/graphql'),
               },
+              {
+                name: 'messaging',
+                url: configService.get('MESSAGING_SERVICE_URL', 'http://localhost:4009/graphql'),
+              },
             ],
             pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
           }),

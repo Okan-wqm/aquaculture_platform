@@ -87,7 +87,7 @@ jobs:
           set -euo pipefail
 
           # ── Service definitions ──
-          ALL_BACKEND=(gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service)
+          ALL_BACKEND=(gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service)
           ALL_FRONTEND=(shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil)
           NX_FRONTEND=(shell dashboard farm-module admin-panel tenant-admin)
           NON_NX_FRONTEND=(sensor-module hr-module hydroponics-module)

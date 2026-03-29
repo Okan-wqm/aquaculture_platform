@@ -189,6 +189,17 @@ const navigationItems: NavItem[] = [
     ],
   },
   {
+    id: 'messaging',
+    label: 'Messaging',
+    icon: Icons.support,
+    isNew: true,
+    children: [
+      { id: 'messaging-monitoring', label: 'Monitoring', path: '/admin/messaging/monitoring', icon: Icons.analytics },
+      { id: 'messaging-tenants', label: 'Tenants', path: '/admin/messaging/tenants', icon: Icons.tenants },
+      { id: 'messaging-audit', label: 'Audit Log', path: '/admin/messaging/audit', icon: Icons.audit },
+    ],
+  },
+  {
     id: 'security',
     label: 'Security',
     icon: Icons.security,

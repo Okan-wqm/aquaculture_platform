@@ -308,3 +308,90 @@ export function createMockLogger() {
     verbose: jest.fn(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3: AI + Compliance entity factories
+// ---------------------------------------------------------------------------
+import { MessageAnalysis, AnalysisType } from '../ai/entities/message-analysis.entity';
+import type { SentimentResult } from '../ai/entities/message-analysis.entity';
+import { RetentionPolicy } from '../compliance/entities/retention-policy.entity';
+import { LegalHold } from '../compliance/entities/legal-hold.entity';
+import {
+  ComplianceAuditLog,
+  ComplianceAction,
+} from '../compliance/entities/compliance-audit-log.entity';
+
+export function createMockAnalysis(
+  overrides: Partial<MessageAnalysis> = {},
+): MessageAnalysis {
+  const defaultResult: SentimentResult = {
+    label: 'POSITIVE',
+    score: 0.92,
+    confidence: 0.88,
+  };
+  return {
+    id: fakeUuid('anl'),
+    messageId: fakeUuid('msg'),
+    messageCreatedAt: new Date('2026-03-10T12:00:00Z'),
+    analysisType: AnalysisType.SENTIMENT,
+    result: defaultResult,
+    modelVersion: 'distilbert-sst2-v1.0',
+    analyzedAt: new Date('2026-03-10T12:01:00Z'),
+    message: undefined as unknown as import('../message/entities/message.entity').Message,
+    ...overrides,
+  };
+}
+
+export function createMockRetentionPolicy(
+  overrides: Partial<RetentionPolicy> = {},
+): RetentionPolicy {
+  return {
+    id: fakeUuid('rp'),
+    tenantId: TENANT_A,
+    channelId: null,
+    retentionDays: 365,
+    createdBy: fakeUuid('usr'),
+    createdAt: new Date('2026-03-01T00:00:00Z'),
+    updatedAt: new Date('2026-03-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+export function createMockLegalHold(
+  overrides: Partial<LegalHold> = {},
+): LegalHold {
+  return {
+    id: fakeUuid('lh'),
+    tenantId: TENANT_A,
+    channelId: null,
+    reason: 'Legal investigation',
+    startedBy: fakeUuid('usr'),
+    startedAt: new Date('2026-03-01T00:00:00Z'),
+    releasedBy: null,
+    releasedAt: null,
+    isActive: true,
+    ...overrides,
+  };
+}
+
+export function createMockAuditEntry(
+  overrides: Partial<ComplianceAuditLog> = {},
+): ComplianceAuditLog {
+  return {
+    id: fakeUuid('aud'),
+    tenantId: TENANT_A,
+    userId: fakeUuid('usr'),
+    action: ComplianceAction.MESSAGE_SEND,
+    resourceType: 'message',
+    resourceId: fakeUuid('msg'),
+    details: null,
+    ipAddress: '192.168.1.1',
+    userAgent: 'Mozilla/5.0',
+    createdAt: new Date('2026-03-10T12:00:00Z'),
+    ...overrides,
+  };
+}
+
+// Re-export entity types for convenience in test files
+export { AnalysisType, ComplianceAction };
+export type { SentimentResult };

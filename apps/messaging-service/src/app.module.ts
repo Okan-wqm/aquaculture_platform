@@ -58,6 +58,15 @@ import { MessageReceipt } from './message/entities/message-receipt.entity';
 import { MessageReaction } from './message/entities/message-reaction.entity';
 import { PinnedMessage } from './message/entities/pinned-message.entity';
 import { MessagingOutbox } from './outbox/messaging-outbox.entity';
+import { RetentionPolicy } from './compliance/entities/retention-policy.entity';
+import { LegalHold } from './compliance/entities/legal-hold.entity';
+import { ComplianceAuditLog } from './compliance/entities/compliance-audit-log.entity';
+
+// AI entities (ADR-012 section 12)
+import { MessageAnalysis } from './ai/entities/message-analysis.entity';
+import { MessageEntityReference } from './ai/entities/message-entity-reference.entity';
+import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
+import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -67,7 +76,9 @@ import { PresenceModule } from './presence/presence.module';
 import { PartitionModule } from './partition/partition.module';
 import { OutboxModule } from './outbox/outbox.module';
 import { GdprModule } from './gdpr/gdpr.module';
+import { ComplianceModule } from './compliance/compliance.module';
 import { EventHandlersModule } from './event-handlers/event-handlers.module';
+import { AiModule } from './ai/ai.module';
 
 // Per-process complexity cache keyed by document hash
 const complexityCache = new Map<string, number>();
@@ -106,6 +117,13 @@ const complexityCache = new Map<string, number>();
             MessageReaction,
             PinnedMessage,
             MessagingOutbox,
+            RetentionPolicy,
+            LegalHold,
+            ComplianceAuditLog,
+            MessageAnalysis,
+            MessageEntityReference,
+            KnowledgeEntry,
+            EmbeddingsMetadata,
           ],
           // ALWAYS false — partitioned tables (messages, message_receipts)
           // require migrations. TypeORM synchronize cannot handle PARTITION BY RANGE.
@@ -246,7 +264,9 @@ const complexityCache = new Map<string, number>();
     PartitionModule,
     OutboxModule,
     GdprModule,
+    ComplianceModule,
     EventHandlersModule,
+    AiModule,
   ],
   providers: [
     // SECURITY: Service identity guard — validates HMAC-signed service identity headers

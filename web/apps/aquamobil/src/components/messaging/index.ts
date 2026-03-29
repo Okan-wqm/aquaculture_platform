@@ -14,3 +14,6 @@ export { MessageDateSeparator } from './MessageDateSeparator';
 export { SystemMessage } from './SystemMessage';
 export { EmptyChat } from './EmptyChat';
 export { UnreadBadge } from './UnreadBadge';
+export { AiTypingIndicator } from './AiTypingIndicator';
+export { AiActionCard } from './AiActionCard';
+export { SentimentBadge } from './SentimentBadge';

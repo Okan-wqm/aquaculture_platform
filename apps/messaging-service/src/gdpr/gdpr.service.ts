@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
@@ -7,6 +7,9 @@ import Redis from 'ioredis';
 import { Message } from '../message/entities/message.entity';
 import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
+import { LegalHoldService } from '../compliance/services/legal-hold.service';
+import { ComplianceAuditService } from '../compliance/services/compliance-audit.service';
+import { ComplianceAction } from '../compliance/entities/compliance-audit-log.entity';
 
 /** UUID representing an anonymised / deleted user. */
 const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -55,6 +58,8 @@ export class GdprService {
     private readonly natsClient: ClientProxy,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    private readonly legalHoldService: LegalHoldService,
+    private readonly complianceAuditService: ComplianceAuditService,
   ) {}
 
   /**
@@ -135,6 +140,14 @@ export class GdprService {
     tenantId: string,
     confirmPassword: string,
   ): Promise<boolean> {
+    // Step 0: Check legal hold — data under hold cannot be anonymised
+    const isUnderHold = await this.legalHoldService.isUnderLegalHold(tenantId, null);
+    if (isUnderHold) {
+      throw new ForbiddenException(
+        'Data is under legal hold and cannot be anonymized',
+      );
+    }
+
     // Step 1: Verify password via auth-service
     const passwordValid = await this.verifyPassword(userId, confirmPassword);
     if (!passwordValid) {
@@ -208,6 +221,18 @@ export class GdprService {
 
       await queryRunner.commitTransaction();
       this.logger.log(`GDPR anonymisation completed for user ${userId}`);
+
+      // Log anonymisation to compliance audit
+      await this.complianceAuditService.log({
+        tenantId,
+        userId,
+        action: ComplianceAction.DATA_ANONYMIZE,
+        resourceType: 'user',
+        resourceId: userId,
+        details: { anonymizedAt: new Date().toISOString() },
+        ipAddress: null,
+        userAgent: null,
+      });
 
       return true;
     } catch (err) {

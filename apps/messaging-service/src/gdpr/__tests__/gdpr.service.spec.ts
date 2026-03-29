@@ -1,8 +1,3 @@
-// Mock @nestjs/microservices (not installed in workspace)
-jest.mock('@nestjs/microservices', () => ({
-  ClientProxy: class {},
-}), { virtual: true });
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
@@ -11,6 +6,8 @@ import { Message, MessageContentType } from '../../message/entities/message.enti
 import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { GdprService } from '../gdpr.service';
+import { LegalHoldService } from '../../compliance/services/legal-hold.service';
+import { ComplianceAuditService } from '../../compliance/services/compliance-audit.service';
 import {
   createMockMessage,
   createMockAttachment,
@@ -58,6 +55,8 @@ describe('GdprService', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: REDIS_CLIENT, useValue: redisClient },
         { provide: 'NATS_SERVICE', useValue: natsClient },
+        { provide: LegalHoldService, useValue: { isUnderLegalHold: jest.fn().mockResolvedValue(false) } },
+        { provide: ComplianceAuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -175,9 +174,16 @@ describe('GdprService', () => {
     await service.anonymizeMyData(userId, tenantId, 'correct-password');
 
     const queryCalls = queryRunner.query.mock.calls;
+    // The INSERT uses $1 for eventType and $2 for JSON payload
     const outboxInsert = queryCalls.find((call) => {
       const sql = call[0] as string;
-      return sql.includes('messaging_outbox') && sql.includes('UserDataAnonymized');
+      const params = call[1] as string[] | undefined;
+      // Check if this is the outbox INSERT (event type is in params, not SQL)
+      if (sql.includes('messaging_outbox')) {
+        // params[0] should be 'UserDataAnonymized'
+        return params && params[0] === 'UserDataAnonymized';
+      }
+      return false;
     });
     expect(outboxInsert).toBeDefined();
   });

@@ -26,6 +26,8 @@ import {
   Edit3,
   ChevronRight,
   AlertCircle,
+  Brain,
+  Sparkles,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,7 +36,10 @@ import { useChannelActions } from '@/hooks/useChannelActions';
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { ConfirmDialog } from '@/components/messaging/ConfirmDialog';
 import { MemberRow } from '@/components/messaging/MemberRow';
+import { SentimentBadge } from '@/components/messaging/SentimentBadge';
+import { useAiConsent } from '@/hooks/useAiConsent';
 import type { NotificationPreference } from '@/types/messaging';
+import type { SentimentTrend } from '@/components/messaging/SentimentBadge';
 
 const NOTIFICATION_OPTIONS: Array<{
   value: NotificationPreference;
@@ -88,6 +93,14 @@ export function ChannelSettingsPage() {
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
+  // AI consent hook
+  const {
+    isAiEnabled,
+    hasConsented,
+    toggleConsent,
+    isLoading: aiConsentLoading,
+  } = useAiConsent();
+
   // Determine current user's role in this channel
   const myMembership = useMemo(() => {
     if (!channel?.members || !user?.id) return null;
@@ -97,6 +110,10 @@ export function ChannelSettingsPage() {
   const myRole = myMembership?.role ?? 'member';
   const canEdit = myRole === 'owner' || myRole === 'admin';
   const isOwner = myRole === 'owner';
+  const isTenantAdmin = user?.role === 'TENANT_ADMIN';
+
+  // Sentiment trend (TODO: fetch from backend when AI analysis is live)
+  const sentimentTrend: SentimentTrend = 'neutral';
 
   // Current notification preference
   const myNotifPref = myMembership?.notificationPreference ?? 'all';
@@ -345,6 +362,71 @@ export function ChannelSettingsPage() {
             {activeMembers.map((member) => (
               <MemberRow key={member.id} member={member} />
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI Analysis section (TENANT_ADMIN only) */}
+      {isTenantAdmin && (
+        <div className="px-4 pt-6">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2">
+            AI Analysis
+          </h3>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
+            {/* AI Analysis Toggle */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-50 dark:border-gray-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
+                  <Brain size={20} className="text-purple-600" />
+                </div>
+                <div>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    AI Analysis
+                  </span>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {isAiEnabled ? 'Enabled for this tenant' : 'Not enabled for tenant'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => void toggleConsent()}
+                disabled={!isAiEnabled || aiConsentLoading}
+                className={clsx(
+                  'relative w-12 h-7 rounded-full transition-colors duration-200 flex-shrink-0',
+                  hasConsented && isAiEnabled
+                    ? 'bg-purple-500'
+                    : 'bg-gray-200 dark:bg-gray-700',
+                  (!isAiEnabled || aiConsentLoading) && 'opacity-50 cursor-not-allowed',
+                )}
+              >
+                <span
+                  className={clsx(
+                    'absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-sm transition-transform duration-200',
+                    hasConsented && isAiEnabled && 'translate-x-5',
+                  )}
+                />
+              </button>
+            </div>
+
+            {/* Consent Status */}
+            <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className="text-gray-400" />
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Consent: {hasConsented ? 'Granted' : 'Not granted'}
+                </span>
+              </div>
+            </div>
+
+            {/* Sentiment Badge (only if analysis enabled) */}
+            {isAiEnabled && hasConsented && (
+              <div className="px-4 py-3 flex items-center justify-between">
+                <span className="text-sm text-gray-600 dark:text-gray-300">
+                  Weekly Sentiment
+                </span>
+                <SentimentBadge trend={sentimentTrend} />
+              </div>
+            )}
           </div>
         </div>
       )}

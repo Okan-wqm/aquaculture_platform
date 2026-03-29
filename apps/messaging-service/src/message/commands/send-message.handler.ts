@@ -62,21 +62,23 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       metadata,
     } = command;
 
-    // ── 1. Idempotency check ───────────────────────────────────────────
+    // ── 1. Atomic idempotency check via SET NX ─────────────────────────
     const idemKey = `msg:${tenantId}:idem:${idempotencyKey}`;
 
-    const existingMessageId = await this.safeRedisGet(idemKey);
-    if (existingMessageId) {
+    const wasSet = await this.safeRedisSetNx(idemKey, 'pending', IDEMPOTENCY_TTL_SECONDS);
+    if (!wasSet) {
       this.logger.debug(`Idempotent hit for key=${idempotencyKey}, returning existing message`);
-      const existing = await this.messageRepo.findOne({
-        where: { id: existingMessageId },
-        relations: ['attachments'],
-      });
-      if (existing) {
-        return existing;
+      const existingMessageId = await this.safeRedisGet(idemKey);
+      if (existingMessageId && existingMessageId !== 'pending') {
+        const existing = await this.messageRepo.findOne({
+          where: { id: existingMessageId },
+          relations: ['attachments'],
+        });
+        if (existing) {
+          return existing;
+        }
       }
-      // If message was deleted between idempotency set and now, fall through
-      this.logger.warn(`Idempotent key exists but message ${existingMessageId} not found, proceeding`);
+      this.logger.warn(`Idempotent key exists but message not found, proceeding`);
     }
 
     // ── 2. Content sanitization ────────────────────────────────────────
@@ -242,6 +244,18 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Redis SETEX failed (idempotency key not stored): ${message}`);
+    }
+  }
+
+  /** Atomic SET NX with TTL for race-free idempotency. */
+  private async safeRedisSetNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+    try {
+      const result = await this.redis.set(key, value, 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Redis SET NX failed (proceeding without idempotency): ${message}`);
+      return true;
     }
   }
 }

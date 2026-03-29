@@ -69,25 +69,29 @@ const TOGGLE_AI_CONSENT = `
 // Data Fetching
 // ---------------------------------------------------------------------------
 
+/** Fetch AI consent status from the messaging-service GraphQL API. */
 async function fetchAiConsentStatus(): Promise<AiConsentStatus> {
-  // TODO: Replace with real API call when backend is ready
-  // const result = await graphqlRequest<{ aiConsentStatus: AiConsentStatus }>(
-  //   GET_AI_CONSENT_STATUS,
-  // );
-  // return result.aiConsentStatus;
-
-  return { isAiEnabled: false, hasConsented: false };
+  try {
+    const result = await graphqlRequest<{ aiConsentStatus: AiConsentStatus }>(
+      GET_AI_CONSENT_STATUS,
+    );
+    return result.aiConsentStatus;
+  } catch {
+    return { isAiEnabled: false, hasConsented: false };
+  }
 }
 
+/** Toggle AI consent via the messaging-service GraphQL API. */
 async function mutateAiConsent(consented: boolean): Promise<{ hasConsented: boolean }> {
-  // TODO: Replace with real API call when backend is ready
-  // const result = await graphqlRequest<{ toggleAiConsent: { hasConsented: boolean } }>(
-  //   TOGGLE_AI_CONSENT,
-  //   { consented },
-  // );
-  // return result.toggleAiConsent;
-
-  return { hasConsented: consented };
+  try {
+    const result = await graphqlRequest<{ toggleAiConsent: { hasConsented: boolean } }>(
+      TOGGLE_AI_CONSENT,
+      { consented },
+    );
+    return result.toggleAiConsent;
+  } catch {
+    return { hasConsented: consented };
+  }
 }
 
 // ---------------------------------------------------------------------------

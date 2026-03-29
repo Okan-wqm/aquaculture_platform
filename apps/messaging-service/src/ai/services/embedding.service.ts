@@ -89,8 +89,10 @@ export class EmbeddingService implements OnModuleDestroy {
   private async runBatch(): Promise<void> {
     // Fetch messages where embedding IS NULL, with text content
     const messages: UnembeddedMessage[] = await this.dataSource.query(
-      `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt"
+      `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt",
+              c."tenantId"
        FROM "messages" m
+       INNER JOIN "channels" c ON c."id" = m."channelId"
        WHERE m."embedding" IS NULL
          AND m."isDeleted" = false
          AND m."content" IS NOT NULL
@@ -106,16 +108,19 @@ export class EmbeddingService implements OnModuleDestroy {
 
     this.logger.debug(`Processing ${messages.length} messages for embedding`);
 
-    // Filter by privacy gates — group by sender for efficient consent checks
+    // Filter by privacy gates — use explicit tenantId from channel join
     const senderIds = [...new Set(messages.map((m) => m.senderId))];
     const consentMap = new Map<string, boolean>();
-
-    // We need tenant context; for now, use the search_path's current tenant
-    // In production, messages come from per-tenant schemas
+    const senderTenantMap = new Map<string, string>();
+    for (const msg of messages) {
+      if (!senderTenantMap.has(msg.senderId) && msg.tenantId) {
+        senderTenantMap.set(msg.senderId, msg.tenantId);
+      }
+    }
     for (const senderId of senderIds) {
-      // Privacy check uses default tenant from connection context
+      const tenantId = senderTenantMap.get(senderId) ?? '_current';
       const canAnalyze = await this.privacyService
-        .canAnalyzeMessage('_current', senderId)
+        .canAnalyzeMessage(tenantId, senderId)
         .catch(() => false);
       consentMap.set(senderId, canAnalyze);
     }

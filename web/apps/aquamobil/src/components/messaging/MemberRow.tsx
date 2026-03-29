@@ -1,6 +1,9 @@
-// ---------------------------------------------------------------------------
-// MemberRow -- Single member row for channel member list
-// ---------------------------------------------------------------------------
+/**
+ * @module MemberRow
+ * @description Single member row for channel member lists. Renders avatar,
+ * display name, email, online indicator, and role badge (Owner/Admin/Member).
+ * @see ADR-012 section 3 (Channel domain)
+ */
 
 import { Crown, Shield, User } from 'lucide-react';
 import { clsx } from 'clsx';

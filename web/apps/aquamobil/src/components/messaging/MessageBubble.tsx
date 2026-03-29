@@ -267,6 +267,16 @@ export function MessageBubble({
     };
   }, []);
 
+  // Dismiss context menu on scroll
+  useEffect(() => {
+    if (!showMenu) return;
+    const handleScroll = () => setShowMenu(false);
+    window.addEventListener('scroll', handleScroll, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll, { capture: true });
+    };
+  }, [showMenu]);
+
   const closeMenu = useCallback(() => setShowMenu(false), []);
 
   const handleAction = useCallback(

@@ -36,6 +36,9 @@ export class GetChannelsHandler
    * Each channel in the result includes:
    * - memberCount: number of active members
    * - unreadCount and lastMessage are computed via subqueries on the messages table.
+   *
+   * TODO (M-PERF-2): Materialize lastMessageAt as a denormalized column on
+   * channels table to eliminate correlated subqueries for large tenant channel lists.
    */
   async execute(query: GetChannelsQuery): Promise<GetChannelsResult> {
     const { userId, limit, offset } = query;

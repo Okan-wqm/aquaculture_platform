@@ -155,7 +155,7 @@ const complexityCache = new Map<string, number>();
             };
           })(),
           extra: {
-            max: configService.get<number>('DB_POOL_SIZE', 10),
+            max: configService.get<number>('DB_POOL_SIZE', 20),
             idleTimeoutMillis: 30000,
             connectionTimeoutMillis: 10000,
             options: '-c search_path=messaging,public',

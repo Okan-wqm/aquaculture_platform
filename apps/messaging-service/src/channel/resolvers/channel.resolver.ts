@@ -15,11 +15,9 @@ import {
   ObjectType,
   Field,
 } from '@nestjs/graphql';
-import { UseGuards, Logger, ForbiddenException } from '@nestjs/common';
+import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import {
   TenantGuard,
   Tenant,
@@ -43,6 +41,7 @@ import { CreateChannelCommand } from '../commands/create-channel.command';
 import { UpdateChannelCommand } from '../commands/update-channel.command';
 import { AddMemberCommand } from '../commands/add-member.command';
 import { RemoveMemberCommand } from '../commands/remove-member.command';
+import { ArchiveChannelCommand } from '../commands/archive-channel.command';
 
 // Queries
 import { GetChannelsQuery } from '../queries/get-channels.query';
@@ -194,39 +193,9 @@ export class ChannelResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Args('id', { type: () => ID }) id: string,
   ): Promise<boolean> {
-    // Fetch channel (validates membership)
-    const channel = await this.queryBus.execute<GetChannelQuery, Channel>(
-      new GetChannelQuery(tenantId, user.sub, id),
+    return this.commandBus.execute<ArchiveChannelCommand, boolean>(
+      new ArchiveChannelCommand(tenantId, user.sub, id),
     );
-
-    // Verify ADMIN+ via service
-    const member = await this.channelService.validateChannelAccess(id, user.sub);
-    const isPrivileged =
-      member.role === ChannelMemberRole.ADMIN ||
-      member.role === ChannelMemberRole.OWNER;
-
-    if (!isPrivileged) {
-      throw new ForbiddenException('Only ADMIN or OWNER can archive a channel');
-    }
-
-    // Wrap archive in a transaction with outbox event
-    await this.dataSource.transaction(async (manager) => {
-      channel.isArchived = true;
-      await manager.save(Channel, channel);
-
-      await manager.save(MessagingOutbox, manager.create(MessagingOutbox, {
-        eventType: 'ChannelArchived',
-        payload: {
-          eventId: uuidv4(),
-          tenantId,
-          channelId: id,
-          archivedBy: user.sub,
-        },
-      }));
-    });
-
-    this.logger.log(`Channel ${id} archived by user ${user.sub}`);
-    return true;
   }
 
   /**
@@ -281,7 +250,9 @@ export class ChannelResolver {
     );
 
     member.notificationPreference = preference;
-    await this.channelService.saveMember(member);
+    await this.dataSource.transaction(async (manager) => {
+      await manager.save(ChannelMember, member);
+    });
 
     this.logger.log(
       `User ${user.sub} updated notification preference to ${preference} in channel ${channelId}`,

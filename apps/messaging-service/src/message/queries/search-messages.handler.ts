@@ -1,7 +1,7 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
-import { Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 
 import { SearchMessagesQuery } from './search-messages.query';
 import { Message } from '../entities/message.entity';
@@ -24,7 +24,12 @@ export class SearchMessagesHandler
     private readonly messageRepo: Repository<Message>,
     @InjectRepository(ChannelMember)
     private readonly channelMemberRepo: Repository<ChannelMember>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
+
+  /** Statement timeout for search queries (ms). */
+  private static readonly SEARCH_TIMEOUT_MS = 5000;
 
   async execute(query: SearchMessagesQuery): Promise<Message[]> {
     const { userId, searchQuery, channelId, limit } = query;
@@ -35,31 +40,41 @@ export class SearchMessagesHandler
       return [];
     }
 
-    // 2. Full-text search using PostgreSQL to_tsvector
-    const qb = this.messageRepo
-      .createQueryBuilder('m')
-      .leftJoinAndSelect('m.attachments', 'att')
-      .where('m."channelId" IN (:...channelIds)', { channelIds: memberChannelIds })
-      .andWhere('m."isDeleted" = false')
-      .andWhere('m."content" IS NOT NULL')
-      .andWhere(
-        `to_tsvector('english', m."content") @@ plainto_tsquery('english', :searchQuery)`,
-        { searchQuery },
-      )
-      .orderBy(
-        `ts_rank(to_tsvector('english', m."content"), plainto_tsquery('english', :searchQuery))`,
-        'DESC',
-      )
-      .addOrderBy('m."createdAt"', 'DESC')
-      .take(limit);
+    // 2. Full-text search with 90-day partition pruning + statement timeout
+    const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
-    const messages = await qb.getMany();
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    try {
+      await queryRunner.query(
+        `SET LOCAL statement_timeout = '${SearchMessagesHandler.SEARCH_TIMEOUT_MS}'`,
+      );
+      const messages = await queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .leftJoinAndSelect('m.attachments', 'att')
+        .where('m."channelId" IN (:...channelIds)', { channelIds: memberChannelIds })
+        .andWhere('m."isDeleted" = false')
+        .andWhere('m."content" IS NOT NULL')
+        .andWhere('m."createdAt" > :since', { since: defaultSince })
+        .andWhere(
+          `to_tsvector('english', m."content") @@ plainto_tsquery('english', :searchQuery)`,
+          { searchQuery },
+        )
+        .orderBy(
+          `ts_rank(to_tsvector('english', m."content"), plainto_tsquery('english', :searchQuery))`,
+          'DESC',
+        )
+        .addOrderBy('m."createdAt"', 'DESC')
+        .take(limit)
+        .getMany();
 
-    this.logger.debug(
-      `SearchMessages: query="${searchQuery}", results=${messages.length}`,
-    );
-
-    return messages;
+      this.logger.debug(
+        `SearchMessages: query="${searchQuery}", results=${messages.length}`,
+      );
+      return messages;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**

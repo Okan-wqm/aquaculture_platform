@@ -67,6 +67,10 @@ export function useMessageSocket() {
   // in the same tick without waiting for a re-render.
   const accessTokenRef = useRef(accessToken);
   accessTokenRef.current = accessToken;
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
+  const refreshAuthRef = useRef(refreshAuth);
+  refreshAuthRef.current = refreshAuth;
 
   // ------------------------------------------------------------------
   // Connect / disconnect lifecycle
@@ -119,8 +123,9 @@ export function useMessageSocket() {
 
       socket.on('newMessage', (data: unknown) => {
         const event = data as NewMessageEvent;
+        const qc = queryClientRef.current;
         // Update messages cache for this channel
-        queryClient.setQueryData(
+        qc.setQueryData(
           ['messaging', 'messages', event.channelId, tenantId],
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages?.length) return old;
@@ -152,14 +157,14 @@ export function useMessageSocket() {
           },
         );
         // Invalidate channel list to update lastMessage / unread counts
-        queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+        qc.invalidateQueries({ queryKey: ['messaging', 'channels'] });
         // Increment unread count
-        queryClient.invalidateQueries({ queryKey: ['messaging', 'unreadCount'] });
+        qc.invalidateQueries({ queryKey: ['messaging', 'unreadCount'] });
       });
 
       socket.on('messageUpdated', (data: unknown) => {
         const event = data as MessageUpdatedEvent;
-        queryClient.setQueryData(
+        queryClientRef.current.setQueryData(
           ['messaging', 'messages', event.channelId, tenantId],
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
@@ -178,7 +183,7 @@ export function useMessageSocket() {
 
       socket.on('messageDeleted', (data: unknown) => {
         const event = data as MessageDeletedEvent;
-        queryClient.setQueryData(
+        queryClientRef.current.setQueryData(
           ['messaging', 'messages', event.channelId, tenantId],
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
@@ -197,10 +202,11 @@ export function useMessageSocket() {
 
       socket.on('readReceipt', (data: unknown) => {
         const event = data as ReadReceiptEvent;
+        const qc = queryClientRef.current;
         // Invalidate unread count
-        queryClient.invalidateQueries({ queryKey: ['messaging', 'unreadCount'] });
+        qc.invalidateQueries({ queryKey: ['messaging', 'unreadCount'] });
         // Update receipt in message cache
-        queryClient.setQueryData(
+        qc.setQueryData(
           ['messaging', 'messages', event.channelId, tenantId],
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
@@ -241,7 +247,7 @@ export function useMessageSocket() {
       // also update socket.auth so reconnections use the fresh token.
       socket.on('reAuth', async () => {
         try {
-          await refreshAuth();
+          await refreshAuthRef.current();
           const newToken = accessTokenRef.current;
           if (socketRef.current && newToken) {
             socketRef.current.auth = { token: newToken };
@@ -263,7 +269,6 @@ export function useMessageSocket() {
       socketRef.current = null;
       setIsConnected(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, accessToken, tenantId]);
 
   // ------------------------------------------------------------------

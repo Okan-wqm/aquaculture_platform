@@ -179,7 +179,7 @@ export function VoicePlayer({
       <button
         onClick={handlePlayPause}
         className={clsx(
-          'min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full shrink-0 touch-feedback transition-colors',
+          'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full shrink-0 touch-feedback transition-colors',
           isOwn
             ? 'bg-white/20 hover:bg-white/30'
             : 'bg-ocean-50 dark:bg-ocean-900/30 hover:bg-ocean-100 dark:hover:bg-ocean-900/50',

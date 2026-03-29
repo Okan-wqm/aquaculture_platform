@@ -1,11 +1,8 @@
-// ---------------------------------------------------------------------------
-// ConfirmDialog -- Reusable confirmation modal for destructive actions
-// ---------------------------------------------------------------------------
-
 /**
- * WHY: Extracted from ChannelSettingsPage to a shared component. Used for
- * leave channel, delete channel, and potentially delete message confirmations.
- * Follows iOS/Android alert dialog conventions with backdrop dismiss.
+ * @module ConfirmDialog
+ * @description Reusable confirmation modal for destructive actions (leave channel,
+ * delete channel, delete message). Follows iOS/Android alert dialog conventions
+ * with backdrop dismiss and 48dp minimum touch targets.
  */
 
 interface ConfirmDialogProps {
@@ -47,13 +44,13 @@ export function ConfirmDialog({
         <div className="flex gap-3">
           <button
             onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium text-sm transition-colors"
+            className="flex-1 min-h-[48px] py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium text-sm transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className={`flex-1 py-2.5 rounded-xl ${confirmColor ?? 'bg-red-600'} text-white font-medium text-sm transition-colors`}
+            className={`flex-1 min-h-[48px] py-2.5 rounded-xl ${confirmColor ?? 'bg-red-600'} text-white font-medium text-sm transition-colors`}
           >
             {confirmLabel}
           </button>

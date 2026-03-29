@@ -35,11 +35,11 @@ interface MediaItem {
   sentAt: string;
 }
 
-// ---------------------------------------------------------------------------
-// TODO: Replace with real hook once messaging backend is integrated
-// import { useChannelMedia } from '@/hooks/useChannelMedia';
-// ---------------------------------------------------------------------------
-
+/**
+ * Media attachment hook. Returns empty data until the messageAttachment
+ * query is available in the gateway schema.
+ * TODO: Wire to graphqlRequest(GET_ATTACHMENT) when backend is ready.
+ */
 function useChannelMedia(_channelId: string): {
   media: MediaItem[];
   loading: boolean;

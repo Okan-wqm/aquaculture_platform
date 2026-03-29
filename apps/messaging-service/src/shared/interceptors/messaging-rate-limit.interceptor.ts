@@ -26,11 +26,24 @@ export interface RateLimitRule {
   windowSeconds: number;
 }
 
+/**
+ * Comprehensive rate-limit rules for ALL write mutations.
+ * Each action has a sliding window limit to prevent abuse without
+ * impacting legitimate usage patterns.
+ */
 const DEFAULT_RULES: Record<string, RateLimitRule> = {
   sendMessage: { limit: 30, windowSeconds: 60 },
+  editMessage: { limit: 20, windowSeconds: 60 },
+  deleteMessage: { limit: 10, windowSeconds: 60 },
+  forwardMessage: { limit: 15, windowSeconds: 60 },
   uploadMedia: { limit: 10, windowSeconds: 60 },
   createChannel: { limit: 5, windowSeconds: 3600 },
   addMember: { limit: 20, windowSeconds: 60 },
+  pinMessage: { limit: 10, windowSeconds: 60 },
+  unpinMessage: { limit: 10, windowSeconds: 60 },
+  addReaction: { limit: 30, windowSeconds: 60 },
+  removeReaction: { limit: 30, windowSeconds: 60 },
+  anonymizeMyData: { limit: 3, windowSeconds: 3600 },
 };
 
 export const RATE_LIMIT_ACTION_KEY = 'messaging_rate_limit_action';

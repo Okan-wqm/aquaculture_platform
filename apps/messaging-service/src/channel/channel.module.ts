@@ -16,6 +16,7 @@ import { CreateChannelHandler } from './commands/create-channel.handler';
 import { AddMemberHandler } from './commands/add-member.handler';
 import { RemoveMemberHandler } from './commands/remove-member.handler';
 import { UpdateChannelHandler } from './commands/update-channel.handler';
+import { ArchiveChannelHandler } from './commands/archive-channel.handler';
 
 // Query Handlers
 import { GetChannelsHandler } from './queries/get-channels.handler';
@@ -32,6 +33,7 @@ const commandHandlers = [
   AddMemberHandler,
   RemoveMemberHandler,
   UpdateChannelHandler,
+  ArchiveChannelHandler,
 ];
 
 const queryHandlers = [

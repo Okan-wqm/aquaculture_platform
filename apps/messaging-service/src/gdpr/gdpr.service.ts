@@ -129,24 +129,34 @@ export class GdprService {
       this.logger.warn(`Redis rate-limit check failed, allowing export: ${(err as Error).message}`);
     }
 
-    // 1. Export messages
-    const messages = await this.messageRepo.find({
-      where: { senderId: userId, isDeleted: false },
-      relations: ['attachments'],
-      order: { createdAt: 'ASC' },
-    });
-
-    const exportedMessages: ExportedMessage[] = messages.map((msg) => ({
-      content: msg.content,
-      createdAt: msg.createdAt,
-      channelId: msg.channelId,
-      contentType: msg.contentType,
-      attachments: (msg.attachments ?? []).map((att) => ({
-        originalFilename: att.originalFilename,
-        mimeType: att.mimeType,
-        fileSize: att.fileSize,
-      })),
-    }));
+    // 1. Export messages using chunked pagination to avoid OOM
+    const CHUNK_SIZE = 1000;
+    let exportOffset = 0;
+    const exportedMessages: ExportedMessage[] = [];
+    while (true) {
+      const chunk = await this.messageRepo.find({
+        where: { senderId: userId, isDeleted: false },
+        relations: ['attachments'],
+        order: { createdAt: 'ASC' },
+        take: CHUNK_SIZE,
+        skip: exportOffset,
+      });
+      for (const msg of chunk) {
+        exportedMessages.push({
+          content: msg.content,
+          createdAt: msg.createdAt,
+          channelId: msg.channelId,
+          contentType: msg.contentType,
+          attachments: (msg.attachments ?? []).map((att) => ({
+            originalFilename: att.originalFilename,
+            mimeType: att.mimeType,
+            fileSize: att.fileSize,
+          })),
+        });
+      }
+      if (chunk.length < CHUNK_SIZE) break;
+      exportOffset += CHUNK_SIZE;
+    }
 
     // 2. Export channel memberships
     const memberships: ExportedMembership[] = await this.dataSource.query(
@@ -205,12 +215,19 @@ export class GdprService {
     tenantId: string,
     confirmPassword: string,
   ): Promise<boolean> {
-    // Step 0: Check legal hold — data under hold cannot be anonymised
-    const isUnderHold = await this.legalHoldService.isUnderLegalHold(tenantId, null);
-    if (isUnderHold) {
-      throw new ForbiddenException(
-        'Data is under legal hold and cannot be anonymized',
-      );
+    // Step 0: Per-channel legal hold check
+    const userMemberships: Array<{ channelId: string }> = await this.dataSource.query(
+      `SELECT "channelId" FROM channel_members WHERE "userId" = $1`,
+      [userId],
+    );
+    const isTenantUnderHold = await this.legalHoldService.isUnderLegalHold(tenantId, null);
+    if (isTenantUnderHold) {
+      throw new ForbiddenException('Tenant is under legal hold and data cannot be anonymized');
+    }
+    for (const membership of userMemberships) {
+      if (await this.legalHoldService.isUnderLegalHold(tenantId, membership.channelId)) {
+        throw new ForbiddenException(`Channel ${membership.channelId} is under legal hold`);
+      }
     }
 
     // Step 1: Verify password via auth-service

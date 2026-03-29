@@ -8,6 +8,7 @@ import { Controller, Get, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { ClientProxy } from '@nestjs/microservices';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 
@@ -19,6 +20,9 @@ export class HealthController {
     @Optional()
     @Inject(REDIS_CLIENT)
     private readonly redis?: Redis,
+    @Optional()
+    @Inject('NATS_SERVICE')
+    private readonly natsClient?: ClientProxy,
   ) {}
 
   @Get('live')
@@ -52,6 +56,18 @@ export class HealthController {
       }
     } catch {
       checks['redis'] = 'error';
+    }
+
+    // NATS connectivity check
+    try {
+      if (this.natsClient) {
+        await this.natsClient.connect();
+        checks['nats'] = 'ok';
+      } else {
+        checks['nats'] = 'not_configured';
+      }
+    } catch {
+      checks['nats'] = 'error';
     }
 
     const allOk = Object.values(checks).every(

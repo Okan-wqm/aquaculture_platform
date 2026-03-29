@@ -12,10 +12,11 @@ import {
   Directive,
   Context,
 } from '@nestjs/graphql';
-import { Logger, UseGuards, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Logger, UseGuards, UseInterceptors, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import DataLoader from 'dataloader';
 import GraphQLJSON from 'graphql-type-json';
+import { MessagingRateLimit, MessagingRateLimitInterceptor } from '../../shared/interceptors/messaging-rate-limit.interceptor';
 import {
   CurrentUser,
   CurrentUserPayload,
@@ -54,6 +55,7 @@ import { MessageService } from '../services/message.service';
 import { MediaService, MediaUploadResult } from '../services/media.service';
 import { StorageQuotaService } from '../services/storage-quota.service';
 import { GdprService } from '../../gdpr/gdpr.service';
+import { PresenceService } from '../../presence/presence.service';
 
 // Repositories
 import { InjectRepository } from '@nestjs/typeorm';
@@ -140,6 +142,7 @@ export class MediaUploadResponse {
 
 @Resolver(() => Message)
 @UseGuards(TenantGuard)
+@UseInterceptors(MessagingRateLimitInterceptor)
 export class MessageResolver {
   private readonly logger = new Logger(MessageResolver.name);
 
@@ -150,6 +153,7 @@ export class MessageResolver {
     private readonly mediaService: MediaService,
     private readonly storageQuotaService: StorageQuotaService,
     private readonly gdprService: GdprService,
+    private readonly presenceService: PresenceService,
     private readonly dataSource: DataSource,
     @InjectRepository(ChannelMember)
     private readonly channelMemberRepo: Repository<ChannelMember>,
@@ -216,11 +220,15 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<AllMessagesSinceResponse> {
-    // Get all channels the user is an active member of
-    const memberships = await this.channelMemberRepo.find({
-      where: { userId: user.sub, leftAt: IsNull() },
-      select: ['channelId'],
-    });
+    // Get all channels the user is an active member of, excluding archived
+    const memberships = await this.channelMemberRepo
+      .createQueryBuilder('cm')
+      .innerJoin('channels', 'c', 'c."id" = cm."channelId"')
+      .where('cm."userId" = :userId', { userId: user.sub })
+      .andWhere('cm."leftAt" IS NULL')
+      .andWhere('c."isArchived" = false')
+      .select('cm."channelId"', 'channelId')
+      .getRawMany<{ channelId: string }>();
     const channelIds = memberships.map((m) => m.channelId);
 
     if (channelIds.length === 0) {
@@ -332,17 +340,16 @@ export class MessageResolver {
   @Query(() => [MessageUser], { name: 'userPresence' })
   async getUserPresence(
     @Args('userIds', { type: () => [ID] }) userIds: string[],
+    @Tenant() tenantId: string,
   ): Promise<MessageUser[]> {
-    // TODO: Integrate with PresenceModule for real-time online status.
-    //       Currently returns placeholder data. The PresenceModule should
-    //       maintain a Redis-backed online/lastSeen state per user.
-    return userIds.map((id) => ({
-      id,
-      displayName: null,
-      avatarUrl: null,
-      isOnline: false,
-      lastSeenAt: null,
-    }));
+    const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
+    const results: MessageUser[] = [];
+    for (const id of userIds) {
+      const isOnline = onlineMap.get(id) ?? false;
+      const lastSeenAt = isOnline ? null : await this.presenceService.getLastSeen(tenantId, id);
+      results.push({ id, displayName: null, avatarUrl: null, isOnline, lastSeenAt });
+    }
+    return results;
   }
 
   // -------------------------------------------------------------------------
@@ -353,6 +360,7 @@ export class MessageResolver {
    * Send a new message to a channel.
    */
   @Mutation(() => Message, { name: 'sendMessage' })
+  @MessagingRateLimit('sendMessage')
   async sendMessage(
     @Args('input') input: SendMessageInput,
     @CurrentUser() user: CurrentUserPayload,
@@ -389,6 +397,7 @@ export class MessageResolver {
    * Edit a message's content (owner only).
    */
   @Mutation(() => Message, { name: 'editMessage' })
+  @MessagingRateLimit('editMessage')
   async editMessage(
     @Args('id', { type: () => ID }) messageId: string,
     @Args('input') input: EditMessageInput,
@@ -404,6 +413,7 @@ export class MessageResolver {
    * Delete a message (soft-delete). Owner or channel admin/owner.
    */
   @Mutation(() => Boolean, { name: 'deleteMessage' })
+  @MessagingRateLimit('deleteMessage')
   async deleteMessage(
     @Args('id', { type: () => ID }) messageId: string,
     @CurrentUser() user: CurrentUserPayload,
@@ -447,6 +457,7 @@ export class MessageResolver {
    * Request a presigned URL for media upload.
    */
   @Mutation(() => MediaUploadResponse, { name: 'requestMediaUpload' })
+  @MessagingRateLimit('uploadMedia')
   async requestMediaUpload(
     @Args('input') input: RequestMediaUploadInput,
     @CurrentUser() user: CurrentUserPayload,
@@ -480,6 +491,7 @@ export class MessageResolver {
    * Pin a message in a channel (admin/owner only).
    */
   @Mutation(() => PinnedMessage, { name: 'pinMessage' })
+  @MessagingRateLimit('pinMessage')
   async pinMessage(
     @Args('channelId', { type: () => ID }) channelId: string,
     @Args('messageId', { type: () => ID }) messageId: string,
@@ -534,6 +546,7 @@ export class MessageResolver {
    * Unpin a message from a channel.
    */
   @Mutation(() => Boolean, { name: 'unpinMessage' })
+  @MessagingRateLimit('unpinMessage')
   async unpinMessage(
     @Args('channelId', { type: () => ID }) channelId: string,
     @Args('messageId', { type: () => ID }) messageId: string,
@@ -568,6 +581,7 @@ export class MessageResolver {
    * Add an emoji reaction to a message.
    */
   @Mutation(() => Boolean, { name: 'addReaction' })
+  @MessagingRateLimit('addReaction')
   async addReaction(
     @Args('messageId', { type: () => ID }) messageId: string,
     @Args('emoji', { type: () => String }) emoji: string,
@@ -620,6 +634,7 @@ export class MessageResolver {
    * Remove an emoji reaction from a message.
    */
   @Mutation(() => Boolean, { name: 'removeReaction' })
+  @MessagingRateLimit('removeReaction')
   async removeReaction(
     @Args('messageId', { type: () => ID }) messageId: string,
     @Args('emoji', { type: () => String }) emoji: string,
@@ -651,6 +666,7 @@ export class MessageResolver {
    * User must be a member of both the source and target channels.
    */
   @Mutation(() => Message, { name: 'forwardMessage' })
+  @MessagingRateLimit('forwardMessage')
   async forwardMessage(
     @Args('sourceMessageId', { type: () => ID }) sourceMessageId: string,
     @Args('sourceMessageCreatedAt', { type: () => Date }) sourceMessageCreatedAt: Date,
@@ -702,6 +718,7 @@ export class MessageResolver {
    * and performs full transactional anonymisation.
    */
   @Mutation(() => Boolean, { name: 'anonymizeMyData' })
+  @MessagingRateLimit('anonymizeMyData')
   async anonymizeMyData(
     @Args('confirmPassword', { type: () => String }) confirmPassword: string,
     @CurrentUser() user: CurrentUserPayload,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Send } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -51,6 +51,15 @@ const COMPRESSION_THRESHOLD = 2 * 1024 * 1024; // 2 MB
  */
 export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePreviewProps) {
   const [caption, setCaption] = useState('');
+
+  // Dismiss on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
 
   const willCompress = file.size > COMPRESSION_THRESHOLD;
 

@@ -556,9 +556,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
-      NODE_OPTIONS: "--max-old-space-size=256"
+      NODE_OPTIONS: "--max-old-space-size=384"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health/live"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health/ready"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -576,7 +576,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384M
+          memory: 512M
           cpus: '0.5'
 
   admin-api-service:

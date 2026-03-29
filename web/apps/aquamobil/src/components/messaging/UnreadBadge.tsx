@@ -1,3 +1,10 @@
+/**
+ * @module UnreadBadge
+ * @description Compact pill badge displaying unread message count. Memoized
+ * with React.memo. Caps at "99+" for display consistency.
+ * @see ADR-012 section 5 (Messaging UI Components)
+ */
+
 import React from 'react';
 import { clsx } from 'clsx';
 

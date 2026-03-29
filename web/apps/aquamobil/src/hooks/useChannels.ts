@@ -16,7 +16,7 @@
  * @returns fetchMore — load the next page of channels
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -64,6 +64,8 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
   const { isAuthenticated, tenantId } = useAuth();
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
+
+  const accumulatedChannelsRef = useRef<ChannelPage['items']>([]);
 
   const queryKey = ['messaging', 'channels', tenantId, offset];
 
@@ -115,8 +117,23 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
     }
   }, [hasMore]);
 
+  // Accumulate page results for progressive loading
+  useEffect(() => {
+    if (query.data?.items) {
+      if (offset === 0) {
+        accumulatedChannelsRef.current = query.data.items;
+      } else {
+        const existingIds = new Set(accumulatedChannelsRef.current.map((c) => c.id));
+        const newItems = query.data.items.filter((c) => !existingIds.has(c.id));
+        accumulatedChannelsRef.current = [...accumulatedChannelsRef.current, ...newItems];
+      }
+    }
+  }, [query.data?.items, offset]);
+
   return {
-    channels: query.data?.items ?? [],
+    channels: accumulatedChannelsRef.current.length > 0
+      ? accumulatedChannelsRef.current
+      : (query.data?.items ?? []),
     isLoading: query.isLoading,
     error: query.error,
     refetch: query.refetch,

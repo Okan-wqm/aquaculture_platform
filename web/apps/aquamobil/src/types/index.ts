@@ -224,9 +224,17 @@ export interface CreateLeaveRequestInput {
 }
 
 // Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead';
 
-export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput;
+/** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
+ * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
+export type MessagingOfflinePayload =
+  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[] }
+  | { id: string; content: string }
+  | { id: string }
+  | { channelId: string; messageId: string };
+
+export type OperationPayload = MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload;
 
 export interface QueuedOperation {
   id: string;

@@ -7,4 +7,7 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/apps/messaging-service',
+  moduleNameMapper: {
+    '^@nestjs/microservices$': '<rootDir>/src/__mocks__/@nestjs/microservices.ts',
+  },
 };

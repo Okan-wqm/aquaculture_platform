@@ -1,0 +1,126 @@
+// ============================================================================
+// useChannels — Channel list hook with pagination, offline cache, and real-time
+// ============================================================================
+
+/**
+ * WHY: Provides the paginated list of channels the current user belongs to,
+ * with IndexedDB cache fallback for offline scenarios and Socket.IO-driven
+ * refetch when channel data changes server-side. Uses TanStack Query for
+ * stale-while-revalidate caching and automatic background refetching.
+ *
+ * @returns channels — the current page of channels
+ * @returns isLoading — true during initial fetch
+ * @returns error — GraphQL or network error, if any
+ * @returns refetch — manually trigger a refetch
+ * @returns hasMore — whether more channels exist beyond current page
+ * @returns fetchMore — load the next page of channels
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from './useAuth';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { MY_CHANNELS } from '@/graphql/messaging-operations';
+import type { ChannelPage } from '@/types/messaging';
+
+/** Number of channels per page. */
+const PAGE_SIZE = 30;
+
+/** IndexedDB cache key for channels. */
+const CACHE_KEY = 'messaging_channels';
+
+/** Cache TTL: 2 hours for offline fallback. */
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Fetches the paginated channel list for the current user.
+ *
+ * @param limit - Maximum channels to fetch
+ * @param offset - Pagination offset
+ * @returns ChannelPage with items and total count
+ */
+async function fetchChannels(limit: number, offset: number): Promise<ChannelPage> {
+  const result = await graphqlRequest<{ myChannels: ChannelPage }>(
+    MY_CHANNELS,
+    { limit, offset },
+  );
+
+  if (!result.myChannels?.items) {
+    throw new Error('Invalid response: no channel data');
+  }
+
+  return result.myChannels;
+}
+
+/**
+ * Channel list hook with offline-first caching and real-time updates.
+ *
+ * @param socketRef - Optional ref to a Socket.IO socket for subscribing to
+ *                    channelUpdated events. If not provided, real-time updates
+ *                    are skipped and polling is the only refresh mechanism.
+ */
+export function useChannels(socketRef?: React.RefObject<{ on: (event: string, handler: () => void) => void; off: (event: string, handler: () => void) => void } | null>) {
+  const { isAuthenticated, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+  const [offset, setOffset] = useState(0);
+
+  const queryKey = ['messaging', 'channels', tenantId, offset];
+
+  const query = useQuery({
+    queryKey,
+    queryFn: async () => {
+      try {
+        const page = await fetchChannels(PAGE_SIZE, offset);
+        // Write to IndexedDB as offline fallback (only first page)
+        if (offset === 0) {
+          await cacheData(CACHE_KEY, page, CACHE_TTL_MS).catch(() => {});
+        }
+        return page;
+      } catch (error) {
+        // Network failed — return IndexedDB cached data if available
+        if (offset === 0) {
+          const cached = await getCachedData<ChannelPage>(CACHE_KEY);
+          if (cached) return cached;
+        }
+        throw error;
+      }
+    },
+    enabled: isAuthenticated && !!tenantId,
+    staleTime: 30_000, // 30 seconds — channels change infrequently
+    gcTime: 10 * 60 * 1000, // 10 min in-memory
+    refetchOnWindowFocus: true,
+  });
+
+  // Subscribe to channelUpdated Socket.IO events for real-time refresh
+  useEffect(() => {
+    const socket = socketRef?.current;
+    if (!socket) return;
+
+    const handleChannelUpdated = () => {
+      queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+    };
+
+    socket.on('channelUpdated', handleChannelUpdated);
+    return () => {
+      socket.off('channelUpdated', handleChannelUpdated);
+    };
+  }, [socketRef, queryClient]);
+
+  const hasMore = (query.data?.total ?? 0) > offset + PAGE_SIZE;
+
+  const fetchMore = useCallback(() => {
+    if (hasMore) {
+      setOffset((prev) => prev + PAGE_SIZE);
+    }
+  }, [hasMore]);
+
+  return {
+    channels: query.data?.items ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+    hasMore,
+    fetchMore,
+  };
+}

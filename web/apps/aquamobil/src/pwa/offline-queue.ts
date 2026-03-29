@@ -104,6 +104,17 @@ function extractResourceId(type: OperationType, payload: OperationPayload): stri
   if (type === 'completeTask' || type === 'startTask') {
     return String(p['id'] || '');
   }
+  // Messaging: sendMessage dedupes by idempotencyKey, edit/delete by message id,
+  // markMessagesRead by channelId+messageId (ADR-012)
+  if (type === 'sendMessage') {
+    return String(p['idempotencyKey'] || '');
+  }
+  if (type === 'editMessage' || type === 'deleteMessage') {
+    return String(p['id'] || '');
+  }
+  if (type === 'markMessagesRead') {
+    return `${p['channelId']}:${p['messageId']}`;
+  }
   // Most farm operations identify by batchId+tankId
   if (p['batchId'] && p['tankId']) {
     return `${p['batchId']}:${p['tankId']}`;

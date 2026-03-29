@@ -1,0 +1,299 @@
+// ============================================================================
+// Messaging Type Definitions — Frontend mirrors of messaging-service GraphQL types
+// ============================================================================
+
+/**
+ * WHY: Frontend type mirrors of the backend Channel, ChannelMember, Message,
+ * MessageAttachment, MessageReceipt, and related GraphQL ObjectTypes from
+ * messaging-service. Keeping a dedicated file prevents messaging types from
+ * polluting the main types/index.ts and enables tree-shaking when the messaging
+ * feature is not yet activated for a tenant.
+ *
+ * @see ADR-012 (Messaging Service)
+ */
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+/** Channel type determines UI layout and membership rules. */
+export type ChannelType = 'direct' | 'group' | 'ai';
+
+/** Role hierarchy within a channel: OWNER > ADMIN > MEMBER. */
+export type ChannelMemberRole = 'owner' | 'admin' | 'member';
+
+/** Notification preference per-channel per-user. */
+export type NotificationPreference = 'all' | 'mentions' | 'none';
+
+/** Content type drives message rendering (text bubble, image, file card, etc.). */
+export type MessageContentType = 'text' | 'image' | 'file' | 'voice' | 'system';
+
+/** Read receipt status for delivery tracking. */
+export type ReceiptStatus = 'delivered' | 'read';
+
+/** Optimistic message status for the send pipeline. */
+export type MessageStatus = 'pending' | 'sent' | 'failed';
+
+// ============================================================================
+// ENTITIES
+// ============================================================================
+
+/**
+ * Federation-compatible user entity for message sender resolution.
+ * WHY: The messaging-service extends the auth-service User type via federation.
+ * The GraphQL response may include firstName/lastName OR displayName depending
+ * on the resolver. We support both shapes for forward compatibility.
+ */
+export interface MessageUser {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  displayName?: string | null;
+  profileImageUrl?: string | null;
+  avatarUrl?: string | null;
+  isOnline?: boolean;
+  lastSeenAt?: string | null;
+}
+
+/**
+ * Channel entity — represents a messaging channel (DIRECT, GROUP, or AI).
+ * DIRECT channels have exactly 2 members and no name.
+ */
+export interface Channel {
+  id: string;
+  type: ChannelType;
+  name: string | null;
+  description: string | null;
+  avatarUrl: string | null;
+  createdBy: string | null;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  /** Populated via field resolver — active members of this channel. */
+  members?: ChannelMember[];
+  /** Server-computed member count. */
+  memberCount?: number;
+  /** Server-side last message preview for channel list. */
+  lastMessage?: Message | null;
+  /** Server-side or client-enriched unread count. */
+  unreadCount?: number;
+}
+
+/**
+ * Channel membership with role, notification prefs, and read cursor.
+ */
+export interface ChannelMember {
+  id: string;
+  channelId: string;
+  userId: string;
+  role: ChannelMemberRole;
+  notificationPreference: NotificationPreference;
+  lastReadAt: string | null;
+  joinedAt: string;
+  leftAt: string | null;
+  /** Populated via federation — user details for member list UI. */
+  user?: MessageUser;
+}
+
+/**
+ * Message entity with composite PK (id, createdAt) for partition routing.
+ */
+export interface Message {
+  id: string;
+  channelId: string;
+  senderId: string;
+  content: string | null;
+  contentType: MessageContentType;
+  parentId: string | null;
+  forwardedFrom: string | null;
+  isDeleted: boolean;
+  createdAt: string;
+  editedAt: string | null;
+  metadata: Record<string, unknown> | null;
+  /** Populated via field resolver. */
+  sender?: MessageUser;
+  /** Populated via field resolver. */
+  attachments?: MessageAttachment[];
+  /** Populated via field resolver. */
+  receipts?: MessageReceipt[];
+  /** Aggregated reaction counts per emoji. */
+  reactionSummary?: ReactionSummary[];
+  /** Client-side optimistic status — not from the server. */
+  _status?: MessageStatus;
+  /** Client-side idempotency key — used for optimistic dedup. */
+  _idempotencyKey?: string;
+}
+
+/**
+ * File attachment stored in MinIO via presigned upload.
+ */
+export interface MessageAttachment {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  fileSize: number;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  /** Presigned thumbnail URL for images/videos. */
+  thumbnailUrl?: string | null;
+  /** Presigned download URL — resolved by field resolver on backend. */
+  downloadUrl?: string | null;
+}
+
+/**
+ * Read receipt for delivery/read tracking.
+ */
+export interface MessageReceipt {
+  userId: string;
+  status: ReceiptStatus;
+  deliveredAt: string | null;
+  readAt: string | null;
+}
+
+/**
+ * Aggregated reaction summary per emoji on a message.
+ */
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  userIds: string[];
+  hasReacted: boolean;
+}
+
+// ============================================================================
+// PAGINATED RESPONSES
+// ============================================================================
+
+/** Paginated channel list from myChannels query. */
+export interface ChannelPage {
+  items: Channel[];
+  total: number;
+}
+
+/** Cursor-paginated message list from messages query. */
+export interface MessagePage {
+  items: Message[];
+  hasMore: boolean;
+  cursor: string | null;
+}
+
+/** Media upload presigned URL response. */
+export interface MediaUploadResponse {
+  uploadUrl: string;
+  storageKey: string;
+  expiresAt: string;
+}
+
+// ============================================================================
+// SOCKET.IO EVENT PAYLOADS
+// ============================================================================
+
+/** Payload emitted on 'newMessage' socket event. */
+export interface NewMessageEvent {
+  channelId: string;
+  message: Message;
+}
+
+/** Payload emitted on 'messageUpdated' socket event. */
+export interface MessageUpdatedEvent {
+  channelId: string;
+  message: Message;
+}
+
+/** Payload emitted on 'messageDeleted' socket event. */
+export interface MessageDeletedEvent {
+  channelId: string;
+  messageId: string;
+}
+
+/** Payload emitted on 'typing' socket event. */
+export interface TypingEvent {
+  channelId: string;
+  userId: string;
+  isTyping: boolean;
+}
+
+/** Payload emitted on 'presence' socket event. */
+export interface PresenceEvent {
+  userId: string;
+  isOnline: boolean;
+  lastSeenAt: string | null;
+}
+
+/** Payload emitted on 'readReceipt' socket event. */
+export interface ReadReceiptEvent {
+  channelId: string;
+  userId: string;
+  messageId: string;
+  readAt: string;
+}
+
+// ============================================================================
+// INPUT TYPES — match ADR-012 section 6.2 GraphQL Input types
+// ============================================================================
+
+/** Input for sending a new message. */
+export interface SendMessageInput {
+  channelId: string;
+  content: string | null;
+  contentType: MessageContentType;
+  parentId?: string;
+  attachmentKeys?: string[];
+  idempotencyKey: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Input for creating a new channel. */
+export interface CreateChannelInput {
+  type: ChannelType;
+  name?: string;
+  description?: string;
+  memberIds: string[];
+}
+
+/** Input for requesting a presigned media upload URL. */
+export interface RequestMediaUploadInput {
+  channelId: string;
+  filename: string;
+  mimeType: string;
+  fileSize: number;
+}
+
+// ============================================================================
+// AGGREGATED REACTION TYPE — alias for consumers expecting MessageReaction name
+// ============================================================================
+
+/** Alias for ReactionSummary -- some consumers may use this name per ADR-012. */
+export type MessageReaction = ReactionSummary;
+
+// ============================================================================
+// SOCKET.IO EVENT ALIASES — ADR-012 naming convention
+// ============================================================================
+
+/** Socket event for a new message -- alias for NewMessageEvent. */
+export type SocketNewMessageEvent = NewMessageEvent;
+
+/** Socket event for typing indicator -- alias for TypingEvent. */
+export type SocketTypingEvent = TypingEvent;
+
+/** Socket event for presence change -- alias for PresenceEvent. */
+export type SocketPresenceEvent = PresenceEvent;
+
+// ============================================================================
+// BULK SYNC RESPONSE — ADR-012 H7 offline sync
+// ============================================================================
+
+/**
+ * Response for allMessagesSince bulk offline sync (H7).
+ * Returns messages across all channels, capped at 50 per channel within the global limit.
+ */
+export interface AllMessagesSinceResponse {
+  /** Messages across all channels. */
+  items: Message[];
+  /** True if more messages exist beyond the limit. */
+  hasMore: boolean;
+  /** Opaque token for continuation paging. Pass back as syncToken. */
+  syncToken: string | null;
+}

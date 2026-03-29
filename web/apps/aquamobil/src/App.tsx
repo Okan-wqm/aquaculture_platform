@@ -78,6 +78,23 @@ const TankDetailPage2 = lazy(() =>
   import('./pages/tank/TankDetailPage').then((m) => ({ default: m.TankDetailPage }))
 );
 
+// Messaging pages — in-app messaging (ADR-012)
+const ChannelListPage = lazy(() =>
+  import('./pages/messaging/ChannelListPage').then((m) => ({ default: m.ChannelListPage }))
+);
+const ChatRoomPage = lazy(() =>
+  import('./pages/messaging/ChatRoomPage').then((m) => ({ default: m.ChatRoomPage }))
+);
+const NewChatPage = lazy(() =>
+  import('./pages/messaging/NewChatPage').then((m) => ({ default: m.NewChatPage }))
+);
+const ChannelSettingsPage = lazy(() =>
+  import('./pages/messaging/ChannelSettingsPage').then((m) => ({ default: m.ChannelSettingsPage }))
+);
+const MediaViewerPage = lazy(() =>
+  import('./pages/messaging/MediaViewerPage').then((m) => ({ default: m.MediaViewerPage }))
+);
+
 // Operations hub sub-pages — enterprise-grade dedicated hubs per ADR-011
 const DailyOpsHubPage = lazy(() =>
   import('./pages/operations/DailyOpsHubPage').then((m) => ({ default: m.DailyOpsHubPage }))
@@ -188,6 +205,13 @@ export function App() {
                           </MultiFeatureRoute>
                         }
                       />
+
+                      {/* Messaging routes — ADR-012 */}
+                      <Route path="/messages" element={<ChannelListPage />} />
+                      <Route path="/messages/new" element={<NewChatPage />} />
+                      <Route path="/messages/:channelId" element={<ChatRoomPage />} />
+                      <Route path="/messages/:channelId/settings" element={<ChannelSettingsPage />} />
+                      <Route path="/messages/media/:attachmentId" element={<MediaViewerPage />} />
 
                       <Route path="/account" element={<AccountPage />} />
 

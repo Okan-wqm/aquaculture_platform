@@ -153,6 +153,37 @@ const MUTATIONS: Record<OperationType, string> = {
       }
     }
   `,
+  // Messaging mutations — ADR-012
+  sendMessage: `
+    mutation SendMessage($input: SendMessageInput!) {
+      sendMessage(input: $input) {
+        id
+        channelId
+        content
+        contentType
+        createdAt
+      }
+    }
+  `,
+  editMessage: `
+    mutation EditMessage($id: String!, $input: EditMessageInput!) {
+      editMessage(id: $id, input: $input) {
+        id
+        content
+        editedAt
+      }
+    }
+  `,
+  deleteMessage: `
+    mutation DeleteMessage($id: String!) {
+      deleteMessage(id: $id)
+    }
+  `,
+  markMessagesRead: `
+    mutation MarkMessagesRead($input: MarkReadInput!) {
+      markMessagesRead(input: $input)
+    }
+  `,
 };
 
 export function OfflineProvider({ children }: { children: ReactNode }) {
@@ -222,11 +253,20 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         throw new Error('Not authenticated');
       }
 
-      // Task mutations (completeTask, startTask) use { id } variable instead of { input }
-      const isIdMutation = type === 'completeTask' || type === 'startTask';
-      const variables = isIdMutation
-        ? (payload as Record<string, unknown>)
-        : { input: payload };
+      // Task mutations (completeTask, startTask) and deleteMessage use { id } variable
+      const isIdMutation = type === 'completeTask' || type === 'startTask' || type === 'deleteMessage';
+      // editMessage uses { id, input: { content } } — split payload into id + nested input
+      const isEditMessage = type === 'editMessage';
+
+      let variables: Record<string, unknown>;
+      if (isEditMessage) {
+        const { id: msgId, content, ...rest } = payload as Record<string, unknown>;
+        variables = { id: msgId, input: { content, ...rest } };
+      } else if (isIdMutation) {
+        variables = payload as Record<string, unknown>;
+      } else {
+        variables = { input: payload };
+      }
 
       const response = await fetch('/graphql', {
         method: 'POST',

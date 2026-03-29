@@ -1,13 +1,15 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 // WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
 // classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
 // These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
-import { Home, ClipboardList, CheckSquare, User, CloudOff } from 'lucide-react';
+import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useAuth } from '@/hooks/useAuth';
+import { TOTAL_UNREAD_MESSAGE_COUNT } from '@/graphql/messaging-operations';
 import { clsx } from 'clsx';
 
 interface MobileLayoutProps {
@@ -37,12 +39,45 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
   const { canAccess } = useMobilePermissions();
   const { unreadCount } = useNotifications();
+  const { accessToken, tenantId } = useAuth();
+
+  // ADR-012: Unread message count for the Messages tab badge.
+  // Polled every 30s instead of WebSocket to avoid adding a persistent connection
+  // dependency to the layout shell. Messaging pages use WebSocket for real-time.
+  const [messageUnreadCount, setMessageUnreadCount] = useState(0);
+
+  const fetchMessageUnread = useCallback(async () => {
+    if (!accessToken || !tenantId) return;
+    try {
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          'X-Tenant-Id': tenantId,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ query: TOTAL_UNREAD_MESSAGE_COUNT }),
+      });
+      if (!response.ok) return;
+      const result = await response.json() as { data?: { totalUnreadMessageCount: number } };
+      if (result.data?.totalUnreadMessageCount !== undefined) {
+        setMessageUnreadCount(result.data.totalUnreadMessageCount);
+      }
+    } catch {
+      // Silently fail — badge is non-critical and will retry on next poll
+    }
+  }, [accessToken, tenantId]);
+
+  useEffect(() => {
+    fetchMessageUnread();
+    const interval = setInterval(fetchMessageUnread, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchMessageUnread]);
 
   /**
-   * Bottom tab navigation — 4 tabs following Fitts's Law for wider touch targets.
-   * Reduced from 5 tabs to 4 based on enterprise UX review:
-   * - HR self-service merged into Operations (low-frequency for field workers)
-   * - More replaced by Account (proper profile page)
+   * Bottom tab navigation — 5 tabs: Home, Operations, Tasks, Messages, Account.
+   * Messages tab added per ADR-012 for in-app messaging (replaces WhatsApp/Telegram).
    *
    * The Operations tab uses a `childPaths` array for active-state detection
    * because its child routes (e.g., /feeding/record, /attendance) don't start
@@ -68,6 +103,10 @@ export function MobileLayout({ children }: MobileLayoutProps) {
       features: ['tasks'],
     },
     {
+      id: 'messages', icon: MessageSquare, label: 'Messages', path: '/messages',
+      activeColor: 'text-indigo-600', activeBg: 'bg-indigo-50 dark:bg-indigo-900/30',
+    },
+    {
       id: 'account', icon: User, label: 'Account', path: '/account',
       activeColor: 'text-gray-600', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
     },
@@ -91,9 +130,10 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   };
 
   // Badge count aggregation — Account tab shows combined pending sync + unread
-  // notifications so the user knows there are actionable items without navigating.
+  // notifications; Messages tab shows total unread message count from messaging service.
   const getBadge = (tabId: string): number => {
     if (tabId === 'account') return pendingCount + unreadCount;
+    if (tabId === 'messages') return messageUnreadCount;
     return 0;
   };
 

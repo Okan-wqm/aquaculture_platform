@@ -1,0 +1,16 @@
+// ============================================================================
+// Messaging Components — ADR-012
+// ============================================================================
+
+export { ChannelListItem } from './ChannelListItem';
+export { MessageBubble } from './MessageBubble';
+export { MessageInput } from './MessageInput';
+export { AttachmentPicker } from './AttachmentPicker';
+export { ImagePreview } from './ImagePreview';
+export { TypingIndicator } from './TypingIndicator';
+export { ReadReceipt } from './ReadReceipt';
+export { ChannelAvatar } from './ChannelAvatar';
+export { MessageDateSeparator } from './MessageDateSeparator';
+export { SystemMessage } from './SystemMessage';
+export { EmptyChat } from './EmptyChat';
+export { UnreadBadge } from './UnreadBadge';

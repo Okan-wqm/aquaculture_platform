@@ -1,0 +1,265 @@
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Send, Paperclip, X } from 'lucide-react';
+import { clsx } from 'clsx';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ReplyContext {
+  messageId: string;
+  senderName: string;
+  text: string;
+}
+
+interface MessageInputProps {
+  /** Callback when a text message is sent. */
+  onSend: (text: string) => void;
+  /** Callback to open the attachment picker. */
+  onAttachmentPress: () => void;
+  /** Active reply context (quoted message above input). */
+  replyTo?: ReplyContext | null;
+  /** Callback to cancel the reply. */
+  onCancelReply?: () => void;
+  /** Placeholder text. */
+  placeholder?: string;
+  /** Maximum character limit. */
+  maxLength?: number;
+  /** Whether sending is disabled (e.g. no network). */
+  disabled?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_ROWS = 5;
+const DEFAULT_MAX_LENGTH = 4000;
+const CHAR_WARNING_THRESHOLD = 3800;
+const LINE_HEIGHT_PX = 20;
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+/**
+ * MessageInput -- sticky bottom chat input bar with auto-resize, reply mode,
+ * attachment trigger, and iOS keyboard handling.
+ *
+ * WHY VisualViewport API: On iOS Safari, the software keyboard pushes the
+ * viewport up without changing `window.innerHeight`. The VisualViewport API
+ * reports the actual visible area, allowing us to position the input above
+ * the keyboard. The `resize` fallback with 100ms debounce handles older
+ * browsers that lack VisualViewport support.
+ *
+ * WHY Ctrl+Enter / Cmd+Enter: Desktop users expect keyboard shortcuts for
+ * sending. Enter alone inserts a newline (multi-line messages are common
+ * in work coordination chats).
+ */
+export function MessageInput({
+  onSend,
+  onAttachmentPress,
+  replyTo,
+  onCancelReply,
+  placeholder = 'Type a message...',
+  maxLength = DEFAULT_MAX_LENGTH,
+  disabled = false,
+}: MessageInputProps) {
+  const [text, setText] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const canSend = text.trim().length > 0 && !disabled;
+  const charCount = text.length;
+  const showCharCounter = charCount >= CHAR_WARNING_THRESHOLD;
+
+  // -----------------------------------------------------------------------
+  // Auto-resize textarea
+  // -----------------------------------------------------------------------
+  const resizeTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    const maxHeight = LINE_HEIGHT_PX * MAX_ROWS;
+    ta.style.height = `${Math.min(ta.scrollHeight, maxHeight)}px`;
+    ta.style.overflowY = ta.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [text, resizeTextarea]);
+
+  // -----------------------------------------------------------------------
+  // iOS keyboard handling via VisualViewport API
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const adjustPosition = () => {
+      if (window.visualViewport) {
+        const offset = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
+        container.style.transform = offset > 0 ? `translateY(-${offset}px)` : '';
+      }
+    };
+
+    // Primary: VisualViewport API
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', adjustPosition);
+      window.visualViewport.addEventListener('scroll', adjustPosition);
+    }
+
+    // Fallback: window resize with 100ms debounce
+    const fallbackHandler = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(adjustPosition, 100);
+    };
+    window.addEventListener('resize', fallbackHandler);
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', adjustPosition);
+        window.visualViewport.removeEventListener('scroll', adjustPosition);
+      }
+      window.removeEventListener('resize', fallbackHandler);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (container) container.style.transform = '';
+    };
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Send handler
+  // -----------------------------------------------------------------------
+  const handleSend = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed || disabled) return;
+    onSend(trimmed);
+    setText('');
+    // Reset textarea height after clearing
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    });
+  }, [text, disabled, onSend]);
+
+  // -----------------------------------------------------------------------
+  // Keyboard shortcut: Ctrl+Enter / Cmd+Enter
+  // -----------------------------------------------------------------------
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend],
+  );
+
+  // -----------------------------------------------------------------------
+  // Input change with length enforcement
+  // -----------------------------------------------------------------------
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const value = e.target.value;
+      if (value.length <= maxLength) {
+        setText(value);
+      }
+    },
+    [maxLength],
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      className="sticky bottom-0 z-30 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 pb-safe transition-transform"
+    >
+      {/* Reply preview bar */}
+      {replyTo && (
+        <div className="flex items-center gap-2 px-4 pt-2 pb-1">
+          <div className="flex-1 min-w-0 border-l-2 border-ocean-500 pl-2.5 py-1">
+            <p className="text-xs font-bold text-ocean-600 dark:text-ocean-400 truncate">
+              {replyTo.senderName}
+            </p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{replyTo.text}</p>
+          </div>
+          {onCancelReply && (
+            <button
+              onClick={onCancelReply}
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback transition-colors"
+              aria-label="Cancel reply"
+            >
+              <X size={18} className="text-gray-400" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Input row */}
+      <div className="flex items-end gap-2 px-3 py-2">
+        {/* Attachment button */}
+        <button
+          onClick={onAttachmentPress}
+          disabled={disabled}
+          className={clsx(
+            'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full touch-feedback transition-colors',
+            disabled
+              ? 'opacity-50'
+              : 'hover:bg-gray-100 dark:hover:bg-gray-800',
+          )}
+          aria-label="Add attachment"
+        >
+          <Paperclip size={22} className="text-gray-500 dark:text-gray-400" />
+        </button>
+
+        {/* Auto-resizing textarea */}
+        <div className="flex-1 relative">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            disabled={disabled}
+            rows={1}
+            className={clsx(
+              'w-full resize-none rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800',
+              'px-4 py-3 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400',
+              'focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500 transition-all',
+              disabled && 'opacity-50 cursor-not-allowed',
+            )}
+            style={{ lineHeight: `${LINE_HEIGHT_PX}px` }}
+          />
+          {/* Character counter */}
+          {showCharCounter && (
+            <span
+              className={clsx(
+                'absolute bottom-1.5 right-3 text-[10px] font-semibold tabular-nums',
+                charCount >= maxLength ? 'text-red-500' : 'text-gray-400',
+              )}
+            >
+              {charCount}/{maxLength}
+            </span>
+          )}
+        </div>
+
+        {/* Send button */}
+        <button
+          onClick={handleSend}
+          disabled={!canSend}
+          className={clsx(
+            'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
+            canSend
+              ? 'bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean'
+              : 'bg-ocean-600/50 opacity-50 cursor-not-allowed',
+          )}
+          aria-label="Send message"
+        >
+          <Send size={20} className="text-white" />
+        </button>
+      </div>
+    </div>
+  );
+}

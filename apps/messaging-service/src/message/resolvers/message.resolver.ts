@@ -175,7 +175,7 @@ export class MessageResolver {
   @Query(() => MessagePageType, { name: 'messages' })
   async getMessages(
     @Args('channelId', { type: () => ID }) channelId: string,
-    @Args('filter', { nullable: true }) filter: MessageFilterInput | undefined,
+    @Args('filter', { type: () => MessageFilterInput, nullable: true }) filter: MessageFilterInput | undefined,
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<MessagePageType> {

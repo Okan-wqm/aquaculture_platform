@@ -41,3 +41,16 @@ export interface MicroserviceOptions {
   transport?: unknown;
   options?: unknown;
 }
+
+// Decorator mocks for NATS microservice handlers
+export function MessagePattern(_pattern: string): ClassDecorator & MethodDecorator {
+  return () => undefined;
+}
+
+export function EventPattern(_pattern: string): ClassDecorator & MethodDecorator {
+  return () => undefined;
+}
+
+export function Payload(): ParameterDecorator {
+  return () => undefined;
+}

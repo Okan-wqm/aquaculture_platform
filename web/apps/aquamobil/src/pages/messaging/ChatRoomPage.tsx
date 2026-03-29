@@ -9,19 +9,15 @@ import {
   useMemo,
   useEffect,
   useRef,
-  type KeyboardEvent,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Settings,
   Send,
-  Paperclip,
   ChevronDown,
   AlertCircle,
-  X,
 } from 'lucide-react';
-import { clsx } from 'clsx';
 import { useAuth } from '@/hooks/useAuth';
 import { useMessages } from '@/hooks/useMessages';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
@@ -32,6 +28,8 @@ import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { TypingIndicator } from '@/components/messaging/TypingIndicator';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
+import { MessageInput } from '@/components/messaging/MessageInput';
+import { ForwardModal } from '@/components/messaging/ForwardModal';
 import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
 import type { Message } from '@/types/messaging';
 
@@ -82,17 +80,16 @@ export function ChatRoomPage() {
   } = useMessages(channelId, socketRef);
   const { channel, isLoading: channelLoading } = useChannelDetail(channelId);
   const { sendMessage, isSending } = useSendMessage(channelId);
-  const { startTyping, stopTyping, typingUsers } = useTypingIndicator(
+  const { stopTyping, typingUsers } = useTypingIndicator(
     channelId,
     socketRef,
     user?.id,
   );
 
-  const [inputText, setInputText] = useState('');
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const isLoadingMoreRef = useRef(false);
 
   // Join/leave channel room for socket events
@@ -119,23 +116,6 @@ export function ChatRoomPage() {
     }
   }, [messages.length]);
 
-  // Handle VisualViewport resize for iOS keyboard
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-
-    const handleResize = () => {
-      const offset = window.innerHeight - viewport.height;
-      document.documentElement.style.setProperty(
-        '--keyboard-offset',
-        `${offset}px`,
-      );
-    };
-
-    viewport.addEventListener('resize', handleResize);
-    return () => viewport.removeEventListener('resize', handleResize);
-  }, []);
-
   // Infinite scroll -- load older messages when scrolling to top
   const handleScroll = useCallback(async () => {
     const container = scrollContainerRef.current;
@@ -153,56 +133,11 @@ export function ChatRoomPage() {
     }
   }, [hasNextPage, fetchNextPage]);
 
-  // Send message handler
-  const handleSend = useCallback(async () => {
-    const text = inputText.trim();
-    if (!text) return;
-
-    setInputText('');
-    setReplyingTo(null);
-    stopTyping();
-
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-    }
-
-    await sendMessage({
-      content: text,
-      contentType: 'text',
-      parentId: replyingTo?.id,
-    });
-  }, [inputText, sendMessage, replyingTo, stopTyping]);
-
-  // Handle Enter key to send (Shift+Enter for newline)
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
-  );
-
-  // Auto-resize textarea + typing indicator
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setInputText(e.target.value);
-      startTyping();
-
-      const el = e.target;
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-    },
-    [startTyping],
-  );
-
   // Context menu actions
   const handleReply = useCallback((messageId: string) => {
     const msg = messages.find((m) => m.id === messageId);
     if (msg) {
       setReplyingTo(msg);
-      inputRef.current?.focus();
     }
   }, [messages]);
 
@@ -212,6 +147,21 @@ export function ChatRoomPage() {
       navigator.clipboard.writeText(msg.content).catch(() => {});
     }
   }, [messages]);
+
+  /** Open ForwardModal for the selected message. */
+  const handleForward = useCallback((messageId: string) => {
+    const msg = messages.find((m) => m.id === messageId);
+    if (msg) {
+      setForwardingMessage(msg);
+    }
+  }, [messages]);
+
+  /** Delete a message via sendMessage mutation (soft-delete). */
+  const handleDelete = useCallback(async (messageId: string) => {
+    // TODO: wire to deleteMessage GraphQL mutation
+    // For now this is a placeholder — the actual mutation should be
+    // called via a dedicated hook (useDeleteMessage).
+  }, []);
 
   // Compute display name and status for the header
   const displayName = useMemo(() => {
@@ -261,7 +211,7 @@ export function ChatRoomPage() {
         <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
           <button
             onClick={() => navigate('/messages')}
-            className="p-2 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+            className="min-w-[48px] min-h-[48px] p-3 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback flex items-center justify-center"
           >
             <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
           </button>
@@ -291,7 +241,7 @@ export function ChatRoomPage() {
 
           <button
             onClick={() => navigate(`/messages/${channelId}/settings`)}
-            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+            className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback flex items-center justify-center"
           >
             <Settings size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
@@ -414,6 +364,8 @@ export function ChatRoomPage() {
                       file={file}
                       onReply={handleReply}
                       onCopy={handleCopy}
+                      onForward={handleForward}
+                      onDelete={isOwn ? handleDelete : undefined}
                     />
                   );
                 })}
@@ -426,61 +378,47 @@ export function ChatRoomPage() {
         <TypingIndicator typingUsers={typingUserNames} />
       </div>
 
-      {/* Reply preview bar */}
-      {replyingTo && (
-        <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 px-4 py-2 flex items-center gap-3">
-          <div className="flex-1 border-l-2 border-ocean-500 pl-2 min-w-0">
-            <p className="text-[11px] font-semibold text-ocean-600 dark:text-ocean-400">
-              {replyingTo.sender ? getUserDisplayName(replyingTo.sender) : 'Unknown'}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-              {replyingTo.content}
-            </p>
-          </div>
-          <button
-            onClick={() => setReplyingTo(null)}
-            className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <X size={16} className="text-gray-400" />
-          </button>
-        </div>
+      {/* MessageInput component (replaces inline textarea/buttons) */}
+      <MessageInput
+        onSend={(text) => {
+          setReplyingTo(null);
+          stopTyping();
+          sendMessage({
+            content: text,
+            contentType: 'text',
+            parentId: replyingTo?.id,
+          });
+        }}
+        onAttachmentPress={() => {
+          // TODO: open native file picker or attachment sheet
+        }}
+        onVoiceRecordingComplete={(blob, durationSeconds, mimeType) => {
+          // TODO: upload voice recording and send as voice message
+        }}
+        replyTo={
+          replyingTo
+            ? {
+                messageId: replyingTo.id,
+                senderName: replyingTo.sender
+                  ? getUserDisplayName(replyingTo.sender)
+                  : 'Unknown',
+                text: replyingTo.content ?? '',
+              }
+            : null
+        }
+        onCancelReply={() => setReplyingTo(null)}
+        channelMembers={channel?.members ?? []}
+        disabled={isSending}
+      />
+
+      {/* Forward modal */}
+      {forwardingMessage && (
+        <ForwardModal
+          message={forwardingMessage}
+          onClose={() => setForwardingMessage(null)}
+          visible={!!forwardingMessage}
+        />
       )}
-
-      {/* Input bar */}
-      <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex-shrink-0 pb-safe">
-        <div className="flex items-end gap-2 px-3 py-2">
-          <button className="p-2.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback flex-shrink-0 self-end">
-            <Paperclip size={20} className="text-gray-500 dark:text-gray-400" />
-          </button>
-
-          <textarea
-            ref={inputRef}
-            value={inputText}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            rows={1}
-            className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none resize-none max-h-[120px] leading-5"
-          />
-
-          <button
-            onClick={handleSend}
-            disabled={!inputText.trim() || isSending}
-            className={clsx(
-              'w-12 h-12 rounded-full flex items-center justify-center touch-feedback flex-shrink-0 transition-all',
-              inputText.trim()
-                ? 'bg-ocean-500 text-white shadow-md shadow-ocean-500/30 active:scale-95'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500',
-            )}
-          >
-            {isSending ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-            ) : (
-              <Send size={20} />
-            )}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

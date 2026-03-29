@@ -14,6 +14,7 @@ import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { sanitizeContent, validateUrlSchemes } from '../../shared/sanitize';
 import { MentionService } from '../services/mention.service';
 import { MediaService } from '../services/media.service';
+import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 import type { MentionableMember } from '../dto/mention.types';
 
 /** Redis idempotency key TTL: 7 days */
@@ -45,6 +46,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     private readonly redis: Redis,
     private readonly mentionService: MentionService,
     private readonly mediaService: MediaService,
+    private readonly metricsService: MessagingMetricsService,
   ) {}
 
   async execute(command: SendMessageCommand): Promise<Message> {
@@ -206,6 +208,9 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
 
     // ── 5. Set idempotency key in Redis (after successful transaction) ─
     await this.safeRedisSetEx(idemKey, IDEMPOTENCY_TTL_SECONDS, createdMessage.id);
+
+    // ── 6. Record Prometheus metric ──────────────────────────────────────
+    this.metricsService.incrementMessages(tenantId, contentType, 'unknown');
 
     this.logger.debug(
       `Message created: id=${createdMessage.id}, channel=${channelId}, sender=${senderId}`,

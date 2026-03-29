@@ -44,35 +44,33 @@ export class MessageService {
   }
 
   /**
+   * Build the Redis HASH key for a user's per-channel unread counts.
+   * Pattern: `msg:{tenantId}:unread:{userId}`
+   * Fields within the hash are channelId -> count.
+   */
+  private unreadHashKey(tenantId: string, userId: string): string {
+    return `msg:${tenantId}:unread:${userId}`;
+  }
+
+  /**
    * Get the total unread message count for a user across all channels.
-   * Aggregates per-channel unread counts stored in Redis.
+   * Uses a Redis HASH (O(N) on fields, not O(N) on the full keyspace).
    * Falls back to database count if Redis is unavailable.
    */
   async getUnreadCount(userId: string, tenantId: string): Promise<number> {
     try {
-      const pattern = `unread:${tenantId}:${userId}:*`;
-      const keys = await this.redis.keys(pattern);
+      const hashKey = this.unreadHashKey(tenantId, userId);
+      const allCounts = await this.redis.hgetall(hashKey);
 
-      if (keys.length === 0) {
-        // Fall back to DB-based count
+      const entries = Object.values(allCounts);
+      if (entries.length === 0) {
         return this.getUnreadCountFromDb(userId);
       }
 
-      const pipeline = this.redis.pipeline();
-      for (const key of keys) {
-        pipeline.get(key);
-      }
-      const results = await pipeline.exec();
-
       let total = 0;
-      if (results) {
-        for (const [err, value] of results) {
-          if (!err && value) {
-            total += parseInt(value as string, 10) || 0;
-          }
-        }
+      for (const value of entries) {
+        total += parseInt(value, 10) || 0;
       }
-
       return total;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -83,6 +81,7 @@ export class MessageService {
 
   /**
    * Increment unread count for all members of a channel except the sender.
+   * Uses HINCRBY on a per-user HASH, avoiding O(N) KEYS scans.
    * Called after a message is sent.
    */
   async incrementUnreadForChannelMembers(
@@ -99,8 +98,8 @@ export class MessageService {
       const pipeline = this.redis.pipeline();
       for (const member of members) {
         if (member.userId !== senderId) {
-          const key = `unread:${tenantId}:${member.userId}:${channelId}`;
-          pipeline.incr(key);
+          const hashKey = this.unreadHashKey(tenantId, member.userId);
+          pipeline.hincrby(hashKey, channelId, 1);
         }
       }
       await pipeline.exec();
@@ -111,7 +110,8 @@ export class MessageService {
   }
 
   /**
-   * Decrement unread count for a specific user in a channel.
+   * Clear unread count for a specific user in a channel.
+   * Uses HDEL on the per-user HASH (removes the channelId field entirely).
    */
   async decrementUnread(
     userId: string,
@@ -119,11 +119,8 @@ export class MessageService {
     tenantId: string,
   ): Promise<void> {
     try {
-      const key = `unread:${tenantId}:${userId}:${channelId}`;
-      const current = await this.redis.get(key);
-      if (current && parseInt(current, 10) > 0) {
-        await this.redis.decr(key);
-      }
+      const hashKey = this.unreadHashKey(tenantId, userId);
+      await this.redis.hdel(hashKey, channelId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Redis decrementUnread failed: ${message}`);

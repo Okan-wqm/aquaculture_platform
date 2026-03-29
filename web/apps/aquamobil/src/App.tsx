@@ -94,6 +94,9 @@ const ChannelSettingsPage = lazy(() =>
 const MediaViewerPage = lazy(() =>
   import('./pages/messaging/MediaViewerPage').then((m) => ({ default: m.MediaViewerPage }))
 );
+const AiChatPage = lazy(() =>
+  import('./pages/messaging/AiChatPage').then((m) => ({ default: m.AiChatPage }))
+);
 
 // Operations hub sub-pages — enterprise-grade dedicated hubs per ADR-011
 const DailyOpsHubPage = lazy(() =>
@@ -209,6 +212,7 @@ export function App() {
                       {/* Messaging routes — ADR-012 */}
                       <Route path="/messages" element={<ChannelListPage />} />
                       <Route path="/messages/new" element={<NewChatPage />} />
+                      <Route path="/messages/ai/:channelId" element={<AiChatPage />} />
                       <Route path="/messages/:channelId" element={<ChatRoomPage />} />
                       <Route path="/messages/:channelId/settings" element={<ChannelSettingsPage />} />
                       <Route path="/messages/media/:attachmentId" element={<MediaViewerPage />} />

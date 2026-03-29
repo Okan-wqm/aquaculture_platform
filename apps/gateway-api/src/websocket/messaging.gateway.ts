@@ -12,6 +12,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { createClient, type RedisClientType } from 'redis';
 
 // Types
 
@@ -105,7 +107,34 @@ export class MessagingGateway
     this.isProduction = process.env['NODE_ENV'] === 'production';
   }
 
-  afterInit(): void {
+  /**
+   * Wire up the Socket.IO Redis adapter for horizontal scaling.
+   * When multiple gateway instances run behind a load balancer,
+   * the adapter ensures events are broadcast to all connected clients
+   * regardless of which instance they are connected to.
+   */
+  afterInit(server: Server): void {
+    const redisUrl = this.configService?.get<string>('REDIS_URL') ?? process.env['REDIS_URL'];
+    if (redisUrl) {
+      const pubClient = createClient({ url: redisUrl }) as RedisClientType;
+      const subClient = pubClient.duplicate() as RedisClientType;
+
+      Promise.all([pubClient.connect(), subClient.connect()])
+        .then(() => {
+          server.adapter(createAdapter(pubClient, subClient));
+          this.logger.log('Socket.IO Redis adapter initialized for horizontal scaling');
+        })
+        .catch((err: Error) => {
+          this.logger.warn(
+            `Socket.IO Redis adapter failed to connect (falling back to in-memory): ${err.message}`,
+          );
+        });
+    } else {
+      this.logger.warn(
+        'REDIS_URL not configured — Socket.IO running with in-memory adapter (single-instance only)',
+      );
+    }
+
     this.logger.log('Messaging WebSocket Gateway initialized');
   }
 

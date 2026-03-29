@@ -73,6 +73,18 @@ export class DataExportService {
     userId: string,
   ): Promise<ExportJobResult> {
     const jobId = crypto.randomUUID();
+
+    // Set tenant schema for cross-service / cron contexts
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    try {
+      await qr.query(
+        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
+      );
+    } finally {
+      await qr.release();
+    }
+
     const isUnderHold = await this.legalHoldService.isUnderLegalHold(
       tenantId,
       channelId,
@@ -134,13 +146,24 @@ export class DataExportService {
     userId: string,
   ): Promise<ExportJobResult> {
     const jobId = crypto.randomUUID();
+
+    // Set tenant schema for cross-service / cron contexts
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    try {
+      await qr.query(
+        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
+      );
+    } finally {
+      await qr.release();
+    }
+
     const isUnderHold = await this.legalHoldService.isUnderLegalHold(
       tenantId,
       null,
     );
 
-    // Fetch all messages for the tenant via raw SQL
-    // (messages don't have a direct tenantId — we use the tenant schema context)
+    // Fetch all messages for the tenant using the tenant schema set above
     const messages = await this.messageRepo.find({
       relations: ['attachments'],
       order: { createdAt: 'ASC' },

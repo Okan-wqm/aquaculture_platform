@@ -416,7 +416,7 @@ export class MessageResolver {
     }
 
     const membership = await this.channelMemberRepo.findOne({
-      where: { channelId: message.channelId, userId: user.sub },
+      where: { channelId: message.channelId, userId: user.sub, leftAt: IsNull() },
     });
 
     return this.commandBus.execute(

@@ -174,6 +174,11 @@ export class RetentionPolicyService {
     await qr.startTransaction();
 
     try {
+      // Set tenant schema before any DB operation (cron job has no HTTP context)
+      await qr.query(
+        `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
+      );
+
       // Delete attachments for expired messages first
       const deleteAttachmentsQuery = channelId
         ? `DELETE FROM message_attachments att

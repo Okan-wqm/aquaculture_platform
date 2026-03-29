@@ -1,7 +1,7 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { ToggleLegalHoldCommand } from './toggle-legal-hold.command';
 import { LegalHold } from '../entities/legal-hold.entity';
@@ -16,6 +16,9 @@ import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
  * Activates or releases a legal hold, logs to compliance audit,
  * and publishes a LegalHoldToggled outbox event.
  *
+ * All three operations (hold + audit + outbox) execute inside a single
+ * database transaction for atomicity.
+ *
  * @see ADR-012 Phase 3 (Legal Hold Support)
  */
 @CommandHandler(ToggleLegalHoldCommand)
@@ -27,72 +30,75 @@ export class ToggleLegalHoldHandler
   constructor(
     private readonly legalHoldService: LegalHoldService,
     private readonly auditService: ComplianceAuditService,
-    @InjectRepository(MessagingOutbox)
-    private readonly outboxRepo: Repository<MessagingOutbox>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: ToggleLegalHoldCommand): Promise<LegalHold> {
     const { tenantId, userId, activate, holdId, channelId, reason } = command;
 
-    let hold: LegalHold;
-
-    if (activate) {
-      if (!reason || reason.trim().length === 0) {
-        throw new BadRequestException('A reason is required to activate a legal hold');
-      }
-
-      hold = await this.legalHoldService.activate(
-        tenantId,
-        channelId,
-        reason,
-        userId,
-      );
-
-      this.logger.log(
-        `Legal hold activated: id=${hold.id}, tenant=${tenantId}, channel=${channelId ?? 'all'}`,
-      );
-    } else {
-      if (!holdId) {
-        throw new BadRequestException('holdId is required to release a legal hold');
-      }
-
-      hold = await this.legalHoldService.release(holdId, userId);
-
-      this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
+    // Validate before entering transaction
+    if (activate && (!reason || reason.trim().length === 0)) {
+      throw new BadRequestException('A reason is required to activate a legal hold');
+    }
+    if (!activate && !holdId) {
+      throw new BadRequestException('holdId is required to release a legal hold');
     }
 
-    // Log to compliance audit
-    await this.auditService.log({
-      tenantId,
-      userId,
-      action: ComplianceAction.LEGAL_HOLD_TOGGLE,
-      resourceType: 'legal_hold',
-      resourceId: hold.id,
-      details: {
-        activate,
-        channelId: hold.channelId,
-        reason: hold.reason,
-        holdId: hold.id,
-      },
-      ipAddress: null,
-      userAgent: null,
-    });
+    // Wrap hold + audit + outbox in a single transaction
+    return this.dataSource.transaction(async (manager) => {
+      let hold: LegalHold;
 
-    // Publish outbox event
-    const outboxEvent = this.outboxRepo.create({
-      eventType: 'LegalHoldToggled',
-      payload: {
+      if (activate) {
+        hold = await this.legalHoldService.activate(
+          tenantId,
+          channelId,
+          reason!,
+          userId,
+        );
+
+        this.logger.log(
+          `Legal hold activated: id=${hold.id}, tenant=${tenantId}, channel=${channelId ?? 'all'}`,
+        );
+      } else {
+        hold = await this.legalHoldService.release(holdId!, userId);
+
+        this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
+      }
+
+      // Log to compliance audit within the transaction
+      await this.auditService.log({
         tenantId,
-        holdId: hold.id,
-        channelId: hold.channelId,
-        activate,
-        reason: hold.reason,
-        toggledBy: userId,
-        toggledAt: new Date().toISOString(),
-      },
-    });
-    await this.outboxRepo.save(outboxEvent);
+        userId,
+        action: ComplianceAction.LEGAL_HOLD_TOGGLE,
+        resourceType: 'legal_hold',
+        resourceId: hold.id,
+        details: {
+          activate,
+          channelId: hold.channelId,
+          reason: hold.reason,
+          holdId: hold.id,
+        },
+        ipAddress: null,
+        userAgent: null,
+      });
 
-    return hold;
+      // Publish outbox event within the transaction
+      const outboxEvent = manager.create(MessagingOutbox, {
+        eventType: 'LegalHoldToggled',
+        payload: {
+          tenantId,
+          holdId: hold.id,
+          channelId: hold.channelId,
+          activate,
+          reason: hold.reason,
+          toggledBy: userId,
+          toggledAt: new Date().toISOString(),
+        },
+      });
+      await manager.save(MessagingOutbox, outboxEvent);
+
+      return hold;
+    });
   }
 }

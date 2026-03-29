@@ -253,7 +253,7 @@ export function ChannelListPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleCloseSearch}
-                className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+                className="min-w-[48px] min-h-[48px] p-3 -ml-2 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
               >
                 <X size={22} />
               </button>
@@ -274,7 +274,7 @@ export function ChannelListPage() {
               </div>
               <button
                 onClick={handleOpenSearch}
-                className="p-2.5 rounded-xl hover:bg-white/10 touch-feedback"
+                className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
               >
                 <Search size={20} />
               </button>

@@ -32,6 +32,36 @@ interface ExportedMessage {
   }>;
 }
 
+/** Channel membership record for GDPR export. */
+interface ExportedMembership {
+  channelId: string;
+  role: string;
+  joinedAt: Date;
+  leftAt: Date | null;
+}
+
+/** Read receipt record for GDPR export. */
+interface ExportedReceipt {
+  channelId: string;
+  messageId: string;
+  readAt: Date;
+}
+
+/** Reaction record for GDPR export. */
+interface ExportedReaction {
+  messageId: string;
+  emoji: string;
+  createdAt: Date;
+}
+
+/** Full GDPR data export result. */
+interface GdprExportResult {
+  messages: ExportedMessage[];
+  channelMemberships: ExportedMembership[];
+  readReceipts: ExportedReceipt[];
+  reactions: ExportedReaction[];
+}
+
 interface VerifyPasswordPayload {
   userId: string;
   password: string;
@@ -70,10 +100,21 @@ export class GdprService {
    *
    * Rate-limited to 1 request per 24 hours per user via Redis.
    */
+  /**
+   * Export all user data in the messaging domain as a JSON-serializable structure.
+   *
+   * Includes:
+   * - Messages (content, timestamps, channel, content type, attachment metadata)
+   * - Channel memberships (role, join/leave dates)
+   * - Read receipts
+   * - Reactions
+   *
+   * Rate-limited to 1 request per 24 hours per user via Redis.
+   */
   async exportMyMessages(
     userId: string,
     tenantId: string,
-  ): Promise<ExportedMessage[]> {
+  ): Promise<GdprExportResult> {
     // Rate-limit check
     const rateLimitKey = `msg:${tenantId}:gdpr:export:${userId}`;
     try {
@@ -88,13 +129,14 @@ export class GdprService {
       this.logger.warn(`Redis rate-limit check failed, allowing export: ${(err as Error).message}`);
     }
 
+    // 1. Export messages
     const messages = await this.messageRepo.find({
       where: { senderId: userId, isDeleted: false },
       relations: ['attachments'],
       order: { createdAt: 'ASC' },
     });
 
-    const exported: ExportedMessage[] = messages.map((msg) => ({
+    const exportedMessages: ExportedMessage[] = messages.map((msg) => ({
       content: msg.content,
       createdAt: msg.createdAt,
       channelId: msg.channelId,
@@ -106,6 +148,24 @@ export class GdprService {
       })),
     }));
 
+    // 2. Export channel memberships
+    const memberships: ExportedMembership[] = await this.dataSource.query(
+      `SELECT "channelId", role, "joinedAt", "leftAt" FROM channel_members WHERE "userId" = $1 ORDER BY "joinedAt" ASC`,
+      [userId],
+    );
+
+    // 3. Export read receipts
+    const receipts: ExportedReceipt[] = await this.dataSource.query(
+      `SELECT "channelId", "messageId", "readAt" FROM message_receipts WHERE "userId" = $1 ORDER BY "readAt" ASC`,
+      [userId],
+    );
+
+    // 4. Export reactions
+    const reactions: ExportedReaction[] = await this.dataSource.query(
+      `SELECT "messageId", emoji, "createdAt" FROM message_reactions WHERE "userId" = $1 ORDER BY "createdAt" ASC`,
+      [userId],
+    );
+
     // Set rate-limit key after successful export
     try {
       await this.redis.set(rateLimitKey, '1', 'EX', EXPORT_COOLDOWN_SECONDS);
@@ -114,10 +174,15 @@ export class GdprService {
     }
 
     this.logger.log(
-      `GDPR export completed for user ${userId}: ${exported.length} messages`,
+      `GDPR export completed for user ${userId}: ${exportedMessages.length} messages, ${memberships.length} memberships, ${receipts.length} receipts, ${reactions.length} reactions`,
     );
 
-    return exported;
+    return {
+      messages: exportedMessages,
+      channelMemberships: memberships,
+      readReceipts: receipts,
+      reactions,
+    };
   }
 
   /**
@@ -159,49 +224,76 @@ export class GdprService {
     await queryRunner.startTransaction();
 
     try {
-      // 1. Anonymise all messages
+      // IMPORTANT: Capture message IDs BEFORE anonymising senderId,
+      // so we can delete attachments correctly.
+      const userMessages: Array<{ id: string; createdAt: Date }> = await queryRunner.query(
+        `SELECT id, "createdAt" FROM messages WHERE "senderId" = $1`,
+        [userId],
+      );
+      const messageIds = userMessages.map((m) => m.id);
+
+      // 1. Delete all message_attachments for user's messages (before anonymising sender)
+      if (messageIds.length > 0) {
+        await queryRunner.query(
+          `DELETE FROM message_attachments
+           WHERE "messageId" = ANY($1::uuid[])`,
+          [messageIds],
+        );
+      }
+
+      // 2. Anonymise all messages (sender set to nil UUID, content replaced)
       await queryRunner.query(
         `UPDATE messages
          SET "senderId" = $1,
-             content = '[message deleted by user]'
+             content = '[message deleted by user]',
+             embedding = NULL
          WHERE "senderId" = $2`,
         [ANONYMOUS_USER_ID, userId],
       );
 
-      // 2. Delete all message_attachments for user's messages
-      // (binary MinIO cleanup would be handled by a separate async process)
+      // 3. Delete pinned_messages referencing user's messages
+      if (messageIds.length > 0) {
+        await queryRunner.query(
+          `DELETE FROM pinned_messages WHERE "messageId" = ANY($1::uuid[])`,
+          [messageIds],
+        );
+      }
+
+      // 4. Delete message_analysis for user's messages
+      if (messageIds.length > 0) {
+        await queryRunner.query(
+          `DELETE FROM message_analysis WHERE "messageId" = ANY($1::uuid[])`,
+          [messageIds],
+        );
+      }
+
+      // 5. Delete message_entity_references for user's messages
+      if (messageIds.length > 0) {
+        await queryRunner.query(
+          `DELETE FROM message_entity_references WHERE "messageId" = ANY($1::uuid[])`,
+          [messageIds],
+        );
+      }
+
+      // 6. Delete knowledge_entries authored by the user
       await queryRunner.query(
-        `DELETE FROM message_attachments
-         WHERE "messageId" IN (
-           SELECT id FROM messages WHERE "senderId" = $1
-         )`,
-        [ANONYMOUS_USER_ID], // after step 1, senderId is already anonymised
+        `DELETE FROM knowledge_entries WHERE "authorId" = $1`,
+        [userId],
       );
 
-      // Also delete attachments from the user's original messages
-      // (captured before anonymisation via a subquery on the outbox record)
-      await queryRunner.query(
-        `DELETE FROM message_attachments att
-         USING messages m
-         WHERE att."messageId" = m.id
-           AND att."messageCreatedAt" = m."createdAt"
-           AND m."senderId" = $1`,
-        [ANONYMOUS_USER_ID],
-      );
-
-      // 3. Delete all message_receipts for user
+      // 7. Delete all message_receipts for user
       await queryRunner.query(
         `DELETE FROM message_receipts WHERE "userId" = $1`,
         [userId],
       );
 
-      // 4. Delete all message_reactions for user
+      // 8. Delete all message_reactions for user
       await queryRunner.query(
         `DELETE FROM message_reactions WHERE "userId" = $1`,
         [userId],
       );
 
-      // 5. Mark all channel memberships as left
+      // 9. Mark all channel memberships as left
       await queryRunner.query(
         `UPDATE channel_members
          SET "leftAt" = NOW()
@@ -209,7 +301,7 @@ export class GdprService {
         [userId],
       );
 
-      // 6. Log to outbox for event publication
+      // 10. Log to outbox for event publication
       await queryRunner.query(
         `INSERT INTO messaging_outbox ("eventType", payload, "createdAt")
          VALUES ($1, $2, NOW())`,

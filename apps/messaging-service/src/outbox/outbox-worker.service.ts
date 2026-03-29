@@ -5,6 +5,7 @@ import { Repository, IsNull, LessThan } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import { MessagingOutbox } from './messaging-outbox.entity';
+import { MessagingMetricsService } from '../metrics/messaging-metrics.service';
 
 /** Maximum number of outbox events processed per poll cycle. */
 const BATCH_SIZE = 100;
@@ -33,6 +34,7 @@ export class OutboxWorkerService implements OnModuleInit {
     private readonly outboxRepo: Repository<MessagingOutbox>,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
+    private readonly metricsService: MessagingMetricsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -49,21 +51,22 @@ export class OutboxWorkerService implements OnModuleInit {
     this.processing = true;
 
     try {
-      const events = await this.outboxRepo.find({
-        where: { publishedAt: IsNull() },
-        order: { createdAt: 'ASC' },
-        take: BATCH_SIZE,
-      });
+      // Exclude dead-lettered events (retryCount >= MAX_RETRIES) from polling.
+      // They remain in the DB for inspection but are never re-processed.
+      const events = await this.outboxRepo
+        .createQueryBuilder('outbox')
+        .where('outbox."publishedAt" IS NULL')
+        .andWhere('outbox."retryCount" < :maxRetries', { maxRetries: MAX_RETRIES })
+        .orderBy('outbox."createdAt"', 'ASC')
+        .take(BATCH_SIZE)
+        .getMany();
 
       if (events.length === 0) return;
 
+      // Update the outbox-pending gauge for Prometheus
+      this.metricsService.setOutboxPending(events.length);
+
       for (const event of events) {
-        if (event.retryCount >= MAX_RETRIES) {
-          this.logger.error(
-            `Dead-lettering outbox event ${event.id} (type=${event.eventType}) after ${MAX_RETRIES} retries`,
-          );
-          continue;
-        }
 
         try {
           await firstValueFrom(

@@ -93,9 +93,11 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     if (!this.connection) return;
 
     for (const subject of MESSAGING_SUBJECTS) {
-      const sub = this.connection.subscribe(subject);
+      // Use a queue group so that when multiple gateway instances run,
+      // each NATS message is delivered to exactly one instance (load-balanced).
+      const sub = this.connection.subscribe(subject, { queue: 'gateway-messaging' });
       this.subscriptions.push(sub);
-      this.logger.log(`Subscribed to ${subject}`);
+      this.logger.log(`Subscribed to ${subject} (queue: gateway-messaging)`);
 
       (async () => {
         for await (const msg of sub) {

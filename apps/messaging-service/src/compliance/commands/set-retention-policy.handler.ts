@@ -1,13 +1,14 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { SetRetentionPolicyCommand } from './set-retention-policy.command';
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { RetentionPolicyService } from '../services/retention-policy.service';
 import { ComplianceAuditService } from '../services/compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
+import { ComplianceAuditLog } from '../entities/compliance-audit-log.entity';
 import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 
 /** Allowed retention values in days. */
@@ -18,6 +19,9 @@ const ALLOWED_RETENTION_DAYS = [90, 365, 1095, -1];
  *
  * Validates retention days, creates/updates the policy, logs to compliance
  * audit, and publishes a RetentionPolicyChanged outbox event.
+ *
+ * All three operations (policy + audit + outbox) execute inside a single
+ * database transaction for atomicity.
  *
  * @see ADR-012 Phase 3 (Retention Policies)
  */
@@ -30,8 +34,8 @@ export class SetRetentionPolicyHandler
   constructor(
     private readonly retentionService: RetentionPolicyService,
     private readonly auditService: ComplianceAuditService,
-    @InjectRepository(MessagingOutbox)
-    private readonly outboxRepo: Repository<MessagingOutbox>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(command: SetRetentionPolicyCommand): Promise<RetentionPolicy> {
@@ -44,44 +48,47 @@ export class SetRetentionPolicyHandler
       );
     }
 
-    // Create or update the policy
-    const policy = await this.retentionService.setPolicy(
-      tenantId,
-      channelId,
-      retentionDays,
-      userId,
-    );
-
-    // Log to compliance audit
-    await this.auditService.log({
-      tenantId,
-      userId,
-      action: ComplianceAction.RETENTION_SET,
-      resourceType: channelId ? 'channel' : 'tenant',
-      resourceId: channelId ?? tenantId,
-      details: { retentionDays, policyId: policy.id },
-      ipAddress: null,
-      userAgent: null,
-    });
-
-    // Publish outbox event
-    const outboxEvent = this.outboxRepo.create({
-      eventType: 'RetentionPolicyChanged',
-      payload: {
+    // Wrap policy + audit + outbox in a single transaction
+    return this.dataSource.transaction(async (manager) => {
+      // Create or update the policy
+      const policy = await this.retentionService.setPolicy(
         tenantId,
         channelId,
         retentionDays,
-        policyId: policy.id,
-        changedBy: userId,
-        changedAt: new Date().toISOString(),
-      },
+        userId,
+      );
+
+      // Log to compliance audit within the transaction
+      await this.auditService.log({
+        tenantId,
+        userId,
+        action: ComplianceAction.RETENTION_SET,
+        resourceType: channelId ? 'channel' : 'tenant',
+        resourceId: channelId ?? tenantId,
+        details: { retentionDays, policyId: policy.id },
+        ipAddress: null,
+        userAgent: null,
+      });
+
+      // Publish outbox event within the transaction
+      const outboxEvent = manager.create(MessagingOutbox, {
+        eventType: 'RetentionPolicyChanged',
+        payload: {
+          tenantId,
+          channelId,
+          retentionDays,
+          policyId: policy.id,
+          changedBy: userId,
+          changedAt: new Date().toISOString(),
+        },
+      });
+      await manager.save(MessagingOutbox, outboxEvent);
+
+      this.logger.log(
+        `Retention policy set: ${retentionDays} days for tenant=${tenantId}, channel=${channelId ?? 'all'}`,
+      );
+
+      return policy;
     });
-    await this.outboxRepo.save(outboxEvent);
-
-    this.logger.log(
-      `Retention policy set: ${retentionDays} days for tenant=${tenantId}, channel=${channelId ?? 'all'}`,
-    );
-
-    return policy;
   }
 }

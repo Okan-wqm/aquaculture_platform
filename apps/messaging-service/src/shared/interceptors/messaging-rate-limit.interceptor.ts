@@ -14,6 +14,7 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { Observable } from 'rxjs';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis.provider';
+import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 
 /**
  * Supported rate-limited action types and their default limits.
@@ -65,6 +66,7 @@ export class MessagingRateLimitInterceptor implements NestInterceptor {
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly reflector: Reflector,
+    private readonly metricsService: MessagingMetricsService,
   ) {}
 
   async intercept(
@@ -96,6 +98,7 @@ export class MessagingRateLimitInterceptor implements NestInterceptor {
     try {
       const allowed = await this.checkSlidingWindow(tenantId, action, userId, rule);
       if (!allowed) {
+        this.metricsService.incrementRateLimitHits(action);
         throw new HttpException(
           {
             statusCode: HttpStatus.TOO_MANY_REQUESTS,

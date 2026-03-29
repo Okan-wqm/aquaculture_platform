@@ -8,7 +8,33 @@
  *
  * All functions return raw SQL strings. The caller is responsible for
  * executing them via QueryRunner or DataSource.query().
+ *
+ * SECURITY: All schema and table names are validated with assertSafeSqlIdentifier()
+ * to prevent SQL injection via string interpolation.
  */
+
+/**
+ * Regex for valid PostgreSQL identifiers: starts with letter or underscore,
+ * followed by letters, digits, or underscores.
+ */
+const SAFE_IDENTIFIER_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * Validate that a string is a safe SQL identifier.
+ * Rejects any name that does not match the safe identifier pattern,
+ * preventing SQL injection through schema/table name interpolation.
+ *
+ * @param name - The identifier to validate
+ * @param label - Human-readable label for error messages (e.g., 'schema', 'tableName')
+ * @throws Error if the identifier is not safe
+ */
+function assertSafeSqlIdentifier(name: string, label: string): void {
+  if (!SAFE_IDENTIFIER_RE.test(name)) {
+    throw new Error(
+      `Invalid ${label} "${name}": must match ${SAFE_IDENTIFIER_RE.toString()}`,
+    );
+  }
+}
 
 /**
  * Generates a SQL statement to create a monthly partition for a given table.
@@ -30,6 +56,8 @@ export function createMonthlyPartition(
   year: number,
   month: number,
 ): string {
+  assertSafeSqlIdentifier(schema, 'schema');
+  assertSafeSqlIdentifier(tableName, 'tableName');
   const paddedMonth = String(month).padStart(2, '0');
   const partitionSuffix = `${year}_${paddedMonth}`;
 
@@ -72,6 +100,8 @@ export function dropPartition(
   year: number,
   month: number,
 ): string {
+  assertSafeSqlIdentifier(schema, 'schema');
+  assertSafeSqlIdentifier(tableName, 'tableName');
   const paddedMonth = String(month).padStart(2, '0');
   const partitionSuffix = `${year}_${paddedMonth}`;
 
@@ -92,6 +122,7 @@ export function dropPartition(
  * @returns SQL SELECT query
  */
 export function listPartitions(tableName: string): string {
+  assertSafeSqlIdentifier(tableName, 'tableName');
   return [
     `SELECT`,
     `  child.relname AS partition_name,`,
@@ -121,6 +152,8 @@ export function verifyPartitionExists(
   year: number,
   month: number,
 ): string {
+  assertSafeSqlIdentifier(schema, 'schema');
+  assertSafeSqlIdentifier(tableName, 'tableName');
   const paddedMonth = String(month).padStart(2, '0');
   const partitionSuffix = `${year}_${paddedMonth}`;
 
@@ -151,6 +184,8 @@ export function createYearPartitions(
   tableName: string,
   year: number,
 ): string[] {
+  assertSafeSqlIdentifier(schema, 'schema');
+  assertSafeSqlIdentifier(tableName, 'tableName');
   const statements: string[] = [];
   for (let month = 1; month <= 12; month++) {
     statements.push(createMonthlyPartition(schema, tableName, year, month));
@@ -178,6 +213,8 @@ export function createUpcomingPartitions(
   startMonth: number,
   count: number,
 ): string[] {
+  assertSafeSqlIdentifier(schema, 'schema');
+  assertSafeSqlIdentifier(tableName, 'tableName');
   const statements: string[] = [];
   let year = startYear;
   let month = startMonth;

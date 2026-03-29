@@ -13,6 +13,7 @@ import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
 import { ChannelService } from '../services/channel.service';
 import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
+import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 
 /** Platform roles that are allowed to create GROUP channels */
 const GROUP_ALLOWED_ROLES = new Set([
@@ -31,6 +32,7 @@ export class CreateChannelHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly channelService: ChannelService,
+    private readonly metricsService: MessagingMetricsService,
   ) {}
 
   /**
@@ -99,11 +101,15 @@ export class CreateChannelHandler
       }
 
       // Create DM inside transaction
-      return this.createDirectChannel(tenantId, userId, peerIds, dmPairKey);
+      const dmChannel = await this.createDirectChannel(tenantId, userId, peerIds, dmPairKey);
+      this.metricsService.incrementChannelsCreated(tenantId, ChannelType.DIRECT);
+      return dmChannel;
     }
 
     // GROUP or AI
-    return this.createGroupOrAiChannel(tenantId, userId, input);
+    const channel = await this.createGroupOrAiChannel(tenantId, userId, input);
+    this.metricsService.incrementChannelsCreated(tenantId, input.type);
+    return channel;
   }
 
   // -------------------------------------------------------------------

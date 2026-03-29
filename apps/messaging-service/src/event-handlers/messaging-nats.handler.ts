@@ -56,6 +56,9 @@ interface MessageBatchDto {
  * Exposes request–reply endpoints consumed by notification-service and
  * ai-service, and reacts to domain events such as user deletion and
  * tenant provisioning.
+ *
+ * Every handler sets the PostgreSQL search_path to the tenant schema
+ * before executing queries, ensuring tenant-isolated data access.
  */
 @Controller()
 export class MessagingNatsHandler {
@@ -72,6 +75,20 @@ export class MessagingNatsHandler {
   ) {}
 
   /**
+   * Set the PostgreSQL search_path to the tenant schema for a query runner.
+   * Must be called before any tenant-scoped DB operation in NATS handlers,
+   * because there is no HTTP middleware to set the schema automatically.
+   */
+  private async setTenantSchema(
+    queryRunner: import('typeorm').QueryRunner,
+    tenantId: string,
+  ): Promise<void> {
+    await queryRunner.query(
+      `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
+    );
+  }
+
+  /**
    * Verify that a user is an active member of a channel.
    * Used by the WebSocket gateway for join-room authorisation.
    */
@@ -79,14 +96,21 @@ export class MessagingNatsHandler {
   async verifyMembership(
     @Payload() data: VerifyMembershipPayload,
   ): Promise<boolean> {
-    const member = await this.memberRepo.findOne({
-      where: {
-        channelId: data.channelId,
-        userId: data.userId,
-        leftAt: IsNull(),
-      },
-    });
-    return !!member;
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    try {
+      await this.setTenantSchema(queryRunner, data.tenantId);
+      const member = await queryRunner.manager.findOne(ChannelMember, {
+        where: {
+          channelId: data.channelId,
+          userId: data.userId,
+          leftAt: IsNull(),
+        },
+      });
+      return !!member;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -97,18 +121,25 @@ export class MessagingNatsHandler {
   async getChannelMembers(
     @Payload() data: GetChannelMembersPayload,
   ): Promise<ChannelMemberDto[]> {
-    const members = await this.memberRepo.find({
-      where: {
-        channelId: data.channelId,
-        leftAt: IsNull(),
-      },
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    try {
+      await this.setTenantSchema(queryRunner, data.tenantId);
+      const members = await queryRunner.manager.find(ChannelMember, {
+        where: {
+          channelId: data.channelId,
+          leftAt: IsNull(),
+        },
+      });
 
-    return members.map((m) => ({
-      userId: m.userId,
-      role: m.role,
-      joinedAt: m.joinedAt,
-    }));
+      return members.map((m) => ({
+        userId: m.userId,
+        role: m.role,
+        joinedAt: m.joinedAt,
+      }));
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -120,23 +151,31 @@ export class MessagingNatsHandler {
   ): Promise<MessageBatchDto[]> {
     if (!data.messageIds || data.messageIds.length === 0) return [];
 
-    const messages = await this.messageRepo.find({
-      where: { id: In(data.messageIds), isDeleted: false },
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    try {
+      await this.setTenantSchema(queryRunner, data.tenantId);
+      const messages = await queryRunner.manager.find(Message, {
+        where: { id: In(data.messageIds), isDeleted: false },
+      });
 
-    return messages.map((m) => ({
-      id: m.id,
-      channelId: m.channelId,
-      senderId: m.senderId,
-      content: m.content,
-      contentType: m.contentType,
-      createdAt: m.createdAt,
-    }));
+      return messages.map((m) => ({
+        id: m.id,
+        channelId: m.channelId,
+        senderId: m.senderId,
+        content: m.content,
+        contentType: m.contentType,
+        createdAt: m.createdAt,
+      }));
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
    * Handles user deletion: anonymises messages, removes channel memberships,
    * and cleans up reactions/receipts in a single transaction.
+   * Sets tenant schema before executing any queries.
    */
   @EventPattern('events.UserDeleted')
   async handleUserDeleted(@Payload() data: UserDeletedPayload): Promise<void> {
@@ -147,6 +186,8 @@ export class MessagingNatsHandler {
     await queryRunner.startTransaction();
 
     try {
+      await this.setTenantSchema(queryRunner, data.tenantId);
+
       // Anonymise messages
       await queryRunner.query(
         `UPDATE messages

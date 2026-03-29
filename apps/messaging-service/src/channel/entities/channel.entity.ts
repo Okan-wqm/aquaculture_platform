@@ -73,6 +73,16 @@ export class Channel {
   @Column({ type: 'varchar', length: 73, nullable: true, unique: true })
   dmPairKey: string | null;
 
+  /** AI persona ID for AI channels (e.g., 'expert-v1', 'operator-v1'). Null = general AI chat. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  aiPersona: string | null;
+
+  /** Custom MCP server URL override. Null = use default ai-service via NATS. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  aiServiceUrl: string | null;
+
   @OneToMany(() => ChannelMember, (member) => member.channel, { cascade: true })
   members: ChannelMember[];
 }

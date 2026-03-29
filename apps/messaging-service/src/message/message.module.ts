@@ -25,6 +25,7 @@ import { QueryHandlers } from './queries';
 import { MessageService } from './services/message.service';
 import { MediaService } from './services/media.service';
 import { ThumbnailService } from './services/thumbnail.service';
+import { StorageQuotaService } from './services/storage-quota.service';
 
 // Resolver
 import { MessageResolver } from './resolvers/message.resolver';
@@ -59,10 +60,11 @@ import { MessageResolver } from './resolvers/message.resolver';
     MessageService,
     MediaService,
     ThumbnailService,
+    StorageQuotaService,
 
     // GraphQL resolver
     MessageResolver,
   ],
-  exports: [MessageService],
+  exports: [MessageService, StorageQuotaService],
 })
 export class MessageModule {}

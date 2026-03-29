@@ -17,3 +17,7 @@ export { UnreadBadge } from './UnreadBadge';
 export { AiTypingIndicator } from './AiTypingIndicator';
 export { AiActionCard } from './AiActionCard';
 export { SentimentBadge } from './SentimentBadge';
+export { VoiceRecorder } from './VoiceRecorder';
+export { VoicePlayer } from './VoicePlayer';
+export { MentionPicker } from './MentionPicker';
+export { ForwardModal } from './ForwardModal';

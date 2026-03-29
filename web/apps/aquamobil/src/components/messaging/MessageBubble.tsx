@@ -1,8 +1,26 @@
+/**
+ * @module MessageBubble
+ * @description Single chat message bubble with WhatsApp-style layout.
+ * Supports text, image, file, voice note playback, @mention highlighting,
+ * forwarded message headers, and long-press context menu.
+ *
+ * WHY no swipe-to-reply: ADR-012 explicitly prohibits swipe gestures in
+ * AquaMobil -- they conflict with iOS back gesture and are not reliable
+ * with wet/gloved hands. Long-press context menu is used instead.
+ *
+ * WHY 500ms long-press: Standard mobile convention. Shorter durations
+ * cause accidental triggers during scroll; longer feels unresponsive.
+ *
+ * @see ADR-012 section 5 (Messaging Features)
+ */
+
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { File as FileIcon, Reply, Copy, Forward, Trash2 } from 'lucide-react';
+import { File as FileIcon, Reply, Copy, Forward, Trash2, CornerUpRight } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ReadReceipt } from './ReadReceipt';
+import { VoicePlayer } from './VoicePlayer';
 import { isSafeUrl } from '@/utils/messaging-helpers';
+import type { MessageContentType, MessageAttachment } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +57,8 @@ interface MessageBubbleProps {
   senderColorIndex?: number;
   /** Message text content. */
   text?: string;
+  /** Message content type for rendering decisions. */
+  contentType?: MessageContentType;
   /** ISO timestamp of the message. */
   timestamp: string;
   /** Delivery/read status (only shown for own messages). */
@@ -55,6 +75,14 @@ interface MessageBubbleProps {
   image?: ImageAttachment;
   /** File attachment. */
   file?: FileAttachment;
+  /** Voice/audio attachments for voice note rendering. */
+  attachments?: MessageAttachment[];
+  /** Message metadata (contains voiceDurationSeconds, mentions, forward info). */
+  metadata?: Record<string, unknown> | null;
+  /** Source channel name for forwarded messages. */
+  forwardedFromChannelName?: string;
+  /** Whether this message is forwarded. */
+  forwardedFrom?: string | null;
   /** Callback when Reply is selected from context menu. */
   onReply?: (messageId: string) => void;
   /** Callback when Copy is selected from context menu. */
@@ -63,6 +91,8 @@ interface MessageBubbleProps {
   onForward?: (messageId: string) => void;
   /** Callback when Delete is selected from context menu. */
   onDelete?: (messageId: string) => void;
+  /** Callback when a @mention is tapped. */
+  onMentionTap?: (userId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,56 +132,97 @@ function formatTime(isoDate: string): string {
 /** WHY: Simple URL regex covers the vast majority of links shared in a work chat. */
 const URL_REGEX = /https?:\/\/[^\s<]+/g;
 
-function renderTextWithLinks(text: string): (string | ReactElement)[] {
+/** Regex to match <mention> tags from the server. */
+const MENTION_REGEX = /<mention userId="([^"]+)">(@[^<]+)<\/mention>/g;
+
+/**
+ * Render text with URL links and @mention highlights.
+ */
+function renderRichText(
+  text: string,
+  isOwn: boolean,
+  onMentionTap?: (userId: string) => void,
+): (string | ReactElement)[] {
   const parts: (string | ReactElement)[] = [];
   let lastIndex = 0;
-  let match: RegExpExecArray | null;
 
-  URL_REGEX.lastIndex = 0;
-  while ((match = URL_REGEX.exec(text)) !== null) {
+  // Combined regex for URLs and mentions
+  const combinedRegex = new RegExp(
+    `${MENTION_REGEX.source}|${URL_REGEX.source}`,
+    'g',
+  );
+
+  let match: RegExpExecArray | null;
+  combinedRegex.lastIndex = 0;
+
+  while ((match = combinedRegex.exec(text)) !== null) {
+    // Push text before the match
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
-    const url = match[0];
-    parts.push(
-      <a
-        key={match.index}
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline break-all"
-      >
-        {url}
-      </a>,
-    );
-    lastIndex = match.index + url.length;
+
+    if (match[1] && match[2]) {
+      // This is a <mention> tag match
+      const userId = match[1];
+      const mentionText = match[2];
+      parts.push(
+        <button
+          key={`m-${match.index}`}
+          onClick={() => onMentionTap?.(userId)}
+          className={clsx(
+            'font-bold inline',
+            isOwn
+              ? 'text-white underline decoration-white/50'
+              : 'text-ocean-600 dark:text-ocean-400',
+          )}
+        >
+          {mentionText}
+        </button>,
+      );
+    } else {
+      // This is a URL match
+      const url = match[0];
+      parts.push(
+        <a
+          key={`u-${match.index}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline break-all"
+        >
+          {url}
+        </a>,
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
   }
+
   if (lastIndex < text.length) {
     parts.push(text.slice(lastIndex));
   }
+
   return parts;
+}
+
+/**
+ * Strip <mention> tags for plain text display (e.g., in forwarded previews).
+ */
+function stripMentionTags(text: string): string {
+  return text.replace(/<mention userId="[^"]+">([^<]+)<\/mention>/g, '$1');
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-/**
- * MessageBubble -- single chat message with WhatsApp-style layout.
- *
- * WHY no swipe-to-reply: ADR-012 explicitly prohibits swipe gestures in
- * AquaMobil -- they conflict with iOS back gesture and are not reliable
- * with wet/gloved hands. Long-press context menu is used instead.
- *
- * WHY 500ms long-press: Standard mobile convention. Shorter durations
- * cause accidental triggers during scroll; longer feels unresponsive.
- */
 export function MessageBubble({
   messageId,
   isOwn,
   senderName,
   senderColorIndex = 0,
   text,
+  contentType = 'text',
   timestamp,
   status,
   isEdited = false,
@@ -160,10 +231,15 @@ export function MessageBubble({
   replyTo,
   image,
   file,
+  attachments,
+  metadata,
+  forwardedFromChannelName,
+  forwardedFrom,
   onReply,
   onCopy,
   onForward,
   onDelete,
+  onMentionTap,
 }: MessageBubbleProps) {
   const [showMenu, setShowMenu] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -204,6 +280,17 @@ export function MessageBubble({
   const senderColor = SENDER_COLORS[senderColorIndex % SENDER_COLORS.length];
   const timeStr = formatTime(timestamp);
 
+  // Voice note metadata
+  const voiceDuration =
+    contentType === 'voice' && metadata
+      ? (metadata['voiceDurationSeconds'] as number | undefined)
+      : undefined;
+  const voiceAttachment = contentType === 'voice' && attachments?.length
+    ? attachments[0]
+    : undefined;
+
+  const isForwarded = !!forwardedFrom;
+
   // -----------------------------------------------------------------------
   // Deleted message
   // -----------------------------------------------------------------------
@@ -239,6 +326,21 @@ export function MessageBubble({
           setShowMenu(true);
         }}
       >
+        {/* Forwarded from header */}
+        {isForwarded && (
+          <div
+            className={clsx(
+              'flex items-center gap-1.5 mb-1.5 text-[10px]',
+              isOwn ? 'text-white/60' : 'text-gray-400 dark:text-gray-500',
+            )}
+          >
+            <CornerUpRight size={12} />
+            <span className="italic">
+              Forwarded{forwardedFromChannelName ? ` from ${forwardedFromChannelName}` : ''}
+            </span>
+          </div>
+        )}
+
         {/* Sender name in group chat */}
         {isGroup && !isOwn && senderName && (
           <p className={clsx('text-xs font-bold mb-0.5', senderColor)}>{senderName}</p>
@@ -263,7 +365,16 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* Image attachment — URL protocol validated to prevent XSS */}
+        {/* Voice note — render VoicePlayer instead of text */}
+        {contentType === 'voice' && voiceAttachment?.downloadUrl && isSafeUrl(voiceAttachment.downloadUrl) && (
+          <VoicePlayer
+            src={voiceAttachment.downloadUrl}
+            durationSeconds={voiceDuration ?? voiceAttachment.durationSeconds ?? undefined}
+            isOwn={isOwn}
+          />
+        )}
+
+        {/* Image attachment -- URL protocol validated to prevent XSS */}
         {image && isSafeUrl(image.thumbnailUrl ?? image.url) && (
           <div className="mb-1.5 -mx-1 -mt-0.5 overflow-hidden rounded-xl">
             <img
@@ -275,7 +386,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* File attachment — URL protocol validated to prevent XSS */}
+        {/* File attachment -- URL protocol validated to prevent XSS */}
         {file && isSafeUrl(file.url) && (
           <a
             href={file.url}
@@ -307,10 +418,10 @@ export function MessageBubble({
           </a>
         )}
 
-        {/* Text content */}
-        {text && (
+        {/* Text content with @mention and URL rendering */}
+        {text && contentType !== 'voice' && (
           <p className={clsx('text-sm leading-relaxed break-words whitespace-pre-wrap', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
-            {renderTextWithLinks(text)}
+            {renderRichText(text, isOwn, onMentionTap)}
           </p>
         )}
 

@@ -1,6 +1,27 @@
+/**
+ * @module MessageInput
+ * @description Sticky bottom chat input bar with auto-resize, reply mode,
+ * attachment trigger, voice recording, @mention picker, and iOS keyboard handling.
+ *
+ * WHY VisualViewport API: On iOS Safari, the software keyboard pushes the
+ * viewport up without changing `window.innerHeight`. The VisualViewport API
+ * reports the actual visible area, allowing us to position the input above
+ * the keyboard. The `resize` fallback with 100ms debounce handles older
+ * browsers that lack VisualViewport support.
+ *
+ * WHY Ctrl+Enter / Cmd+Enter: Desktop users expect keyboard shortcuts for
+ * sending. Enter alone inserts a newline (multi-line messages are common
+ * in work coordination chats).
+ *
+ * @see ADR-012 section 5 (Messaging Features)
+ */
+
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Paperclip, X } from 'lucide-react';
+import { Send, Paperclip, Mic, X } from 'lucide-react';
 import { clsx } from 'clsx';
+import { VoiceRecorder } from './VoiceRecorder';
+import { MentionPicker } from './MentionPicker';
+import type { ChannelMember } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,10 +38,14 @@ interface MessageInputProps {
   onSend: (text: string) => void;
   /** Callback to open the attachment picker. */
   onAttachmentPress: () => void;
+  /** Callback when a voice recording is completed. */
+  onVoiceRecordingComplete?: (blob: Blob, durationSeconds: number, mimeType: string) => void;
   /** Active reply context (quoted message above input). */
   replyTo?: ReplyContext | null;
   /** Callback to cancel the reply. */
   onCancelReply?: () => void;
+  /** Channel members for @mention picker. */
+  channelMembers?: ChannelMember[];
   /** Placeholder text. */
   placeholder?: string;
   /** Maximum character limit. */
@@ -42,30 +67,23 @@ const LINE_HEIGHT_PX = 20;
 // Component
 // ---------------------------------------------------------------------------
 
-/**
- * MessageInput -- sticky bottom chat input bar with auto-resize, reply mode,
- * attachment trigger, and iOS keyboard handling.
- *
- * WHY VisualViewport API: On iOS Safari, the software keyboard pushes the
- * viewport up without changing `window.innerHeight`. The VisualViewport API
- * reports the actual visible area, allowing us to position the input above
- * the keyboard. The `resize` fallback with 100ms debounce handles older
- * browsers that lack VisualViewport support.
- *
- * WHY Ctrl+Enter / Cmd+Enter: Desktop users expect keyboard shortcuts for
- * sending. Enter alone inserts a newline (multi-line messages are common
- * in work coordination chats).
- */
 export function MessageInput({
   onSend,
   onAttachmentPress,
+  onVoiceRecordingComplete,
   replyTo,
   onCancelReply,
+  channelMembers = [],
   placeholder = 'Type a message...',
   maxLength = DEFAULT_MAX_LENGTH,
   disabled = false,
 }: MessageInputProps) {
   const [text, setText] = useState('');
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const [mentionFilterText, setMentionFilterText] = useState('');
+  const [mentionStartPos, setMentionStartPos] = useState<number | null>(null);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -137,6 +155,8 @@ export function MessageInput({
     if (!trimmed || disabled) return;
     onSend(trimmed);
     setText('');
+    setShowMentionPicker(false);
+    setMentionStartPos(null);
     // Reset textarea height after clearing
     requestAnimationFrame(() => {
       if (textareaRef.current) {
@@ -159,18 +179,122 @@ export function MessageInput({
   );
 
   // -----------------------------------------------------------------------
-  // Input change with length enforcement
+  // Input change with length enforcement and @mention detection
   // -----------------------------------------------------------------------
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const value = e.target.value;
-      if (value.length <= maxLength) {
-        setText(value);
+      if (value.length > maxLength) return;
+
+      setText(value);
+
+      // Detect @ character for mention picker
+      const cursorPos = e.target.selectionStart ?? value.length;
+      const textBeforeCursor = value.slice(0, cursorPos);
+
+      // Find the last @ that could be a mention trigger
+      const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+
+      if (lastAtIndex >= 0) {
+        // Check that the @ is at the start or preceded by a space/newline
+        const charBefore = lastAtIndex > 0 ? textBeforeCursor[lastAtIndex - 1] : ' ';
+        if (charBefore === ' ' || charBefore === '\n' || lastAtIndex === 0) {
+          const filterText = textBeforeCursor.slice(lastAtIndex + 1);
+          // Only show picker if the filter text doesn't contain spaces
+          // beyond what a name might have (max 30 chars)
+          if (filterText.length <= 30 && !filterText.includes('\n')) {
+            setShowMentionPicker(true);
+            setMentionFilterText(filterText);
+            setMentionStartPos(lastAtIndex);
+            return;
+          }
+        }
       }
+
+      setShowMentionPicker(false);
+      setMentionStartPos(null);
     },
     [maxLength],
   );
 
+  // -----------------------------------------------------------------------
+  // Mention selection handler
+  // -----------------------------------------------------------------------
+  const handleMentionSelect = useCallback(
+    (member: ChannelMember) => {
+      if (mentionStartPos === null) return;
+
+      const ta = textareaRef.current;
+      const cursorPos = ta?.selectionStart ?? text.length;
+
+      // Build the mention text
+      const displayName = member.user
+        ? [member.user.firstName, member.user.lastName].filter(Boolean).join(' ')
+          || member.user.email?.split('@')[0]
+          || member.userId
+        : member.userId;
+
+      const beforeMention = text.slice(0, mentionStartPos);
+      const afterMention = text.slice(cursorPos);
+      const mentionText = `@${displayName} `;
+
+      const newText = beforeMention + mentionText + afterMention;
+      setText(newText);
+      setShowMentionPicker(false);
+      setMentionStartPos(null);
+
+      // Restore focus and cursor position
+      requestAnimationFrame(() => {
+        if (ta) {
+          ta.focus();
+          const newCursorPos = beforeMention.length + mentionText.length;
+          ta.setSelectionRange(newCursorPos, newCursorPos);
+        }
+      });
+    },
+    [text, mentionStartPos],
+  );
+
+  // -----------------------------------------------------------------------
+  // Voice recording handlers
+  // -----------------------------------------------------------------------
+  const handleVoiceToggle = useCallback(() => {
+    setIsVoiceMode(true);
+  }, []);
+
+  const handleVoiceComplete = useCallback(
+    (blob: Blob, durationSeconds: number, mimeType: string) => {
+      setIsVoiceMode(false);
+      onVoiceRecordingComplete?.(blob, durationSeconds, mimeType);
+    },
+    [onVoiceRecordingComplete],
+  );
+
+  const handleVoiceCancel = useCallback(() => {
+    setIsVoiceMode(false);
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Render: Voice recorder mode
+  // -----------------------------------------------------------------------
+  if (isVoiceMode) {
+    return (
+      <div
+        ref={containerRef}
+        className="sticky bottom-0 z-30 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 pb-safe transition-transform"
+      >
+        <VoiceRecorder
+          onRecordingComplete={handleVoiceComplete}
+          onCancel={handleVoiceCancel}
+          disabled={disabled}
+        />
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Render: Text input mode
+  // -----------------------------------------------------------------------
   return (
     <div
       ref={containerRef}
@@ -198,7 +322,19 @@ export function MessageInput({
       )}
 
       {/* Input row */}
-      <div className="flex items-end gap-2 px-3 py-2">
+      <div className="flex items-end gap-2 px-3 py-2 relative">
+        {/* Mention picker (positioned above input) */}
+        <MentionPicker
+          members={channelMembers}
+          filterText={mentionFilterText}
+          onSelect={handleMentionSelect}
+          onDismiss={() => {
+            setShowMentionPicker(false);
+            setMentionStartPos(null);
+          }}
+          visible={showMentionPicker}
+        />
+
         {/* Attachment button */}
         <button
           onClick={onAttachmentPress}
@@ -245,20 +381,34 @@ export function MessageInput({
           )}
         </div>
 
-        {/* Send button */}
-        <button
-          onClick={handleSend}
-          disabled={!canSend}
-          className={clsx(
-            'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
-            canSend
-              ? 'bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean'
-              : 'bg-ocean-600/50 opacity-50 cursor-not-allowed',
-          )}
-          aria-label="Send message"
-        >
-          <Send size={20} className="text-white" />
-        </button>
+        {/* Voice / Send button (toggle based on text content) */}
+        {canSend ? (
+          <button
+            onClick={handleSend}
+            disabled={!canSend}
+            className={clsx(
+              'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
+              'bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean',
+            )}
+            aria-label="Send message"
+          >
+            <Send size={20} className="text-white" />
+          </button>
+        ) : (
+          <button
+            onClick={handleVoiceToggle}
+            disabled={disabled}
+            className={clsx(
+              'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
+              disabled
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-800',
+            )}
+            aria-label="Record voice note"
+          >
+            <Mic size={22} className="text-gray-500 dark:text-gray-400" />
+          </button>
+        )}
       </div>
     </div>
   );

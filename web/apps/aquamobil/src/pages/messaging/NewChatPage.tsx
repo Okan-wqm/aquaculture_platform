@@ -1,15 +1,19 @@
 /**
  * NewChatPage -- User picker for starting new DM or group conversations.
+ * Includes AI Assistants persona picker section (Phase 4).
  *
  * WHY this design: Starting a conversation needs to be fast for field workers.
- * The page shows a searchable list of tenant users with online indicators.
- * Tapping a user immediately creates a DM channel and navigates to the chat.
- * The "New Group" flow allows multi-selecting users, entering a group name,
- * and creating a group channel in one seamless flow.
+ * The page shows AI assistant personas at the top, followed by a searchable
+ * list of tenant users with online indicators. Tapping an AI persona creates
+ * an AI channel with that persona and navigates to AiChatPage. Tapping a user
+ * creates a DM channel. The "New Group" flow allows multi-select.
+ *
+ * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
 
 import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Search,
@@ -19,6 +23,12 @@ import {
   X,
   UserPlus,
   AlertCircle,
+  Bot,
+  Droplets,
+  Fish,
+  BarChart,
+  Cpu,
+  Sparkles,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth } from '@/hooks/useAuth';
@@ -26,6 +36,69 @@ import { useTenantUsers } from '@/hooks/useTenantUsers';
 import type { TenantUserItem } from '@/hooks/useTenantUsers';
 import { useCreateChannel } from '@/hooks/useCreateChannel';
 import { getInitials } from '@/utils/messaging-helpers';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
+import type { AiPersona } from '@/types/messaging';
+
+// ---------------------------------------------------------------------------
+// AI Persona Helpers
+// ---------------------------------------------------------------------------
+
+/** Map persona icon name to Lucide component. */
+const PERSONA_ICONS: Record<string, typeof Bot> = {
+  bot: Bot,
+  droplets: Droplets,
+  fish: Fish,
+  'bar-chart': BarChart,
+  cpu: Cpu,
+};
+
+/** Map persona color name to Tailwind gradient classes. */
+const PERSONA_COLORS: Record<string, { border: string; bg: string; text: string }> = {
+  purple: { border: 'border-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400' },
+  cyan: { border: 'border-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/30', text: 'text-cyan-600 dark:text-cyan-400' },
+  blue: { border: 'border-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400' },
+  green: { border: 'border-green-400', bg: 'bg-green-50 dark:bg-green-900/30', text: 'text-green-600 dark:text-green-400' },
+  orange: { border: 'border-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/30', text: 'text-orange-600 dark:text-orange-400' },
+};
+
+/** A single AI persona card for the persona picker grid. */
+function AiPersonaCard({
+  persona,
+  onPress,
+  disabled,
+}: {
+  persona: AiPersona;
+  onPress: () => void;
+  disabled: boolean;
+}) {
+  const IconComponent = PERSONA_ICONS[persona.icon] ?? Bot;
+  const colors = PERSONA_COLORS[persona.color] ?? PERSONA_COLORS['purple'];
+
+  return (
+    <button
+      onClick={onPress}
+      disabled={disabled}
+      className={clsx(
+        'flex flex-col items-start gap-2 p-3 rounded-xl border-2 bg-white dark:bg-gray-900 transition-all touch-feedback',
+        'active:scale-[0.97] disabled:opacity-50',
+        colors.border,
+      )}
+    >
+      <div className={clsx('w-9 h-9 rounded-lg flex items-center justify-center', colors.bg)}>
+        <IconComponent size={18} className={colors.text} />
+      </div>
+      <div className="text-left">
+        <h4 className="text-xs font-bold text-gray-900 dark:text-white leading-tight">
+          {persona.name}
+        </h4>
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-tight mt-0.5 line-clamp-2">
+          {persona.description}
+        </p>
+      </div>
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -119,7 +192,19 @@ export function NewChatPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const { users, isLoading: usersLoading, error: usersError } = useTenantUsers();
-  const { createDM, createGroup, isCreating } = useCreateChannel();
+  const { createDM, createGroup, createAiChannel, isCreating } = useCreateChannel();
+
+  // Fetch available AI personas for the current tenant
+  const { data: aiPersonas = [] } = useQuery({
+    queryKey: ['messaging', 'aiPersonas'],
+    queryFn: async () => {
+      const result = await graphqlRequest<{ availableAiPersonas: AiPersona[] }>(
+        AVAILABLE_AI_PERSONAS,
+      );
+      return result.availableAiPersonas ?? [];
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupMode, setIsGroupMode] = useState(false);
@@ -199,6 +284,24 @@ export function NewChatPage() {
       // Error is handled by the hook
     }
   }, [groupName, selectedUserIds, createGroup, navigate]);
+
+  // Handle tapping an AI persona card
+  const handleAiPersonaPress = useCallback(
+    async (persona: AiPersona) => {
+      try {
+        const channelId = await createAiChannel(
+          persona.id ?? undefined,
+          persona.name,
+        );
+        if (channelId) {
+          navigate(`/messages/ai/${channelId}`, { replace: true });
+        }
+      } catch {
+        // Error is handled by the hook
+      }
+    },
+    [createAiChannel, navigate],
+  );
 
   const selectedUserNames = useMemo(() => {
     return users
@@ -319,6 +422,26 @@ export function NewChatPage() {
               )}
             </div>
           </div>
+
+          {/* AI Assistants section */}
+          {!isGroupMode && aiPersonas.length > 0 && (
+            <div className="px-4 pt-3">
+              <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
+                <Sparkles size={12} />
+                AI Assistants
+              </h2>
+              <div className="grid grid-cols-2 gap-2">
+                {aiPersonas.map((persona) => (
+                  <AiPersonaCard
+                    key={persona.id ?? 'general'}
+                    persona={persona}
+                    onPress={() => handleAiPersonaPress(persona)}
+                    disabled={isCreating}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* New Group button */}
           {!isGroupMode && (

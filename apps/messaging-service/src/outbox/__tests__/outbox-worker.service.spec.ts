@@ -1,8 +1,3 @@
-// Mock @nestjs/microservices (not installed in workspace)
-jest.mock('@nestjs/microservices', () => ({
-  ClientProxy: class {},
-}), { virtual: true });
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { MessagingOutbox } from '../messaging-outbox.entity';

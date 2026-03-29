@@ -27,6 +27,10 @@ import {
   Settings,
   Send,
   Bot,
+  Droplets,
+  Fish,
+  BarChart,
+  Cpu,
   Info,
   AlertCircle,
   Sparkles,
@@ -43,7 +47,7 @@ import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
 import { AiActionCard } from '@/components/messaging/AiActionCard';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
 import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
-import type { Message } from '@/types/messaging';
+import type { Message, AiPersona } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,56 +79,132 @@ function isAiMessage(msg: Message): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Persona Helpers
+// ---------------------------------------------------------------------------
+
+/** Map persona icon name to Lucide component. */
+const PERSONA_ICONS: Record<string, typeof Bot> = {
+  bot: Bot,
+  droplets: Droplets,
+  fish: Fish,
+  'bar-chart': BarChart,
+  cpu: Cpu,
+};
+
+/** Map persona color to Tailwind classes for header styling. */
+const PERSONA_HEADER_COLORS: Record<string, { border: string; avatar: string; icon: string; label: string }> = {
+  purple: { border: 'border-purple-500', avatar: 'bg-purple-50 dark:bg-purple-900/30', icon: 'text-purple-600 dark:text-purple-400', label: 'text-purple-500 dark:text-purple-400' },
+  cyan: { border: 'border-cyan-500', avatar: 'bg-cyan-50 dark:bg-cyan-900/30', icon: 'text-cyan-600 dark:text-cyan-400', label: 'text-cyan-500 dark:text-cyan-400' },
+  blue: { border: 'border-blue-500', avatar: 'bg-blue-50 dark:bg-blue-900/30', icon: 'text-blue-600 dark:text-blue-400', label: 'text-blue-500 dark:text-blue-400' },
+  green: { border: 'border-green-500', avatar: 'bg-green-50 dark:bg-green-900/30', icon: 'text-green-600 dark:text-green-400', label: 'text-green-500 dark:text-green-400' },
+  orange: { border: 'border-orange-500', avatar: 'bg-orange-50 dark:bg-orange-900/30', icon: 'text-orange-600 dark:text-orange-400', label: 'text-orange-500 dark:text-orange-400' },
+};
+
+/** Known persona metadata keyed by persona ID. Used for header enrichment. */
+const PERSONA_METADATA: Record<string, { name: string; icon: string; color: string; capabilities: string[] }> = {
+  'general': { name: 'General AI Assistant', icon: 'bot', color: 'purple', capabilities: ['General questions', 'Basic guidance', 'Platform help'] },
+  'operator-v1': { name: 'Water Quality Specialist', icon: 'droplets', color: 'cyan', capabilities: ['Water quality parameters', 'Sensor readings', 'Ammonia/H2S/CO2 toxicity'] },
+  'expert-v1': { name: 'Farm Expert', icon: 'fish', color: 'blue', capabilities: ['Growth analytics', 'Feed optimization', 'Reagent dosing', 'Risk assessment'] },
+  'manager-v1': { name: 'Management Assistant', icon: 'bar-chart', color: 'green', capabilities: ['Report generation', 'Analytics', 'Trend analysis', 'Feed management'] },
+  'supervisor-v1': { name: 'SCADA AI', icon: 'cpu', color: 'orange', capabilities: ['Autonomous monitoring', 'Equipment actuation', 'PLC control', 'Safety limits'] },
+};
+
+// ---------------------------------------------------------------------------
 // AiAvatarHeader Sub-component
 // ---------------------------------------------------------------------------
 
-/** AI channel header with purple-bordered robot avatar. */
+/** AI channel header with persona-colored avatar and capabilities tooltip. */
 function AiChannelHeader({
   channelName,
+  personaId,
   onBack,
   onSettings,
 }: {
   channelName: string;
+  personaId: string | null | undefined;
   onBack: () => void;
   onSettings: () => void;
 }) {
-  return (
-    <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
-      <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
-        <button
-          onClick={onBack}
-          className="p-2 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-        >
-          <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-        </button>
+  const [showCapabilities, setShowCapabilities] = useState(false);
+  const meta = PERSONA_METADATA[personaId ?? 'general'] ?? PERSONA_METADATA['general'];
+  const colors = PERSONA_HEADER_COLORS[meta.color] ?? PERSONA_HEADER_COLORS['purple'];
+  const IconComponent = PERSONA_ICONS[meta.icon] ?? Bot;
 
-        <div
-          className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
-          onClick={onSettings}
-        >
-          {/* AI Avatar with purple border */}
-          <div className="relative w-10 h-10 rounded-full border-2 border-purple-500 bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-            <Bot size={20} className="text-purple-600 dark:text-purple-400" />
-            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white dark:border-gray-900" />
+  return (
+    <div className="bg-white dark:bg-gray-900 border-b-2 flex-shrink-0 z-10" style={{ borderColor: 'inherit' }}>
+      <div className={clsx('border-b-2', colors.border)}>
+        <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
+          <button
+            onClick={onBack}
+            className="p-2 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+          >
+            <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
+          </button>
+
+          <div
+            className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
+            onClick={onSettings}
+          >
+            {/* AI Avatar with persona-colored border */}
+            <div className={clsx(
+              'relative w-10 h-10 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+              colors.border,
+              colors.avatar,
+            )}>
+              <IconComponent size={20} className={colors.icon} />
+              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white dark:border-gray-900" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                {channelName}
+              </h1>
+              <p className={clsx('text-[11px] flex items-center gap-1', colors.label)}>
+                <Sparkles size={10} />
+                {meta.name}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-sm font-bold text-gray-900 dark:text-white truncate">
-              {channelName}
-            </h1>
-            <p className="text-[11px] text-purple-500 dark:text-purple-400 flex items-center gap-1">
-              <Sparkles size={10} />
-              AI Assistant
-            </p>
+
+          {/* Capabilities info button */}
+          <button
+            onClick={() => setShowCapabilities((prev) => !prev)}
+            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+            title="View capabilities"
+          >
+            <Info size={20} className="text-gray-500 dark:text-gray-400" />
+          </button>
+
+          <button
+            onClick={onSettings}
+            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+          >
+            <Settings size={20} className="text-gray-500 dark:text-gray-400" />
+          </button>
+        </div>
+      </div>
+
+      {/* Capabilities tooltip panel */}
+      {showCapabilities && (
+        <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+          <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+            Capabilities
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {meta.capabilities.map((cap) => (
+              <span
+                key={cap}
+                className={clsx(
+                  'text-[10px] px-2 py-0.5 rounded-full font-medium',
+                  colors.avatar,
+                  colors.icon,
+                )}
+              >
+                {cap}
+              </span>
+            ))}
           </div>
         </div>
-
-        <button
-          onClick={onSettings}
-          className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-        >
-          <Settings size={20} className="text-gray-500 dark:text-gray-400" />
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -310,7 +390,8 @@ export function AiChatPage() {
     }
   }, [messages]);
 
-  const channelName = channel?.name ?? 'AI Assistant';
+  const personaMeta = PERSONA_METADATA[channel?.aiPersona ?? 'general'] ?? PERSONA_METADATA['general'];
+  const channelName = channel?.name ?? personaMeta.name;
   const loading = messagesLoading || channelLoading;
   const errorMsg = messagesError
     ? (messagesError instanceof Error ? messagesError.message : 'Failed to load messages')
@@ -321,9 +402,10 @@ export function AiChatPage() {
       className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950"
       style={{ paddingBottom: 'var(--keyboard-offset, 0px)' }}
     >
-      {/* AI-specific header */}
+      {/* AI-specific header — persona-aware */}
       <AiChannelHeader
         channelName={channelName}
+        personaId={channel?.aiPersona}
         onBack={() => navigate('/messages')}
         onSettings={() => navigate(`/messages/${channelId}/settings`)}
       />
@@ -348,15 +430,25 @@ export function AiChatPage() {
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
-            <div className="w-16 h-16 bg-purple-50 dark:bg-purple-900/20 rounded-full flex items-center justify-center mb-3">
-              <Bot size={28} className="text-purple-400" />
-            </div>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 text-center">
-              AI Assistant
-            </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-1 max-w-xs">
-              Ask questions about your farm data, water quality, or request actions.
-            </p>
+            {(() => {
+              const EmptyIcon = PERSONA_ICONS[personaMeta.icon] ?? Bot;
+              const emptyColors = PERSONA_HEADER_COLORS[personaMeta.color] ?? PERSONA_HEADER_COLORS['purple'];
+              return (
+                <>
+                  <div className={clsx('w-16 h-16 rounded-full flex items-center justify-center mb-3', emptyColors.avatar)}>
+                    <EmptyIcon size={28} className={emptyColors.icon} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 text-center">
+                    {personaMeta.name}
+                  </p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-1 max-w-xs">
+                    {channel?.aiPersona
+                      ? `Specialized in: ${personaMeta.capabilities.join(', ')}`
+                      : 'Ask questions about your farm data, water quality, or request actions.'}
+                  </p>
+                </>
+              );
+            })()}
           </div>
         ) : (
           <div className="py-2">

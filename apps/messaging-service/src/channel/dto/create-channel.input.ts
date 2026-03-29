@@ -1,3 +1,9 @@
+/**
+ * @module CreateChannelInput
+ * @description GraphQL input for creating a new channel. Supports AI persona
+ * selection and custom MCP server URL override for AI channels.
+ * @see ADR-012 section 3 (Channel domain) & Phase 4 AI Persona system
+ */
 import { InputType, Field } from '@nestjs/graphql';
 import {
   IsOptional,
@@ -9,6 +15,8 @@ import {
   IsEnum,
   ValidateIf,
   ArrayMaxSize,
+  IsUrl,
+  Matches,
 } from 'class-validator';
 import { ChannelType } from '../entities/channel.entity';
 
@@ -17,7 +25,7 @@ import { ChannelType } from '../entities/channel.entity';
  *
  * - DIRECT: exactly 2 memberIds (creator + counterpart), name is ignored
  * - GROUP: at least 1 memberId (the creator is added automatically), name is required
- * - AI: at least 1 memberId, name is optional
+ * - AI: at least 1 memberId, name is optional. Supports aiPersona + aiServiceUrl.
  */
 @InputType()
 export class CreateChannelInput {
@@ -39,8 +47,31 @@ export class CreateChannelInput {
 
   @Field(() => [String], { description: 'Member user IDs to add to the channel' })
   @IsArray()
-  @ArrayMinSize(1)
+  @ValidateIf((o: CreateChannelInput) => o.type !== ChannelType.AI)
+  @ArrayMinSize(1, { message: 'At least 1 member is required for DIRECT/GROUP channels' })
   @ArrayMaxSize(200)
   @IsUUID('4', { each: true })
   memberIds!: string[];
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  @Matches(/^[a-z][a-z0-9-]*-v\d+$/, {
+    message: 'aiPersona must be a valid persona identifier (e.g. "expert-v1")',
+  })
+  aiPersona?: string;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'Custom MCP server URL override. Only for AI channels.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  @IsUrl({ require_tls: true }, { message: 'aiServiceUrl must be a valid HTTPS URL' })
+  aiServiceUrl?: string;
 }

@@ -4,3 +4,4 @@ export { MessageFilterInput } from './message-filter.input';
 export { RequestMediaUploadInput } from './request-media-upload.input';
 export { MarkReadInput } from './mark-read.input';
 export { SearchMessagesInput } from './search-messages.input';
+export type { MentionResult, MentionableMember } from './mention.types';

@@ -200,6 +200,7 @@ const navigationItems: NavItem[] = [
       { id: 'messaging-compliance', label: 'Compliance', path: '/admin/messaging/compliance', icon: Icons.security, isNew: true },
       { id: 'messaging-retention', label: 'Retention', path: '/admin/messaging/retention', icon: Icons.database, isNew: true },
       { id: 'messaging-ai-dashboard', label: 'AI Dashboard', path: '/admin/messaging/ai-dashboard', icon: Icons.analytics, isNew: true },
+      { id: 'messaging-ai-personas', label: 'AI Personas', path: '/admin/messaging/ai-personas', icon: Icons.users, isNew: true },
     ],
   },
   {

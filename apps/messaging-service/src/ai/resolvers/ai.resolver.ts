@@ -44,6 +44,7 @@ import type { SimilarMessage } from '../queries/search-similar-messages.handler'
 // Services
 import { AiPrivacyService } from '../services/ai-privacy.service';
 import { AiChatBridgeService } from '../services/ai-chat-bridge.service';
+import { AiPersonasRegistryService } from '../services/ai-personas-registry.service';
 
 // ============================================================================
 // GRAPHQL TYPES
@@ -97,6 +98,31 @@ export class AiSettingsType {
   userAiConsent: boolean;
 }
 
+/**
+ * AI persona definition exposed via GraphQL.
+ * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
+ */
+@ObjectType()
+export class AiPersonaType {
+  @Field(() => String, { nullable: true, description: 'Persona ID (null = general assistant)' })
+  id: string | null;
+
+  @Field(() => String, { description: 'Human-readable display name' })
+  name: string;
+
+  @Field(() => String, { description: 'Short description of persona specialization' })
+  description: string;
+
+  @Field(() => String, { description: 'Icon identifier (Lucide icon name)' })
+  icon: string;
+
+  @Field(() => String, { description: 'Theme color key for UI styling' })
+  color: string;
+
+  @Field(() => [String], { description: 'List of capability labels' })
+  capabilities: string[];
+}
+
 // ============================================================================
 // RESOLVER
 // ============================================================================
@@ -110,11 +136,28 @@ export class AiResolver {
     private readonly queryBus: QueryBus,
     private readonly privacyService: AiPrivacyService,
     private readonly chatBridgeService: AiChatBridgeService,
+    private readonly personasRegistry: AiPersonasRegistryService,
   ) {}
 
   // -------------------------------------------------------------------------
   // QUERIES
   // -------------------------------------------------------------------------
+
+  /**
+   * List available AI personas for the current tenant.
+   * Returns all enabled personas with their metadata for the persona picker UI.
+   * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
+   */
+  @Query(() => [AiPersonaType], {
+    name: 'availableAiPersonas',
+    description: 'List AI personas available for the current tenant',
+  })
+  @Roles(Role.MODULE_USER)
+  async availableAiPersonas(
+    @Tenant() tenantId: string,
+  ): Promise<AiPersonaType[]> {
+    return this.personasRegistry.getAvailablePersonas(tenantId);
+  }
 
   /**
    * Get weekly aggregate sentiment trends per channel.

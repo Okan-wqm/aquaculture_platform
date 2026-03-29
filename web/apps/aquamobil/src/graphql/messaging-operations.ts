@@ -61,6 +61,8 @@ const CHANNEL_FIELDS = `
   isArchived
   createdAt
   updatedAt
+  aiPersona
+  aiServiceUrl
   unreadCount
   memberCount
   lastMessage {
@@ -196,6 +198,20 @@ export const DIRECT_CHANNEL = `
   query DirectChannel($userId: String!) {
     directChannel(userId: $userId) {
       ${CHANNEL_FIELDS}
+    }
+  }
+`;
+
+/** Get available AI personas for the current tenant. */
+export const AVAILABLE_AI_PERSONAS = `
+  query AvailableAiPersonas {
+    availableAiPersonas {
+      id
+      name
+      description
+      icon
+      color
+      capabilities
     }
   }
 `;
@@ -344,5 +360,14 @@ export const ADD_REACTION = `
 export const REMOVE_REACTION = `
   mutation RemoveReaction($messageId: String!, $emoji: String!) {
     removeReaction(messageId: $messageId, emoji: $emoji)
+  }
+`;
+
+/** Forward a message to another channel. */
+export const FORWARD_MESSAGE = `
+  mutation ForwardMessage($sourceMessageId: String!, $sourceMessageCreatedAt: DateTime!, $targetChannelId: String!) {
+    forwardMessage(sourceMessageId: $sourceMessageId, sourceMessageCreatedAt: $sourceMessageCreatedAt, targetChannelId: $targetChannelId) {
+      ${MESSAGE_FIELDS}
+    }
   }
 `;

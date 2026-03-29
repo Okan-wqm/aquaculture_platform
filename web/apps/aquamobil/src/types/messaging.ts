@@ -59,6 +59,7 @@ export interface MessageUser {
 /**
  * Channel entity — represents a messaging channel (DIRECT, GROUP, or AI).
  * DIRECT channels have exactly 2 members and no name.
+ * AI channels may have an aiPersona and aiServiceUrl for persona-based routing.
  */
 export interface Channel {
   id: string;
@@ -70,6 +71,10 @@ export interface Channel {
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
+  /** AI persona ID for AI channels (e.g. 'expert-v1'). Null = general AI chat. */
+  aiPersona?: string | null;
+  /** Custom MCP server URL override. Null = default ai-service via NATS. */
+  aiServiceUrl?: string | null;
   /** Populated via field resolver — active members of this channel. */
   members?: ChannelMember[];
   /** Server-computed member count. */
@@ -251,6 +256,29 @@ export interface CreateChannelInput {
   name?: string;
   description?: string;
   memberIds: string[];
+  /** AI persona ID for AI channels (e.g. 'expert-v1'). */
+  aiPersona?: string;
+  /** Custom MCP server URL override for AI channels. */
+  aiServiceUrl?: string;
+}
+
+/**
+ * AI persona definition returned by the availableAiPersonas query.
+ * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
+ */
+export interface AiPersona {
+  /** Persona ID matching ai-service persona IDs. Null = general AI assistant. */
+  id: string | null;
+  /** Human-readable display name. */
+  name: string;
+  /** Short description of persona specialization. */
+  description: string;
+  /** Icon identifier for frontend rendering (Lucide icon name). */
+  icon: string;
+  /** Theme color key for UI styling. */
+  color: string;
+  /** List of capability labels. */
+  capabilities?: string[];
 }
 
 /** Input for requesting a presigned media upload URL. */

@@ -4,6 +4,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
@@ -35,11 +36,14 @@ const ALLOWED_MIME_TYPES = new Set<string>([
   // Archives
   'application/zip',
   'application/x-7z-compressed',
-  // Audio
+  // Audio (voice notes + general audio)
   'audio/mpeg',
   'audio/ogg',
   'audio/wav',
   'audio/webm',
+  'audio/mp4',
+  'audio/aac',
+  'audio/x-m4a',
   // Video
   'video/mp4',
   'video/webm',
@@ -159,6 +163,34 @@ export class MediaService {
     const fileId = uuidv4();
 
     return `messaging/${tenantId}/${channelId}/${year}/${month}/${fileId}.${ext}`;
+  }
+
+  /**
+   * Check whether a MIME type represents an audio file (voice notes, audio messages).
+   * Used by thumbnail service to skip thumbnail generation for audio uploads.
+   *
+   * @param mimeType - MIME type string to check
+   * @returns true if the MIME type is an audio type
+   */
+  isAudioMimeType(mimeType: string): boolean {
+    return mimeType.toLowerCase().startsWith('audio/');
+  }
+
+  /**
+   * Extract voice note duration from the metadata field of a SendMessage command.
+   * The client records the duration in seconds and passes it in metadata.voiceDurationSeconds.
+   * Returns null if the metadata does not contain a valid duration.
+   *
+   * @param metadata - Arbitrary metadata from the message command
+   * @returns Duration in seconds, or null if not present/invalid
+   */
+  extractVoiceDuration(metadata: Record<string, unknown> | null): number | null {
+    if (!metadata) return null;
+    const duration = metadata['voiceDurationSeconds'];
+    if (typeof duration === 'number' && isFinite(duration) && duration >= 0) {
+      return Math.round(duration * 100) / 100; // 2 decimal places
+    }
+    return null;
   }
 
   /**

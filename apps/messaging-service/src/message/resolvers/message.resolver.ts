@@ -41,6 +41,7 @@ import { SendMessageCommand } from '../commands/send-message.command';
 import { EditMessageCommand } from '../commands/edit-message.command';
 import { DeleteMessageCommand } from '../commands/delete-message.command';
 import { MarkReadCommand } from '../commands/mark-read.command';
+import { ForwardMessageCommand } from '../commands/forward-message.command';
 
 // Queries
 import { GetMessagesQuery } from '../queries/get-messages.query';
@@ -51,6 +52,7 @@ import { MessagePage as MessagePageResult } from '../queries/get-messages.handle
 // Services
 import { MessageService } from '../services/message.service';
 import { MediaService, MediaUploadResult } from '../services/media.service';
+import { StorageQuotaService } from '../services/storage-quota.service';
 import { GdprService } from '../../gdpr/gdpr.service';
 
 // Repositories
@@ -146,6 +148,7 @@ export class MessageResolver {
     private readonly queryBus: QueryBus,
     private readonly messageService: MessageService,
     private readonly mediaService: MediaService,
+    private readonly storageQuotaService: StorageQuotaService,
     private readonly gdprService: GdprService,
     private readonly dataSource: DataSource,
     @InjectRepository(ChannelMember)
@@ -451,12 +454,20 @@ export class MessageResolver {
   ): Promise<MediaUploadResponse> {
     await this.validateChannelMembership(input.channelId, user.sub);
 
+    // Enforce storage quota before generating presigned URL
+    await this.storageQuotaService.enforceQuota(tenantId, input.fileSize);
+
     const result: MediaUploadResult = await this.mediaService.generateUploadUrl(
       tenantId,
       input.channelId,
       input.filename,
       input.mimeType,
     );
+
+    // Invalidate storage cache after generating upload URL
+    this.storageQuotaService.invalidateCache(tenantId).catch((err: Error) => {
+      this.logger.warn(`Failed to invalidate storage cache: ${err.message}`);
+    });
 
     return {
       uploadUrl: result.uploadUrl,
@@ -633,6 +644,38 @@ export class MessageResolver {
       }
       return (result.affected ?? 0) > 0;
     });
+  }
+
+  /**
+   * Forward a message to another channel.
+   * User must be a member of both the source and target channels.
+   */
+  @Mutation(() => Message, { name: 'forwardMessage' })
+  async forwardMessage(
+    @Args('sourceMessageId', { type: () => ID }) sourceMessageId: string,
+    @Args('sourceMessageCreatedAt', { type: () => Date }) sourceMessageCreatedAt: Date,
+    @Args('targetChannelId', { type: () => ID }) targetChannelId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
+  ): Promise<Message> {
+    const message: Message = await this.commandBus.execute(
+      new ForwardMessageCommand(
+        tenantId,
+        user.sub,
+        sourceMessageId,
+        sourceMessageCreatedAt,
+        targetChannelId,
+      ),
+    );
+
+    // Increment unread for target channel members (fire-and-forget)
+    this.messageService
+      .incrementUnreadForChannelMembers(targetChannelId, user.sub, tenantId)
+      .catch((err: Error) => {
+        this.logger.warn(`Failed to increment unread after forward: ${err.message}`);
+      });
+
+    return message;
   }
 
   /**

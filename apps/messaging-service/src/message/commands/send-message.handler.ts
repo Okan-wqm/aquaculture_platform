@@ -1,6 +1,6 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, BadRequestException, Inject } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, IsNull } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import Redis from 'ioredis';
@@ -9,8 +9,12 @@ import { SendMessageCommand } from './send-message.command';
 import { Message, MessageContentType } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
 import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
+import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { sanitizeContent, validateUrlSchemes } from '../../shared/sanitize';
+import { MentionService } from '../services/mention.service';
+import { MediaService } from '../services/media.service';
+import type { MentionableMember } from '../dto/mention.types';
 
 /** Redis idempotency key TTL: 7 days */
 const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -35,8 +39,12 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     private readonly messageRepo: Repository<Message>,
     @InjectRepository(MessageAttachment)
     private readonly attachmentRepo: Repository<MessageAttachment>,
+    @InjectRepository(ChannelMember)
+    private readonly channelMemberRepo: Repository<ChannelMember>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    private readonly mentionService: MentionService,
+    private readonly mediaService: MediaService,
   ) {}
 
   async execute(command: SendMessageCommand): Promise<Message> {
@@ -81,6 +89,36 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       }
     }
 
+    // ── 2b. Parse @mentions from content ─────────────────────────────
+    let mentionedUserIds: string[] = [];
+    if (sanitizedContent) {
+      const members = await this.channelMemberRepo.find({
+        where: { channelId, leftAt: IsNull() },
+        select: ['userId'],
+      });
+
+      // Build mentionable member list (userId + displayName)
+      // TODO: Resolve display names from auth-service via federation.
+      //       For now, userId is used as a fallback display name.
+      const mentionableMembers: MentionableMember[] = members.map((m) => ({
+        userId: m.userId,
+        displayName: m.userId, // Placeholder until user resolution
+      }));
+
+      const mentionResult = this.mentionService.parseMentions(
+        sanitizedContent,
+        mentionableMembers,
+      );
+      sanitizedContent = mentionResult.processedContent;
+      mentionedUserIds = mentionResult.mentionedUserIds;
+    }
+
+    // ── 2c. Voice note metadata ───────────────────────────────────────
+    let voiceDurationSeconds: number | null = null;
+    if (contentType === MessageContentType.VOICE) {
+      voiceDurationSeconds = this.mediaService.extractVoiceDuration(metadata ?? null);
+    }
+
     // Validate: TEXT messages must have content, others may have attachments only
     if (contentType === MessageContentType.TEXT && !sanitizedContent?.trim()) {
       throw new BadRequestException('Text messages must have non-empty content.');
@@ -105,6 +143,15 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
 
     const createdMessage = await this.dataSource.transaction(async (manager) => {
       // 4a. INSERT message
+      // Build enriched metadata with mentions and voice duration
+      const enrichedMetadata: Record<string, unknown> = { ...(metadata ?? {}) };
+      if (mentionedUserIds.length > 0) {
+        enrichedMetadata['mentions'] = mentionedUserIds;
+      }
+      if (voiceDurationSeconds !== null) {
+        enrichedMetadata['voiceDurationSeconds'] = voiceDurationSeconds;
+      }
+
       const message = manager.create(Message, {
         id: messageId,
         channelId,
@@ -117,7 +164,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
         isDeleted: false,
         createdAt: now,
         editedAt: null,
-        metadata: metadata ?? null,
+        metadata: Object.keys(enrichedMetadata).length > 0 ? enrichedMetadata : null,
       });
       const savedMessage = await manager.save(Message, message);
 
@@ -148,6 +195,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
           senderId,
           contentType,
           hasAttachments: attachmentKeys.length > 0,
+          mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
           createdAt: now.toISOString(),
         },
       });

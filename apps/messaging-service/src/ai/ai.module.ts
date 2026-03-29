@@ -35,6 +35,7 @@ import { EmbeddingService } from './services/embedding.service';
 import { SentimentAnalysisService } from './services/sentiment-analysis.service';
 import { KnowledgeExtractionService } from './services/knowledge-extraction.service';
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
+import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
 
 // Command Handlers
 import { AnalyzeMessageHandler } from './commands/analyze-message.handler';
@@ -63,6 +64,7 @@ const services = [
   SentimentAnalysisService,
   KnowledgeExtractionService,
   AiChatBridgeService,
+  AiPersonasRegistryService,
 ];
 
 @Module({
@@ -86,6 +88,6 @@ const services = [
     ...services,
     AiResolver,
   ],
-  exports: [AiPrivacyService],
+  exports: [AiPrivacyService, AiPersonasRegistryService],
 })
 export class AiModule {}

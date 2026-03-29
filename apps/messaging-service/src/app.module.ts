@@ -79,6 +79,8 @@ import { GdprModule } from './gdpr/gdpr.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { EventHandlersModule } from './event-handlers/event-handlers.module';
 import { AiModule } from './ai/ai.module';
+import { MessagingNotificationModule } from './notification/notification.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 // Per-process complexity cache keyed by document hash
 const complexityCache = new Map<string, number>();
@@ -267,6 +269,8 @@ const complexityCache = new Map<string, number>();
     ComplianceModule,
     EventHandlersModule,
     AiModule,
+    MessagingNotificationModule,
+    MetricsModule,
   ],
   providers: [
     // SECURITY: Service identity guard — validates HMAC-signed service identity headers

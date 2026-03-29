@@ -20,5 +20,7 @@ export { useCreateChannel } from './useCreateChannel';
 export { useTenantUsers } from './useTenantUsers';
 export { useUnreadCount } from './useUnreadCount';
 export { useMediaUpload } from './useMediaUpload';
+export { useVoiceRecorder } from './useVoiceRecorder';
+export type { VoiceRecorderState } from './useVoiceRecorder';
 export { useAiChat } from './useAiChat';
 export { useAiConsent } from './useAiConsent';

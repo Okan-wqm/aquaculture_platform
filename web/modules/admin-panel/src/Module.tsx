@@ -55,6 +55,7 @@ const MessagingAuditPage = lazy(() => import('./pages/messaging/MessagingAuditPa
 const MessagingCompliancePage = lazy(() => import('./pages/messaging/MessagingCompliancePage'));
 const MessagingRetentionPage = lazy(() => import('./pages/messaging/MessagingRetentionPage'));
 const MessagingAiDashboardPage = lazy(() => import('./pages/messaging/MessagingAiDashboardPage'));
+const MessagingAiPersonasPage = lazy(() => import('./pages/messaging/MessagingAiPersonasPage'));
 
 // Security pages
 const ActivityLogPage = lazy(() => import('./pages/security/ActivityLogPage'));
@@ -136,6 +137,7 @@ const AdminPanelModule: React.FC = () => {
         <Route path="messaging/compliance" element={<MessagingCompliancePage />} />
         <Route path="messaging/retention" element={<MessagingRetentionPage />} />
         <Route path="messaging/ai-dashboard" element={<MessagingAiDashboardPage />} />
+        <Route path="messaging/ai-personas" element={<MessagingAiPersonasPage />} />
 
         {/* Support */}
         <Route path="support/tickets" element={<TicketsPage />} />

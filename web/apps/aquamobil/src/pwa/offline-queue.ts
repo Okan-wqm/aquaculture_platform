@@ -191,7 +191,16 @@ export async function queueOperation(
   if (hasValidAuth && 'serviceWorker' in navigator && 'SyncManager' in window) {
     try {
       const registration = await navigator.serviceWorker.ready;
-      await (registration as any).sync.register('sync-operations');
+      const syncManager = (registration as unknown as { sync: { register: (tag: string) => Promise<void> } }).sync;
+      await syncManager.register('sync-operations');
+
+      // ADR-012: Register messaging-specific sync tag for priority processing.
+      // Messaging operations are synced via 'sync-messages' before general ops.
+      const isMessagingOp = type === 'sendMessage' || type === 'editMessage' ||
+        type === 'deleteMessage' || type === 'markMessagesRead';
+      if (isMessagingOp) {
+        await syncManager.register('sync-messages');
+      }
     } catch (error) {
       console.warn('Background sync registration failed:', error);
     }

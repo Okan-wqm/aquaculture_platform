@@ -46,10 +46,14 @@ const ALLOWED_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/plain',
   'text/csv',
-  // Audio/Video
+  // Audio/Video (voice notes + general)
   'audio/mpeg',
   'audio/ogg',
   'audio/wav',
+  'audio/webm',
+  'audio/mp4',
+  'audio/aac',
+  'audio/x-m4a',
   'video/mp4',
   'video/webm',
 ]);

@@ -40,6 +40,7 @@ interface AiChatRequest {
   messageId: string;
   content: string;
   userId: string;
+  persona: string | null;
   contextMessages: ContextMessage[];
 }
 
@@ -110,25 +111,14 @@ export class AiChatBridgeService {
       messageId,
       content,
       userId: senderId,
+      persona: channel.aiPersona,
       contextMessages,
     };
 
-    // Forward to ai-service via NATS with 60s timeout
-    const response = await firstValueFrom(
-      this.natsClient
-        .send<AiChatResponse>('request.ai.chat', request)
-        .pipe(
-          timeout(AI_CHAT_TIMEOUT_MS),
-          catchError((err: unknown) => {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            this.logger.warn(`AI chat request failed for ${messageId}: ${errMsg}`);
-            return of({
-              content: 'AI is temporarily unavailable. Please try again later.',
-              metadata: { error: true, fallback: true },
-            } satisfies AiChatResponse);
-          }),
-        ),
-    );
+    // If channel has a custom MCP server URL, try HTTP POST first with NATS fallback
+    const response = channel.aiServiceUrl
+      ? await this.forwardViaHttpWithFallback(channel.aiServiceUrl, request)
+      : await this.forwardViaNats(request, messageId);
 
     if (!response) {
       return;
@@ -287,5 +277,71 @@ export class AiChatBridgeService {
     });
 
     this.logger.debug(`AI response persisted: ${messageId} in channel ${channelId}`);
+  }
+
+  /**
+   * Forward AI chat request via NATS request-reply pattern.
+   * Returns a fallback response on failure.
+   */
+  private async forwardViaNats(
+    request: AiChatRequest,
+    messageId: string,
+  ): Promise<AiChatResponse> {
+    const response = await firstValueFrom(
+      this.natsClient
+        .send<AiChatResponse>('request.ai.chat', request)
+        .pipe(
+          timeout(AI_CHAT_TIMEOUT_MS),
+          catchError((err: unknown) => {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            this.logger.warn(`AI chat NATS request failed for ${messageId}: ${errMsg}`);
+            return of({
+              content: 'AI is temporarily unavailable. Please try again later.',
+              metadata: { error: true, fallback: true },
+            } satisfies AiChatResponse);
+          }),
+        ),
+    );
+    return response;
+  }
+
+  /**
+   * Forward AI chat request via HTTP POST to a custom MCP server URL.
+   * Falls back to NATS if the HTTP request fails.
+   *
+   * @param url - Custom MCP server endpoint URL
+   * @param request - AI chat request payload
+   * @returns AI chat response from the custom server or NATS fallback
+   */
+  private async forwardViaHttpWithFallback(
+    url: string,
+    request: AiChatRequest,
+  ): Promise<AiChatResponse> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
+
+      const httpResponse = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!httpResponse.ok) {
+        throw new Error(`HTTP ${httpResponse.status}: ${httpResponse.statusText}`);
+      }
+
+      const body = (await httpResponse.json()) as AiChatResponse;
+      return body;
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Custom AI service at ${url} failed (${errMsg}), falling back to NATS`,
+      );
+      return this.forwardViaNats(request, request.messageId);
+    }
   }
 }

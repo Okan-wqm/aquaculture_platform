@@ -20,7 +20,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { DIRECT_CHANNEL, CREATE_CHANNEL } from '@/graphql/messaging-operations';
-import type { Channel, ChannelType } from '@/types/messaging';
+import type { Channel, ChannelType, CreateChannelInput } from '@/types/messaging';
 
 /**
  * Channel creation hook for DM and group channel flows.
@@ -52,7 +52,7 @@ export function useCreateChannel() {
 
   const groupMutation = useMutation({
     mutationFn: async (params: { name: string; memberIds: string[] }) => {
-      const input = {
+      const input: CreateChannelInput = {
         type: 'group' as ChannelType,
         name: params.name,
         memberIds: params.memberIds,
@@ -63,6 +63,32 @@ export function useCreateChannel() {
       );
       if (!result.createChannel?.id) {
         throw new Error('Failed to create group channel');
+      }
+      return result.createChannel;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+      setError(null);
+    },
+    onError: (err: Error) => {
+      setError(err);
+    },
+  });
+
+  const aiMutation = useMutation({
+    mutationFn: async (params: { aiPersona?: string; name?: string }) => {
+      const input: CreateChannelInput = {
+        type: 'ai' as ChannelType,
+        name: params.name,
+        memberIds: [], // Creator auto-added on backend
+        aiPersona: params.aiPersona,
+      };
+      const result = await graphqlRequest<{ createChannel: Channel }>(
+        CREATE_CHANNEL,
+        { input },
+      );
+      if (!result.createChannel?.id) {
+        throw new Error('Failed to create AI channel');
       }
       return result.createChannel;
     },
@@ -106,10 +132,27 @@ export function useCreateChannel() {
     [isAuthenticated, groupMutation],
   );
 
+  /**
+   * Create a new AI channel with an optional persona.
+   *
+   * @param aiPersona - AI persona ID (e.g. 'expert-v1'). Omit for general assistant.
+   * @param name - Optional display name for the channel
+   * @returns The channel ID for navigation
+   */
+  const createAiChannel = useCallback(
+    async (aiPersona?: string, name?: string): Promise<string> => {
+      if (!isAuthenticated) throw new Error('Not authenticated');
+      const channel = await aiMutation.mutateAsync({ aiPersona, name });
+      return channel.id;
+    },
+    [isAuthenticated, aiMutation],
+  );
+
   return {
     createDM,
     createGroup,
-    isCreating: dmMutation.isPending || groupMutation.isPending,
+    createAiChannel,
+    isCreating: dmMutation.isPending || groupMutation.isPending || aiMutation.isPending,
     error,
   };
 }

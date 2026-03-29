@@ -35,7 +35,7 @@ jest.mock('@aquaculture/backend-common', () => ({
 }));
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole, NotificationPreference } from '../../entities/channel-member.entity';
 import { ChannelService } from '../../services/channel.service';
@@ -83,6 +83,7 @@ describe('ChannelResolver', () => {
         { provide: CommandBus, useValue: { execute: mockCommandBusExecute } },
         { provide: QueryBus, useValue: { execute: mockQueryBusExecute } },
         { provide: ChannelService, useValue: mockChannelService },
+        { provide: DataSource, useValue: {} },
       ],
     }).compile();
 

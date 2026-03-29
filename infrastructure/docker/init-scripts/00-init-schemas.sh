@@ -35,12 +35,13 @@ GATEWAY_PASS="$(escape_sql "${GATEWAY_SERVICE_DB_PASS:-$(generate_pass)}")"
 NOTIFICATION_PASS="$(escape_sql "${NOTIFICATION_SERVICE_DB_PASS:-$(generate_pass)}")"
 HYDROPONICS_PASS="$(escape_sql "${HYDROPONICS_SERVICE_DB_PASS:-$(generate_pass)}")"
 AI_PASS="$(escape_sql "${AI_SERVICE_DB_PASS:-$(generate_pass)}")"
+MESSAGING_PASS="$(escape_sql "${MESSAGING_SERVICE_DB_PASS:-$(generate_pass)}")"
 
 # Log which passwords came from env vs generated (without revealing values)
 for var_name in AUTH_SERVICE_DB_PASS FARM_SERVICE_DB_PASS SENSOR_SERVICE_DB_PASS \
   BILLING_SERVICE_DB_PASS HR_SERVICE_DB_PASS ALERT_SERVICE_DB_PASS \
   ADMIN_SERVICE_DB_PASS GATEWAY_SERVICE_DB_PASS NOTIFICATION_SERVICE_DB_PASS \
-  HYDROPONICS_SERVICE_DB_PASS AI_SERVICE_DB_PASS; do
+  HYDROPONICS_SERVICE_DB_PASS AI_SERVICE_DB_PASS MESSAGING_SERVICE_DB_PASS; do
   if [ -n "${!var_name:-}" ]; then
     echo "[init-schemas] $var_name: using provided value"
   else
@@ -85,6 +86,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   CREATE SCHEMA IF NOT EXISTS gateway;       -- gateway-api: rate limits, audit logs
   CREATE SCHEMA IF NOT EXISTS hydroponics;   -- hydroponics-service: grow systems, nutrients, cycles
   CREATE SCHEMA IF NOT EXISTS ai;            -- ai-service: models, predictions, recommendations
+  CREATE SCHEMA IF NOT EXISTS messaging;     -- messaging-service: channels, messages, receipts
 
   -- Grant usage on all schemas to the application user
   -- In production, use a more restrictive approach with separate users per service
@@ -98,6 +100,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT USAGE ON SCHEMA gateway TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA hydroponics TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA ai TO ${POSTGRES_USER};
+  GRANT USAGE ON SCHEMA messaging TO ${POSTGRES_USER};
 
   -- Grant all privileges on tables in each schema
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO ${POSTGRES_USER};
@@ -110,6 +113,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA gateway TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA hydroponics TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ai TO ${POSTGRES_USER};
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA messaging TO ${POSTGRES_USER};
 
   -- Grant sequence privileges (needed for auto-increment)
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO ${POSTGRES_USER};
@@ -122,6 +126,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA gateway TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA hydroponics TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ai TO ${POSTGRES_USER};
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA messaging TO ${POSTGRES_USER};
 
   -- Set default privileges for future tables
   ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO ${POSTGRES_USER};
@@ -134,6 +139,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON TABLES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA hydroponics GRANT ALL ON TABLES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON TABLES TO ${POSTGRES_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON TABLES TO ${POSTGRES_USER};
 
   ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
@@ -145,6 +151,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA hydroponics GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
 
   -- ========================================================================
   -- Cross-schema read access for analytics
@@ -203,6 +210,9 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     END IF;
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ai_service') THEN
       CREATE ROLE ai_service WITH LOGIN PASSWORD '${AI_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'messaging_service') THEN
+      CREATE ROLE messaging_service WITH LOGIN PASSWORD '${MESSAGING_PASS}';
     END IF;
   END
   \$\$;
@@ -283,6 +293,15 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ai TO ai_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON TABLES TO ai_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON SEQUENCES TO ai_service;
+
+  -- messaging_service
+  GRANT USAGE ON SCHEMA messaging TO messaging_service;
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA messaging TO messaging_service;
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA messaging TO messaging_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON TABLES TO messaging_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON SEQUENCES TO messaging_service;
+  -- messaging_service needs CREATE on database for tenant schema creation
+  GRANT CREATE ON DATABASE ${POSTGRES_DB} TO messaging_service;
 
   -- ========================================================================
   -- Verification query

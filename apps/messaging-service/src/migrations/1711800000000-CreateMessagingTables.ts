@@ -19,7 +19,19 @@ export class CreateMessagingTables1711800000000 implements MigrationInterface {
   name = 'CreateMessagingTables1711800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Ensure the messaging schema exists before creating tables.
+    // On fresh databases the init script may not have created it yet.
+    // This is a no-op if the schema already exists.
+    await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "messaging"`);
+
+    // Re-apply search_path so PostgreSQL resolves current_schema() correctly.
+    // If the schema was just created, the connection's cached resolution may
+    // still point to 'public'. This explicit SET forces re-resolution.
+    await queryRunner.query(`SET search_path TO "messaging", "public"`);
+
     // Determine which schema we are operating in (messaging or tenant_*)
+    // With search_path = 'messaging,public', current_schema() returns 'messaging'
+    // now that we've ensured it exists above.
     const [{ current_schema }] = await queryRunner.query(
       'SELECT current_schema()',
     );

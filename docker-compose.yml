@@ -558,7 +558,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
       NODE_OPTIONS: "--max-old-space-size=384"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health/ready"]
+      # ARCH-HC-001: Use /health/live for Docker liveness (consistent with all other services)
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3

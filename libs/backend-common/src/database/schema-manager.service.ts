@@ -286,6 +286,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     sourceSchema: 'messaging',
     referenceDataTables: [],
     tables: [
+      // Core messaging tables (migration 1711800000000)
       'channels',
       'channel_members',
       'messages',
@@ -294,6 +295,17 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'message_reactions',
       'pinned_messages',
       'messaging_outbox',
+      // AI tables (migration 1711800000001)
+      'message_analysis',
+      'message_entity_references',
+      'knowledge_entries',
+      'embeddings_metadata',
+      // Compliance tables (migration 1711800000003)
+      'retention_policies',
+      'legal_holds',
+      'compliance_audit_log',
+      'tenant_ai_settings',
+      'user_ai_consents',
     ],
   },
 ];

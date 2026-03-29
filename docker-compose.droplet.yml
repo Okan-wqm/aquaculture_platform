@@ -784,7 +784,11 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health/ready']
+      # ARCH-HC-001: Use /health/live for Docker healthcheck (consistent with all other services).
+      # /health/ready checks DB+Redis+NATS and returns 503 on partial failure — too strict for
+      # Docker liveness. The gateway only needs messaging's GraphQL endpoint reachable, which
+      # /health/live confirms (NestJS HTTP listener is bound = supergraph introspection will work).
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3

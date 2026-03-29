@@ -1,84 +1,84 @@
 /**
  * @module HealthController
  * @description Health check endpoints for liveness and readiness probes.
- * Checks database connectivity for readiness.
+ *
+ * Extends StandardHealthController to inherit:
+ *   - @Public() decorator: bypasses TenantGuard + RolesGuard (critical for
+ *     Docker healthcheck which sends plain wget without auth headers)
+ *   - @SkipThrottle(): prevents rate-limiting of probe requests
+ *   - Consistent response format across all microservices
+ *   - Proper HTTP 503 when all checks fail (not just body status)
+ *
+ * Adds Redis and NATS connectivity as additional readiness checks
+ * beyond the standard database check.
+ *
  * @see ADR-012 section 10 (Observability)
  */
-import { Controller, Get, Inject, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Controller, Inject, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
+import { StandardHealthController } from '@aquaculture/backend-common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 
 @Controller('health')
-export class HealthController {
+export class HealthController extends StandardHealthController {
+  private readonly healthLogger = new Logger('messaging-service:HealthController');
+
   constructor(
-    private readonly configService: ConfigService,
-    @InjectDataSource() private readonly dataSource: DataSource,
+    @InjectDataSource() dataSource: DataSource,
     @Optional()
     @Inject(REDIS_CLIENT)
     private readonly redis?: Redis,
     @Optional()
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,
-  ) {}
-
-  @Get('live')
-  liveness() {
-    return {
-      status: 'ok',
-      service: 'messaging-service',
-      timestamp: new Date().toISOString(),
-    };
+  ) {
+    super(dataSource);
+    this.serviceName = 'messaging-service';
   }
 
-  @Get('ready')
-  async readiness() {
-    const checks: Record<string, string> = {};
+  /**
+   * Additional readiness checks for Redis and NATS connectivity.
+   * These supplement the standard database check from StandardHealthController.
+   *
+   * Optional dependencies that are not injected (undefined) are silently
+   * skipped rather than reported as errors. This avoids false 'degraded'
+   * status when the provider is simply not in the current module scope.
+   *
+   * A failing Redis or NATS check results in 'degraded' status (HTTP 200),
+   * not 'not_ready' (HTTP 503) -- only total failure of ALL checks triggers 503.
+   */
+  protected override async getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
+    const checks: Record<string, 'ok' | 'error'> = {};
 
-    // Database check
-    try {
-      await this.dataSource.query('SELECT 1');
-      checks['database'] = 'ok';
-    } catch {
-      checks['database'] = 'error';
-    }
-
-    // Redis connectivity check
-    try {
-      if (this.redis) {
+    // Redis connectivity check (only if Redis client is injected)
+    if (this.redis) {
+      try {
         await this.redis.ping();
         checks['redis'] = 'ok';
-      } else {
-        checks['redis'] = 'not_configured';
+      } catch (error) {
+        this.healthLogger.warn(
+          `Redis health check failed: ${(error as Error).message}`,
+        );
+        checks['redis'] = 'error';
       }
-    } catch {
-      checks['redis'] = 'error';
     }
 
-    // NATS connectivity check
-    try {
-      if (this.natsClient) {
+    // NATS connectivity check (only if NATS client is injected)
+    if (this.natsClient) {
+      try {
         await this.natsClient.connect();
         checks['nats'] = 'ok';
-      } else {
-        checks['nats'] = 'not_configured';
+      } catch (error) {
+        this.healthLogger.warn(
+          `NATS health check failed: ${(error as Error).message}`,
+        );
+        checks['nats'] = 'error';
       }
-    } catch {
-      checks['nats'] = 'error';
     }
 
-    const allOk = Object.values(checks).every(
-      (v) => v === 'ok' || v === 'not_configured',
-    );
-
-    return {
-      status: allOk ? 'ok' : 'degraded',
-      service: 'messaging-service',
-      checks,
-      timestamp: new Date().toISOString(),
-    };
+    return checks;
   }
 }

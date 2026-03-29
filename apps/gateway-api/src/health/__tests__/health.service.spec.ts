@@ -25,6 +25,13 @@ describe('HealthService', () => {
   let service: HealthService;
   let originalFetch: typeof global.fetch;
 
+  /**
+   * ARCH-GW-003: Must match the number of services in health.service.ts serviceUrls map.
+   * Currently 10 subgraphs: auth, farm, sensor, alert, hr, billing,
+   * hydroponics, config, notification, messaging.
+   */
+  const TOTAL_MONITORED_SERVICES = 10;
+
   const mockConfigService = {
     get: jest.fn((key: string, defaultValue?: unknown) => {
       const config: Record<string, unknown> = {
@@ -35,6 +42,10 @@ describe('HealthService', () => {
         ALERT_SERVICE_URL: 'http://alert:3004/graphql',
         HR_SERVICE_URL: 'http://hr:3005/graphql',
         BILLING_SERVICE_URL: 'http://billing:3006/graphql',
+        HYDROPONICS_SERVICE_URL: 'http://hydroponics:4007/graphql',
+        CONFIG_SERVICE_URL: 'http://config:3007/graphql',
+        NOTIFICATION_SERVICE_URL: 'http://notification:4008/graphql',
+        MESSAGING_SERVICE_URL: 'http://messaging:3000/graphql',
         APP_VERSION: '1.2.3',
       };
       return config[key] ?? defaultValue;
@@ -71,7 +82,6 @@ describe('HealthService', () => {
     }).compile();
 
     service = module.get<HealthService>(HealthService);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   afterEach(() => {
@@ -157,7 +167,7 @@ describe('HealthService', () => {
       const result = await service.getHealth();
 
       expect(result.status).toBe('healthy');
-      expect(result.services).toHaveLength(6);
+      expect(result.services).toHaveLength(TOTAL_MONITORED_SERVICES);
       result.services.forEach((svc) => {
         expect(svc.status).toBe('healthy');
       });
@@ -180,11 +190,11 @@ describe('HealthService', () => {
     });
 
     it('should return unhealthy when more than half services are unhealthy', async () => {
-      // Make 4 services fail (more than half of 6)
+      // Make 6 services fail (more than half of TOTAL_MONITORED_SERVICES=10)
       let callCount = 0;
       (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
-        if (callCount <= 4) {
+        if (callCount <= 6) {
           return Promise.reject(new Error('Connection refused'));
         }
         return Promise.resolve(createMockFetchResponse(true, 200));
@@ -276,6 +286,10 @@ describe('HealthService', () => {
       expect(serviceNames).toContain('alert');
       expect(serviceNames).toContain('hr');
       expect(serviceNames).toContain('billing');
+      expect(serviceNames).toContain('hydroponics');
+      expect(serviceNames).toContain('config');
+      expect(serviceNames).toContain('notification');
+      expect(serviceNames).toContain('messaging');
     });
   });
 
@@ -403,8 +417,8 @@ describe('HealthService', () => {
       // Wait a bit for all fetch calls to be made
       await new Promise((r) => setTimeout(r, 10));
 
-      // All fetches should have been initiated
-      expect(fetchPromises.length).toBe(6);
+      // All fetches should have been initiated (one per monitored service)
+      expect(fetchPromises.length).toBe(TOTAL_MONITORED_SERVICES);
 
       // Resolve all fetches
       fetchPromises.forEach(({ resolve }) => {
@@ -518,9 +532,10 @@ describe('HealthService', () => {
       const healthyCount = result.services.filter((s) => s.status === 'healthy').length;
       const unhealthyCount = result.services.filter((s) => s.status === 'unhealthy').length;
 
-      expect(healthyCount).toBe(4);
+      // Switch cases: 1=healthy, 2=unhealthy, 3=unhealthy, rest=healthy
+      expect(healthyCount).toBe(TOTAL_MONITORED_SERVICES - 2);
       expect(unhealthyCount).toBe(2);
-      expect(result.status).toBe('degraded'); // 2 unhealthy < 3 (half of 6)
+      expect(result.status).toBe('degraded'); // 2 unhealthy < half of TOTAL_MONITORED_SERVICES
     });
 
     it('should handle all services healthy with varying response times', async () => {

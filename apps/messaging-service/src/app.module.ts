@@ -68,6 +68,14 @@ import { MessageEntityReference } from './ai/entities/message-entity-reference.e
 import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
 import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
 
+// Migrations — imported as class references so webpack bundles them into main.js.
+// Glob paths ('dist/migrations/*.js') do NOT work with NX webpack builds because
+// all source files are bundled into a single output file.
+import { CreateMessagingTables1711800000000 } from './migrations/1711800000000-CreateMessagingTables';
+import { CreateAITables1711800000001 } from './migrations/1711800000001-CreateAITables';
+import { AddAiPersonaColumns1711800000002 } from './migrations/1711800000002-AddAiPersonaColumns';
+import { CreateComplianceTables1711800000003 } from './migrations/1711800000003-CreateComplianceTables';
+
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -130,9 +138,17 @@ const complexityCache = new Map<string, number>();
           // ALWAYS false — partitioned tables (messages, message_receipts)
           // require migrations. TypeORM synchronize cannot handle PARTITION BY RANGE.
           synchronize: false,
+          // When sync is off (production), run migrations for structural changes.
           migrationsRun:
             configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
-          migrations: ['dist/migrations/*.js'],
+          // Class references (NOT glob paths) — webpack bundles all into main.js,
+          // so 'dist/migrations/*.js' would match zero files at runtime.
+          migrations: [
+            CreateMessagingTables1711800000000,
+            CreateAITables1711800000001,
+            AddAiPersonaColumns1711800000002,
+            CreateComplianceTables1711800000003,
+          ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {
             const sslEnabled = configService.get('DB_SSL') === 'true';

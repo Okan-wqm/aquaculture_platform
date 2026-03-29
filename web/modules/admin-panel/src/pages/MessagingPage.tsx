@@ -26,8 +26,8 @@ import {
 import {
   supportApi,
   type MessageThread,
-  type Message,
-  type MessageAttachment,
+  type SupportMessage,
+  type SupportMessageAttachment,
 } from '../services/adminApi';
 
 // ============================================================================
@@ -59,7 +59,7 @@ export const MessagingPage: React.FC = () => {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [stats, setStats] = useState<MessagingStats | null>(null);
   const [selectedThread, setSelectedThread] = useState<ThreadSummary | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -160,7 +160,7 @@ export const MessagingPage: React.FC = () => {
     if (!newMessage.trim() || !selectedThread) return;
 
     try {
-      await supportApi.sendMessage(selectedThread.id, {
+      await supportApi.sendSupportMessage(selectedThread.id, {
         content: newMessage,
         senderName: 'Admin', // TODO: Use actual admin name
       });

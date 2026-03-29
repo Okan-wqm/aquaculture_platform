@@ -14,12 +14,12 @@
 
 /**
  * Fetch threads for the current user.
- * Resolver: MessagingResolver.myThreads
+ * Resolver: MessagingResolver.mySupportThreads
  * Returns: ThreadListItem[]
  */
 export const ADMIN_GET_THREADS = `
-  query AdminThreads($status: ThreadStatus, $search: String) {
-    myThreads(status: $status, search: $search) {
+  query AdminThreads($status: SupportThreadStatus, $search: String) {
+    mySupportThreads(status: $status, search: $search) {
       id
       tenantId
       tenantName
@@ -42,7 +42,7 @@ export const ADMIN_GET_THREADS = `
  */
 export const ADMIN_GET_THREAD = `
   query AdminThread($id: ID!) {
-    thread(id: $id) {
+    supportThread(id: $id) {
       id
       tenantId
       tenantName
@@ -64,12 +64,12 @@ export const ADMIN_GET_THREAD = `
 
 /**
  * Fetch messages for a thread.
- * Resolver: MessagingResolver.threadMessages
+ * Resolver: MessagingResolver.supportThreadMessages
  * Returns: MessageItem[]
  */
 export const ADMIN_GET_THREAD_MESSAGES = `
   query AdminThreadMessages($threadId: ID!) {
-    threadMessages(threadId: $threadId) {
+    supportThreadMessages(threadId: $threadId) {
       id
       threadId
       senderId
@@ -98,7 +98,7 @@ export const ADMIN_GET_THREAD_MESSAGES = `
  */
 export const ADMIN_GET_MESSAGING_STATS = `
   query AdminMessagingStats {
-    messagingStats {
+    supportMessagingStats {
       totalThreads
       activeThreads
       closedThreads
@@ -119,8 +119,8 @@ export const ADMIN_GET_MESSAGING_STATS = `
  * Returns: MessageThread
  */
 export const ADMIN_CREATE_THREAD = `
-  mutation AdminCreateThread($input: CreateThreadInput!) {
-    createThread(input: $input) {
+  mutation AdminCreateThread($input: SupportCreateThreadInput!) {
+    createSupportThread(input: $input) {
       id
       tenantId
       subject
@@ -136,12 +136,12 @@ export const ADMIN_CREATE_THREAD = `
 
 /**
  * Send a message within a thread.
- * Resolver: MessagingResolver.sendMessage
+ * Resolver: MessagingResolver.sendSupportMessage
  * Returns: Message
  */
 export const ADMIN_SEND_MESSAGE = `
-  mutation AdminSendMessage($input: SendMessageInput!) {
-    sendMessage(input: $input) {
+  mutation AdminSendMessage($input: SupportSendMessageInput!) {
+    sendSupportMessage(input: $input) {
       id
       threadId
       senderId
@@ -187,7 +187,7 @@ export const ADMIN_BULK_CREATE_THREADS = `
  */
 export const ADMIN_CLOSE_THREAD = `
   mutation AdminCloseThread($threadId: ID!) {
-    closeThread(threadId: $threadId) {
+    closeSupportThread(threadId: $threadId) {
       id
       status
       updatedAt
@@ -202,7 +202,7 @@ export const ADMIN_CLOSE_THREAD = `
  */
 export const ADMIN_REOPEN_THREAD = `
   mutation AdminReopenThread($threadId: ID!) {
-    reopenThread(threadId: $threadId) {
+    reopenSupportThread(threadId: $threadId) {
       id
       status
       updatedAt
@@ -217,7 +217,7 @@ export const ADMIN_REOPEN_THREAD = `
  */
 export const ADMIN_ARCHIVE_THREAD = `
   mutation AdminArchiveThread($threadId: ID!) {
-    archiveThread(threadId: $threadId) {
+    archiveSupportThread(threadId: $threadId) {
       id
       status
       updatedAt

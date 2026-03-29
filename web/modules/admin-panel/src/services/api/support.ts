@@ -14,7 +14,7 @@ import type {
   TicketPriority,
   TicketCategory,
   MessageThread,
-  Message,
+  SupportMessage,
   Announcement,
   OnboardingStep,
   TenantOnboarding,
@@ -72,11 +72,11 @@ export const supportApi = {
   getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<MessageThread>>(`/support/messages/threads?${buildQueryString(params || {})}`),
   getThread: (threadId: string) => apiFetch<MessageThread>(`/support/messages/threads/${threadId}`),
-  getThreadMessages: (threadId: string) => apiFetch<Message[]>(`/support/messages/threads/${threadId}/messages`),
+  getThreadMessages: (threadId: string) => apiFetch<SupportMessage[]>(`/support/messages/threads/${threadId}/messages`),
   createThread: (data: { tenantId: string; subject: string; content: string; senderName: string }) =>
     apiFetch<MessageThread>('/support/messages/threads', { method: 'POST', body: JSON.stringify(data) }),
-  sendMessage: (threadId: string, data: { content: string; senderName: string }) =>
-    apiFetch<Message>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
+  sendSupportMessage: (threadId: string, data: { content: string; senderName: string }) =>
+    apiFetch<SupportMessage>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
   markAsRead: (threadId: string) =>
     apiFetch<void>(`/support/messages/threads/${threadId}/read`, { method: 'POST' }),
   archiveThread: (threadId: string) =>

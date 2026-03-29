@@ -24,18 +24,18 @@ import {
 } from '../graphql/messaging-operations';
 import type {
   MessageThread,
-  Message,
+  SupportMessage,
   ThreadStatus,
   MessageSenderType,
   MessageStatus as MsgStatus,
-  MessageAttachment,
+  SupportMessageAttachment,
 } from '../services/types/support';
 
 // ============================================================================
 // GraphQL response types
 // ============================================================================
 
-/** ThreadListItem returned by the myThreads query */
+/** ThreadListItem returned by the mySupportThreads query */
 export interface ThreadSummary {
   id: string;
   tenantId: string;
@@ -69,7 +69,7 @@ interface GqlMessageThread {
   updatedAt: string;
 }
 
-/** Message item returned by the threadMessages query */
+/** Message item returned by the supportThreadMessages query */
 interface GqlMessageItem {
   id: string;
   threadId: string;
@@ -79,7 +79,7 @@ interface GqlMessageItem {
   content: string;
   status: MsgStatus;
   isInternal: boolean;
-  attachments: MessageAttachment[] | null;
+  attachments: SupportMessageAttachment[] | null;
   readAt: string | null;
   createdAt: string;
 }
@@ -101,8 +101,8 @@ interface CreateThreadInput {
   tenantId?: string;
 }
 
-/** Input for sending a message */
-interface SendMessageInput {
+/** Input for sending an admin support message */
+interface SupportSendMessageInput {
   threadId: string;
   content: string;
   isInternal?: boolean;
@@ -136,7 +136,7 @@ export function useAdminThreads(
   search?: string,
 ) {
   const result = useGraphQLQuery<
-    { myThreads: ThreadSummary[] },
+    { mySupportThreads: ThreadSummary[] },
     { status?: ThreadStatus; search?: string }
   >('AdminThreads', ADMIN_GET_THREADS, {
     variables: {
@@ -147,7 +147,7 @@ export function useAdminThreads(
   });
 
   return {
-    data: result.data?.myThreads ?? null,
+    data: result.data?.mySupportThreads ?? null,
     isLoading: result.isLoading,
     error: result.error ? (result.error.message || 'Failed to load threads') : null,
     refetch: result.refetch,
@@ -159,7 +159,7 @@ export function useAdminThreads(
  */
 export function useAdminThreadMessages(threadId: string | null) {
   const result = useGraphQLQuery<
-    { threadMessages: GqlMessageItem[] },
+    { supportThreadMessages: GqlMessageItem[] },
     { threadId: string }
   >('AdminThreadMessages', ADMIN_GET_THREAD_MESSAGES, {
     variables: { threadId: threadId ?? '' },
@@ -167,7 +167,7 @@ export function useAdminThreadMessages(threadId: string | null) {
   });
 
   return {
-    data: result.data?.threadMessages ?? null,
+    data: result.data?.supportThreadMessages ?? null,
     isLoading: result.isLoading,
     error: result.error ? (result.error.message || 'Failed to load messages') : null,
     refetch: result.refetch,
@@ -179,7 +179,7 @@ export function useAdminThreadMessages(threadId: string | null) {
  */
 export function useAdminThread(threadId: string | null) {
   const result = useGraphQLQuery<
-    { thread: GqlMessageThread },
+    { supportThread: GqlMessageThread },
     { id: string }
   >('AdminThread', ADMIN_GET_THREAD, {
     variables: { id: threadId ?? '' },
@@ -187,7 +187,7 @@ export function useAdminThread(threadId: string | null) {
   });
 
   return {
-    data: result.data?.thread ?? null,
+    data: result.data?.supportThread ?? null,
     isLoading: result.isLoading,
     error: result.error ? (result.error.message || 'Failed to load thread') : null,
     refetch: result.refetch,
@@ -199,13 +199,13 @@ export function useAdminThread(threadId: string | null) {
  */
 export function useMessagingStats() {
   const result = useGraphQLQuery<
-    { messagingStats: MessagingStats }
+    { supportMessagingStats: MessagingStats }
   >('AdminMessagingStats', ADMIN_GET_MESSAGING_STATS, {
     enabled: true,
   });
 
   return {
-    data: result.data?.messagingStats ?? null,
+    data: result.data?.supportMessagingStats ?? null,
     isLoading: result.isLoading,
     error: result.error ? (result.error.message || 'Failed to load stats') : null,
     refetch: result.refetch,
@@ -221,7 +221,7 @@ export function useMessagingStats() {
  */
 export function useCreateThread() {
   const { mutate, isLoading, error, data } = useGraphQLMutation<
-    { createThread: MessageThread },
+    { createSupportThread: MessageThread },
     { input: CreateThreadInput }
   >(ADMIN_CREATE_THREAD);
 
@@ -229,7 +229,7 @@ export function useCreateThread() {
     mutate: (params: { input: CreateThreadInput }) => mutate(params),
     isLoading,
     error: error ? (error.message || 'Failed to create thread') : null,
-    data: data?.createThread ?? null,
+    data: data?.createSupportThread ?? null,
   };
 }
 
@@ -238,15 +238,15 @@ export function useCreateThread() {
  */
 export function useSendMessage() {
   const { mutate, isLoading, error, data } = useGraphQLMutation<
-    { sendMessage: Message },
-    { input: SendMessageInput }
+    { sendSupportMessage: SupportMessage },
+    { input: SupportSendMessageInput }
   >(ADMIN_SEND_MESSAGE);
 
   return {
-    mutate: (params: { input: SendMessageInput }) => mutate(params),
+    mutate: (params: { input: SupportSendMessageInput }) => mutate(params),
     isLoading,
     error: error ? (error.message || 'Failed to send message') : null,
-    data: data?.sendMessage ?? null,
+    data: data?.sendSupportMessage ?? null,
   };
 }
 
@@ -272,7 +272,7 @@ export function useBulkCreateThreads() {
  */
 export function useCloseThread() {
   const { mutate, isLoading, error } = useGraphQLMutation<
-    { closeThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
+    { closeSupportThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
     { threadId: string }
   >(ADMIN_CLOSE_THREAD);
 
@@ -288,7 +288,7 @@ export function useCloseThread() {
  */
 export function useReopenThread() {
   const { mutate, isLoading, error } = useGraphQLMutation<
-    { reopenThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
+    { reopenSupportThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
     { threadId: string }
   >(ADMIN_REOPEN_THREAD);
 
@@ -304,7 +304,7 @@ export function useReopenThread() {
  */
 export function useArchiveThread() {
   const { mutate, isLoading, error } = useGraphQLMutation<
-    { archiveThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
+    { archiveSupportThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
     { threadId: string }
   >(ADMIN_ARCHIVE_THREAD);
 
@@ -348,19 +348,19 @@ export function useMarkAsRead() {
  * Imperative helper for fetching thread messages outside React components.
  */
 export async function fetchThreadMessages(threadId: string): Promise<GqlMessageItem[]> {
-  const result = await graphqlClient.request<{ threadMessages: GqlMessageItem[] }>(
+  const result = await graphqlClient.request<{ supportThreadMessages: GqlMessageItem[] }>(
     ADMIN_GET_THREAD_MESSAGES,
     { threadId },
   );
-  return result?.threadMessages ?? [];
+  return result?.supportThreadMessages ?? [];
 }
 
 /**
  * Imperative helper for fetching messaging stats.
  */
 export async function fetchMessagingStats(): Promise<MessagingStats | null> {
-  const result = await graphqlClient.request<{ messagingStats: MessagingStats }>(
+  const result = await graphqlClient.request<{ supportMessagingStats: MessagingStats }>(
     ADMIN_GET_MESSAGING_STATS,
   );
-  return result?.messagingStats ?? null;
+  return result?.supportMessagingStats ?? null;
 }

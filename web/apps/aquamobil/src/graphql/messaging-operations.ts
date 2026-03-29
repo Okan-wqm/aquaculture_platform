@@ -94,8 +94,8 @@ const CHANNEL_FIELDS = `
 
 /** List channels for the current user, sorted by last message timestamp. */
 export const MY_CHANNELS = `
-  query MyChannels($limit: Int, $offset: Int) {
-    myChannels(limit: $limit, offset: $offset) {
+  query MyChannels($filter: ChannelFilterInput) {
+    myChannels(filter: $filter) {
       items {
         ${CHANNEL_FIELDS}
       }
@@ -139,7 +139,7 @@ export const MESSAGES_SINCE = `
 export const ALL_MESSAGES_SINCE = `
   query AllMessagesSince($since: DateTime!, $limit: Int, $syncToken: String) {
     allMessagesSince(since: $since, limit: $limit, syncToken: $syncToken) {
-      items {
+      messages {
         ${MESSAGE_FIELDS}
       }
       hasMore

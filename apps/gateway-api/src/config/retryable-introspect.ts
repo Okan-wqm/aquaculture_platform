@@ -84,6 +84,21 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         const result = await super.initialize(args);
+
+        // DEFENSIVE: Verify supergraphSdl is non-null before returning.
+        // IntrospectAndCompose can return { supergraphSdl: null } if subgraph
+        // composition yields an empty schema (e.g., conflicting Federation types
+        // or a subgraph with no resolvers). Apollo Gateway then crashes with
+        // TypeError [ERR_INVALID_ARG_TYPE] when hashing null SDL.
+        if (!result?.supergraphSdl) {
+          throw new Error(
+            'Supergraph composition returned null/empty SDL. ' +
+            'This typically means one or more subgraphs have conflicting ' +
+            'GraphQL type definitions or failed to generate a schema. ' +
+            'Check subgraph logs for schema generation errors.',
+          );
+        }
+
         if (attempt > 1) {
           this.logger.log(
             `Supergraph composition succeeded on attempt ${attempt}/${this.maxRetries}`,

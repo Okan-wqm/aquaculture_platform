@@ -102,7 +102,7 @@ export type MessageSenderType = 'super_admin' | 'tenant_admin' | 'system';
 export type MessageStatus = 'sent' | 'delivered' | 'read';
 export type ThreadStatus = 'open' | 'closed' | 'archived';
 
-export interface MessageAttachment {
+export interface SupportMessageAttachment {
   id: string;
   filename: string;
   url: string;
@@ -110,7 +110,13 @@ export interface MessageAttachment {
   mimeType: string;
 }
 
-export interface Message {
+/**
+ * @deprecated Use {@link SupportMessageAttachment} instead.
+ * Kept temporarily for backward compatibility with REST-based code.
+ */
+export type MessageAttachment = SupportMessageAttachment;
+
+export interface SupportMessage {
   id: string;
   threadId: string;
   senderId: string;
@@ -119,10 +125,16 @@ export interface Message {
   content: string;
   status: MessageStatus;
   isInternal: boolean;
-  attachments: MessageAttachment[] | null;
+  attachments: SupportMessageAttachment[] | null;
   readAt: string | null;
   createdAt: string;
 }
+
+/**
+ * @deprecated Use {@link SupportMessage} instead.
+ * Kept temporarily for backward compatibility with REST-based code.
+ */
+export type Message = SupportMessage;
 
 export interface MessageThread {
   id: string;

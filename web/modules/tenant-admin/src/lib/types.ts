@@ -385,7 +385,7 @@ export type ThreadStatus = 'open' | 'closed';
 
 /**
  * A messaging thread between TenantAdmin and SuperAdmin.
- * Fields match the myThreads / thread GraphQL queries.
+ * Fields match the mySupportThreads / supportThread GraphQL queries.
  */
 export interface MessageThread {
   id: string;
@@ -406,8 +406,8 @@ export interface MessageThread {
 }
 
 /**
- * A single message within a thread.
- * Fields match the threadMessages GraphQL query.
+ * A single message within a support thread.
+ * Fields match the supportThreadMessages GraphQL query.
  */
 export interface Message {
   id: string;

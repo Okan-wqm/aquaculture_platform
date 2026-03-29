@@ -13,8 +13,8 @@
 // ===================================================================
 
 export const MY_THREADS_QUERY = `
-  query MyThreads($status: ThreadStatus, $search: String) {
-    myThreads(status: $status, search: $search) {
+  query MyThreads($status: SupportThreadStatus, $search: String) {
+    mySupportThreads(status: $status, search: $search) {
       id
       tenantId
       tenantName
@@ -32,7 +32,7 @@ export const MY_THREADS_QUERY = `
 
 export const THREAD_QUERY = `
   query Thread($id: ID!) {
-    thread(id: $id) {
+    supportThread(id: $id) {
       id
       tenantId
       subject
@@ -54,7 +54,7 @@ export const THREAD_QUERY = `
 
 export const THREAD_MESSAGES_QUERY = `
   query ThreadMessages($threadId: ID!) {
-    threadMessages(threadId: $threadId) {
+    supportThreadMessages(threadId: $threadId) {
       id
       threadId
       senderId
@@ -78,7 +78,7 @@ export const THREAD_MESSAGES_QUERY = `
 
 export const MESSAGING_STATS_QUERY = `
   query MessagingStats {
-    messagingStats {
+    supportMessagingStats {
       totalThreads
       activeThreads
       closedThreads
@@ -94,8 +94,8 @@ export const MESSAGING_STATS_QUERY = `
 // ===================================================================
 
 export const CREATE_THREAD_MUTATION = `
-  mutation CreateThread($input: CreateThreadInput!) {
-    createThread(input: $input) {
+  mutation CreateThread($input: SupportCreateThreadInput!) {
+    createSupportThread(input: $input) {
       id
       tenantId
       subject
@@ -108,8 +108,8 @@ export const CREATE_THREAD_MUTATION = `
 `;
 
 export const SEND_MESSAGE_MUTATION = `
-  mutation SendMessage($input: SendMessageInput!) {
-    sendMessage(input: $input) {
+  mutation SendMessage($input: SupportSendMessageInput!) {
+    sendSupportMessage(input: $input) {
       id
       threadId
       senderId
@@ -125,7 +125,7 @@ export const SEND_MESSAGE_MUTATION = `
 
 export const CLOSE_THREAD_MUTATION = `
   mutation CloseThread($threadId: ID!) {
-    closeThread(threadId: $threadId) {
+    closeSupportThread(threadId: $threadId) {
       id
       status
       updatedAt
@@ -135,7 +135,7 @@ export const CLOSE_THREAD_MUTATION = `
 
 export const REOPEN_THREAD_MUTATION = `
   mutation ReopenThread($threadId: ID!) {
-    reopenThread(threadId: $threadId) {
+    reopenSupportThread(threadId: $threadId) {
       id
       status
       updatedAt

@@ -318,8 +318,8 @@ export type SocketPresenceEvent = PresenceEvent;
  * Returns messages across all channels, capped at 50 per channel within the global limit.
  */
 export interface AllMessagesSinceResponse {
-  /** Messages across all channels. */
-  items: Message[];
+  /** Messages across all channels. Field name matches backend AllMessagesSinceResponse.messages. */
+  messages: Message[];
   /** True if more messages exist beyond the limit. */
   hasMore: boolean;
   /** Opaque token for continuation paging. Pass back as syncToken. */

@@ -1,7 +1,5 @@
 import { Controller, Logger } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices/decorators/message-pattern.decorator';
-import { EventPattern } from '@nestjs/microservices/decorators/event-pattern.decorator';
-import { Payload } from '@nestjs/microservices/decorators/payload.decorator';
+import { MessagePattern, EventPattern, Payload } from '@nestjs/microservices';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, In, IsNull } from 'typeorm';
 import { ChannelMember } from '../channel/entities/channel-member.entity';

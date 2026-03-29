@@ -5,7 +5,7 @@
  * outbox event — all within a single database transaction.
  * @see ADR-012 section 3.4 (Channel CQRS)
  */
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';

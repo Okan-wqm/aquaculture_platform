@@ -309,6 +309,24 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
 
         return {
         gateway: {
+          /**
+           * ARCH-GW-005: Federated subgraph registry.
+           *
+           * CRITICAL INVARIANT: Every service listed here MUST also appear in:
+           *   1. docker-compose.droplet.yml gateway depends_on with condition: service_healthy
+           *   2. health.service.ts serviceUrls map (for /health/detail monitoring)
+           *
+           * If a subgraph is added here but not in depends_on, the gateway container
+           * starts before that subgraph is ready, causing composition failure that
+           * blocks NestFactory.create() and prevents /health/live from responding.
+           *
+           * Composition is ALL-OR-NOTHING: if any single subgraph fails introspection,
+           * the entire supergraph composition fails. There is no partial composition.
+           *
+           * Current subgraphs (11):
+           *   auth, farm, sensor, alert, hr, billing, hydroponics, config,
+           *   notification (BUG-4 FIX), messaging (ADR-012)
+           */
           supergraphSdl: new RetryableIntrospectAndCompose({
             subgraphs: [
               {
@@ -352,6 +370,9 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                 name: 'notification',
                 url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:4008/graphql'),
               },
+              // ADR-012: messaging-service is a federated subgraph for tenant-internal
+              // WhatsApp-like messaging. Added to docker-compose depends_on and
+              // health.service.ts serviceUrls map as part of ARCH-GW-001.
               {
                 name: 'messaging',
                 url: configService.get('MESSAGING_SERVICE_URL', 'http://messaging-service:3000/graphql'),

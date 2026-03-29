@@ -65,9 +65,19 @@ export class HealthService {
       5000,
     );
 
-    // NOTE: notification-service is event-driven only (no GraphQL/HTTP endpoint).
-    // Including it causes the health endpoint to permanently report 'degraded',
-    // masking genuine failures and misleading Kubernetes probes.
+    /**
+     * ARCH-GW-003: Health check service URL map must mirror the subgraph list in
+     * app.module.ts (RetryableIntrospectAndCompose). If a service is registered
+     * as a federated subgraph, it MUST be included here so that /health/detail
+     * reports accurate downstream status.
+     *
+     * BUG-4 FIX (app.module.ts): notification-service was re-added as a federated
+     * subgraph because it exposes ApolloFederationDriver queries. It must therefore
+     * be included in health checks.
+     *
+     * ADR-012: messaging-service is a federated subgraph added in the messaging
+     * service implementation. It must be included in health checks.
+     */
     this.serviceUrls = new Map([
       [
         'auth',
@@ -120,6 +130,20 @@ export class HealthService {
         this.configService.get(
           'CONFIG_SERVICE_URL',
           'http://localhost:3007/graphql',
+        ),
+      ],
+      [
+        'notification',
+        this.configService.get(
+          'NOTIFICATION_SERVICE_URL',
+          'http://localhost:4008/graphql',
+        ),
+      ],
+      [
+        'messaging',
+        this.configService.get(
+          'MESSAGING_SERVICE_URL',
+          'http://messaging-service:3000/graphql',
         ),
       ],
     ]);

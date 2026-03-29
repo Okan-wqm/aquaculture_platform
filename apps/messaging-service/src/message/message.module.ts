@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 
 // Entities
 import { Message } from './entities/message.entity';
@@ -24,6 +25,7 @@ import { QueryHandlers } from './queries';
 // Services
 import { MessageService } from './services/message.service';
 import { MediaService } from './services/media.service';
+import { MentionService } from './services/mention.service';
 import { ThumbnailService } from './services/thumbnail.service';
 import { StorageQuotaService } from './services/storage-quota.service';
 
@@ -47,6 +49,15 @@ import { MessageResolver } from './resolvers/message.resolver';
       MessagingOutbox,
     ]),
     CqrsModule,
+    ClientsModule.register([
+      {
+        name: 'NATS_SERVICE',
+        transport: Transport.NATS,
+        options: {
+          servers: [process.env['NATS_URL'] || 'nats://localhost:4222'],
+        },
+      },
+    ]),
     ChannelModule,
     PresenceModule,
     GdprModule,
@@ -59,6 +70,7 @@ import { MessageResolver } from './resolvers/message.resolver';
     // Domain services
     MessageService,
     MediaService,
+    MentionService,
     ThumbnailService,
     StorageQuotaService,
 

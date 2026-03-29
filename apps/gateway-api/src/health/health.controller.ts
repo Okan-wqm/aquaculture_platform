@@ -8,15 +8,32 @@ import { HealthService, HealthStatus } from './health.service';
 /**
  * Gateway Health Controller
  *
- * The gateway is a special case: it has no database of its own but checks
- * downstream microservices for readiness.
+ * ARCH-GW-004: Health probe architecture for the API gateway.
  *
- * Standard K8s probe endpoints:
- *   GET /health/live   - Liveness: always 200 if process is alive
- *   GET /health/ready  - Readiness: 200 if auth service reachable, 503 otherwise
- *   GET /health        - General: sanitized status with timestamp, uptime, version
- *   GET /health/detail - Auth required: full internal details for monitoring
- *   GET /health/ping   - Simple connectivity check
+ * The gateway has no database of its own. Its health depends on:
+ *   1. NestJS process running (liveness)
+ *   2. Supergraph composed successfully (implicit in liveness -- NestFactory.create
+ *      blocks until RetryableIntrospectAndCompose completes)
+ *   3. Critical downstream service reachable (readiness -- auth service)
+ *
+ * Probe endpoints:
+ *   GET /health/live   - Liveness: 200 if NestJS process started (supergraph is composed).
+ *                        Used by Docker healthcheck and deploy script. This endpoint only
+ *                        becomes available AFTER NestFactory.create() completes, which
+ *                        requires successful supergraph composition. Therefore, a 200 from
+ *                        /health/live implicitly confirms federation is operational.
+ *   GET /health/ready  - Readiness: 200 if auth service is reachable, 503 otherwise.
+ *                        Intentionally checks only the auth service (critical path), NOT
+ *                        all subgraphs. A single degraded subgraph should not remove the
+ *                        gateway from the load balancer.
+ *   GET /health        - General: sanitized status with timestamp, uptime, version.
+ *   GET /health/detail - Auth required: full internal details for monitoring.
+ *   GET /health/ping   - Simple connectivity check.
+ *
+ * Deploy integration:
+ *   - Docker healthcheck: /health/live (start_period: 120s, interval: 30s)
+ *   - CI deploy script: curl /health/live (30 attempts x 10s = 300s window)
+ *   - Rollback trigger: deploy script exits 1 if /health/live never returns 200
  */
 @Controller('health')
 export class HealthController {

@@ -246,10 +246,16 @@ services:
         condition: service_healthy
       config-service:
         condition: service_healthy
+      # ARCH-GW-001: notification-service and messaging-service are federated subgraphs
+      # (listed in RetryableIntrospectAndCompose in app.module.ts). They MUST be healthy
+      # before gateway starts, otherwise supergraph composition fails and blocks NestJS
+      # startup entirely — preventing even /health/live from responding.
+      notification-service:
+        condition: service_healthy
+      messaging-service:
+        condition: service_healthy
       # Non-subgraph services: service_started is sufficient (gateway doesn't introspect them)
       admin-api-service:
-        condition: service_started
-      notification-service:
         condition: service_started
       observability-service:
         condition: service_started

@@ -15,10 +15,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 
 // Feature module dependencies
 import { ChannelModule } from '../channel/channel.module';
 import { MessageModule } from '../message/message.module';
+import { PresenceModule } from '../presence/presence.module';
 
 // Entities
 import { MessageAnalysis } from './entities/message-analysis.entity';
@@ -79,6 +81,17 @@ const services = [
       MessagingOutbox,
     ]),
     CqrsModule,
+    ClientsModule.register([
+      {
+        name: 'NATS_SERVICE',
+        transport: Transport.NATS,
+        options: {
+          servers: [process.env['NATS_URL'] || 'nats://localhost:4222'],
+        },
+      },
+    ]),
+    // PresenceModule provides REDIS_CLIENT for AiPrivacyService
+    PresenceModule,
     ChannelModule,
     MessageModule,
   ],

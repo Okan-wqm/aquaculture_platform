@@ -11,7 +11,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   X,
   Download,
@@ -20,6 +20,7 @@ import {
   FileText,
   AlertCircle,
 } from 'lucide-react';
+import { isSafeUrl } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,8 +54,10 @@ function useChannelMedia(_channelId: string): {
 
 /**
  * Trigger a file download by creating a temporary anchor element.
+ * Only allows downloads from safe URL protocols (http/https).
  */
 function downloadFile(url: string, fileName: string): void {
+  if (!isSafeUrl(url)) return;
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = fileName;
@@ -88,28 +91,31 @@ function formatMediaDate(isoString: string): string {
  * MediaViewerPage provides a full-screen media viewing experience with
  * pinch-to-zoom for images, swipe navigation between media items, and
  * download capability. PDF files display a filename card with download.
+ *
+ * Route: /messages/media/:attachmentId (path param, matches App.tsx route)
  */
 export function MediaViewerPage() {
   const navigate = useNavigate();
-  const { channelId } = useParams<{ channelId: string }>();
-  const [searchParams] = useSearchParams();
-  const mediaId = searchParams.get('id');
+  const { attachmentId } = useParams<{ attachmentId: string }>();
 
-  const { media, loading, error } = useChannelMedia(channelId ?? '');
+  // WHY: channelId is not in the route path for media viewer. The media
+  // viewer is accessed from the chat room, so we use a fallback empty string.
+  // In production, this should be passed via route state or a query param.
+  const { media, loading, error } = useChannelMedia('');
 
   // Find the current media index
-  const currentIndex = media.findIndex((m) => m.id === mediaId);
+  const currentIndex = media.findIndex((m) => m.id === attachmentId);
   const [activeIndex, setActiveIndex] = useState(
     currentIndex >= 0 ? currentIndex : 0,
   );
 
   // Keep activeIndex in sync when media loads
   useEffect(() => {
-    if (media.length > 0 && mediaId) {
-      const idx = media.findIndex((m) => m.id === mediaId);
+    if (media.length > 0 && attachmentId) {
+      const idx = media.findIndex((m) => m.id === attachmentId);
       if (idx >= 0) setActiveIndex(idx);
     }
-  }, [media, mediaId]);
+  }, [media, attachmentId]);
 
   const currentMedia = media[activeIndex] ?? null;
 
@@ -132,7 +138,6 @@ export function MediaViewerPage() {
     setTranslateY(0);
   }, []);
 
-  // Navigate to previous/next media
   const handlePrev = useCallback(() => {
     if (activeIndex > 0) {
       setActiveIndex((prev) => prev - 1);
@@ -151,20 +156,17 @@ export function MediaViewerPage() {
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length === 2) {
-        // Pinch start
         const dx = e.touches[0]!.clientX - e.touches[1]!.clientX;
         const dy = e.touches[0]!.clientY - e.touches[1]!.clientY;
         initialPinchDistance.current = Math.hypot(dx, dy);
         initialScale.current = scale;
       } else if (e.touches.length === 1) {
         if (scale > 1) {
-          // Pan start (when zoomed)
           lastTouchPos.current = {
             x: e.touches[0]!.clientX,
             y: e.touches[0]!.clientY,
           };
         } else {
-          // Swipe start (when not zoomed)
           touchStartX.current = e.touches[0]!.clientX;
         }
       }
@@ -175,7 +177,6 @@ export function MediaViewerPage() {
   const handleTouchMove = useCallback(
     (e: React.TouchEvent) => {
       if (e.touches.length === 2 && initialPinchDistance.current !== null) {
-        // Pinch zoom
         const dx = e.touches[0]!.clientX - e.touches[1]!.clientX;
         const dy = e.touches[0]!.clientY - e.touches[1]!.clientY;
         const distance = Math.hypot(dx, dy);
@@ -185,7 +186,6 @@ export function MediaViewerPage() {
         );
         setScale(newScale);
       } else if (e.touches.length === 1 && scale > 1 && lastTouchPos.current) {
-        // Pan (when zoomed)
         const dx = e.touches[0]!.clientX - lastTouchPos.current.x;
         const dy = e.touches[0]!.clientY - lastTouchPos.current.y;
         setTranslateX((prev) => prev + dx);
@@ -203,7 +203,6 @@ export function MediaViewerPage() {
     (e: React.TouchEvent) => {
       if (initialPinchDistance.current !== null) {
         initialPinchDistance.current = null;
-        // Snap back to 1x if zoomed out too far
         if (scale < 1) {
           setScale(1);
           setTranslateX(0);
@@ -212,7 +211,6 @@ export function MediaViewerPage() {
         return;
       }
 
-      // Swipe detection (only when not zoomed)
       if (scale <= 1 && touchStartX.current !== null && e.changedTouches.length > 0) {
         const endX = e.changedTouches[0]!.clientX;
         const diff = touchStartX.current - endX;
@@ -236,7 +234,6 @@ export function MediaViewerPage() {
   const handleTap = useCallback(() => {
     const now = Date.now();
     if (now - lastTapTime.current < 300) {
-      // Double tap
       if (scale > 1) {
         resetZoom();
       } else {
@@ -255,6 +252,9 @@ export function MediaViewerPage() {
     navigate(-1);
   }, [navigate]);
 
+  // Validate current media URL before rendering
+  const safeMediaUrl = currentMedia?.url && isSafeUrl(currentMedia.url) ? currentMedia.url : null;
+
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       {/* Top bar */}
@@ -267,7 +267,6 @@ export function MediaViewerPage() {
           <X size={24} className="text-white" />
         </button>
 
-        {/* Media info */}
         {currentMedia && (
           <div className="flex-1 text-center min-w-0 px-2">
             <p className="text-sm font-medium text-white truncate">
@@ -313,10 +312,9 @@ export function MediaViewerPage() {
             <AlertCircle size={40} className="text-white/40" />
             <p className="text-sm text-white/60">Media not found</p>
           </div>
-        ) : currentMedia.type === 'IMAGE' ? (
-          /* Image with pinch-to-zoom */
+        ) : currentMedia.type === 'IMAGE' && safeMediaUrl ? (
           <img
-            src={currentMedia.url}
+            src={safeMediaUrl}
             alt={currentMedia.fileName}
             className="max-w-full max-h-full object-contain select-none"
             draggable={false}
@@ -329,7 +327,6 @@ export function MediaViewerPage() {
             }}
           />
         ) : currentMedia.type === 'PDF' ? (
-          /* PDF file display */
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
             <div className="w-20 h-20 bg-red-500/20 rounded-2xl flex items-center justify-center">
               <FileText size={40} className="text-red-400" />
@@ -349,7 +346,6 @@ export function MediaViewerPage() {
             </button>
           </div>
         ) : (
-          /* Generic file display */
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
             <div className="w-20 h-20 bg-gray-500/20 rounded-2xl flex items-center justify-center">
               <FileText size={40} className="text-gray-400" />
@@ -370,7 +366,7 @@ export function MediaViewerPage() {
         )}
       </div>
 
-      {/* Navigation arrows (only for multiple items) */}
+      {/* Navigation arrows */}
       {media.length > 1 && (
         <>
           {activeIndex > 0 && (

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, type ReactElement } from 'rea
 import { File as FileIcon, Reply, Copy, Forward, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ReadReceipt } from './ReadReceipt';
+import { isSafeUrl } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -262,8 +263,8 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* Image attachment */}
-        {image && (
+        {/* Image attachment — URL protocol validated to prevent XSS */}
+        {image && isSafeUrl(image.thumbnailUrl ?? image.url) && (
           <div className="mb-1.5 -mx-1 -mt-0.5 overflow-hidden rounded-xl">
             <img
               src={image.thumbnailUrl ?? image.url}
@@ -274,8 +275,8 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* File attachment */}
-        {file && (
+        {/* File attachment — URL protocol validated to prevent XSS */}
+        {file && isSafeUrl(file.url) && (
           <a
             href={file.url}
             target="_blank"

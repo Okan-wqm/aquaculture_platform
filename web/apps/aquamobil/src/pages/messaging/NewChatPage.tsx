@@ -22,63 +22,10 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth } from '@/hooks/useAuth';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface TenantUser {
-  id: string;
-  name: string;
-  email: string;
-  avatarUrl: string | null;
-  isOnline: boolean;
-  role: string;
-}
-
-// ---------------------------------------------------------------------------
-// TODO: Replace with real hooks once messaging backend is integrated
-// import { useTenantUsers } from '@/hooks/useTenantUsers';
-// import { useCreateChannel } from '@/hooks/useCreateChannel';
-// ---------------------------------------------------------------------------
-
-function useTenantUsers(): {
-  users: TenantUser[];
-  loading: boolean;
-  error: string | null;
-} {
-  return { users: [], loading: false, error: null };
-}
-
-function useCreateChannel(): {
-  createDM: (userId: string) => Promise<string>;
-  createGroup: (name: string, userIds: string[]) => Promise<string>;
-  isCreating: boolean;
-} {
-  return {
-    createDM: async () => '',
-    createGroup: async () => '',
-    isCreating: false,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Get initials from a name for avatar fallback.
- */
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 0) return '?';
-  const first = parts[0]?.charAt(0).toUpperCase() ?? '';
-  const last =
-    parts.length > 1
-      ? (parts[parts.length - 1]?.charAt(0).toUpperCase() ?? '')
-      : '';
-  return first + last;
-}
+import { useTenantUsers } from '@/hooks/useTenantUsers';
+import type { TenantUserItem } from '@/hooks/useTenantUsers';
+import { useCreateChannel } from '@/hooks/useCreateChannel';
+import { getInitials } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -104,7 +51,7 @@ function UserRow({
   showCheckbox,
   onPress,
 }: {
-  user: TenantUser;
+  user: TenantUserItem;
   isSelected: boolean;
   showCheckbox: boolean;
   onPress: () => void;
@@ -127,7 +74,6 @@ function UserRow({
             {getInitials(user.name)}
           </div>
         )}
-        {/* Online indicator */}
         {user.isOnline && (
           <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full" />
         )}
@@ -172,14 +118,12 @@ function UserRow({
 export function NewChatPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
-  const { users, loading, error } = useTenantUsers();
+  const { users, isLoading: usersLoading, error: usersError } = useTenantUsers();
   const { createDM, createGroup, isCreating } = useCreateChannel();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupMode, setIsGroupMode] = useState(false);
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [groupName, setGroupName] = useState('');
   const [showGroupNameInput, setShowGroupNameInput] = useState(false);
 
@@ -201,7 +145,6 @@ export function NewChatPage() {
   const handleUserPress = useCallback(
     async (userId: string) => {
       if (isGroupMode) {
-        // Toggle selection
         setSelectedUserIds((prev) => {
           const next = new Set(prev);
           if (next.has(userId)) {
@@ -227,10 +170,8 @@ export function NewChatPage() {
     [isGroupMode, createDM, navigate],
   );
 
-  // Toggle group mode
   const handleToggleGroupMode = useCallback(() => {
     if (isGroupMode) {
-      // Exit group mode
       setIsGroupMode(false);
       setSelectedUserIds(new Set());
       setGroupName('');
@@ -240,13 +181,11 @@ export function NewChatPage() {
     }
   }, [isGroupMode]);
 
-  // Proceed to group name input
   const handleProceedToGroupName = useCallback(() => {
     if (selectedUserIds.size < 2) return;
     setShowGroupNameInput(true);
   }, [selectedUserIds.size]);
 
-  // Create group channel
   const handleCreateGroup = useCallback(async () => {
     const name = groupName.trim();
     if (!name || selectedUserIds.size < 2) return;
@@ -261,12 +200,16 @@ export function NewChatPage() {
     }
   }, [groupName, selectedUserIds, createGroup, navigate]);
 
-  // Selected user names for the preview
   const selectedUserNames = useMemo(() => {
     return users
       .filter((u) => selectedUserIds.has(u.id))
       .map((u) => u.name);
   }, [users, selectedUserIds]);
+
+  const loading = usersLoading;
+  const errorMsg = usersError
+    ? (usersError instanceof Error ? usersError.message : 'Failed to load users')
+    : null;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -310,7 +253,6 @@ export function NewChatPage() {
               className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 transition-all"
             />
 
-            {/* Selected members preview */}
             <div className="mt-3">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
                 {selectedUserNames.length} members selected
@@ -328,7 +270,6 @@ export function NewChatPage() {
             </div>
           </div>
 
-          {/* Action buttons */}
           <div className="flex gap-3">
             <button
               onClick={() => setShowGroupNameInput(false)}
@@ -435,13 +376,13 @@ export function NewChatPage() {
                   <UserSkeleton key={i} />
                 ))}
               </div>
-            ) : error ? (
+            ) : errorMsg ? (
               <div className="text-center py-12 px-4">
                 <AlertCircle
                   size={40}
                   className="mx-auto mb-3 text-gray-300 opacity-60"
                 />
-                <p className="text-sm text-gray-500">{error}</p>
+                <p className="text-sm text-gray-500">{errorMsg}</p>
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="text-center py-12 px-4">

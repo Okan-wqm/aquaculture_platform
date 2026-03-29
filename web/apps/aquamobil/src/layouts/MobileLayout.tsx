@@ -1,4 +1,4 @@
-import { ReactNode, useState, useEffect, useCallback } from 'react';
+import { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 // WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
 // classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
@@ -8,8 +8,7 @@ import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
-import { useAuth } from '@/hooks/useAuth';
-import { TOTAL_UNREAD_MESSAGE_COUNT } from '@/graphql/messaging-operations';
+import { useUnreadCount } from '@/hooks/useUnreadCount';
 import { clsx } from 'clsx';
 
 interface MobileLayoutProps {
@@ -39,41 +38,13 @@ export function MobileLayout({ children }: MobileLayoutProps) {
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
   const { canAccess } = useMobilePermissions();
   const { unreadCount } = useNotifications();
-  const { accessToken, tenantId } = useAuth();
 
   // ADR-012: Unread message count for the Messages tab badge.
-  // Polled every 30s instead of WebSocket to avoid adding a persistent connection
-  // dependency to the layout shell. Messaging pages use WebSocket for real-time.
-  const [messageUnreadCount, setMessageUnreadCount] = useState(0);
-
-  const fetchMessageUnread = useCallback(async () => {
-    if (!accessToken || !tenantId) return;
-    try {
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'X-Tenant-Id': tenantId,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({ query: TOTAL_UNREAD_MESSAGE_COUNT }),
-      });
-      if (!response.ok) return;
-      const result = await response.json() as { data?: { totalUnreadMessageCount: number } };
-      if (result.data?.totalUnreadMessageCount !== undefined) {
-        setMessageUnreadCount(result.data.totalUnreadMessageCount);
-      }
-    } catch {
-      // Silently fail — badge is non-critical and will retry on next poll
-    }
-  }, [accessToken, tenantId]);
-
-  useEffect(() => {
-    fetchMessageUnread();
-    const interval = setInterval(fetchMessageUnread, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchMessageUnread]);
+  // WHY useUnreadCount hook: Replaces manual fetch + polling with the shared
+  // TanStack Query hook that also integrates with Socket.IO cache invalidation
+  // from useMessageSocket. The hook polls every 60s as a fallback safety net
+  // but is primarily updated in real-time via Socket.IO events.
+  const { unreadCount: messageUnreadCount } = useUnreadCount();
 
   /**
    * Bottom tab navigation — 5 tabs: Home, Operations, Tasks, Messages, Account.

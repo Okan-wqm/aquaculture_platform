@@ -9,7 +9,7 @@
  *
  * Channels are sorted by last message timestamp DESC so the most active
  * conversations bubble to the top. DM channels display the other user's
- * name (not "Direct Message") for clarity.
+ * computed name (not "Direct Message") for clarity.
  */
 
 import { useState, useCallback, useMemo, useRef } from 'react';
@@ -18,98 +18,41 @@ import {
   MessageSquare,
   Search,
   Plus,
-  Users,
   RefreshCw,
   X,
 } from 'lucide-react';
 import { clsx } from 'clsx';
-
-// ---------------------------------------------------------------------------
-// Types — messaging domain models used by this page
-// ---------------------------------------------------------------------------
-
-/** Represents a messaging channel (DM or group). */
-interface Channel {
-  id: string;
-  name: string;
-  type: 'DM' | 'GROUP';
-  avatarUrl: string | null;
-  memberCount: number;
-  lastMessage: {
-    content: string;
-    senderName: string;
-    sentAt: string;
-  } | null;
-  unreadCount: number;
-  /** For DM channels: the other participant's display name. */
-  otherUserName: string | null;
-  /** For DM channels: online status of the other participant. */
-  isOtherUserOnline: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// TODO: Replace with real hook once messaging backend is integrated
-// import { useChannels } from '@/hooks/useChannels';
-// ---------------------------------------------------------------------------
-
-/** Temporary hook stub — returns empty state until backend is wired up. */
-function useChannels(): {
-  channels: Channel[];
-  loading: boolean;
-  error: string | null;
-  refetch: () => Promise<void>;
-} {
-  return {
-    channels: [],
-    loading: false,
-    error: null,
-    refetch: async () => {},
-  };
-}
+import { useChannels } from '@/hooks/useChannels';
+import { useAuth } from '@/hooks/useAuth';
+import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
+import { formatRelativeTime, getUserDisplayName } from '@/utils/messaging-helpers';
+import type { Channel } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Format a timestamp into a short relative label for the channel list.
- * Shows "Just now", "5m", "2h", "Yesterday", or a short date.
+ * Compute the display name for a channel. For direct channels, derive from
+ * the other member's user details instead of using channel.name.
  */
-function formatChannelTime(isoString: string): string {
-  const now = Date.now();
-  const date = new Date(isoString).getTime();
-  if (isNaN(date)) return '';
-
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60_000);
-  const diffHour = Math.floor(diffMs / 3_600_000);
-  const diffDay = Math.floor(diffMs / 86_400_000);
-
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m`;
-  if (diffHour < 24) return `${diffHour}h`;
-  if (diffDay === 1) return 'Yesterday';
-  if (diffDay < 7) return `${diffDay}d`;
-
-  return new Date(isoString).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
+function getChannelDisplayName(channel: Channel, currentUserId: string | undefined): string {
+  if (channel.type === 'direct' && channel.members) {
+    const otherMember = channel.members.find((m) => m.userId !== currentUserId);
+    if (otherMember?.user) {
+      return getUserDisplayName(otherMember.user);
+    }
+  }
+  return channel.name ?? 'Unnamed Channel';
 }
 
 /**
- * Get initials from a name string for the avatar fallback.
- * "John Doe" => "JD", "Admin" => "A".
+ * Determine if the other user in a DM channel is online.
  */
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 0) return '?';
-  const first = parts[0]?.charAt(0).toUpperCase() ?? '';
-  const last =
-    parts.length > 1
-      ? (parts[parts.length - 1]?.charAt(0).toUpperCase() ?? '')
-      : '';
-  return first + last;
+function isOtherUserOnline(channel: Channel, currentUserId: string | undefined): boolean {
+  if (channel.type !== 'direct' || !channel.members) return false;
+  const otherMember = channel.members.find((m) => m.userId !== currentUserId);
+  return otherMember?.user?.isOnline ?? false;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,78 +73,42 @@ function ChannelSkeleton() {
   );
 }
 
-/** Avatar component for a channel — shows image or initials fallback. */
-function ChannelAvatar({
-  channel,
-}: {
-  channel: Channel;
-}) {
-  const displayName =
-    channel.type === 'DM' && channel.otherUserName
-      ? channel.otherUserName
-      : channel.name;
-  const initials = getInitials(displayName);
-  const isOnline = channel.type === 'DM' && channel.isOtherUserOnline;
-
-  if (channel.avatarUrl) {
-    return (
-      <div className="relative flex-shrink-0">
-        <img
-          src={channel.avatarUrl}
-          alt={displayName}
-          className="w-12 h-12 rounded-full object-cover"
-        />
-        {isOnline && (
-          <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full" />
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative flex-shrink-0">
-      <div
-        className={clsx(
-          'w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold',
-          channel.type === 'DM'
-            ? 'bg-gradient-to-br from-ocean-400 to-ocean-600 text-white'
-            : 'bg-gradient-to-br from-purple-400 to-purple-600 text-white',
-        )}
-      >
-        {channel.type === 'GROUP' ? (
-          <Users size={20} />
-        ) : (
-          initials
-        )}
-      </div>
-      {isOnline && (
-        <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full" />
-      )}
-    </div>
-  );
-}
-
 /** A single channel row in the list. */
 function ChannelRow({
   channel,
+  currentUserId,
   onPress,
 }: {
   channel: Channel;
+  currentUserId: string | undefined;
   onPress: () => void;
 }) {
-  const displayName =
-    channel.type === 'DM' && channel.otherUserName
-      ? channel.otherUserName
-      : channel.name;
+  const displayName = getChannelDisplayName(channel, currentUserId);
+  const online = isOtherUserOnline(channel, currentUserId);
+  const hasUnread = (channel.unreadCount ?? 0) > 0;
 
-  const hasUnread = channel.unreadCount > 0;
+  // Compute last message preview
+  const lastMsgContent = channel.lastMessage?.content ?? null;
+  const lastMsgSender = channel.lastMessage?.sender
+    ? getUserDisplayName(channel.lastMessage.sender)
+    : null;
+  const lastMsgTime = channel.lastMessage?.createdAt ?? null;
+
+  // Map channel type to ChannelAvatar type prop
+  const avatarType = channel.type === 'direct' ? 'dm' : channel.type === 'ai' ? 'ai' : 'group';
 
   return (
     <button
       onClick={onPress}
       className="w-full flex items-center gap-3 px-4 py-3 touch-feedback transition-all active:bg-gray-50 dark:active:bg-gray-800/50"
     >
-      <ChannelAvatar channel={channel} />
+      <ChannelAvatar
+        type={avatarType}
+        name={displayName}
+        imageUrl={channel.avatarUrl ?? undefined}
+        isOnline={online}
+        size="lg"
+      />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
@@ -215,7 +122,7 @@ function ChannelRow({
           >
             {displayName}
           </h3>
-          {channel.lastMessage && (
+          {lastMsgTime && (
             <span
               className={clsx(
                 'text-[11px] flex-shrink-0',
@@ -224,7 +131,7 @@ function ChannelRow({
                   : 'text-gray-400 dark:text-gray-500',
               )}
             >
-              {formatChannelTime(channel.lastMessage.sentAt)}
+              {formatRelativeTime(lastMsgTime)}
             </span>
           )}
         </div>
@@ -238,22 +145,22 @@ function ChannelRow({
                 : 'text-gray-400 dark:text-gray-500',
             )}
           >
-            {channel.lastMessage
-              ? channel.type === 'GROUP'
-                ? `${channel.lastMessage.senderName}: ${channel.lastMessage.content}`
-                : channel.lastMessage.content
+            {lastMsgContent
+              ? channel.type === 'group' && lastMsgSender
+                ? `${lastMsgSender}: ${lastMsgContent}`
+                : lastMsgContent
               : 'No messages yet'}
           </p>
 
           {hasUnread && (
             <span className="bg-ocean-500 text-white text-[10px] font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 flex-shrink-0">
-              {channel.unreadCount > 99 ? '99+' : channel.unreadCount}
+              {(channel.unreadCount ?? 0) > 99 ? '99+' : channel.unreadCount}
             </span>
           )}
 
-          {channel.type === 'GROUP' && !hasUnread && (
+          {channel.type === 'group' && !hasUnread && (
             <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">
-              {channel.memberCount}
+              {channel.memberCount ?? 0}
             </span>
           )}
         </div>
@@ -273,7 +180,8 @@ function ChannelRow({
  */
 export function ChannelListPage() {
   const navigate = useNavigate();
-  const { channels, loading, error, refetch } = useChannels();
+  const { user } = useAuth();
+  const { channels, isLoading, error, refetch } = useChannels();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -286,22 +194,19 @@ export function ChannelListPage() {
 
     const query = searchQuery.toLowerCase();
     return channels.filter((ch) => {
-      const displayName =
-        ch.type === 'DM' && ch.otherUserName
-          ? ch.otherUserName
-          : ch.name;
+      const displayName = getChannelDisplayName(ch, user?.id);
       return displayName.toLowerCase().includes(query);
     });
-  }, [channels, searchQuery]);
+  }, [channels, searchQuery, user?.id]);
 
   // Sort by last message timestamp DESC
   const sortedChannels = useMemo(() => {
     return [...filteredChannels].sort((a, b) => {
       const aTime = a.lastMessage
-        ? new Date(a.lastMessage.sentAt).getTime()
+        ? new Date(a.lastMessage.createdAt).getTime()
         : 0;
       const bTime = b.lastMessage
-        ? new Date(b.lastMessage.sentAt).getTime()
+        ? new Date(b.lastMessage.createdAt).getTime()
         : 0;
       return bTime - aTime;
     });
@@ -315,7 +220,6 @@ export function ChannelListPage() {
 
   const handleOpenSearch = useCallback(() => {
     setIsSearchOpen(true);
-    // Focus the input after the next paint
     requestAnimationFrame(() => {
       searchInputRef.current?.focus();
     });
@@ -337,13 +241,15 @@ export function ChannelListPage() {
     navigate('/messages/new');
   }, [navigate]);
 
+  const loading = isLoading;
+  const errorMsg = error ? (error instanceof Error ? error.message : 'Failed to load channels') : null;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
       <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
         <div className="px-4 py-4 pt-safe-top">
           {isSearchOpen ? (
-            /* Search mode header */
             <div className="flex items-center gap-3">
               <button
                 onClick={handleCloseSearch}
@@ -361,7 +267,6 @@ export function ChannelListPage() {
               />
             </div>
           ) : (
-            /* Default header */
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <MessageSquare size={22} />
@@ -401,7 +306,7 @@ export function ChannelListPage() {
               <ChannelSkeleton key={i} />
             ))}
           </div>
-        ) : error ? (
+        ) : errorMsg ? (
           <div className="text-center py-12 px-4">
             <MessageSquare
               size={48}
@@ -410,7 +315,7 @@ export function ChannelListPage() {
             <p className="font-medium text-gray-600 dark:text-gray-300">
               Could not load messages
             </p>
-            <p className="text-sm text-gray-400 mt-1">{error}</p>
+            <p className="text-sm text-gray-400 mt-1">{errorMsg}</p>
             <button
               onClick={handleRefresh}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-ocean-500 text-white rounded-xl text-sm font-semibold touch-feedback"
@@ -449,6 +354,7 @@ export function ChannelListPage() {
               <ChannelRow
                 key={channel.id}
                 channel={channel}
+                currentUserId={user?.id}
                 onPress={() => handleChannelPress(channel.id)}
               />
             ))}
@@ -456,8 +362,8 @@ export function ChannelListPage() {
         )}
       </div>
 
-      {/* FAB — New chat button (bottom-right, above tab bar) */}
-      {!loading && !error && (
+      {/* FAB -- New chat button (bottom-right, above tab bar) */}
+      {!loading && !errorMsg && (
         <button
           onClick={handleNewChat}
           className="fixed bottom-24 right-5 w-14 h-14 bg-gradient-to-br from-ocean-500 to-ocean-600 text-white rounded-full shadow-lg shadow-ocean-500/30 flex items-center justify-center touch-feedback transition-transform active:scale-95 z-40"

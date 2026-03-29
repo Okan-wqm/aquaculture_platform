@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, type RefObject } from 'react';
+import { useRef, useCallback, useEffect, useState, type RefObject } from 'react';
 import { Camera, Image as ImageIcon, FileText, X } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -94,10 +94,20 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
     ref?.current?.click();
   }, []);
 
+  const [sizeError, setSizeError] = useState<string | null>(null);
+
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
+        // Client-side file size validation before passing to onFileSelect
+        const maxBytes = FILE_SIZE_LIMIT_MB * 1024 * 1024;
+        if (file.size > maxBytes) {
+          setSizeError(`File exceeds ${FILE_SIZE_LIMIT_MB}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`);
+          e.target.value = '';
+          return;
+        }
+        setSizeError(null);
         onFileSelect(file);
         onClose();
       }
@@ -169,6 +179,13 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
             );
           })}
         </div>
+
+        {/* File size error */}
+        {sizeError && (
+          <p className="text-center text-[11px] text-red-500 dark:text-red-400 font-medium pb-2 px-4">
+            {sizeError}
+          </p>
+        )}
 
         {/* File size info */}
         <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 pb-4">

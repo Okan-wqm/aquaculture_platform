@@ -28,7 +28,6 @@ import type {
   Message,
   MessagePage,
 } from '@/types/messaging';
-import { graphqlRequest } from '@/services/authenticated-fetch';
 
 // WHY: io is dynamically imported from socket.io-client. If the package is not
 // installed, the hook gracefully degrades to a disconnected state. The import
@@ -57,19 +56,17 @@ async function getIo(): Promise<typeof ioFactory> {
   }
 }
 
-/** REFRESH_TOKEN mutation used by reAuth handler to obtain fresh token. */
-const REFRESH_MUTATION = `
-  mutation RefreshToken($input: RefreshTokenInput!) {
-    refreshToken(input: $input) { accessToken }
-  }
-`;
-
 export function useMessageSocket() {
   const { accessToken, isAuthenticated, tenantId, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<SocketInstance | null>(null);
   const joinedChannelsRef = useRef<Set<string>>(new Set());
+  // WHY: Ref tracks the latest accessToken for use inside the reAuth callback.
+  // refreshAuth() updates React state, but the callback needs the new token
+  // in the same tick without waiting for a re-render.
+  const accessTokenRef = useRef(accessToken);
+  accessTokenRef.current = accessToken;
 
   // ------------------------------------------------------------------
   // Connect / disconnect lifecycle
@@ -237,20 +234,18 @@ export function useMessageSocket() {
       });
 
       // --- reAuth: server requests fresh token ---
+      // WHY: When the server detects an expired JWT, it emits 'reAuth'.
+      // refreshAuth() obtains a new token via httpOnly cookie and updates
+      // React state + module-level authStore synchronously. We read the
+      // new token from our accessTokenRef (updated on every render) and
+      // also update socket.auth so reconnections use the fresh token.
       socket.on('reAuth', async () => {
         try {
           await refreshAuth();
-          // After refreshAuth, the accessToken in useAuth state is updated.
-          // We need to send the new token back to the server.
-          if (socketRef.current) {
-            const result = await graphqlRequest<{
-              refreshToken: { accessToken: string };
-            }>(REFRESH_MUTATION, { input: { refreshToken: '' } });
-            if (result.refreshToken?.accessToken) {
-              socketRef.current.emit('reAuthResponse', {
-                token: result.refreshToken.accessToken,
-              });
-            }
+          const newToken = accessTokenRef.current;
+          if (socketRef.current && newToken) {
+            socketRef.current.auth = { token: newToken };
+            socketRef.current.emit('reAuthResponse', { token: newToken });
           }
         } catch {
           // Auth refresh failed — socket will likely disconnect

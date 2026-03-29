@@ -17,8 +17,8 @@
  * @returns isFetchingNextPage — true while loading older messages
  */
 
-import { useEffect, useMemo } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
@@ -63,22 +63,25 @@ async function fetchMessages(
 }
 
 /**
- * Messages hook with cursor-based infinite scroll, offline cache, and
- * real-time integration.
+ * Messages hook with cursor-based infinite scroll and offline cache.
+ *
+ * WHY no Socket.IO subscription here: useMessageSocket already subscribes to
+ * 'newMessage' events and updates the query cache directly (C3 fix). Having
+ * both hooks subscribe to the same event causes duplicate message inserts.
+ * This hook only handles data fetching; real-time updates are the sole
+ * responsibility of useMessageSocket.
  *
  * @param channelId - The channel to fetch messages for. Pass undefined to disable.
- * @param socketRef - Optional ref to a Socket.IO socket for subscribing to
- *                    newMessage events for this channel.
+ * @param _socketRef - Kept for API compatibility but no longer used for subscriptions.
  */
 export function useMessages(
   channelId: string | undefined,
-  socketRef?: React.RefObject<{
+  _socketRef?: React.RefObject<{
     on: (event: string, handler: (...args: unknown[]) => void) => void;
     off: (event: string, handler: (...args: unknown[]) => void) => void;
   } | null>,
 ) {
   const { isAuthenticated, tenantId } = useAuth();
-  const queryClient = useQueryClient();
 
   const queryKey = ['messaging', 'messages', channelId, tenantId];
 
@@ -113,63 +116,8 @@ export function useMessages(
     enabled: isAuthenticated && !!tenantId && !!channelId,
     staleTime: 15_000, // 15 seconds — messages update frequently
     gcTime: 5 * 60 * 1000, // 5 min in-memory
-    refetchOnWindowFocus: false, // Socket.IO handles updates
+    refetchOnWindowFocus: false, // Socket.IO handles updates via useMessageSocket
   });
-
-  // Subscribe to newMessage Socket.IO events for this channel
-  useEffect(() => {
-    const socket = socketRef?.current;
-    if (!socket || !channelId) return;
-
-    const handleNewMessage = (...args: unknown[]) => {
-      const event = args[0] as { channelId: string; message: Message } | undefined;
-      if (!event || event.channelId !== channelId) return;
-
-      // Optimistically add the new message to the first page of the cache
-      queryClient.setQueryData(queryKey, (old: typeof query.data) => {
-        if (!old?.pages?.length) return old;
-
-        const firstPage = old.pages[0];
-        if (!firstPage) return old;
-
-        // Deduplicate — the message might already exist from an optimistic send
-        const alreadyExists = firstPage.items.some(
-          (m: Message) => m.id === event.message.id,
-        );
-        if (alreadyExists) {
-          // Replace optimistic message with server version
-          return {
-            ...old,
-            pages: old.pages.map((page: MessagePage, idx: number) =>
-              idx === 0
-                ? {
-                    ...page,
-                    items: page.items.map((m: Message) =>
-                      m.id === event.message.id ? event.message : m,
-                    ),
-                  }
-                : page,
-            ),
-          };
-        }
-
-        // Append new message to first page (newest messages)
-        return {
-          ...old,
-          pages: [
-            { ...firstPage, items: [...firstPage.items, event.message] },
-            ...old.pages.slice(1),
-          ],
-        };
-      });
-    };
-
-    socket.on('newMessage', handleNewMessage);
-    return () => {
-      socket.off('newMessage', handleNewMessage);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socketRef, channelId, queryClient]);
 
   // Flatten all pages into a single messages array (oldest first)
   const messages = useMemo(() => {

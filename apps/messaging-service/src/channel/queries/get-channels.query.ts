@@ -1,4 +1,4 @@
-import { IQuery } from '@platform/cqrs';
+import { IQuery } from '@nestjs/cqrs';
 
 /**
  * Query to retrieve the paginated list of channels the user is an active member of.

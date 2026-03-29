@@ -1,4 +1,4 @@
-import { IQuery } from '@platform/cqrs';
+import { IQuery } from '@nestjs/cqrs';
 
 /**
  * Query to retrieve a single channel by ID, including its active members.

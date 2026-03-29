@@ -16,7 +16,7 @@ import {
   Field,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CommandBus, QueryBus } from '@platform/cqrs';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
 import {
   TenantGuard,

@@ -1,4 +1,4 @@
-import { ICommand } from '@platform/cqrs';
+import { ICommand } from '@nestjs/cqrs';
 import { ChannelMemberRole } from '../entities/channel-member.entity';
 
 /**

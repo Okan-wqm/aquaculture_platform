@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 
 import { GetChannelQuery } from './get-channel.query';
 import { Channel } from '../entities/channel.entity';

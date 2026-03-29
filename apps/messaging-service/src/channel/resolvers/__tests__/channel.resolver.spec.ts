@@ -8,12 +8,13 @@
 const mockCommandBusExecute = jest.fn();
 const mockQueryBusExecute = jest.fn();
 
-jest.mock('@platform/cqrs', () => {
+jest.mock('@nestjs/cqrs', () => {
   class MockCommandBus { execute = mockCommandBusExecute; }
   class MockQueryBus { execute = mockQueryBusExecute; }
   return {
     CommandBus: MockCommandBus,
     QueryBus: MockQueryBus,
+    CqrsModule: { forRoot: () => ({ module: class {} }) },
     CommandHandler: () => () => undefined,
     QueryHandler: () => () => undefined,
     ICommand: class {},
@@ -48,7 +49,7 @@ import {
 } from '../../../__tests__/test-helpers';
 
 // Import mocked classes
-import { CommandBus, QueryBus } from '@platform/cqrs';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 describe('ChannelResolver', () => {
   let resolver: ChannelResolver;

@@ -1,4 +1,4 @@
-import { ICommand } from '@platform/cqrs';
+import { ICommand } from '@nestjs/cqrs';
 
 /**
  * Command to remove a member from a channel (or self-leave).

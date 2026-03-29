@@ -14,7 +14,9 @@ import { MessagingService } from '../services/messaging.service';
 /**
  * MessagingResolver
  *
- * GraphQL resolver for messaging between SuperAdmin and TenantAdmin.
+ * GraphQL resolver for admin-to-tenant support messaging.
+ * All query/mutation names prefixed with 'support' to avoid Apollo Federation
+ * conflicts with messaging-service's tenant-internal channel messaging.
  */
 @Resolver()
 export class MessagingResolver {
@@ -25,11 +27,11 @@ export class MessagingResolver {
   // =========================================================
 
   /**
-   * Get all threads for current user
+   * Get all support threads for current user
    */
-  @Query(() => [ThreadListItem])
+  @Query(() => [ThreadListItem], { name: 'mySupportThreads' })
   @TenantAdminOrHigher()
-  async myThreads(
+  async mySupportThreads(
     @CurrentUser('sub') userId: string,
     @Args('status', { type: () => ThreadStatus, nullable: true })
     status?: ThreadStatus,
@@ -39,11 +41,11 @@ export class MessagingResolver {
   }
 
   /**
-   * Get a single thread
+   * Get a single support thread
    */
-  @Query(() => MessageThread)
+  @Query(() => MessageThread, { name: 'supportThread' })
   @TenantAdminOrHigher()
-  async thread(
+  async supportThread(
     @CurrentUser('sub') userId: string,
     @Args('id', { type: () => ID }) threadId: string,
   ): Promise<MessageThread> {
@@ -51,11 +53,11 @@ export class MessagingResolver {
   }
 
   /**
-   * Get messages in a thread
+   * Get messages in a support thread
    */
-  @Query(() => [MessageItem])
+  @Query(() => [MessageItem], { name: 'supportThreadMessages' })
   @TenantAdminOrHigher()
-  async threadMessages(
+  async supportThreadMessages(
     @CurrentUser('sub') userId: string,
     @Args('threadId', { type: () => ID }) threadId: string,
   ): Promise<MessageItem[]> {
@@ -63,11 +65,11 @@ export class MessagingResolver {
   }
 
   /**
-   * Get messaging statistics
+   * Get support messaging statistics
    */
-  @Query(() => MessagingStats)
+  @Query(() => MessagingStats, { name: 'supportMessagingStats' })
   @TenantAdminOrHigher()
-  async messagingStats(
+  async supportMessagingStats(
     @CurrentUser('sub') userId: string,
   ): Promise<MessagingStats> {
     return this.messagingService.getStats(userId);
@@ -78,11 +80,11 @@ export class MessagingResolver {
   // =========================================================
 
   /**
-   * Create a new thread
+   * Create a new support thread
    */
-  @Mutation(() => MessageThread)
+  @Mutation(() => MessageThread, { name: 'createSupportThread' })
   @TenantAdminOrHigher()
-  async createThread(
+  async createSupportThread(
     @CurrentUser('sub') userId: string,
     @Args('input') input: CreateThreadInput,
   ): Promise<MessageThread> {
@@ -90,11 +92,11 @@ export class MessagingResolver {
   }
 
   /**
-   * Send a message
+   * Send a support message
    */
-  @Mutation(() => Message)
+  @Mutation(() => Message, { name: 'sendSupportMessage' })
   @TenantAdminOrHigher()
-  async sendMessage(
+  async sendSupportMessage(
     @CurrentUser('sub') userId: string,
     @Args('input') input: SendMessageInput,
   ): Promise<Message> {
@@ -102,11 +104,11 @@ export class MessagingResolver {
   }
 
   /**
-   * Close a thread
+   * Close a support thread
    */
-  @Mutation(() => MessageThread)
+  @Mutation(() => MessageThread, { name: 'closeSupportThread' })
   @TenantAdminOrHigher()
-  async closeThread(
+  async closeSupportThread(
     @CurrentUser('sub') userId: string,
     @Args('threadId', { type: () => ID }) threadId: string,
   ): Promise<MessageThread> {
@@ -114,11 +116,11 @@ export class MessagingResolver {
   }
 
   /**
-   * Reopen a thread
+   * Reopen a support thread
    */
-  @Mutation(() => MessageThread)
+  @Mutation(() => MessageThread, { name: 'reopenSupportThread' })
   @TenantAdminOrHigher()
-  async reopenThread(
+  async reopenSupportThread(
     @CurrentUser('sub') userId: string,
     @Args('threadId', { type: () => ID }) threadId: string,
   ): Promise<MessageThread> {
@@ -126,11 +128,11 @@ export class MessagingResolver {
   }
 
   /**
-   * Archive a thread (SuperAdmin only)
+   * Archive a support thread (SuperAdmin only)
    */
-  @Mutation(() => MessageThread)
+  @Mutation(() => MessageThread, { name: 'archiveSupportThread' })
   @SuperAdminOnly()
-  async archiveThread(
+  async archiveSupportThread(
     @CurrentUser('sub') userId: string,
     @Args('threadId', { type: () => ID }) threadId: string,
   ): Promise<MessageThread> {

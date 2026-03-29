@@ -12,7 +12,9 @@ import {
 import { MessageThread } from './message-thread.entity';
 
 /**
- * Message sender type
+ * Message sender type (admin-to-tenant support messaging).
+ * Prefixed with 'Support' to avoid Apollo Federation conflicts
+ * with the tenant-internal messaging-service types.
  */
 export enum SenderType {
   SUPER_ADMIN = 'super_admin',
@@ -21,12 +23,13 @@ export enum SenderType {
 }
 
 registerEnumType(SenderType, {
-  name: 'SenderType',
-  description: 'Who sent the message',
+  name: 'SupportSenderType',
+  description: 'Who sent the support message (admin-to-tenant)',
 });
 
 /**
- * Message status
+ * Message status (admin-to-tenant support messaging).
+ * Prefixed with 'Support' to avoid Apollo Federation conflicts.
  */
 export enum MessageStatus {
   SENT = 'sent',
@@ -35,14 +38,16 @@ export enum MessageStatus {
 }
 
 registerEnumType(MessageStatus, {
-  name: 'MessageStatus',
-  description: 'Message delivery status',
+  name: 'SupportMessageStatus',
+  description: 'Support message delivery status',
 });
 
 /**
- * Message attachment type
+ * Support message attachment type.
+ * Renamed to SupportMessageAttachment to avoid Federation conflict
+ * with messaging-service's MessageAttachment entity.
  */
-@ObjectType()
+@ObjectType('SupportMessageAttachment')
 export class MessageAttachment {
   @Field()
   id!: string;
@@ -61,13 +66,17 @@ export class MessageAttachment {
 }
 
 /**
- * Message Entity
+ * SupportMessage Entity
  *
- * Individual message within a thread.
+ * Individual message within an admin-to-tenant support thread.
  * Supports internal notes (visible only to admins).
+ *
+ * GraphQL type renamed to 'SupportMessage' to avoid Apollo Federation
+ * conflict with messaging-service's Message type.
+ * DB table name remains 'messages' (auth schema).
  */
 @Entity('messages')
-@ObjectType()
+@ObjectType('SupportMessage')
 @Index(['threadId', 'createdAt'])
 export class Message {
   @PrimaryGeneratedColumn('uuid')

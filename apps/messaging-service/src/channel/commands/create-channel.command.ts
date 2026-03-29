@@ -1,4 +1,4 @@
-import { ICommand } from '@platform/cqrs';
+import { ICommand } from '@nestjs/cqrs';
 import { CreateChannelInput } from '../dto/create-channel.input';
 
 /**

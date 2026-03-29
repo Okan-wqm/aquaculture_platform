@@ -6,7 +6,7 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
+import { CqrsModule } from '@nestjs/cqrs';
 
 // Entities
 import { Channel } from './entities/channel.entity';

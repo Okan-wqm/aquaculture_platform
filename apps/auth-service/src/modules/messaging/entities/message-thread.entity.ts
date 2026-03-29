@@ -13,7 +13,9 @@ import {
 import { Tenant } from '../../tenant/entities/tenant.entity';
 
 /**
- * Thread status enum
+ * Support thread status enum.
+ * Prefixed with 'Support' to avoid Apollo Federation conflicts
+ * with messaging-service types.
  */
 export enum ThreadStatus {
   OPEN = 'open',
@@ -22,18 +24,23 @@ export enum ThreadStatus {
 }
 
 registerEnumType(ThreadStatus, {
-  name: 'ThreadStatus',
-  description: 'Message thread status',
+  name: 'SupportThreadStatus',
+  description: 'Support message thread status',
 });
 
 /**
  * MessageThread Entity
  *
- * Represents a conversation thread between SuperAdmin and TenantAdmin.
+ * Represents a conversation thread between SuperAdmin and TenantAdmin
+ * (admin-to-tenant support messaging).
  * Each thread belongs to a tenant and can have multiple messages.
+ *
+ * GraphQL type renamed to 'SupportMessageThread' to avoid Apollo Federation
+ * conflict with messaging-service types.
+ * DB table name remains 'message_threads' (auth schema).
  */
 @Entity('message_threads')
-@ObjectType()
+@ObjectType('SupportMessageThread')
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'updatedAt'])
 export class MessageThread {

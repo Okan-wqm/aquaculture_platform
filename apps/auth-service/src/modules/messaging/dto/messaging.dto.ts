@@ -8,9 +8,10 @@ import { ThreadStatus } from '../entities/message-thread.entity';
 import { SenderType, MessageStatus, MessageAttachment } from '../entities/message.entity';
 
 /**
- * Input for creating a new thread
+ * Input for creating a new support thread (admin-to-tenant).
+ * Renamed to SupportCreateThreadInput to avoid potential Federation conflicts.
  */
-@InputType()
+@InputType('SupportCreateThreadInput')
 export class CreateThreadInput {
   @Field()
   @IsNotEmpty()
@@ -33,9 +34,11 @@ export class CreateThreadInput {
 }
 
 /**
- * Input for sending a message
+ * Input for sending a support message (admin-to-tenant).
+ * Renamed to SupportSendMessageInput to avoid Apollo Federation conflict
+ * with messaging-service's SendMessageInput.
  */
-@InputType()
+@InputType('SupportSendMessageInput')
 export class SendMessageInput {
   @Field()
   @IsUUID('4', { message: 'Invalid thread ID format' })
@@ -54,9 +57,10 @@ export class SendMessageInput {
 }
 
 /**
- * Input for bulk message (SuperAdmin only)
+ * Input for bulk support message (SuperAdmin only).
+ * Renamed to SupportBulkMessageInput to avoid potential Federation conflicts.
  */
-@InputType()
+@InputType('SupportBulkMessageInput')
 export class BulkMessageInput {
   @Field()
   @IsNotEmpty()
@@ -90,9 +94,10 @@ export class BulkMessageInput {
 }
 
 /**
- * Thread list item for display
+ * Thread list item for display (admin-to-tenant support).
+ * Renamed to SupportThreadListItem to avoid potential Federation conflicts.
  */
-@ObjectType()
+@ObjectType('SupportThreadListItem')
 export class ThreadListItem {
   @Field(() => ID)
   id!: string;
@@ -129,9 +134,10 @@ export class ThreadListItem {
 }
 
 /**
- * Message for display
+ * Support message for display (admin-to-tenant).
+ * Renamed to SupportMessageItem to avoid Federation conflicts.
  */
-@ObjectType()
+@ObjectType('SupportMessageItem')
 export class MessageItem {
   @Field(() => ID)
   id!: string;
@@ -142,7 +148,7 @@ export class MessageItem {
   @Field()
   senderId!: string;
 
-  @Field(() => SenderType)
+  @Field(() => SenderType, { description: 'Support message sender type' })
   senderType!: SenderType;
 
   @Field()
@@ -151,7 +157,7 @@ export class MessageItem {
   @Field()
   content!: string;
 
-  @Field(() => MessageStatus)
+  @Field(() => MessageStatus, { description: 'Support message delivery status' })
   status!: MessageStatus;
 
   @Field()
@@ -168,9 +174,10 @@ export class MessageItem {
 }
 
 /**
- * Messaging statistics
+ * Support messaging statistics (admin-to-tenant).
+ * Renamed to SupportMessagingStats to avoid potential Federation conflicts.
  */
-@ObjectType()
+@ObjectType('SupportMessagingStats')
 export class MessagingStats {
   @Field()
   totalThreads!: number;

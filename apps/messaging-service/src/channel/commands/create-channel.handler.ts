@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { v4 as uuidv4 } from 'uuid';
 
 import { CreateChannelCommand } from './create-channel.command';

@@ -205,6 +205,7 @@ services:
       HYDROPONICS_SERVICE_URL: http://hydroponics-service:3000/graphql
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
       CONFIG_SERVICE_URL: http://config-service:3000/graphql
+      MESSAGING_SERVICE_URL: http://messaging-service:3000/graphql
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: "false"
@@ -727,6 +728,57 @@ services:
           cpus: '0.25'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  messaging-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/messaging-service:latest
+    container_name: aqua-messaging
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: messaging-service
+      NODE_ENV: production
+      PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=384'
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DATABASE_SYNC: 'false'
+      DATABASE_MIGRATIONS_RUN: 'true'
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: '3'
+      NATS_URL: nats://nats:4222
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
+      MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
+      TRUST_PROXY: 'true'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
+    networks:
+      - aqua-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health/ready']
       interval: 30s
       timeout: 10s
       retries: 3

@@ -169,7 +169,7 @@ export class EmbeddingService implements OnModuleDestroy {
         await queryRunner.query(
           `UPDATE "messages" SET "embedding" = $1::vector
            WHERE "id" = $2 AND "createdAt" = $3`,
-          [vectorStr, consentedMessages[i].id, consentedMessages[i].createdAt],
+          [vectorStr, consentedMessages[i]!.id, consentedMessages[i]!.createdAt],
         );
       }
 

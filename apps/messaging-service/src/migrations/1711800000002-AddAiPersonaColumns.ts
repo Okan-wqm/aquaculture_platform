@@ -15,9 +15,10 @@ export class AddAiPersonaColumns1711800000002 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Get current schema (works for both source schema and per-tenant schemas)
-    const [{ current_schema: schema }] = await queryRunner.query(
+    const rows = await queryRunner.query(
       `SELECT current_schema()`,
     ) as Array<{ current_schema: string }>;
+    const schema = rows[0]!.current_schema;
 
     // Add aiPersona column: nullable varchar(50) for persona IDs like 'expert-v1'
     await queryRunner.query(`
@@ -40,9 +41,10 @@ export class AddAiPersonaColumns1711800000002 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    const [{ current_schema: schema }] = await queryRunner.query(
+    const downRows = await queryRunner.query(
       `SELECT current_schema()`,
     ) as Array<{ current_schema: string }>;
+    const schema = downRows[0]!.current_schema;
 
     await queryRunner.query(`
       DROP INDEX IF EXISTS "${schema}"."idx_channels_ai_persona"

@@ -6,7 +6,8 @@
     "types": ["node"],
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "target": "ES2021"
+    "target": "ES2021",
+    "strictPropertyInitialization": false
   },
   "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts", "src/__tests__/**", "src/__mocks__/**"],
   "include": ["src/**/*.ts"]

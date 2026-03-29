@@ -276,7 +276,7 @@ export class MessageResolver {
 
     let nextSyncToken: string | null = null;
     if (items.length > 0) {
-      const last = items[items.length - 1];
+      const last = items[items.length - 1]!;
       nextSyncToken = Buffer.from(
         JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id }),
       ).toString('base64url');
@@ -707,8 +707,8 @@ export class MessageResolver {
     return {
       exportedAt: new Date().toISOString(),
       userId: user.sub,
-      messageCount: exported.length,
-      messages: exported,
+      messageCount: exported.messages.length,
+      ...exported,
     };
   }
 

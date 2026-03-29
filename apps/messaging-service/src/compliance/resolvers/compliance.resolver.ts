@@ -244,7 +244,7 @@ export class ComplianceResolver {
     return this.commandBus.execute(
       new SetRetentionPolicyCommand(
         tenantId,
-        user.userId,
+        user.sub,
         input.channelId,
         input.retentionDays,
       ),
@@ -261,7 +261,7 @@ export class ComplianceResolver {
     return this.commandBus.execute(
       new ToggleLegalHoldCommand(
         tenantId,
-        user.userId,
+        user.sub,
         input.activate,
         input.holdId,
         input.channelId,
@@ -283,7 +283,7 @@ export class ComplianceResolver {
       tenantId,
       channelId,
       format as ExportFormat,
-      user.userId,
+      user.sub,
     );
     return result;
   }
@@ -299,7 +299,7 @@ export class ComplianceResolver {
     const result = await this.exportService.exportTenant(
       tenantId,
       format as ExportFormat,
-      user.userId,
+      user.sub,
     );
     return result;
   }

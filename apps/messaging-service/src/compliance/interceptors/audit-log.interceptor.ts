@@ -83,11 +83,11 @@ export class AuditLogInterceptor implements NestInterceptor {
     const req = gqlContext.getContext().req as {
       headers?: Record<string, string | string[] | undefined>;
       tenantId?: string;
-      user?: { userId?: string };
+      user?: { sub?: string };
     } | undefined;
 
     const tenantId = req?.tenantId ?? 'unknown';
-    const userId = req?.user?.userId ?? 'unknown';
+    const userId = req?.user?.sub ?? 'unknown';
     const ipAddress = this.extractIp(req);
     const userAgent = this.extractUserAgent(req);
     const resourceType = MUTATION_RESOURCE_MAP[mutationName] ?? 'unknown';

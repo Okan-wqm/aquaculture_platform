@@ -110,7 +110,7 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
 
     const hasMore = messages.length > limit;
     const items = hasMore ? messages.slice(0, limit) : messages;
-    const nextCursor = items.length > 0 ? encodeCursor(items[items.length - 1]) : null;
+    const nextCursor = items.length > 0 ? encodeCursor(items[items.length - 1]!) : null;
 
     this.logger.debug(
       `GetMessages: channel=${channelId}, returned=${items.length}, hasMore=${hasMore}`,

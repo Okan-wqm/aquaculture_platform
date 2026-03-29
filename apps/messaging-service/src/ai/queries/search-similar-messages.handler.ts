@@ -146,7 +146,7 @@ export class SearchSimilarMessagesHandler
       return null;
     }
 
-    return response.embeddings[0];
+    return response.embeddings[0] ?? null;
   }
 
   /**

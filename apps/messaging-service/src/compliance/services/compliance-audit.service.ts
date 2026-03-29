@@ -166,7 +166,7 @@ export class ComplianceAuditService {
     const page = hasMore ? items.slice(0, limit) : items;
     const nextCursor =
       page.length > 0
-        ? this.encodeCursor(page[page.length - 1])
+        ? this.encodeCursor(page[page.length - 1]!)
         : null;
 
     return { items: page, hasMore, cursor: nextCursor, totalCount };

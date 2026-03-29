@@ -1,3 +1,9 @@
+import { SendMessageHandler as _SendMessageHandler } from './send-message.handler';
+import { EditMessageHandler as _EditMessageHandler } from './edit-message.handler';
+import { DeleteMessageHandler as _DeleteMessageHandler } from './delete-message.handler';
+import { MarkReadHandler as _MarkReadHandler } from './mark-read.handler';
+import { ForwardMessageHandler as _ForwardMessageHandler } from './forward-message.handler';
+
 export { SendMessageCommand } from './send-message.command';
 export { SendMessageHandler } from './send-message.handler';
 export { EditMessageCommand } from './edit-message.command';
@@ -11,9 +17,9 @@ export { ForwardMessageHandler } from './forward-message.handler';
 
 /** All command handlers — register in MessageModule */
 export const CommandHandlers = [
-  SendMessageHandler,
-  EditMessageHandler,
-  DeleteMessageHandler,
-  MarkReadHandler,
-  ForwardMessageHandler,
+  _SendMessageHandler,
+  _EditMessageHandler,
+  _DeleteMessageHandler,
+  _MarkReadHandler,
+  _ForwardMessageHandler,
 ];

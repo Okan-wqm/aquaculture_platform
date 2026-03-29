@@ -72,6 +72,6 @@ export class CreateChannelInput {
   @IsOptional()
   @IsString()
   @MaxLength(512)
-  @IsUrl({ require_tls: true }, { message: 'aiServiceUrl must be a valid HTTPS URL' })
+  @IsUrl({ require_protocol: true, protocols: ['https'] }, { message: 'aiServiceUrl must be a valid HTTPS URL' })
   aiServiceUrl?: string;
 }

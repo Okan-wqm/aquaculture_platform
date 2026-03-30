@@ -358,8 +358,12 @@ services:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      # ARCH-V11-008: Farm-service is the heaviest backend (71 entities, 25+ modules,
+      # GraphQL federation schema, CQRS handler discovery). Under 256MB heap and 0.5 CPU,
+      # NestJS bootstrap + TypeORM metadata loading + Apollo schema build can take 60-90s.
+      # 120s start_period prevents premature unhealthy marking during cold start.
+      start_period: 120s
 
   sensor-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:latest

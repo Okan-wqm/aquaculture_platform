@@ -48,7 +48,8 @@ async function bootstrap() {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  const port = process.env['PORT'] || 3010;
+  // PORT RESOLUTION: Default 3000 to match Docker healthcheck convention.
+  const port = process.env['EVENT_STORE_SERVICE_PORT'] || process.env['PORT'] || 3000;
   await app.listen(port);
 
   logger.log(`Event Store Service running on port ${port}`);

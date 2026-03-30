@@ -97,7 +97,8 @@ async function bootstrap() {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  const port = process.env['PORT'] || 3009;
+  // PORT RESOLUTION: Default 3000 to match Docker healthcheck convention.
+  const port = process.env['OBSERVABILITY_SERVICE_PORT'] || process.env['PORT'] || 3000;
   await app.listen(port);
 
   logger.log(`Observability Service running on port ${port}`);

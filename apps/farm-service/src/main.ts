@@ -123,7 +123,14 @@ async function bootstrap() {
   // Graceful shutdown
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('FARM_SERVICE_PORT', 4002);
+  // PORT RESOLUTION: Read service-specific env var first, then generic PORT,
+  // then default 3000 to match the Docker healthcheck convention.
+  // This prevents port mismatch when only PORT (not FARM_SERVICE_PORT) is set
+  // in the Docker environment — a mismatch causes healthcheck failures because
+  // the service listens on one port while the healthcheck probes another.
+  const port = configService.get<number>('FARM_SERVICE_PORT')
+    ?? configService.get<number>('PORT')
+    ?? 3000;
 
   await app.listen(port);
 

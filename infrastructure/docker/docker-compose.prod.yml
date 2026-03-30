@@ -104,14 +104,21 @@ services:
     container_name: aqua-gateway
     restart: unless-stopped
     environment:
+      SERVICE_NAME: gateway-api
       NODE_ENV: production
+      GATEWAY_PORT: 3000
       PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=384'
+      # ARCH-V11-009: CORS_ORIGINS required — gateway throws if wildcard in production
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      TRUST_PROXY: "1"
       # Service URLs for federation
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
       FARM_SERVICE_URL: http://farm-service:3000/graphql
@@ -141,20 +148,25 @@ services:
     container_name: aqua-auth
     restart: unless-stopped
     environment:
+      SERVICE_NAME: auth-service
       NODE_ENV: production
+      AUTH_SERVICE_PORT: 3000
       PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=256'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
+      DATABASE_SYNC: 'false'
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
       - redis
@@ -165,25 +177,44 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
 
   farm-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:latest
     container_name: aqua-farm
     restart: unless-stopped
     environment:
+      # ARCH-V11-001: SERVICE_NAME identifies this service in NATS consumer groups
+      # and structured logging. Without it, hostname is used as fallback.
+      SERVICE_NAME: farm-service
       NODE_ENV: production
+      # ARCH-V11-002: FARM_SERVICE_PORT is the canonical port env var read by main.ts.
+      # PORT is also read as fallback. Both must agree with the healthcheck port.
+      FARM_SERVICE_PORT: 3000
       PORT: 3000
+      # ARCH-V11-003: NODE_OPTIONS caps V8 heap to prevent OOM kills inside the
+      # container memory limit (384M in droplet, adjust as needed).
+      NODE_OPTIONS: '--max-old-space-size=256'
+      # ARCH-V11-004: CORS_ORIGINS is REQUIRED in production — farm-service main.ts
+      # throws if this is missing when NODE_ENV=production.
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
+      DATABASE_SYNC: 'false'
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
+      # ARCH-V11-005: ENCRYPTION_KEY is required for sentinel-hub and regulatory
+      # credential encryption at rest. Service starts without it but those features fail.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # ARCH-V11-006: INTERNAL_SERVICE_SECRET enables HMAC-signed inter-service auth.
+      # Without it, ServiceIdentityGuard throws in production for GraphQL requests.
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
       - redis
@@ -194,14 +225,22 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      # ARCH-V11-007: Farm-service loads 71 entities and 25+ modules; bootstrap can
+      # take 30-60s under memory pressure. 90s start_period prevents false negatives.
+      start_period: 90s
 
   sensor-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:latest
     container_name: aqua-sensor
     restart: unless-stopped
     environment:
+      SERVICE_NAME: sensor-service
       NODE_ENV: production
+      SENSOR_SERVICE_PORT: 3000
       PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=256'
+      # ARCH-V11-010: CORS_ORIGINS required — sensor-service throws if wildcard in production
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
@@ -212,6 +251,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
       - redis
@@ -222,25 +262,31 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 90s
 
   hr-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:latest
     container_name: aqua-hr
     restart: unless-stopped
     environment:
+      SERVICE_NAME: hr-service
       NODE_ENV: production
+      HR_SERVICE_PORT: 3000
       PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=256'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
+      DATABASE_SYNC: 'false'
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
       - redis
@@ -251,25 +297,31 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 90s
 
   billing-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/billing-service:latest
     container_name: aqua-billing
     restart: unless-stopped
     environment:
+      SERVICE_NAME: billing-service
       NODE_ENV: production
+      BILLING_SERVICE_PORT: 3000
       PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=256'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_SYNC: 'false' # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
+      DATABASE_SYNC: 'false'
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
       - redis

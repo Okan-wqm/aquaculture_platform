@@ -105,7 +105,11 @@ async function bootstrap(): Promise<void> {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('AUTH_SERVICE_PORT', 4001);
+  // PORT RESOLUTION: Service-specific var first, then generic PORT, then default 3000.
+  // Prevents healthcheck failures from port mismatch when Docker only sets PORT.
+  const port = configService.get<number>('AUTH_SERVICE_PORT')
+    ?? configService.get<number>('PORT')
+    ?? 3000;
   await app.listen(port);
 
   logger.log(`Auth Service running on http://localhost:${port}`);

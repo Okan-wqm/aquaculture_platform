@@ -61,7 +61,11 @@ async function bootstrap() {
   // Graceful shutdown
   app.enableShutdownHooks();
 
-  const port = configService.get<number>('NOTIFICATION_SERVICE_PORT', 4008);
+  // PORT RESOLUTION: Service-specific var first, then generic PORT, then default 3000.
+  // Prevents healthcheck failures from port mismatch when Docker only sets PORT.
+  const port = configService.get<number>('NOTIFICATION_SERVICE_PORT')
+    ?? configService.get<number>('PORT')
+    ?? 3000;
 
   await app.listen(port);
 

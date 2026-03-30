@@ -721,7 +721,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 15m
+          command_timeout: 25m  # Increased from 15m for full deploys with 22+ Docker image pulls
           script: |
             set -e
             cd /var/aqua-saas

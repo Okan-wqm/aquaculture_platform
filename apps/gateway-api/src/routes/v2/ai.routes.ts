@@ -63,7 +63,9 @@ export class AiRoutesController {
     );
   }
 
-  @All('*')
+  // Express v5 path-to-regexp v8: bare '*' wildcard is no longer valid.
+  // Use named wildcard parameter '{*path}' which captures the full sub-path.
+  @All('{*path}')
   async proxy(@Req() req: Request, @Res() res: Response): Promise<void> {
     // --- Path validation ---
     const requestPath = req.originalUrl;

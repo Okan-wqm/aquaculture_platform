@@ -10,5 +10,6 @@ bootstrapService(AppModule, {
   serviceName: 'alert-engine',
   portEnvVar: 'ALERT_ENGINE_PORT',
   hasGraphQL: true,
-  validationPipeOverrides: { enableImplicitConversion: true },
+  /** Enable implicit type conversion for query/param DTOs (string "true" → boolean) */
+  validationPipeOverrides: { transformOptions: { enableImplicitConversion: true } },
 });

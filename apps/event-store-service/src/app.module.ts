@@ -55,7 +55,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         },
       }),
     }),
-    CqrsModule,
+    CqrsModule.forRoot(),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
     EventStoreModule,

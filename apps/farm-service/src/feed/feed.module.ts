@@ -3,7 +3,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Feed } from './entities/feed.entity';
@@ -69,7 +68,6 @@ const QueryHandlers = [
       Site,
       Species,
     ]),
-    CqrsModule,
   ],
   providers: [
     FeedResolver,

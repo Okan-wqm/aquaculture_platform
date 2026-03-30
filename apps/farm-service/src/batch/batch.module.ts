@@ -15,7 +15,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Batch } from './entities/batch.entity';
@@ -72,7 +71,6 @@ import { BatchResolvers } from './resolvers';
       Feed,
       GrowthMeasurement,
     ]),
-    CqrsModule,
   ],
   controllers: [
     BatchController,

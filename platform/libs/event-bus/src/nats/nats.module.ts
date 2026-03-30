@@ -131,29 +131,25 @@ export class EventHandlerRegistryModule {
       }
 
       // Check for method-level @SubscribeTo decorators
-      this.metadataScanner.scanFromPrototype(
-        instance,
-        Object.getPrototypeOf(instance),
-        (methodKey) => {
-          const subscriptionMetadata = Reflect.getMetadata(
-            EVENT_SUBSCRIPTION_METADATA,
-            instance,
-            methodKey,
-          );
+      for (const methodKey of this.metadataScanner.getAllMethodNames(Object.getPrototypeOf(instance))) {
+        const subscriptionMetadata = Reflect.getMetadata(
+          EVENT_SUBSCRIPTION_METADATA,
+          instance,
+          methodKey,
+        );
 
-          if (subscriptionMetadata) {
-            const handler = {
-              handle: instance[methodKey].bind(instance),
-              getEventType: () => subscriptionMetadata.topic,
-            };
+        if (subscriptionMetadata) {
+          const handler = {
+            handle: (instance[methodKey] as Function).bind(instance),
+            getEventType: () => subscriptionMetadata.topic,
+          };
 
-            this.eventBus.subscribeTo(subscriptionMetadata.topic, handler, {
-              groupId: subscriptionMetadata.groupId,
-              durable: subscriptionMetadata.durable,
-            });
-          }
-        },
-      );
+          this.eventBus.subscribeTo(subscriptionMetadata.topic, handler, {
+            groupId: subscriptionMetadata.groupId,
+            durable: subscriptionMetadata.durable,
+          });
+        }
+      }
     }
   }
 }

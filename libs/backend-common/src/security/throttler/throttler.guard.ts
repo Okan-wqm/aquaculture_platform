@@ -207,7 +207,7 @@ export class ThrottlerGuard implements CanActivate {
     // Use injected IP validator if available
     if (this.ipValidator) {
       return this.ipValidator.extractClientIp({
-        ip: request.ip,
+        ip: request.ip ?? request.socket?.remoteAddress ?? 'unknown',
         headers: request.headers as Record<string, string | string[] | undefined>,
         connection: request.connection,
         socket: request.socket,

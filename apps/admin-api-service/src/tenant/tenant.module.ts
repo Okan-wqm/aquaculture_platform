@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { CqrsModule } from '@nestjs/cqrs';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditLogModule } from '../audit/audit.module';
@@ -68,7 +67,6 @@ const QueryHandlers = [
       TenantBillingInfo,
       TenantSchema,
     ]),
-    CqrsModule,
     AuditLogModule,
     SettingsModule,
     BillingModule,

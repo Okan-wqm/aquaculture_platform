@@ -3,7 +3,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 import { StorageLocation } from './entities/storage-location.entity';
 import { StorageInventory } from './entities/storage-inventory.entity';
@@ -93,7 +92,6 @@ const EventHandlers = [
       Chemical,
       Consumable,
     ]),
-    CqrsModule,
   ],
   providers: [
     StorageResolver,

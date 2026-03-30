@@ -16,7 +16,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { WorkOrder } from './entities/work-order.entity';
@@ -40,7 +39,6 @@ import { SparePartResolver } from './resolvers/spare-part.resolver';
       MaintenanceSchedule,
       SparePart,
     ]),
-    CqrsModule,
   ],
   providers: [
     // Services

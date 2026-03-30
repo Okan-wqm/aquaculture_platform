@@ -79,7 +79,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       }),
     }),
 
-    CqrsModule,
+    CqrsModule.forRoot(),
     ConfigurationModule,
     HealthModule,
   ],

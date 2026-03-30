@@ -97,7 +97,7 @@ if (isProduction) {
       };
       },
     }),
-    CqrsModule,
+    CqrsModule.forRoot(),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
     // NATS Event Bus for cross-service event publishing

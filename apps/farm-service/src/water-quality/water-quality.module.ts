@@ -16,7 +16,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { WaterQualityMeasurement } from './entities/water-quality-measurement.entity';
@@ -76,7 +75,6 @@ const CommandHandlers = [
       Tank,
       Equipment,
     ]),
-    CqrsModule,
   ],
   providers: [
     WaterQualityService,

@@ -16,7 +16,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { HealthEvent } from './entities/health-event.entity';
@@ -38,7 +37,6 @@ import { HealthEventResolver } from './resolvers/health-event.resolver';
       Batch,
       Tank,
     ]),
-    CqrsModule,
   ],
   providers: [
     // Services

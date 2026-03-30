@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Farm } from './entities/farm.entity';
@@ -44,7 +43,6 @@ import { FeedModule } from '../feed/feed.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Farm, Pond, PondBatch]),
-    CqrsModule,
     // Setup submodules
     SiteModule,
     DepartmentModule,

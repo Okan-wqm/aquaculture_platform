@@ -38,7 +38,7 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
       for (const header of INTERNAL_HEADERS_TO_STRIP) {
         if (req.headers[header]) {
           this.logger.warn(
-            `Stripped spoofed internal header "${header}" from external request (ip=${req.ip}, path=${req.path})`,
+            `Stripped spoofed internal header "${header}" from external request (ip=${req.ip ?? 'unknown'}, path=${req.path})`,
           );
           delete req.headers[header];
         }

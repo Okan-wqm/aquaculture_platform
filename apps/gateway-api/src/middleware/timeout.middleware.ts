@@ -87,7 +87,7 @@ export class TimeoutMiddleware implements NestMiddleware {
           method: req.method,
           timeout,
           duration,
-          ip: req.ip,
+          ip: req.ip ?? 'unknown',
         });
 
         res.status(504).json({

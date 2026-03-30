@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 import { Worker } from './entities/worker.entity';
 import { WorkerResolver } from './worker.resolver';
@@ -23,7 +22,6 @@ const QueryHandlers = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([Worker]),
-    CqrsModule,
   ],
   providers: [
     WorkerResolver,

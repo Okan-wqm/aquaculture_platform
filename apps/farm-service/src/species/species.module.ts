@@ -14,7 +14,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Species } from './entities/species.entity';
@@ -29,7 +28,6 @@ import { SpeciesResolver } from './resolvers/species.resolver';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Species, Batch]),
-    CqrsModule,
   ],
   providers: [
     ...SpeciesHandlers,

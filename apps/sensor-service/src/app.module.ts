@@ -21,6 +21,7 @@ import {
   RolesGuard,
   SourceSchemaBootstrapService,
   ServiceIdentityGuard,
+  RedisModule,
 } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -314,6 +315,22 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Event Emitter — single forRoot() for the entire service
     EventEmitterModule.forRoot(),
+
+    /**
+     * RedisModule is @Global — registered once here at the app level.
+     * All feature modules (IngestionModule, etc.) access Redis via DI
+     * without needing to re-import RedisModule.forRootAsync().
+     */
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        host: configService.get<string>('REDIS_HOST', 'localhost'),
+        port: configService.get<number>('REDIS_PORT', 6379),
+        password: configService.get<string>('REDIS_PASSWORD'),
+        keyPrefix: 'sensor-service:',
+      }),
+    }),
 
     // Enterprise infrastructure (@Global modules - must be before feature modules)
     CredentialVaultModule,

@@ -205,7 +205,7 @@ export class RequestValidatorMiddleware implements NestMiddleware {
         this.logger.warn('Request validation issues detected', {
           path: req.path,
           method: req.method,
-          ip: req.ip,
+          ip: req.ip ?? 'unknown',
           errorCount: errors.length,
           errors: errors.map((e) => ({ field: e.field, code: e.code })),
         });

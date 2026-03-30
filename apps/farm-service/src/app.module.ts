@@ -223,16 +223,22 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
 
-    // Event Emitter — single forRoot() for the entire service
+    /**
+     * Global EventEmitter2 registration — single forRoot() for the entire service.
+     * Feature modules (e.g. EventListenersModule) must NOT call forRoot() again.
+     * In NestJS v11, duplicate forRoot() calls create separate EventEmitter2
+     * instances, causing events emitted in one context to be invisible to
+     * listeners registered in the other.
+     */
     EventEmitterModule.forRoot({
       wildcard: true,
       delimiter: '.',
       ignoreErrors: false,
-      maxListeners: 10,
+      maxListeners: 20,
     }),
 
     // CQRS Module
-    CqrsModule,
+    CqrsModule.forRoot(),
 
     // Event Bus Module
     EventBusModule.forRootAsync({

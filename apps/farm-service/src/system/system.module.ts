@@ -4,7 +4,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 import { System } from './entities/system.entity';
 import { SubSystem } from './entities/sub-system.entity';
 import { Site } from '../site/entities/site.entity';
@@ -19,7 +18,6 @@ import { SystemHandlers } from './handlers';
     // Note: Site and Department entities are registered here for repository access
     // No need to import SiteModule/DepartmentModule - they only export TypeOrmModule
     TypeOrmModule.forFeature([System, SubSystem, Site, Department, Equipment, EquipmentSystem]),
-    CqrsModule,
   ],
   providers: [
     SystemResolver,

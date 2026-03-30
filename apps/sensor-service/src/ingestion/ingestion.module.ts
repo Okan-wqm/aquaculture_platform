@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { RedisModule } from '@aquaculture/backend-common';
 
 import { AutomationModule } from '../automation/automation.module';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
@@ -24,17 +23,6 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     EdgeDeviceModule, // For edge device heartbeat handling (no longer circular)
     AutomationModule, // For deployment confirmation in MQTT responses
     ProcessModule, // For ScadaDeployLogService in MQTT response handling
-    // Redis for sensor-topic caching (critical for MQTT message routing performance)
-    RedisModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        host: configService.get<string>('REDIS_HOST', 'localhost'),
-        port: configService.get<number>('REDIS_PORT', 6379),
-        password: configService.get<string>('REDIS_PASSWORD'),
-        keyPrefix: 'sensor-service:',
-      }),
-    }),
   ],
   providers: [
     BatchProcessorService,

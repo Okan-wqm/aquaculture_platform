@@ -14,7 +14,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Tank } from './entities/tank.entity';
@@ -40,7 +39,6 @@ import { TankResolver } from './resolvers/tank.resolver';
       Batch,
       Species,
     ]),
-    CqrsModule,
   ],
   providers: [
     ...TankHandlers,

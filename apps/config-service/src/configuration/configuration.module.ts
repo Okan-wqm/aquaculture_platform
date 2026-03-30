@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@nestjs/cqrs';
 
 // Entities
 import { Configuration, ConfigurationHistory } from './entities/configuration.entity';
@@ -48,7 +47,6 @@ const QueryHandlers = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([Configuration, ConfigurationHistory]),
-    CqrsModule,
   ],
   providers: [
     ConfigurationResolver,

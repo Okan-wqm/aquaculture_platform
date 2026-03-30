@@ -78,13 +78,13 @@ export class CspReportController {
         statusCode: report['status-code'],
         referrer: report['referrer'],
       },
-      clientIp: req.ip,
+      clientIp: req.ip ?? 'unknown',
       userAgent: req.headers['user-agent'],
     });
 
     // Publish security event to NATS (best-effort, non-blocking)
     this.securityEventService?.publishCspViolation({
-      ip: req.ip,
+      ip: req.ip ?? 'unknown',
       userAgent: req.headers['user-agent'] as string | undefined,
       documentUri: report['document-uri'] as string | undefined,
       violatedDirective: report['violated-directive'] as string | undefined,

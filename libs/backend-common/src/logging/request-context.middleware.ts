@@ -62,7 +62,7 @@ export class RequestContextMiddleware implements NestMiddleware {
       userId,
       method: req.method,
       url: req.originalUrl || req.url,
-      ip: req.ip,
+      ip: req.ip ?? 'unknown',
     };
 
     // Propagate correlation ID back to the caller

@@ -3,7 +3,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Equipment } from './entities/equipment.entity';
@@ -93,7 +92,6 @@ const QueryHandlers = [
       Feed,
       Tank, // Added for unified equipmentList query
     ]),
-    CqrsModule,
     FeedingModule,
   ],
   providers: [

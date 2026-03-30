@@ -16,7 +16,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { HarvestPlan } from './entities/harvest-plan.entity';
@@ -55,7 +54,6 @@ import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
       TankBatch,
       TankOperation,
     ]),
-    CqrsModule,
   ],
   providers: [
     // Services

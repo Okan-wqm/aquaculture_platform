@@ -3,7 +3,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { Chemical } from './entities/chemical.entity';
@@ -42,7 +41,6 @@ const QueryHandlers = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([Chemical, ChemicalType, ChemicalSite, Supplier, Site]),
-    CqrsModule,
   ],
   providers: [
     ChemicalResolver,

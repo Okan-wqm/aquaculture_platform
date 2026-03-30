@@ -15,7 +15,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { FeedingTable } from './entities/feeding-table.entity';
@@ -66,7 +65,6 @@ import { FeedingResolvers } from './resolvers';
       Site,
       Equipment,
     ]),
-    CqrsModule,
   ],
   providers: [
     FeedSelectorService,

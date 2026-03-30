@@ -15,7 +15,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@platform/cqrs';
 
 // Entities
 import { GrowthMeasurement } from './entities/growth-measurement.entity';
@@ -49,7 +48,6 @@ import { Species } from '../species/entities/species.entity';
       FeedingProgramTank,
       Species,
     ]),
-    CqrsModule,
   ],
   providers: [
     FCRCalculationService,

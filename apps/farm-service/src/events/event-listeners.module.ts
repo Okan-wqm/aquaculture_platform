@@ -17,7 +17,6 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 
 // ============================================================================
 // ENTITIES
@@ -72,15 +71,6 @@ const EventListeners = [
 
 @Module({
   imports: [
-    // EventEmitter is already configured in SchedulerModule,
-    // but we import it here for module independence
-    EventEmitterModule.forRoot({
-      wildcard: true,
-      delimiter: '.',
-      ignoreErrors: false,
-      maxListeners: 20,
-    }),
-
     // TypeORM entities needed by listeners
     TypeOrmModule.forFeature([
       // Batch related

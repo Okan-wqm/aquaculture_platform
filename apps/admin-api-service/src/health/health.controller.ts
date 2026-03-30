@@ -17,6 +17,19 @@ import { Public } from '../decorators/public.decorator';
 import { HealthService } from './health.service';
 
 /**
+ * Reads the version field from a package's package.json at runtime.
+ * Returns 'unknown' if the package is not resolvable.
+ */
+function safeRequireVersion(packageJsonPath: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(packageJsonPath).version;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
  * Admin API Health Controller
  *
  * Standardized K8s probe endpoints:
@@ -78,6 +91,10 @@ export class HealthController {
   /**
    * General Health Endpoint (sanitized, public).
    * Returns timestamp, uptime, version. No sensitive data.
+   *
+   * ADR-013 Section 8.4: Includes framework version info so operators can
+   * identify whether this service is running NestJS v10 or v11 during
+   * phased upgrade rollouts.
    */
   @Get()
   @Public()
@@ -87,12 +104,20 @@ export class HealthController {
     timestamp: string;
     uptime: number;
     version: string;
+    service: string;
+    framework: { nestjs: string; express: string; node: string };
   } {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: process.env.APP_VERSION || '0.0.0',
+      service: 'admin-api-service',
+      framework: {
+        nestjs: safeRequireVersion('@nestjs/core/package.json'),
+        express: safeRequireVersion('express/package.json'),
+        node: process.version,
+      },
     };
   }
 

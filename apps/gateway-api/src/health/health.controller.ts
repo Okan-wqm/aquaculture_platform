@@ -6,6 +6,19 @@ import { Public } from '../guards/auth.guard';
 import { HealthService, HealthStatus } from './health.service';
 
 /**
+ * Reads the version field from a package's package.json at runtime.
+ * Returns 'unknown' if the package is not resolvable.
+ */
+function safeRequireVersion(packageJsonPath: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(packageJsonPath).version;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
  * Gateway Health Controller
  *
  * ARCH-GW-004: Health probe architecture for the API gateway.
@@ -74,6 +87,10 @@ export class HealthController {
   /**
    * General Health Endpoint (sanitized, public).
    * Returns timestamp, uptime, version. No internal service details.
+   *
+   * ADR-013 Section 8.4: Includes framework version info so operators can
+   * identify whether this gateway is running NestJS v10 or v11 during
+   * phased upgrade rollouts.
    */
   @Get()
   @Public()
@@ -83,12 +100,20 @@ export class HealthController {
     timestamp: string;
     uptime: number;
     version: string;
+    service: string;
+    framework: { nestjs: string; express: string; node: string };
   } {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: process.env.APP_VERSION || '0.0.0',
+      service: 'gateway-api',
+      framework: {
+        nestjs: safeRequireVersion('@nestjs/core/package.json'),
+        express: safeRequireVersion('express/package.json'),
+        node: process.version,
+      },
     };
   }
 

@@ -187,6 +187,11 @@ export class StandardHealthController {
    * General Health Endpoint.
    * Returns sanitized health information (no memory, connection counts, etc.).
    * Safe for public exposure.
+   *
+   * ADR-013 Section 8.4: Includes framework version info so operators can
+   * identify whether a running service is NestJS v10 or v11 during phased
+   * upgrade rollouts. The `framework` block exposes NestJS core version,
+   * Express adapter version, and Node.js runtime version.
    */
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -196,6 +201,12 @@ export class StandardHealthController {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: this.version,
+      service: this.serviceName,
+      framework: {
+        nestjs: readPackageVersion('@nestjs/core/package.json'),
+        express: readPackageVersion('express/package.json'),
+        node: process.version,
+      },
     };
   }
 

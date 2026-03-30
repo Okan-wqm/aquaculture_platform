@@ -36,6 +36,7 @@
  * ```
  */
 import { Logger, ValidationPipe } from '@nestjs/common';
+import type { ValidationPipeOptions } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication, Type } from '@nestjs/common';
@@ -43,6 +44,7 @@ import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-appl
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { StructuredLoggerService } from '../logging';
 import helmet from 'helmet';
+import type { HelmetOptions } from 'helmet';
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -86,7 +88,7 @@ export interface ServiceBootstrapOptions {
    * Pass `{ contentSecurityPolicy: false }` to disable CSP (e.g. when
    * CSP is handled by the edge nginx proxy).
    */
-  helmetOptions?: Record<string, unknown>;
+  helmetOptions?: Partial<HelmetOptions>;
 
   /** Whether this service exposes a GraphQL endpoint (affects prefix exclusions). */
   hasGraphQL?: boolean;
@@ -103,6 +105,21 @@ export interface ServiceBootstrapOptions {
    * Use this for rawBody, bodyParser overrides, etc.
    */
   nestFactoryOptions?: Partial<NestApplicationOptions>;
+
+  /**
+   * Override or extend the default ValidationPipe configuration.
+   * These options are shallow-merged with the factory defaults, so services
+   * can opt in to specific behaviors (e.g. enableImplicitConversion) without
+   * replacing the entire pipe.
+   */
+  validationPipeOverrides?: Partial<ValidationPipeOptions>;
+
+  /**
+   * Replace the default ValidationPipe entirely (factory skips its own pipe).
+   * Use this when the service needs a fundamentally different validation
+   * strategy that cannot be expressed through `validationPipeOverrides`.
+   */
+  customValidationPipe?: ValidationPipe;
 
   /**
    * Callback invoked after the app is created and all default middleware is
@@ -183,9 +200,10 @@ function configureTrustProxy(
  */
 function buildHelmetOptions(
   isProduction: boolean,
-  helmetOverrides?: Record<string, unknown>,
-): Record<string, unknown> {
-  const defaults: Record<string, unknown> = {
+  helmetOverrides?: Partial<HelmetOptions>,
+): HelmetOptions {
+  // Helmet options typed via the helmet package's own HelmetOptions interface
+  const defaults: HelmetOptions = {
     contentSecurityPolicy: isProduction
       ? {
           directives: {
@@ -216,7 +234,7 @@ function buildHelmetOptions(
 
   // Shallow merge: overrides win. This allows services to set e.g.
   // contentSecurityPolicy: false without affecting other defaults.
-  return { ...defaults, ...helmetOverrides };
+  return { ...defaults, ...helmetOverrides } as HelmetOptions;
 }
 
 /**
@@ -235,7 +253,19 @@ function configureCors(
   additionalHeaders: string[],
   logger: Logger,
 ): void {
-  const corsOriginsEnv = configService.get<string>('CORS_ORIGINS', '*');
+  // Read the raw value without a default so we can detect "not set" vs "set to *"
+  const rawCorsOrigins = configService.get<string>('CORS_ORIGINS');
+
+  // SECURITY: Require explicit CORS_ORIGINS in production (checked first to
+  // avoid the dead-code scenario where a default '*' masks a missing value)
+  if (isProduction && !rawCorsOrigins) {
+    throw new Error(
+      'CORS_ORIGINS must be set in production.',
+    );
+  }
+
+  // Fall back to wildcard only in non-production environments
+  const corsOriginsEnv = rawCorsOrigins ?? '*';
   const isWildcard = corsOriginsEnv === '*';
 
   // SECURITY: Hard-fail in production if wildcard CORS is configured
@@ -243,13 +273,6 @@ function configureCors(
     throw new Error(
       'CORS_ORIGINS cannot be "*" in production. ' +
         'Configure an explicit allowlist of allowed origins.',
-    );
-  }
-
-  // SECURITY: Require explicit CORS_ORIGINS in production
-  if (isProduction && !configService.get<string>('CORS_ORIGINS')) {
-    throw new Error(
-      'CORS_ORIGINS environment variable must be set in production.',
     );
   }
 
@@ -289,44 +312,78 @@ function configureCors(
  * - whitelist: strips properties not in the DTO
  * - forbidNonWhitelisted: rejects requests with unknown properties
  * - transform: enables class-transformer for auto-conversion
+ * - enableImplicitConversion: OFF by default for security (opt-in via overrides)
  * - validationError.target/value: hidden to avoid leaking internals
  * - disableErrorMessages: suppressed in production
+ *
+ * Services can extend defaults via `validationPipeOverrides`, or replace
+ * the entire pipe via `customValidationPipe`.
  */
 function configureValidationPipe(
   app: INestApplication,
   isProduction: boolean,
+  validationPipeOverrides?: Partial<ValidationPipeOptions>,
+  customValidationPipe?: ValidationPipe,
 ): void {
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-      // SECURITY: Hide internal details from validation errors
-      validationError: {
-        target: false,
-        value: false,
-      },
-      disableErrorMessages: isProduction,
-    }),
-  );
+  // If the caller provided a fully custom pipe, use it as-is and skip defaults
+  if (customValidationPipe) {
+    app.useGlobalPipes(customValidationPipe);
+    return;
+  }
+
+  const defaults: ValidationPipeOptions = {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+    transformOptions: {
+      // SECURITY: Disabled by default. Implicit conversion of "true"/"1"
+      // to boolean can bypass authorization checks. Services that need it
+      // must opt in via validationPipeOverrides.
+      enableImplicitConversion: false,
+    },
+    // SECURITY: Hide internal details from validation errors
+    validationError: {
+      target: false,
+      value: false,
+    },
+    disableErrorMessages: isProduction,
+  };
+
+  // Shallow-merge caller overrides so services can opt in to specific
+  // behaviors without replacing the entire configuration
+  const merged: ValidationPipeOptions = validationPipeOverrides
+    ? { ...defaults, ...validationPipeOverrides }
+    : defaults;
+
+  app.useGlobalPipes(new ValidationPipe(merged));
 }
 
 /**
  * Resolves the listen port using the standard cascade:
  * SERVICE_PORT env var -> PORT env var -> 3000.
+ *
+ * ConfigService.get<number>() does NOT parse strings to numbers; env vars are
+ * always strings. We explicitly parseInt and validate the range to prevent
+ * silent NaN or out-of-range ports.
  */
 function resolvePort(
   configService: ConfigService,
   portEnvVar: string,
 ): number {
-  return (
-    configService.get<number>(portEnvVar) ??
-    configService.get<number>('PORT') ??
-    3000
-  );
+  const raw =
+    configService.get<string>(portEnvVar) ??
+    configService.get<string>('PORT') ??
+    '3000';
+  const port = parseInt(raw, 10);
+
+  if (isNaN(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid port: "${raw}" from ${portEnvVar}/PORT. ` +
+        'Must be an integer between 1 and 65535.',
+    );
+  }
+
+  return port;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +436,8 @@ export async function createServiceApp(
     hasGraphQL = false,
     enableTelemetry = false,
     nestFactoryOptions = {},
+    validationPipeOverrides,
+    customValidationPipe,
     onBeforeListen,
   } = options;
 
@@ -415,11 +474,10 @@ export async function createServiceApp(
   configureTrustProxy(app, configService, logger);
 
   // -----------------------------------------------------------------------
-  // 4. Helmet security headers
+  // 4. Helmet security headers — properly typed via HelmetOptions, no cast needed
   // -----------------------------------------------------------------------
   const mergedHelmet = buildHelmetOptions(isProduction, helmetOverrides);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  app.use(helmet(mergedHelmet as any));
+  app.use(helmet(mergedHelmet));
 
   // -----------------------------------------------------------------------
   // 5. CORS with production wildcard guard
@@ -429,7 +487,7 @@ export async function createServiceApp(
   // -----------------------------------------------------------------------
   // 6. Global validation pipe
   // -----------------------------------------------------------------------
-  configureValidationPipe(app, isProduction);
+  configureValidationPipe(app, isProduction, validationPipeOverrides, customValidationPipe);
 
   // -----------------------------------------------------------------------
   // 7. Global prefix with health/metrics exclusions

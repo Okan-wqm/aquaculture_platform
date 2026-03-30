@@ -144,6 +144,28 @@ describe('StandardHealthController', () => {
       expect(result).not.toHaveProperty('memory');
       expect(result).not.toHaveProperty('connections');
     });
+
+    it('should include service name (ADR-013 Section 8.4)', () => {
+      const result = controller.health();
+      expect(result.service).toBeDefined();
+      expect(typeof result.service).toBe('string');
+    });
+
+    it('should include framework version info for NestJS v10/v11 identification (ADR-013 Section 8.4)', () => {
+      const result = controller.health();
+
+      expect(result.framework).toBeDefined();
+      expect(typeof result.framework.nestjs).toBe('string');
+      expect(typeof result.framework.express).toBe('string');
+      expect(typeof result.framework.node).toBe('string');
+
+      // NestJS and Express versions should be semver-like or 'unknown'
+      expect(result.framework.nestjs).toMatch(/^\d+\.\d+\.\d+|unknown$/);
+      expect(result.framework.express).toMatch(/^\d+\.\d+\.\d+|unknown$/);
+
+      // Node version starts with 'v' (e.g. 'v20.11.0')
+      expect(result.framework.node).toMatch(/^v\d+\.\d+\.\d+/);
+    });
   });
 
   describe('extensibility via getAdditionalChecks()', () => {

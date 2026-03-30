@@ -1,82 +1,14 @@
-import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { StructuredLoggerService } from '@aquaculture/backend-common';
-import helmet from 'helmet';
+/**
+ * Alert Engine — Rules engine, risk scoring, escalation, notification dispatch.
+ *
+ * Migrated to shared bootstrap factory (ADR-013 Phase 3).
+ */
+import { bootstrapService } from '@aquaculture/backend-common';
 import { AppModule } from './app.module';
 
-async function bootstrap() {
-  const logger = new Logger('AlertEngine');
-
-  const app = await NestFactory.create(AppModule, {
-    logger: new StructuredLoggerService('alert-engine'),
-  });
-
-  const configService = app.get(ConfigService);
-
-  // Security middleware
-  app.use(
-    helmet({
-      contentSecurityPolicy:
-        configService.get('NODE_ENV') === 'production' ? undefined : false,
-    }),
-  );
-
-  // CORS configuration
-  // SECURITY: credentials cannot be true when origin is '*' (wildcard)
-  const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
-  const isWildcard = corsOrigins === '*';
-
-  // SECURITY: Throw in production if CORS_ORIGINS is wildcard — consistent with all other services
-  if (isWildcard && configService.get('NODE_ENV') === 'production') {
-    throw new Error(
-      'SECURITY ERROR: CORS_ORIGINS cannot be set to wildcard ("*") in production. ' +
-      'Set CORS_ORIGINS to explicit allowed origins.',
-    );
-  }
-
-  app.enableCors({
-    origin: isWildcard ? '*' : corsOrigins.split(',').map((o: string) => o.trim()),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Tenant-Id',
-      'X-Correlation-Id',
-    ],
-    // SECURITY: credentials must be false when using wildcard origin
-    credentials: !isWildcard,
-  });
-
-  // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
-
-  // Graceful shutdown
-  app.enableShutdownHooks();
-
-  // PORT RESOLUTION: Service-specific var first, then generic PORT, then default 3000.
-  // Prevents healthcheck failures from port mismatch when Docker only sets PORT.
-  const port = configService.get<number>('ALERT_ENGINE_PORT')
-    ?? configService.get<number>('PORT')
-    ?? 3000;
-
-  await app.listen(port);
-
-  logger.log(`Alert Engine running on port ${port}`);
-  logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
-}
-
-const bootstrapLogger = new Logger('AlertEngineBootstrap');
-bootstrap().catch((error) => {
-  bootstrapLogger.error('Alert Engine failed to start:', error);
-  process.exit(1);
+bootstrapService(AppModule, {
+  serviceName: 'alert-engine',
+  portEnvVar: 'ALERT_ENGINE_PORT',
+  hasGraphQL: true,
+  validationPipeOverrides: { enableImplicitConversion: true },
 });

@@ -62,6 +62,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+      /**
+       * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
+       * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
+       * When false, ApolloServerPluginLandingPageDisabled is applied instead.
+       * Disabled in production for security (no introspection exposure).
+       */
       playground: process.env['NODE_ENV'] !== 'production',
       introspection: process.env['NODE_ENV'] !== 'production',
       // installSubscriptionHandlers removed in @nestjs/graphql v13 — use graphql-ws for subscriptions instead

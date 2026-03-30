@@ -94,6 +94,12 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
           ModuleLineItem,
         ],
       },
+      /**
+       * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
+       * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
+       * When false, ApolloServerPluginLandingPageDisabled is applied instead.
+       * Disabled in production for security (no introspection exposure).
+       */
       // SECURITY: Internal subgraph - always disable playground and introspection
       playground: false,
       introspection: false,

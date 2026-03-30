@@ -101,6 +101,12 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         buildSchemaOptions: {
           orphanedTypes: [IncidentTimelineEvent, AlertCondition],
         },
+        /**
+         * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
+         * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
+         * When false, ApolloServerPluginLandingPageDisabled is applied instead.
+         * Disabled in production for security (no introspection exposure).
+         */
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',

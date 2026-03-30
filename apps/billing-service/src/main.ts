@@ -1,124 +1,15 @@
-import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { StructuredLoggerService } from '@aquaculture/backend-common';
-import helmet from 'helmet';
+/**
+ * Billing Service — Subscription management, metered billing, invoicing.
+ *
+ * Migrated to shared bootstrap factory (ADR-013 Phase 3).
+ * Custom config: rawBody enabled for Stripe webhook signature verification.
+ */
+import { bootstrapService } from '@aquaculture/backend-common';
 import { AppModule } from './app.module';
 
-async function bootstrap() {
-  const logger = new Logger('BillingService');
-
-  const app = await NestFactory.create(AppModule, {
-    logger: new StructuredLoggerService('billing-service'),
-    // Enable rawBody for Stripe webhook signature verification.
-    // NestJS attaches req.rawBody on routes that need it.
-    rawBody: true,
-    bodyParser: true,
-  });
-
-  const configService = app.get(ConfigService);
-  const isProduction = configService.get('NODE_ENV') === 'production';
-
-  // Trust proxy configuration for deployments behind reverse proxy
-  // SECURITY: Only enable this when behind a trusted proxy
-  const trustProxy = configService.get<string>('TRUST_PROXY', 'false');
-  if (trustProxy === 'true' || trustProxy === '1') {
-    app.getHttpAdapter().getInstance().set('trust proxy', 1);
-    logger.log('Trust proxy enabled (trusting first proxy)');
-  } else if (trustProxy && trustProxy !== 'false' && trustProxy !== '0') {
-    app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
-    logger.log(`Trust proxy configured: ${trustProxy}`);
-  }
-
-  // Security middleware with production-appropriate settings
-  app.use(
-    helmet({
-      contentSecurityPolicy: isProduction
-        ? {
-            directives: {
-              defaultSrc: ["'self'"],
-              scriptSrc: ["'self'"],
-              styleSrc: ["'self'", "'unsafe-inline'"],
-              imgSrc: ["'self'", 'data:', 'https:'],
-              fontSrc: ["'self'"],
-              connectSrc: ["'self'"],
-              objectSrc: ["'none'"],
-              frameSrc: ["'none'"],
-            },
-          }
-        : false,
-      strictTransportSecurity: isProduction
-        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
-        : false,
-      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-      noSniff: true,
-      frameguard: { action: 'deny' },
-      hidePoweredBy: true,
-      xssFilter: true,
-    }),
-  );
-
-  // CORS configuration
-  // SECURITY: credentials cannot be true when origin is '*' (wildcard)
-  const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
-  const isWildcard = corsOrigins === '*';
-
-  // SECURITY: Throw error in production if wildcard CORS is configured
-  if (isWildcard && isProduction) {
-    throw new Error('CORS_ORIGINS cannot be "*" in production. Configure an explicit allowlist.');
-  }
-
-  const parsedOrigins = isWildcard ? '*' : corsOrigins.split(',').map((o: string) => o.trim()).filter(Boolean);
-
-  app.enableCors({
-    origin: parsedOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Tenant-Id',
-      'X-Correlation-Id',
-      'X-Request-Id',
-    ],
-    // SECURITY: credentials must be false when using wildcard origin
-    credentials: !isWildcard,
-  });
-
-  // Global validation pipe with security settings
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-      // SECURITY: Hide internal details from validation errors
-      validationError: {
-        target: false,
-        value: false,
-      },
-      disableErrorMessages: isProduction,
-    }),
-  );
-
-  // Graceful shutdown
-  app.enableShutdownHooks();
-
-  // PORT RESOLUTION: Service-specific var first, then generic PORT, then default 3000.
-  // Prevents healthcheck failures from port mismatch when Docker only sets PORT.
-  const port = configService.get<number>('BILLING_SERVICE_PORT')
-    ?? configService.get<number>('PORT')
-    ?? 3000;
-
-  await app.listen(port);
-
-  logger.log(`Billing Service running on port ${port}`);
-  logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
-}
-
-const bootstrapLogger = new Logger('BillingServiceBootstrap');
-bootstrap().catch((error) => {
-  bootstrapLogger.error('Billing Service failed to start:', error);
-  process.exit(1);
+bootstrapService(AppModule, {
+  serviceName: 'billing-service',
+  portEnvVar: 'BILLING_SERVICE_PORT',
+  hasGraphQL: true,
+  nestFactoryOptions: { rawBody: true, bodyParser: true },
 });

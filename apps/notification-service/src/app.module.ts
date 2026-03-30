@@ -85,6 +85,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         autoSchemaFile: { federation: 2 },
+        /**
+         * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
+         * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
+         * When false, ApolloServerPluginLandingPageDisabled is applied instead.
+         * Disabled in production for security (no introspection exposure).
+         */
         playground: configService.get('NODE_ENV') !== 'production',
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: Record<string, unknown> & { headers: Record<string, string | undefined>; user?: Record<string, unknown> } }) => {

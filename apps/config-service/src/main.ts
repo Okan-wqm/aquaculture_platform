@@ -1,87 +1,16 @@
-import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { StructuredLoggerService } from '@aquaculture/backend-common';
-import helmet from 'helmet';
+/**
+ * Config Service — Centralized configuration management for all platform services.
+ *
+ * Migrated to shared bootstrap factory (ADR-013 Phase 3).
+ * Standard config: trust proxy, helmet, CORS, validation pipe, port resolution.
+ * Custom config: additionalCorsHeaders includes 'X-Api-Key' for M2M authentication.
+ */
+import { bootstrapService } from '@aquaculture/backend-common';
 import { AppModule } from './app.module';
 
-async function bootstrap() {
-  const logger = new Logger('ConfigService');
-
-  const app = await NestFactory.create(AppModule, {
-    logger: new StructuredLoggerService('config-service'),
-  });
-
-  const configService = app.get(ConfigService);
-
-  // Security middleware
-  app.use(
-    helmet({
-      contentSecurityPolicy:
-        configService.get('NODE_ENV') === 'production' ? undefined : false,
-    }),
-  );
-
-  // CORS configuration
-  // SECURITY: credentials cannot be true when origin is '*' (wildcard)
-  const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
-  const isWildcard = corsOrigins === '*';
-
-  if (isWildcard && configService.get('NODE_ENV') === 'production') {
-    throw new Error('SECURITY: CORS_ORIGINS must not be "*" in production. Set to specific allowed origins.');
-  }
-
-  app.enableCors({
-    origin: isWildcard ? '*' : corsOrigins.split(',').map((o: string) => o.trim()),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'x-correlation-id',
-      'x-api-key',
-    ],
-    // SECURITY: credentials must be false when using wildcard origin
-    credentials: !isWildcard,
-  });
-
-  // Global validation pipe with strict settings
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-      validationError: {
-        target: false,
-        value: false,
-      },
-    }),
-  );
-
-  // API prefix excluding health endpoints
-  app.setGlobalPrefix('api/v1', {
-    exclude: ['health', 'health/live', 'health/ready'],
-  });
-
-  // Graceful shutdown
-  app.enableShutdownHooks();
-
-  // PORT RESOLUTION: Service-specific var first, then generic PORT, then default 3000.
-  // Prevents healthcheck failures from port mismatch when Docker only sets PORT.
-  const port = configService.get<number>('CONFIG_SERVICE_PORT')
-    ?? configService.get<number>('PORT')
-    ?? 3000;
-
-  await app.listen(port);
-
-  logger.log(`Config Service running on port ${port}`);
-  logger.log(`Environment: ${configService.get('NODE_ENV', 'development')}`);
-}
-
-const bootstrapLogger = new Logger('ConfigServiceBootstrap');
-bootstrap().catch((error) => {
-  bootstrapLogger.error('Config Service failed to start:', error);
-  process.exit(1);
+bootstrapService(AppModule, {
+  serviceName: 'config-service',
+  portEnvVar: 'CONFIG_SERVICE_PORT',
+  hasGraphQL: true,
+  additionalCorsHeaders: ['X-Api-Key'],
 });

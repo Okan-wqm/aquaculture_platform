@@ -144,6 +144,12 @@ const complexityCache = new Map<string, number>();
               }),
             },
           ],
+          /**
+           * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
+           * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
+           * When false, ApolloServerPluginLandingPageDisabled is applied instead.
+           * Disabled in production for security (no introspection exposure).
+           */
           playground: !isProduction && configService.get('GRAPHQL_PLAYGROUND', 'true') === 'true',
           introspection: !isProduction || configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
           context: ({ req }: { req: Request }) => ({ req }),

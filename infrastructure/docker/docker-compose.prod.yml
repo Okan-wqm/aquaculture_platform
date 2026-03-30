@@ -340,6 +340,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      # ARCH-V11-011: CORS_ORIGINS required — alert-engine throws if wildcard in production
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
@@ -369,6 +371,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      # ARCH-V11-012: CORS_ORIGINS required — notification-service throws if wildcard in production
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}

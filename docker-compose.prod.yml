@@ -257,6 +257,8 @@ services:
       SERVICE_NAME: alert-engine
       NODE_ENV: production
       PORT: 3000
+      # ARCH-V11-011: CORS_ORIGINS required — alert-engine throws if wildcard in production
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
@@ -281,6 +283,8 @@ services:
       SERVICE_NAME: notification-service
       NODE_ENV: production
       PORT: 3000
+      # ARCH-V11-012: CORS_ORIGINS required — notification-service throws if wildcard in production
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222

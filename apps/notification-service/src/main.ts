@@ -39,8 +39,8 @@ async function bootstrap() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
-      'x-tenant-id',
-      'x-correlation-id',
+      'X-Tenant-Id',
+      'X-Correlation-Id',
     ],
     // SECURITY: credentials must be false when using wildcard origin
     credentials: !isWildcard,

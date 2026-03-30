@@ -61,3 +61,6 @@ export * from './pagination';
 
 // Health - Standard K8s health check controller and module
 export * from './health';
+
+// Bootstrap - Shared NestJS application factory (eliminates main.ts duplication)
+export * from './bootstrap';

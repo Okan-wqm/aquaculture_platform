@@ -27,8 +27,12 @@ async function bootstrap() {
   const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
   const isWildcard = corsOrigins === '*';
 
+  // SECURITY: Throw in production if CORS_ORIGINS is wildcard — consistent with all other services
   if (isWildcard && configService.get('NODE_ENV') === 'production') {
-    logger.warn('SECURITY WARNING: CORS_ORIGINS is set to "*" in production');
+    throw new Error(
+      'SECURITY ERROR: CORS_ORIGINS cannot be set to wildcard ("*") in production. ' +
+      'Set CORS_ORIGINS to explicit allowed origins.',
+    );
   }
 
   app.enableCors({
@@ -37,8 +41,8 @@ async function bootstrap() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
-      'x-tenant-id',
-      'x-correlation-id',
+      'X-Tenant-Id',
+      'X-Correlation-Id',
     ],
     // SECURITY: credentials must be false when using wildcard origin
     credentials: !isWildcard,

@@ -14,6 +14,35 @@ import { Public } from '../decorators/roles.decorator';
 import { SkipThrottle } from '../security/throttler/throttler.decorator';
 
 /**
+ * Reads the version field from a package's package.json at runtime.
+ * Uses require() which is the standard Node.js pattern for reading
+ * installed package metadata. Returns 'unknown' if the package is
+ * not resolvable (e.g. in a bundled/stripped deployment).
+ */
+function readPackageVersion(packageJsonPath: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(packageJsonPath).version;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Runtime framework versions exposed by the health endpoint.
+ * Used to identify NestJS v10 vs v11 and Express v4 vs v5 during
+ * phased upgrade rollouts (ADR-013 Section 8.4).
+ */
+export interface FrameworkVersionInfo {
+  /** NestJS framework version — e.g. "10.4.15" or "11.0.1" */
+  nestjs: string;
+  /** Express HTTP adapter version — v4 (NestJS v10) vs v5 (NestJS v11) */
+  express: string;
+  /** Node.js runtime version */
+  node: string;
+}
+
+/**
  * Standard health check response for the general /health endpoint.
  * Contains only non-sensitive information safe for public exposure.
  */
@@ -22,6 +51,10 @@ export interface StandardHealthResponse {
   timestamp: string;
   uptime: number;
   version: string;
+  /** Service name for identification in multi-service monitoring */
+  service: string;
+  /** Framework versions for v10/v11 identification during phased upgrade */
+  framework: FrameworkVersionInfo;
 }
 
 /**

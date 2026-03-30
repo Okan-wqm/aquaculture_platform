@@ -444,6 +444,28 @@ export async function createServiceApp(
   const logger = new Logger(serviceName);
 
   // -----------------------------------------------------------------------
+  // SEC-H15: DATABASE_SYNC production guard
+  //
+  // TypeORM synchronize mode (DATABASE_SYNC=true) auto-alters tables by
+  // diffing entities against the live schema. In production this can DROP
+  // columns, DELETE data, or break migrations irreversibly.
+  //
+  // This guard runs before any NestJS module is loaded — before TypeORM's
+  // DataSource.initialize() can execute the destructive synchronize. All
+  // 15+ services inherit this check via the shared bootstrap factory.
+  //
+  // Production deployments MUST use migrations: `npm run migration:run`.
+  // -----------------------------------------------------------------------
+  const databaseSync = process.env.DATABASE_SYNC;
+  const nodeEnv = process.env.NODE_ENV;
+  if (databaseSync === 'true' && nodeEnv === 'production') {
+    throw new Error(
+      'FATAL: DATABASE_SYNC=true is not allowed in production. ' +
+      'Use migrations instead: npm run migration:run',
+    );
+  }
+
+  // -----------------------------------------------------------------------
   // 1. Optional OpenTelemetry initialization (must happen before NestFactory.create)
   // -----------------------------------------------------------------------
   if (enableTelemetry) {

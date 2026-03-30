@@ -143,7 +143,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
     depends_on:
       - postgres
@@ -167,8 +167,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
       - postgres
       - redis
@@ -191,7 +191,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
       - redis
@@ -214,7 +214,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
       - redis
@@ -237,7 +237,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
       - redis
@@ -262,7 +262,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
       - redis
@@ -288,7 +288,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       # Email config (optional)
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -322,7 +322,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     volumes:
       - backup_data:/backups
     depends_on:

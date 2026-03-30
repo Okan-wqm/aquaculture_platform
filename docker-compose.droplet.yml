@@ -103,11 +103,18 @@ services:
     image: nats:2.10-alpine
     container_name: aqua-nats
     restart: unless-stopped
-    # ARCH-010: JetStream enabled via CLI flags (avoids config file mount dependency)
-    # SEC-006/SEC-019: NATS is on aqua-internal only (no external exposure)
-    command: ["-js", "-sd", "/data", "-m", "8222"]
+    # ARCH-010/SEC-H01: Use config file for JetStream limits + authentication.
+    # CLI flags replaced with nats.conf which includes authorization{} block.
+    # NATS_USER and NATS_PASS are substituted by NATS from container environment.
+    command: ["--config", "/etc/nats/nats.conf"]
+    environment:
+      # SEC-H01: NATS credentials — required for authenticated broker access.
+      # All services must include these in their NATS_URL.
+      NATS_USER: ${NATS_USER:?NATS_USER is required}
+      NATS_PASS: ${NATS_PASS:?NATS_PASS is required}
     volumes:
       - nats_data:/data
+      - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
     networks:
       - aqua-internal
     deploy:
@@ -116,7 +123,8 @@ services:
           memory: 192M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 4222 || exit 1"]
+      # SEC-H01: Use HTTP monitoring endpoint (enabled in nats.conf http_port: 8222)
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
       interval: 10s
       timeout: 5s
       start_period: 15s
@@ -293,7 +301,7 @@ services:
       DATABASE_LOGGING: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD}
@@ -339,7 +347,7 @@ services:
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -386,13 +394,14 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
       MQTT_SENSOR_SERVICE_HASH: ${MQTT_SENSOR_SERVICE_HASH}
       MQTT_USERNAME: sensor_service
       MQTT_PASSWORD: ${MQTT_SENSOR_SERVICE_PASSWORD}
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-233cdc92caa7aa6cbc6d706add5a9d669a79c012807acbf67bf4ca8d004e1dbc}
+      # SEC-C02: No hardcoded default — credential encryption key must be provided externally
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       MQTT_BROKER_HOST: app.suderra.com
       MQTT_BROKER_PORT: 8883
       MQTT_BROKER_URL: mqtt://mosquitto:1883
@@ -441,7 +450,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
@@ -484,7 +493,7 @@ services:
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
       postgres:
@@ -523,7 +532,7 @@ services:
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
       postgres:
@@ -562,7 +571,7 @@ services:
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
       postgres:
@@ -640,7 +649,7 @@ services:
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -721,7 +730,7 @@ services:
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:

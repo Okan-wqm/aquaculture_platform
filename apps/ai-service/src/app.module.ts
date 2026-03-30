@@ -232,7 +232,8 @@ export class AppModule implements NestModule {
         TenantContextMiddleware,
         TenantSchemaMiddleware,
       )
-      .exclude('health', 'health/(.*)')
+      // Express v5 path-to-regexp v8: named wildcard required instead of regex capture group
+      .exclude('health', 'health/{*path}')
       .forRoutes('*');
   }
 }

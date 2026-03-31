@@ -55,25 +55,11 @@ export default defineConfig(({ command }) => {
             requiredVersion: '^4.4.0',
           },
           /**
-           * SEC-L11: Pin use-sync-external-store version to prevent skew.
-           * This is a transitive dependency of zustand used as a React 18 shim.
-           * Without requiredVersion, host and remotes may load incompatible
-           * versions, causing subtle state synchronization bugs.
+           * SEC-L11: use-sync-external-store and reactflow are NOT shared here
+           * because they are not direct dependencies of the shell host.
+           * Module Federation requires shared deps to exist in both host and remote.
+           * These libraries are consumed only by remotes (sensor-module) and pinned there.
            */
-          'use-sync-external-store': {
-            singleton: true,
-            requiredVersion: '^1.2.0',
-          },
-          /**
-           * SEC-L11: Pin reactflow requiredVersion to match sensor-module's
-           * declared dependency (^11.10.0). The 'version' field only hints
-           * which version to prefer; 'requiredVersion' enforces compatibility
-           * and warns at build time if a remote loads an incompatible version.
-           */
-          reactflow: {
-            singleton: true,
-            requiredVersion: '^11.10.0',
-          },
         },
       }),
     ],

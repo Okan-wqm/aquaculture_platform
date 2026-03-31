@@ -7,13 +7,17 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { JwtModule } from '@nestjs/jwt';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import depthLimit from 'graphql-depth-limit';
 import {
   CorrelationIdMiddleware,
   RequestContextMiddleware,
   UserContextMiddleware,
   TenantContextMiddleware,
   RedisModule,
+  ServiceIdentityGuard,
+  TenantGuard,
+  RolesGuard,
 } from '@aquaculture/backend-common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
@@ -86,6 +90,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       useFactory: (configService: ConfigService) => ({
         autoSchemaFile: { federation: 2 },
         /**
+         * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
+         * Without depth limiting, an attacker can craft a deeply nested GraphQL query
+         * that causes exponential resource consumption on the server.
+         */
+        validationRules: [depthLimit(10)],
+        /**
          * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
          * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
          * When false, ApolloServerPluginLandingPageDisabled is applied instead.
@@ -156,6 +166,35 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    /**
+     * SECURITY (H-06): Global guards for the notification-service.
+     *
+     * Although this service is primarily event-driven (NATS handlers process
+     * domain events from other services), it also exposes:
+     * - HTTP health endpoints (HealthController)
+     * - A federated GraphQL subgraph (NotificationResolver) accessible via
+     *   the API gateway
+     *
+     * Without global guards, the GraphQL resolvers and any future HTTP
+     * controllers would be unprotected. ServiceIdentityGuard validates
+     * that requests originate from the gateway (HMAC-signed identity headers).
+     * TenantGuard and RolesGuard enforce tenant isolation and RBAC.
+     *
+     * NATS event handlers are not affected by HTTP guards because NestJS
+     * microservice handlers operate outside the HTTP execution context.
+     */
+    {
+      provide: APP_GUARD,
+      useClass: ServiceIdentityGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })

@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
@@ -136,10 +136,29 @@ export class MediaService {
   /**
    * Generate a presigned GET URL for downloading a media file.
    *
-   * @param storageKey - S3/MinIO object key
+   * SECURITY (H-12): Validates that the storage key belongs to the requesting tenant
+   * by checking the tenant-scoped path prefix `messaging/{tenantId}/`. This prevents
+   * a user in tenant A from generating download URLs for media belonging to tenant B
+   * by manipulating the storageKey parameter. All media objects follow the convention
+   * `messaging/{tenantId}/{channelId}/{year}/{month}/{uuid}.{ext}`, so any key that
+   * does not start with the expected tenant prefix is a cross-tenant access attempt.
+   *
+   * @param tenantId - Tenant UUID of the requesting user, used for path-based isolation validation
+   * @param storageKey - S3/MinIO object key (must follow the convention messaging/{tenantId}/...)
    * @returns Presigned download URL
+   * @throws ForbiddenException if the storage key does not belong to the requesting tenant
    */
-  async generateDownloadUrl(storageKey: string): Promise<string> {
+  async generateDownloadUrl(tenantId: string, storageKey: string): Promise<string> {
+    const expectedPrefix = `messaging/${tenantId}/`;
+    if (!storageKey.startsWith(expectedPrefix)) {
+      this.logger.warn(
+        `Tenant isolation violation: tenant=${tenantId} attempted to access storageKey=${storageKey}`,
+      );
+      throw new ForbiddenException(
+        'Access denied: the requested media does not belong to your tenant',
+      );
+    }
+
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: storageKey,

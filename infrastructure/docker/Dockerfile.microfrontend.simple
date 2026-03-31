@@ -3,7 +3,9 @@
 # Serves pre-built Module Federation remotes via nginx
 # =============================================================================
 
-FROM nginx:alpine
+# M-06: Pin nginx to exact version for reproducible builds and to prevent
+# silent security regressions from upstream tag mutations
+FROM nginx:1.27.3-alpine
 
 # Install curl for health checks (wget not available in nginx:alpine by default)
 RUN apk add --no-cache curl

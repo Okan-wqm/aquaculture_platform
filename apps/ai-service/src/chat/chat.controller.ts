@@ -7,10 +7,12 @@ import {
   Logger,
   HttpException,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { IsString, IsOptional, IsNotEmpty, MaxLength, Matches } from 'class-validator';
 import { Request, Response } from 'express';
 import { AgentRunnerService, ChatRequest } from '../agent/agent-runner.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 interface TenantRequest extends Request {
   tenantId?: string;
@@ -43,6 +45,17 @@ class ChatBodyDto {
   persona?: string;
 }
 
+/**
+ * Chat Controller for AI-powered aquaculture assistant.
+ *
+ * SECURITY (H-07): JwtAuthGuard ensures all endpoints require a valid JWT token.
+ * The ai-service uses TenantGuard and RolesGuard as global APP_GUARDs (see app.module.ts),
+ * but those guards rely on req.user being populated. For REST controllers that bypass
+ * the GraphQL execution context, this guard ensures the JWT is validated and req.user is set
+ * before the request reaches the handler. Without this guard, an unauthenticated request
+ * could reach the chat endpoint and only be caught by the manual tenantId/userId check below.
+ */
+@UseGuards(JwtAuthGuard)
 @Controller('api/v2/ai')
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);

@@ -29,9 +29,11 @@ import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard, JwtPayload } from './guards/auth.guard';
+import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { StripInternalHeadersMiddleware } from './middleware/strip-internal-headers.middleware';
 import { CsrfMiddleware } from './middleware/csrf.middleware';
+import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { MutationRateLimitGuard } from './guards/mutation-rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
@@ -558,6 +560,22 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       provide: APP_GUARD,
       useClass: AuthGuard,
     },
+    /**
+     * SECURITY (M-11): TenantIsolationGuard registered as a global guard.
+     *
+     * This guard enforces strict tenant data isolation across ALL gateway
+     * requests. It validates that the authenticated user's tenant matches
+     * the requested tenant, prevents unauthorized cross-tenant access, and
+     * supports admin/platform_admin overrides with proper audit logging.
+     *
+     * Execution order: AuthGuard (authentication) -> TenantIsolationGuard
+     * (authorization/isolation) -> RateLimitGuard -> MutationRateLimitGuard.
+     * This ensures the user is authenticated before tenant isolation is checked.
+     */
+    {
+      provide: APP_GUARD,
+      useClass: TenantIsolationGuard,
+    },
     // Rate limiting guard
     {
       provide: APP_GUARD,
@@ -620,5 +638,21 @@ export class AppModule implements NestModule {
         RequestLoggingMiddleware,
       )
       .forRoutes('*');
+
+    /**
+     * SECURITY (H-11): Register RequestValidatorMiddleware for REST routes.
+     *
+     * This middleware was previously defined but never registered (dead code).
+     * It provides defense-in-depth against injection attacks (SQL injection, XSS,
+     * path traversal, command injection) by validating and sanitizing request
+     * bodies, query parameters, headers, and URL paths.
+     *
+     * Applied only to REST routes (upload endpoints, v2 API proxy routes) because
+     * GraphQL requests are already validated by Apollo Server's query parser, and
+     * applying request-body sanitization to GraphQL would corrupt query strings.
+     */
+    consumer
+      .apply(RequestValidatorMiddleware)
+      .forRoutes('upload', 'upload/{*path}', 'api/v2/{*path}');
   }
 }

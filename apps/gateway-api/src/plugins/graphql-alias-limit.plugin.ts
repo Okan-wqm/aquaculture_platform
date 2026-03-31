@@ -12,12 +12,20 @@ import { Logger } from '@nestjs/common';
  * Each is limited to at most 1 occurrence per request to prevent
  * brute-force attacks via GraphQL aliases (e.g., sending 100 login
  * attempts in a single request to bypass rate limiting).
+ *
+ * SECURITY (H-10): Mutation names must match the actual GraphQL schema.
+ * The auth-service exposes 'login' (not 'loginWithCredentials'), plus
+ * 'forgotPassword' and 'verifyMfaLogin' which are sensitive authentication
+ * operations that must also be protected against alias brute-force.
  */
 const SENSITIVE_MUTATIONS = new Set([
+  'login',
   'loginWithCredentials',
   'register',
   'refreshToken',
   'resetPassword',
+  'forgotPassword',
+  'verifyMfaLogin',
   'changePassword',
 ]);
 

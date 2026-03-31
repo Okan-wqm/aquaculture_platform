@@ -216,8 +216,25 @@ export class MfaService {
       'AquaculturePlatform',
     );
 
+    /**
+     * SECURITY (H-17): Guard against missing MFA encryption key in production.
+     *
+     * In production, the absence of MFA_ENCRYPTION_KEY means MFA secrets would be
+     * stored in plaintext in the database. A database breach would expose all TOTP
+     * seeds, allowing attackers to generate valid MFA codes for every user.
+     * We fail fast at startup to prevent the service from running in this insecure state.
+     */
     const masterKey = this.configService.get<string>('MFA_ENCRYPTION_KEY');
     if (!masterKey) {
+      const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+      if (nodeEnv === 'production') {
+        throw new Error(
+          'CRITICAL SECURITY ERROR: MFA_ENCRYPTION_KEY must be set in production. ' +
+          'Without this key, MFA secrets would be stored in plaintext, exposing TOTP seeds ' +
+          'to database breach attacks. Application startup aborted.',
+        );
+      }
+
       this.logger.warn(
         'MFA_ENCRYPTION_KEY not set — MFA features will be disabled. Set this env var to enable MFA.',
       );

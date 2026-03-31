@@ -178,7 +178,8 @@ export class TenantUserManagementService {
     });
 
     const savedUser = await this.userRepository.save(newUser);
-    this.logger.log(`Created user ${savedUser.email} (${savedUser.id}) for tenant ${tenantId}`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Created user userId=${savedUser.id} for tenant ${tenantId}`);
 
     // WHY: Auto-provision mobile_user_settings when user has mobile access.
     // Without this, mobile app would show "no settings" for new mobile users.
@@ -215,7 +216,8 @@ export class TenantUserManagementService {
         await this.sendInvitationEmail(tenant, savedUser, plainInvitationToken);
         invitationSent = true;
       } catch (error) {
-        this.logger.error(`Failed to send invitation email to ${savedUser.email}: ${(error as Error).message}`);
+        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
+        this.logger.error(`Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`);
       }
     }
 
@@ -312,7 +314,8 @@ export class TenantUserManagementService {
 
     if (profileChanged) {
       await this.userRepository.save(user);
-      this.logger.log(`Updated profile for user ${user.email} in tenant ${tenantId}`);
+      // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+      this.logger.log(`Updated profile for userId=${userId} in tenant ${tenantId}`);
     }
 
     // Update role assignment if roleId is provided
@@ -427,7 +430,8 @@ export class TenantUserManagementService {
       this.logger.warn(`Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`);
     }
 
-    this.logger.log(`Deleted (soft) user ${user.email} from tenant ${tenantId}`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}`);
 
     // SECURITY AUDIT: Log user deletion (BULGU-016)
     try {
@@ -893,7 +897,8 @@ export class TenantUserManagementService {
     };
 
     await this.eventBus.publish(event);
-    this.logger.log(`Published UserInvitedEvent for ${user.email}`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Published UserInvitedEvent for userId=${user.id}`);
   }
 
   /**

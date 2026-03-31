@@ -10,6 +10,7 @@ import {
 } from '@nestjs/apollo';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import depthLimit from 'graphql-depth-limit';
 import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -81,6 +82,12 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+      /**
+       * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
+       * Without depth limiting, an attacker can craft a deeply nested GraphQL query
+       * that causes exponential resource consumption on the server.
+       */
+      validationRules: [depthLimit(10)],
       buildSchemaOptions: {
         orphanedTypes: [
           InvoiceLineItem,

@@ -17,6 +17,9 @@ export * from './guards/service-identity.guard';
 // Utils - Inter-service authentication
 export * from './utils/service-identity.util';
 
+// Utils - PII masking for GDPR-compliant logging
+export { maskEmail, logSafeUserId } from './utils/pii-mask.util';
+
 // Filters
 export * from './filters/http-exception.filter';
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -186,8 +187,12 @@ export class PaymentManagementService {
       throw new BadRequestException(`Payment amount ($${dto.amount}) exceeds amount due ($${amountDue})`);
     }
 
-    // Generate transaction ID
-    const txId = `TXN-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    /**
+     * SECURITY (H-16): Transaction IDs use cryptographic randomness via crypto.randomUUID().
+     * Math.random() output is predictable after observing a few values, enabling
+     * transaction ID forgery or enumeration attacks on financial records.
+     */
+    const txId = `TXN-${Date.now()}-${randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase()}`;
 
     // Insert payment record
     const result = await this.dataSource.query(

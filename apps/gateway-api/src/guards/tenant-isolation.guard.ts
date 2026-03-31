@@ -257,9 +257,9 @@ export class TenantIsolationGuard implements CanActivate {
    * Log cross-tenant access attempt for audit
    */
   private logCrossTenantAttempt(user: AuthenticatedUser, targetTenantId: string): void {
+    // SECURITY (H-14): Log user ID only -- email is PII and must not appear in logs
     this.logger.warn('Cross-tenant access attempt blocked', {
       userId: user.sub,
-      userEmail: user.email,
       userTenantId: user.tenantId,
       targetTenantId,
       timestamp: new Date().toISOString(),

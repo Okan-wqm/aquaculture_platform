@@ -169,7 +169,8 @@ export class UserLifecycleService {
     });
 
     const savedUser = await this.userRepository.save(newUser);
-    this.logger.log(`Created user ${savedUser.email} (${savedUser.id}) for tenant ${tenantId}`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Created user userId=${savedUser.id} for tenant ${tenantId}`);
 
     // Auto-provision mobile_user_settings when user has mobile access
     if (userAccessType === AccessType.MOBILE_ONLY || userAccessType === AccessType.BOTH) {
@@ -205,7 +206,8 @@ export class UserLifecycleService {
         await this.sendInvitationEmail(tenant, savedUser, plainInvitationToken);
         invitationSent = true;
       } catch (error) {
-        this.logger.error(`Failed to send invitation email to ${savedUser.email}: ${(error as Error).message}`);
+        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
+        this.logger.error(`Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`);
       }
     }
 
@@ -295,7 +297,8 @@ export class UserLifecycleService {
       { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deleted' },
     );
 
-    this.logger.log(`Deleted (soft) user ${user.email} from tenant ${tenantId}, revoked all refresh tokens`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);
 
     // SECURITY AUDIT: Log user deletion
     try {
@@ -426,6 +429,7 @@ export class UserLifecycleService {
     };
 
     await this.eventBus.publish(event);
-    this.logger.log(`Published UserInvitedEvent for ${user.email}`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Published UserInvitedEvent for userId=${user.id}`);
   }
 }

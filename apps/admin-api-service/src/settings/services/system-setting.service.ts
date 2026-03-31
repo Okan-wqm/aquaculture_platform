@@ -74,6 +74,12 @@ export class SystemSettingService {
   private readonly logger = new Logger(SystemSettingService.name);
   private readonly encryptionKey: string;
 
+  /**
+   * Pre-derived AES-256 encryption key (32 bytes).
+   * Derived once at startup via scrypt with a deployment-specific salt.
+   */
+  private readonly derivedKey: Buffer;
+
   constructor(
     @InjectRepository(SystemSetting)
     private readonly settingRepository: Repository<SystemSetting>,
@@ -83,10 +89,27 @@ export class SystemSettingService {
     if (!key && process.env['NODE_ENV'] === 'production') {
       throw new Error('SECURITY: ENCRYPTION_KEY environment variable must be set in production');
     }
-    this.encryptionKey = key || 'DEV-ONLY-ENCRYPTION-KEY-DO-NOT-USE-IN-PROD';
     if (!key) {
-      this.logger.warn('ENCRYPTION_KEY not configured - using development key. DO NOT use in production!');
+      this.logger.warn('ENCRYPTION_KEY not configured - using insecure dev key. DO NOT use in production!');
     }
+    this.encryptionKey = key || 'DEV-ONLY-ENCRYPTION-KEY-DO-NOT-USE-IN-PROD';
+    this.derivedKey = this.deriveKey(this.encryptionKey);
+  }
+
+  /**
+   * Derives a 32-byte AES-256 encryption key using scrypt with a deployment-specific salt.
+   * The salt is derived from the master key's SHA-256 hash to ensure deterministic
+   * derivation while avoiding the literal 'salt' anti-pattern (C-10).
+   *
+   * @param masterKey - The master encryption key from environment
+   * @returns 32-byte derived key suitable for AES-256
+   */
+  private deriveKey(masterKey: string): Buffer {
+    const salt = crypto.createHash('sha256')
+      .update(`${masterKey}-encryption-salt-v2`)
+      .digest()
+      .subarray(0, 16);
+    return crypto.scryptSync(masterKey, salt, 32);
   }
 
   // ============================================================================
@@ -932,24 +955,58 @@ export class SystemSettingService {
   }
 
   /**
-   * Encrypt sensitive value
+   * Encrypts a value using AES-256-GCM with a random IV (C-11 migration from CBC).
+   * Uses authenticated encryption to prevent padding oracle attacks (CVE-class).
+   * Output format: iv:authTag:ciphertext (all hex-encoded).
+   *
+   * @param value - The plaintext value to encrypt
+   * @returns Encrypted string in format iv:authTag:ciphertext
    */
   private encryptValue(value: string): string {
-    const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
-    let encrypted = cipher.update(value, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return `${iv.toString('hex')}:${encrypted}`;
+    const cipher = crypto.createCipheriv('aes-256-gcm', this.derivedKey, iv);
+    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
   }
 
   /**
-   * Decrypt sensitive value (for internal use only)
+   * Decrypts a value encrypted with AES-256-GCM.
+   * Supports legacy AES-256-CBC format (iv:ciphertext) for backward compatibility
+   * during data migration. Legacy data will be re-encrypted in GCM format on next write.
+   *
+   * @param encryptedValue - The encrypted string (GCM: iv:authTag:ciphertext, legacy CBC: iv:ciphertext)
+   * @returns Decrypted plaintext
    */
   private decryptValue(encryptedValue: string): string {
-    const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
+    const parts = encryptedValue.split(':');
+
+    if (parts.length === 3) {
+      // New GCM format: iv:authTag:ciphertext
+      const [ivHex, authTagHex, ciphertextHex] = parts;
+      const iv = Buffer.from(ivHex!, 'hex');
+      const authTag = Buffer.from(authTagHex!, 'hex');
+      const ciphertext = Buffer.from(ciphertextHex!, 'hex');
+      const decipher = crypto.createDecipheriv('aes-256-gcm', this.derivedKey, iv);
+      decipher.setAuthTag(authTag);
+      return decipher.update(ciphertext).toString('utf8') + decipher.final('utf8');
+    }
+
+    // Legacy CBC format (iv:ciphertext) — backward compatibility for existing data.
+    // Derive legacy key using the old static 'salt' to decrypt pre-migration data.
+    return this.decryptLegacyCbc(encryptedValue);
+  }
+
+  /**
+   * Decrypts legacy AES-256-CBC encrypted values from before the GCM migration.
+   * Uses the old static salt derivation for backward compatibility only.
+   * Data decrypted via this path will be re-encrypted with GCM on next write.
+   *
+   * @param encryptedValue - Legacy CBC encrypted string (iv:ciphertext)
+   * @returns Decrypted plaintext
+   * @deprecated Will be removed once all data is migrated to GCM format
+   */
+  private decryptLegacyCbc(encryptedValue: string): string {
     const parts = encryptedValue.split(':');
     const ivHex = parts[0];
     const encrypted = parts[1];
@@ -958,8 +1015,10 @@ export class SystemSettingService {
       throw new Error('Invalid encrypted value format');
     }
 
+    // Legacy key derivation with static 'salt' — kept only for backward compatibility
+    const legacyKey = crypto.scryptSync(this.encryptionKey, 'salt', 32);
     const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', legacyKey, iv);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;

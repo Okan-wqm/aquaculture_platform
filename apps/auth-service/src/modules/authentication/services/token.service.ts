@@ -19,23 +19,40 @@ import { User } from '../entities/user.entity';
 import { AuthPayload } from '../dto/auth-response.dto';
 
 /**
- * JWT Payload structure — exported for guards and other consumers.
+ * JWT access token payload.
+ *
+ * SECURITY (H-08): Contains only non-PII identifiers. Personal data (email,
+ * firstName, lastName) has been removed from token generation to prevent PII
+ * leakage via token interception, browser DevTools inspection, or JWT decoding
+ * tools. JWT payloads are merely base64-encoded and visible to anyone with the token.
+ *
+ * Services that need user profile data (email, name) should fetch it from
+ * auth-service via the /users/:id endpoint or NATS request, not from the JWT.
+ *
+ * MIGRATION NOTE: The 'email' field is retained as optional for backward
+ * compatibility during the transition period. Existing tokens in the wild may
+ * still contain email/firstName/lastName. Consumers should not rely on these
+ * fields being present and should gracefully handle their absence.
  */
 export interface JwtPayload {
   sub: string;
-  email: string;
+  /** @deprecated Will be removed in next major version. Use sub (user ID) instead. */
+  email?: string;
   role: Role;
   roles: Role[];
   tenantId: string | null;
   modules?: string[];
   resourcePermissions?: string[];
   /**
-   * User's first and last name, included in the JWT so that downstream services
-   * can denormalize the display name into audit trail records (e.g., stock
-   * movements, task completions) without cross-service queries to auth-service.
-   * These fields are optional — older tokens without them will still work.
+   * Token type discriminator -- prevents refresh tokens from being used as
+   * access tokens, and vice versa. The gateway's AuthGuard rejects any token
+   * where `type !== 'access'`, ensuring that short-lived MFA challenge tokens
+   * and opaque refresh tokens cannot be replayed as bearer credentials.
    */
+  type: 'access' | 'refresh' | 'mfa_challenge';
+  /** @deprecated Will be removed in next major version. Fetch from auth-service instead. */
   firstName?: string;
+  /** @deprecated Will be removed in next major version. Fetch from auth-service instead. */
   lastName?: string;
   jti?: string; // JWT ID for blacklisting
   iat?: number;
@@ -145,19 +162,22 @@ export class TokenService {
     // Generate JWT ID for token blacklisting
     const jti = crypto.randomUUID();
 
+    /**
+     * SECURITY (H-08): JWT payload contains only non-PII identifiers.
+     * Email, firstName, and lastName are intentionally excluded to prevent
+     * PII leakage through token interception or base64 decoding.
+     *
+     * Downstream services needing user profile data should query auth-service
+     * via NATS request (auth.user.get) or the /users/:id REST endpoint.
+     */
     const payload: JwtPayload = {
       sub: user.id,
-      email: user.email,
       role: user.role,
       roles: [user.role],
       tenantId: user.tenantId ?? null,
       modules: moduleCodes.length > 0 ? moduleCodes : undefined,
       resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
-      // Include user display name for audit trail denormalization in downstream
-      // services. Farm-service stores this on stock movements so the movement
-      // history shows WHO performed each action without cross-service queries.
-      firstName: user.firstName ?? undefined,
-      lastName: user.lastName ?? undefined,
+      type: 'access',
       jti,
     };
 

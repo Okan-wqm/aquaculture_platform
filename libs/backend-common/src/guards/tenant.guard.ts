@@ -2,29 +2,48 @@ import {
   Injectable,
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Reflector } from '@nestjs/core';
 import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
 import { TenantRequest } from '../types/tenant-request.interface';
 
+/** UUID v4 format validator. */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * Tenant Guard
- * Ensures requests have valid tenant context and user belongs to tenant.
+ * Tenant Guard — enforces tenant isolation for every authenticated request.
+ *
+ * SECURITY (C-04): Tenant ID sources have been reduced to the minimum trusted set:
+ *
+ *   **Regular users** — The ONLY accepted source is `req.user.tenantId`, decoded
+ *   from a cryptographically verified JWT by JwtAuthGuard. Query parameters,
+ *   request body, and ALL headers (including X-Tenant-Id) are intentionally
+ *   excluded. An authenticated user can trivially set any of those values, so
+ *   accepting them would allow tenant context spoofing.
+ *
+ *   **SUPER_ADMIN** — May impersonate a specific tenant via the dedicated
+ *   `X-Act-As-Tenant` header. This header is validated for UUID format and
+ *   audit-logged with userId, source tenant, target tenant, endpoint, and
+ *   timestamp. The generic X-Tenant-Id header is NOT accepted even for super
+ *   admins to maintain a single, auditable impersonation vector.
  *
  * Skip behaviour:
- * - `@SkipTenantGuard()` – explicitly skips tenant validation for a single route
- *   that still requires authentication.
- * - `@Public()` – marks the endpoint as publicly accessible; TenantGuard checks
- *   both the `skipTenantGuard` AND the `isPublic` metadata keys so that applying
- *   either decorator (or the combined `@Public()`) is sufficient to bypass tenant
- *   validation. Developers do NOT need to apply `@SkipTenantGuard()` separately
- *   when using `@Public()`.
+ * - `@SkipTenantGuard()` skips tenant validation for a single route that
+ *   still requires authentication.
+ * - `@Public()` marks the endpoint as publicly accessible; TenantGuard
+ *   checks both `skipTenantGuard` and `isPublic` metadata so either
+ *   decorator is sufficient to bypass tenant validation.
+ *
+ * SECURITY (H-13): SUPER_ADMIN cross-tenant access is audit-logged with
+ * userId, sourceTenantId, targetTenantId, endpoint, and timestamp.
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
+  private readonly logger = new Logger(TenantGuard.name);
+
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -60,40 +79,54 @@ export class TenantGuard implements CanActivate {
 
     const user = request.user;
 
-    // SUPER_ADMIN operates in system scope - no tenant enforcement required.
-    // They can optionally specify a tenant via header/argument for cross-tenant access.
+    // ---------------------------------------------------------------
+    // SUPER_ADMIN: operates in system scope, no tenant enforcement.
+    // May impersonate a tenant via the dedicated X-Act-As-Tenant header.
+    //
+    // SECURITY (H-13): Cross-tenant access is mandatory audit-logged.
+    // ---------------------------------------------------------------
     if (this.isSuperAdmin(user)) {
-      const tenantId = this.extractTenantId(request);
-      if (tenantId) {
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (uuidRegex.test(tenantId)) {
-          request.tenantId = tenantId;
+      const actAsTenant = this.extractActAsTenantHeader(request);
+      if (actAsTenant) {
+        if (!UUID_REGEX.test(actAsTenant)) {
+          throw new BadRequestException(
+            'X-Act-As-Tenant header must be a valid UUID',
+          );
+        }
+        request.tenantId = actAsTenant;
+
+        // Audit log when SUPER_ADMIN accesses a different tenant's data
+        const sourceTenantId = user?.tenantId ?? 'system';
+        if (actAsTenant !== sourceTenantId) {
+          this.logger.warn('SUPER_ADMIN cross-tenant access', {
+            userId: user?.sub,
+            sourceTenantId,
+            targetTenantId: actAsTenant,
+            endpoint: `${request.method} ${request.url}`,
+            timestamp: new Date().toISOString(),
+          });
         }
       }
       return true;
     }
 
-    const tenantId = this.extractTenantId(request);
+    // ---------------------------------------------------------------
+    // Regular users: tenant ID comes EXCLUSIVELY from the JWT claim.
+    // Headers, query params, and body are never consulted.
+    // ---------------------------------------------------------------
+    const tenantId = user?.tenantId;
 
-    // If no tenant ID in request, deny access
     if (!tenantId) {
-      throw new BadRequestException('Tenant ID is required');
+      throw new BadRequestException(
+        'Tenant ID is required. The JWT must contain a valid tenantId claim.',
+      );
     }
 
-    // Validate tenant ID is a valid UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(tenantId)) {
+    if (!UUID_REGEX.test(tenantId)) {
       throw new BadRequestException('Tenant ID must be a valid UUID');
     }
 
-    // If user is authenticated, verify tenant membership
-    if (user) {
-      if (user.tenantId !== tenantId) {
-        throw new ForbiddenException('User does not belong to this tenant');
-      }
-    }
-
-    // Store tenant ID in request for later use
+    // Store validated tenant ID in request for downstream consumers
     request.tenantId = tenantId;
 
     return true;
@@ -110,16 +143,16 @@ export class TenantGuard implements CanActivate {
     return false;
   }
 
-  private extractTenantId(request: TenantRequest): string | undefined {
-    const tenantHeader = request.headers['x-tenant-id'];
-    const queryTenantId = request.query?.['tenantId'];
-    const bodyTenantId = (request.body as Record<string, unknown>)?.['tenantId'];
-
-    return (
-      request.user?.tenantId ||
-      (typeof tenantHeader === 'string' ? tenantHeader : undefined) ||
-      (typeof queryTenantId === 'string' ? queryTenantId : undefined) ||
-      (typeof bodyTenantId === 'string' ? bodyTenantId : undefined)
-    );
+  /**
+   * Extract the X-Act-As-Tenant header for SUPER_ADMIN tenant impersonation.
+   *
+   * SECURITY (C-04): This is the ONLY mechanism for super admins to specify a
+   * target tenant. The generic X-Tenant-Id header, query params, and request
+   * body are intentionally excluded to maintain a single auditable impersonation
+   * vector and eliminate confusion with attacker-controlled inputs.
+   */
+  private extractActAsTenantHeader(request: TenantRequest): string | undefined {
+    const header = request.headers['x-act-as-tenant'];
+    return typeof header === 'string' ? header : undefined;
   }
 }

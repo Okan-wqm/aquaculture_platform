@@ -14,11 +14,19 @@ import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
+/**
+ * JWT payload structure for admin-api guard.
+ *
+ * SECURITY (H-08): email is now optional because auth-service no longer
+ * embeds PII (email, firstName, lastName) in JWT tokens. Services that
+ * need the user's email should fetch it from auth-service using the sub (user ID).
+ */
 export interface JwtPayload {
   sub: string;
-  email: string;
-  role?: string; // Tekil role (auth-service'den)
-  roles?: string[]; // Array roles (alternatif)
+  /** @deprecated Optional -- JWT no longer carries email PII (H-08) */
+  email?: string;
+  role?: string;
+  roles?: string[];
   tenantId?: string;
   iat: number;
   exp: number;
@@ -137,8 +145,9 @@ export class PlatformAdminGuard implements CanActivate {
       );
 
       if (!hasRequiredRole) {
+        // SECURITY: Log user ID only -- do not include email PII in logs (H-14)
         this.logger.warn(
-          `Access denied for user ${payload.sub} (${payload.email}): ` +
+          `Access denied for userId=${payload.sub}: ` +
           `has roles [${userRoles.join(', ')}], requires one of [${requiredRoles.join(', ')}]`,
         );
         throw new ForbiddenException(

@@ -148,7 +148,8 @@ export class AuthenticationService {
     if (existingUser) {
       // SECURITY: Generic message to prevent email enumeration
       // In production, you might want to silently fail or send email instead
-      this.logger.debug(`Registration attempt for existing email: ${input.email}`);
+      // SECURITY: Do not log email address -- PII under GDPR (H-14)
+      this.logger.debug('Registration attempt for existing email');
       throw new ConflictException('Registration failed. Please try again or contact support.');
     }
 
@@ -164,7 +165,8 @@ export class AuthenticationService {
     });
 
     const savedUser = await this.userRepository.save(user);
-    this.logger.log(`User registered: ${savedUser.email} in tenant ${savedUser.tenantId}`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`User registered: userId=${savedUser.id} in tenant ${savedUser.tenantId}`);
 
     // Publish event
     await this.eventBus.publish({
@@ -220,7 +222,8 @@ export class AuthenticationService {
       // SECURITY: Use generic message
       if (user.isPendingInvitation()) {
         await this.ensureMinDuration(startTime);
-        this.logger.debug(`Login failed: pending invitation for ${user.email}`);
+        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
+        this.logger.debug(`Login failed: pending invitation for userId=${user.id}`);
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -228,7 +231,8 @@ export class AuthenticationService {
       // SECURITY: Don't reveal lockout duration to prevent timing attacks
       if (user.isLocked()) {
         await this.ensureMinDuration(startTime);
-        this.logger.debug(`Login failed: account locked for ${user.email}`);
+        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
+        this.logger.debug(`Login failed: account locked for userId=${user.id}`);
         // SECURITY AUDIT: Log locked account access attempt
         await this.logSecurityEvent('LOGIN_BLOCKED_ACCOUNT_LOCKED', {
           userId: user.id,
@@ -245,7 +249,8 @@ export class AuthenticationService {
       // Check if account is active
       if (!user.isActive) {
         await this.ensureMinDuration(startTime);
-        this.logger.debug(`Login failed: account inactive for ${user.email}`);
+        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
+        this.logger.debug(`Login failed: account inactive for userId=${user.id}`);
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -335,7 +340,8 @@ export class AuthenticationService {
       user.lastLoginAt = new Date();
       await this.userRepository.save(user);
 
-      this.logger.log(`User logged in: ${user.email} (role: ${user.role})`);
+      // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+      this.logger.log(`User logged in: userId=${user.id} (role: ${user.role})`);
 
       // PERF: Parallelize audit log + event publish — both are independent
       // fire-and-monitor operations (HIGH-08)
@@ -470,7 +476,8 @@ export class AuthenticationService {
       return user;
     });
 
-    this.logger.log(`Invitation accepted: ${result.email} (role: ${result.role})`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Invitation accepted: userId=${result.id} (role: ${result.role})`);
 
     // PERF: Parallelize audit log + event publish (BULGU-016)
     await Promise.allSettled([
@@ -850,7 +857,8 @@ export class AuthenticationService {
     const isNowLocked = result[0]?.lockedUntil !== null && updatedAttempts >= this.maxFailedAttempts;
 
     if (isNowLocked) {
-      this.logger.warn(`Account locked for user: ${user.email} until ${lockoutUntil.toISOString()}`);
+      // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
+      this.logger.warn(`Account locked for userId=${user.id} until ${lockoutUntil.toISOString()}`);
       // SECURITY AUDIT: Log account lockout (critical security event)
       await this.logSecurityEvent('ACCOUNT_LOCKED', {
         userId: user.id,

@@ -50,22 +50,23 @@ export class TenantAwareRepository<T extends TenantEntity> {
     this.repository = this.dataSource.getRepository(entity);
   }
 
+  /**
+   * Extract tenant ID from trusted sources only.
+   *
+   * SECURITY (C-03/C-04): Only reads from the JWT-verified user payload and
+   * the TenantGuard-validated request property. The X-Tenant-Id header and
+   * all other attacker-controlled sources are intentionally excluded to
+   * prevent tenant spoofing.
+   */
   private extractTenantId(): string | null {
-    // Try from user context (JWT)
+    // 1. JWT-verified tenant claim (highest trust)
     if (this.request?.user?.tenantId) {
       return this.request.user.tenantId;
     }
 
-    // Try from request property
+    // 2. TenantGuard-validated request property
     if (this.request?.tenantId) {
       return this.request.tenantId;
-    }
-
-    // Try from headers
-    const headerTenantId = this.request?.headers?.['x-tenant-id'];
-    if (headerTenantId) {
-      const tenantId = Array.isArray(headerTenantId) ? headerTenantId[0] : headerTenantId;
-      return tenantId || null;
     }
 
     return null;

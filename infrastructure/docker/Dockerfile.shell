@@ -4,7 +4,9 @@
 # Uses pre-built dist folder for faster builds
 # =============================================================================
 
-FROM nginx:alpine AS production
+# M-06: Pin nginx to exact version for reproducible builds and to prevent
+# silent security regressions from upstream tag mutations
+FROM nginx:1.27.3-alpine AS production
 
 # Remove default config
 RUN rm /etc/nginx/conf.d/default.conf

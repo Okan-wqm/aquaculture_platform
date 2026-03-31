@@ -1,5 +1,5 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
-import { Logger } from '@nestjs/common';
+import { Logger, BadRequestException } from '@nestjs/common';
 import { Repository, DataSource } from 'typeorm';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 
@@ -12,6 +12,14 @@ import { ChannelMember } from '../../channel/entities/channel-member.entity';
  *
  * Uses PostgreSQL's built-in full-text search (to_tsvector / plainto_tsquery)
  * to search message content. Results are restricted to channels the user is a member of.
+ *
+ * SECURITY (C-06): Tenant isolation is enforced at two levels:
+ *   1. PostgreSQL search_path — set by TenantSchemaMiddleware per-request to
+ *      the tenant-specific schema (tenant_<uuid>), so all TypeORM queries
+ *      automatically target the correct tenant's tables.
+ *   2. Defense-in-depth — this handler validates that tenantId is present in
+ *      the query object. The tenantId comes from the controller which extracts
+ *      it from the verified JWT, not from any user-controlled input.
  */
 @QueryHandler(SearchMessagesQuery)
 export class SearchMessagesHandler
@@ -32,15 +40,26 @@ export class SearchMessagesHandler
   private static readonly SEARCH_TIMEOUT_MS = 5000;
 
   async execute(query: SearchMessagesQuery): Promise<Message[]> {
-    const { userId, searchQuery, channelId, limit } = query;
+    const { tenantId, userId, searchQuery, channelId, limit } = query;
 
-    // 1. Get channels the user is a member of
+    // SECURITY (C-06): Require tenantId as defense-in-depth. The primary tenant
+    // isolation is the PostgreSQL search_path (set by TenantSchemaMiddleware),
+    // but we assert tenantId presence to catch programming errors where a query
+    // is dispatched without proper tenant context.
+    if (!tenantId) {
+      throw new BadRequestException(
+        'Tenant context is required for message search.',
+      );
+    }
+
+    // 1. Get channels the user is a member of (within tenant schema via search_path)
     const memberChannelIds = await this.getUserChannelIds(userId, channelId);
     if (memberChannelIds.length === 0) {
       return [];
     }
 
     // 2. Full-text search with 90-day partition pruning + statement timeout
+    //    (tenant-scoped via search_path)
     const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -69,7 +88,7 @@ export class SearchMessagesHandler
         .getMany();
 
       this.logger.debug(
-        `SearchMessages: query="${searchQuery}", results=${messages.length}`,
+        `SearchMessages: tenant=${tenantId}, query="${searchQuery}", results=${messages.length}`,
       );
       return messages;
     } finally {
@@ -80,6 +99,9 @@ export class SearchMessagesHandler
   /**
    * Get channel IDs the user is an active member of.
    * If channelId is provided, filters to just that channel (validating membership).
+   *
+   * SECURITY (C-06): This query runs within the tenant-scoped search_path,
+   * so it only returns channel memberships from the current tenant's schema.
    */
   private async getUserChannelIds(
     userId: string,

@@ -9,6 +9,7 @@ import {
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { join } from 'path';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import depthLimit from 'graphql-depth-limit';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
@@ -98,6 +99,12 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        /**
+         * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
+         * Without depth limiting, an attacker can craft a deeply nested GraphQL query
+         * that causes exponential resource consumption on the server.
+         */
+        validationRules: [depthLimit(10)],
         buildSchemaOptions: {
           orphanedTypes: [IncidentTimelineEvent, AlertCondition],
         },

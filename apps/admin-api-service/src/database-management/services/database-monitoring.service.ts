@@ -534,61 +534,119 @@ export class DatabaseMonitoringService {
   }
 
   /**
-   * Validate query for EXPLAIN - only allow SELECT statements
-   * SECURITY: This prevents DDL/DML injection via EXPLAIN
+   * Allowlist-based query validation for EXPLAIN execution.
+   *
+   * SQL Injection Prevention Strategy (C-13):
+   * ──────────────────────────────────────────
+   * A blocklist approach (forbidding known-bad patterns) is inherently bypassable
+   * because attackers can use encoding tricks, Unicode normalization, or novel SQL
+   * syntax to evade pattern matching. Instead, this method uses a strict allowlist:
+   *
+   * 1. **Length limit**: Rejects queries exceeding MAX_EXPLAIN_QUERY_LENGTH (10,000 chars)
+   *    to prevent DoS via oversized payloads.
+   *
+   * 2. **Statement-chaining prevention**: Rejects any query containing semicolons,
+   *    which prevents executing multiple statements.
+   *
+   * 3. **Allowlist-first parsing**: The query MUST begin with SELECT, WITH, or VALUES
+   *    (after trimming whitespace). This is an allowlist — only known-safe read-only
+   *    statement types are permitted.
+   *
+   * 4. **Dangerous pattern rejection**: As defense-in-depth, known dangerous patterns
+   *    (DDL, DML, PL/pgSQL blocks, session manipulation, system functions) are also
+   *    rejected even if disguised within a SELECT.
+   *
+   * 5. **READ ONLY transaction**: The caller (analyzeQuery) wraps execution in a
+   *    READ ONLY transaction so even if validation is bypassed, PostgreSQL itself
+   *    will reject any write operation.
+   *
+   * @param query - The raw SQL query string to validate
+   * @returns Validation result with error message if invalid
    */
   private validateQueryForExplain(query: string): { valid: boolean; error?: string } {
-    const normalizedQuery = query.trim().toLowerCase();
+    /** Maximum allowed query length to prevent DoS via oversized payloads */
+    const MAX_EXPLAIN_QUERY_LENGTH = 10000;
 
-    // CRITICAL: No semicolons allowed at all - prevents statement chaining
-    if (query.includes(';')) {
+    // Step 1: Enforce maximum query length before any processing
+    if (query.length > MAX_EXPLAIN_QUERY_LENGTH) {
+      return { valid: false, error: `Query exceeds maximum allowed length (${MAX_EXPLAIN_QUERY_LENGTH} chars)` };
+    }
+
+    const trimmedQuery = query.trim();
+    if (trimmedQuery.length === 0) {
+      return { valid: false, error: 'Query must not be empty' };
+    }
+
+    // Step 2: Reject statement chaining — no semicolons allowed anywhere
+    if (trimmedQuery.includes(';')) {
       return { valid: false, error: 'Semicolons are not allowed in queries' };
     }
 
-    // Forbidden patterns - DDL and DML operations
-    const forbiddenPatterns = [
-      /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|vacuum|analyze)\b/i,
-      /--/,  // SQL comments
-      /\/\*/,  // Block comments
-      /\binto\s+outfile\b/i,
-      /\bload_file\b/i,
-      /\bpg_read_file\b/i,
-      /\bpg_write_file\b/i,
-      /\bpg_sleep\b/i,  // Time-based attacks
-      /\bcopy\b/i,
-      /\bexec\b/i,
-      /\bexecute\b/i,
-      /\bdo\s*\$/i,  // PL/pgSQL blocks
-      /\$\$.*\$\$/i,  // Dollar-quoted strings (can contain code)
-      /\bset\s+session\b/i,  // Session manipulation
-      /\bset\s+local\b/i,
-      /\braise\b/i,  // Error raising
-      /\bnotify\b/i,  // LISTEN/NOTIFY
-      /\blisten\b/i,
-    ];
-
-    for (const pattern of forbiddenPatterns) {
-      if (pattern.test(query)) {
-        return { valid: false, error: 'Query contains forbidden SQL patterns' };
-      }
-    }
-
-    // Must start with SELECT, WITH, or VALUES
-    if (!/^(select|with|values)\b/i.test(normalizedQuery)) {
+    // Step 3: Allowlist — query MUST start with a read-only statement type
+    const normalizedQuery = trimmedQuery.toLowerCase();
+    const ALLOWED_STATEMENT_PREFIXES = /^(select|with|values)\b/i;
+    if (!ALLOWED_STATEMENT_PREFIXES.test(normalizedQuery)) {
       return { valid: false, error: 'Only SELECT, WITH, or VALUES queries can be analyzed' };
     }
 
-    // Max query length to prevent DoS
-    if (query.length > 10000) {
-      return { valid: false, error: 'Query exceeds maximum allowed length (10000 chars)' };
+    // Step 4: Defense-in-depth — reject dangerous patterns even within allowed statements
+    const forbiddenPatterns: Array<{ pattern: RegExp; reason: string }> = [
+      // DDL/DML keywords that should never appear in a read-only EXPLAIN context
+      { pattern: /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|vacuum)\b/i, reason: 'DDL/DML statement' },
+      // SQL comments can hide malicious payloads
+      { pattern: /--/, reason: 'SQL line comment' },
+      { pattern: /\/\*/, reason: 'SQL block comment' },
+      // File system access functions
+      { pattern: /\binto\s+outfile\b/i, reason: 'File write attempt' },
+      { pattern: /\bload_file\b/i, reason: 'File read attempt' },
+      { pattern: /\bpg_read_file\b/i, reason: 'PostgreSQL file read' },
+      { pattern: /\bpg_write_file\b/i, reason: 'PostgreSQL file write' },
+      // Time-based attack functions
+      { pattern: /\bpg_sleep\b/i, reason: 'Time-based attack' },
+      // Data exfiltration
+      { pattern: /\bcopy\b/i, reason: 'COPY command' },
+      // Dynamic SQL execution
+      { pattern: /\bexec\b/i, reason: 'Dynamic execution' },
+      { pattern: /\bexecute\b/i, reason: 'Dynamic execution' },
+      // PL/pgSQL code blocks
+      { pattern: /\bdo\s*\$/i, reason: 'PL/pgSQL block' },
+      { pattern: /\$\$/, reason: 'Dollar-quoted string (potential code injection)' },
+      // Session/config manipulation
+      { pattern: /\bset\s+session\b/i, reason: 'Session manipulation' },
+      { pattern: /\bset\s+local\b/i, reason: 'Local config manipulation' },
+      // PostgreSQL-specific dangerous operations
+      { pattern: /\braise\b/i, reason: 'Error raising' },
+      { pattern: /\bnotify\b/i, reason: 'NOTIFY command' },
+      { pattern: /\blisten\b/i, reason: 'LISTEN command' },
+      // Large object functions
+      { pattern: /\blo_import\b/i, reason: 'Large object import' },
+      { pattern: /\blo_export\b/i, reason: 'Large object export' },
+    ];
+
+    for (const { pattern, reason } of forbiddenPatterns) {
+      if (pattern.test(trimmedQuery)) {
+        return { valid: false, error: `Query contains forbidden SQL pattern: ${reason}` };
+      }
     }
 
     return { valid: true };
   }
 
   /**
-   * Analyze query with EXPLAIN
-   * SECURITY: Input validation prevents SQL injection
+   * Analyze a user-supplied query using PostgreSQL EXPLAIN.
+   *
+   * SECURITY (C-13): Multi-layered SQL injection prevention:
+   * 1. Schema name is validated against a strict alphanumeric allowlist
+   * 2. Query is validated via allowlist-based parsing (SELECT/WITH/VALUES only)
+   * 3. Dangerous patterns are rejected as defense-in-depth
+   * 4. Execution runs inside a READ ONLY transaction — PostgreSQL itself rejects
+   *    any write operation even if validation is somehow bypassed
+   * 5. ANALYZE is explicitly set to false so the query plan is estimated, not executed
+   *
+   * @param query - The SQL query to analyze (must be a SELECT/WITH/VALUES statement)
+   * @param schemaName - Optional schema name to set as search_path context
+   * @returns The EXPLAIN output as a JSON object
+   * @throws Error if validation fails or the query cannot be analyzed
    */
   async analyzeQuery(query: string, schemaName?: string): Promise<Record<string, unknown>> {
     // Validate schema name if provided
@@ -598,7 +656,7 @@ export class DatabaseMonitoringService {
       }
     }
 
-    // Validate query for EXPLAIN
+    // Validate query via allowlist-based parsing
     const queryValidation = this.validateQueryForExplain(query);
     if (!queryValidation.valid) {
       throw new Error(`Query validation failed: ${queryValidation.error}`);
@@ -608,17 +666,28 @@ export class DatabaseMonitoringService {
     await queryRunner.connect();
 
     try {
+      // SECURITY: Start a READ ONLY transaction so PostgreSQL itself prevents writes.
+      // This is the ultimate safety net — even if the allowlist validation is somehow
+      // bypassed, the database engine will reject INSERT/UPDATE/DELETE/DDL operations.
+      await queryRunner.query('BEGIN TRANSACTION READ ONLY');
+
       if (schemaName) {
-        // Use identifier quoting for schema name (already validated)
-        await queryRunner.query(`SET search_path TO ${queryRunner.connection.driver.escape(schemaName)}`);
+        // Use identifier quoting for schema name (already validated against allowlist)
+        await queryRunner.query(`SET LOCAL search_path TO ${queryRunner.connection.driver.escape(schemaName)}`);
       }
 
-      // EXPLAIN with ANALYZE false is read-only and safe
-      // The query itself is validated above to only allow SELECT/WITH/VALUES
+      // EXPLAIN with ANALYZE false produces an estimated plan without executing the query.
+      // Combined with READ ONLY transaction, this provides defense-in-depth.
       const result = await queryRunner.query(`EXPLAIN (FORMAT JSON, ANALYZE false) ${query}`);
+
+      await queryRunner.query('COMMIT');
+
       return result[0]?.['QUERY PLAN'] || {};
+    } catch (error) {
+      // Rollback on any error to release the transaction
+      await queryRunner.query('ROLLBACK').catch(() => {});
+      throw error;
     } finally {
-      await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
     }
   }

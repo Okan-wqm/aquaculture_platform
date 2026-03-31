@@ -1,5 +1,5 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
-import { Logger, ForbiddenException } from '@nestjs/common';
+import { Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Repository, IsNull } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -15,6 +15,14 @@ const SYNC_LIMIT = 500;
  *
  * Returns messages created after a given timestamp in a specific channel.
  * Used for offline sync scenarios (mobile reconnection, etc.).
+ *
+ * SECURITY (C-06): Tenant isolation is enforced at two levels:
+ *   1. PostgreSQL search_path — set by TenantSchemaMiddleware per-request to
+ *      the tenant-specific schema (tenant_<uuid>), so all TypeORM queries
+ *      automatically target the correct tenant's tables.
+ *   2. Defense-in-depth — this handler validates that tenantId is present in
+ *      the query object. The tenantId comes from the controller which extracts
+ *      it from the verified JWT, not from any user-controlled input.
  */
 @QueryHandler(GetMessagesSinceQuery)
 export class GetMessagesSinceHandler
@@ -30,9 +38,19 @@ export class GetMessagesSinceHandler
   ) {}
 
   async execute(query: GetMessagesSinceQuery): Promise<Message[]> {
-    const { userId, channelId, since } = query;
+    const { tenantId, userId, channelId, since } = query;
 
-    // 1. Validate channel membership
+    // SECURITY (C-06): Require tenantId as defense-in-depth. The primary tenant
+    // isolation is the PostgreSQL search_path (set by TenantSchemaMiddleware),
+    // but we assert tenantId presence to catch programming errors where a query
+    // is dispatched without proper tenant context.
+    if (!tenantId) {
+      throw new BadRequestException(
+        'Tenant context is required for message sync queries.',
+      );
+    }
+
+    // 1. Validate channel membership (within tenant schema via search_path)
     const membership = await this.channelMemberRepo.findOne({
       where: { channelId, userId, leftAt: IsNull() },
     });
@@ -40,7 +58,7 @@ export class GetMessagesSinceHandler
       throw new ForbiddenException('You are not a member of this channel.');
     }
 
-    // 2. Fetch messages since timestamp
+    // 2. Fetch messages since timestamp (tenant-scoped via search_path)
     const messages = await this.messageRepo
       .createQueryBuilder('m')
       .leftJoinAndSelect('m.attachments', 'att')
@@ -53,7 +71,7 @@ export class GetMessagesSinceHandler
       .getMany();
 
     this.logger.debug(
-      `GetMessagesSince: channel=${channelId}, since=${since.toISOString()}, returned=${messages.length}`,
+      `GetMessagesSince: tenant=${tenantId}, channel=${channelId}, since=${since.toISOString()}, returned=${messages.length}`,
     );
 
     return messages;

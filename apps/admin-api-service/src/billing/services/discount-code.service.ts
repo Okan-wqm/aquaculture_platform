@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import {
   Injectable,
   Logger,
@@ -474,7 +475,13 @@ export class DiscountCodeService {
   }
 
   /**
-   * Generate a unique discount code
+   * Generates a unique discount code using cryptographically secure randomness.
+   *
+   * SECURITY (C-12): Discount codes are financial instruments that grant monetary value.
+   * Using Math.random() (a non-cryptographic PRNG) would make codes predictable,
+   * allowing attackers to guess valid codes and claim unauthorized discounts.
+   * crypto.randomInt() uses the OS CSPRNG to ensure each character selection is
+   * uniformly distributed and unpredictable.
    */
   async generateUniqueCode(prefix?: string, length = 8): Promise<string> {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -484,7 +491,7 @@ export class DiscountCodeService {
     while (attempts < maxAttempts) {
       let code = prefix ? `${prefix}_` : '';
       for (let i = 0; i < length; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
+        code += chars.charAt(randomInt(0, chars.length));
       }
 
       const existing = await this.findByCode(code);

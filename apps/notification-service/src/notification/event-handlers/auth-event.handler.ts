@@ -4,6 +4,7 @@ import type {
   PasswordResetRequestedEvent,
   UserInvitedEvent,
 } from '@platform/event-contracts';
+import { maskEmail } from '@aquaculture/backend-common';
 import { EmailService } from '../services/email.service';
 
 // UUID v4 regex for tenant ID validation
@@ -132,7 +133,8 @@ export class AuthEventHandler
     `;
 
     await this.emailService.sendEmail(event.email, subject, html);
-    this.logger.log(`Password reset email sent to ${event.email}`);
+    // SECURITY: Mask email in logs to prevent PII exposure (H-14)
+    this.logger.log(`Password reset email sent to ${maskEmail(event.email)}`);
   }
 
   /**
@@ -153,6 +155,7 @@ export class AuthEventHandler
       actionUrl: event.actionUrl || `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/setup-account`,
     });
 
-    this.logger.log(`Welcome email sent to ${event.email} for tenant ${event.tenantName}`);
+    // SECURITY: Mask email in logs to prevent PII exposure (H-14)
+    this.logger.log(`Welcome email sent to ${maskEmail(event.email)} for tenant ${event.tenantName}`);
   }
 }

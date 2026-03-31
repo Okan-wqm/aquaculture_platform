@@ -1,5 +1,5 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
-import { Logger, ForbiddenException } from '@nestjs/common';
+import { Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Repository, IsNull } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -46,7 +46,16 @@ function decodeCursor(cursor: string): DecodedCursor {
 /**
  * Handler for GetMessagesQuery.
  *
- * - Validates user is a channel member
+ * SECURITY (C-06): Tenant isolation is enforced at two levels:
+ *   1. PostgreSQL search_path — set by TenantSchemaMiddleware per-request to
+ *      the tenant-specific schema (tenant_<uuid>), so all TypeORM queries
+ *      automatically target the correct tenant's tables.
+ *   2. Defense-in-depth — this handler validates that tenantId is present in
+ *      the query object and includes it in audit logs. The tenantId comes from
+ *      the controller which extracts it from the verified JWT, not from any
+ *      user-controlled input.
+ *
+ * - Validates user is a channel member (within tenant schema)
  * - Uses keyset pagination on (createdAt DESC, id DESC)
  * - Eager loads attachments via LEFT JOIN
  * - Filters out soft-deleted messages
@@ -63,9 +72,19 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
   ) {}
 
   async execute(query: GetMessagesQuery): Promise<MessagePage> {
-    const { userId, channelId, limit, cursor, before, after } = query;
+    const { tenantId, userId, channelId, limit, cursor, before, after } = query;
 
-    // 1. Validate channel membership
+    // SECURITY (C-06): Require tenantId as defense-in-depth. The primary tenant
+    // isolation is the PostgreSQL search_path (set by TenantSchemaMiddleware),
+    // but we assert tenantId presence to catch programming errors where a query
+    // is dispatched without proper tenant context.
+    if (!tenantId) {
+      throw new BadRequestException(
+        'Tenant context is required for message queries.',
+      );
+    }
+
+    // 1. Validate channel membership (within tenant schema via search_path)
     const membership = await this.channelMemberRepo.findOne({
       where: { channelId, userId, leftAt: IsNull() },
     });
@@ -73,7 +92,7 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
       throw new ForbiddenException('You are not a member of this channel.');
     }
 
-    // 2. Build query with keyset pagination
+    // 2. Build query with keyset pagination (tenant-scoped via search_path)
     const qb = this.messageRepo
       .createQueryBuilder('m')
       .leftJoinAndSelect('m.attachments', 'att')
@@ -113,7 +132,7 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
     const nextCursor = items.length > 0 ? encodeCursor(items[items.length - 1]!) : null;
 
     this.logger.debug(
-      `GetMessages: channel=${channelId}, returned=${items.length}, hasMore=${hasMore}`,
+      `GetMessages: tenant=${tenantId}, channel=${channelId}, returned=${items.length}, hasMore=${hasMore}`,
     );
 
     return { items, hasMore, cursor: nextCursor };

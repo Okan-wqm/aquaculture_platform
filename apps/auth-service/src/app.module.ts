@@ -8,6 +8,7 @@ import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
+import depthLimit from 'graphql-depth-limit';
 import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
@@ -105,6 +106,12 @@ import { TenantModule } from './modules/tenant/tenant.module';
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         return {
           autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+          /**
+           * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
+           * Without depth limiting, an attacker can craft a deeply nested GraphQL query
+           * that causes exponential resource consumption on the server.
+           */
+          validationRules: [depthLimit(10)],
           playground: !isProduction,
           // SECURITY: Disable introspection in production to prevent schema discovery
           introspection: !isProduction,

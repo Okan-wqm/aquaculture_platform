@@ -3,8 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { LoggingModule } from '@aquaculture/backend-common';
+import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
 import { HealthModule } from './health/health.module';
@@ -66,6 +67,16 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    /**
+     * Global authentication guard for event-store-service.
+     * InternalApiKeyGuard ensures only authenticated internal services
+     * can access event streams. This prevents unauthorized containers
+     * from reading or writing tenant event data.
+     */
+    {
+      provide: APP_GUARD,
+      useClass: InternalApiKeyGuard,
     },
   ],
 })

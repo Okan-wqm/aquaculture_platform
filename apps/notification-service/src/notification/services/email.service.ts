@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { maskEmail } from '@aquaculture/backend-common';
 
 /**
  * HTML escape function to prevent XSS in email templates.
@@ -159,7 +160,8 @@ export class EmailService {
     text?: string,
   ): Promise<string> {
     if (!this.transporter) {
-      this.logger.warn(`Email not sent (disabled): ${subject} to ${to}`);
+      // SECURITY: Mask email in logs to prevent PII exposure (H-14)
+      this.logger.warn(`Email not sent (disabled): ${subject} to ${maskEmail(to)}`);
       return `mock-${Date.now()}`;
     }
 
@@ -172,11 +174,13 @@ export class EmailService {
         text: text || this.stripHtml(html),
       });
 
-      this.logger.log(`Email sent to ${to}: ${result.messageId}`);
+      // SECURITY: Mask email in logs to prevent PII exposure (H-14)
+      this.logger.log(`Email sent to ${maskEmail(to)}: ${result.messageId}`);
       return result.messageId;
     } catch (error) {
+      // SECURITY: Mask email in logs to prevent PII exposure (H-14)
       this.logger.error(
-        `Failed to send email to ${to}: ${(error as Error).message}`,
+        `Failed to send email to ${maskEmail(to)}: ${(error as Error).message}`,
       );
       throw error;
     }

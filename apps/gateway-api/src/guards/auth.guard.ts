@@ -4,6 +4,11 @@
  * Validates JWT tokens and handles authentication.
  * Supports multiple authentication methods: JWT, API Key, Basic Auth.
  * Implements token validation, blacklisting, and refresh token handling.
+ *
+ * SECURITY (H-09): API key hashing upgraded from plain SHA-256 to HMAC-SHA256
+ * with a server-side secret (API_KEY_HMAC_SECRET). Timing-safe comparison is
+ * used for all hash lookups to prevent side-channel attacks. Legacy SHA-256
+ * is supported during the migration period.
  */
 
 import * as crypto from 'crypto';
@@ -108,9 +113,14 @@ export class AuthGuard implements CanActivate {
     // Use injected store or fallback to in-memory
     this.tokenBlacklist = tokenBlacklistStore ?? new InMemoryTokenBlacklistStore();
 
+    /**
+     * SECURITY (H-04): JWT audience must match the canonical value used by auth-service.
+     * Auth-service signs tokens with audience 'aquaculture-platform'. Both services must
+     * agree on the same audience string to ensure issued tokens are accepted at the gate.
+     */
     this.jwtIssuer = this.configService.get<string>('JWT_ISSUER', 'aquaculture-platform');
     this.jwtAudience = this.configService
-      .get<string>('JWT_AUDIENCE', 'aquaculture-api')
+      .get<string>('JWT_AUDIENCE', 'aquaculture-platform')
       .split(',');
     this.apiKeys = new Map();
     this.basicAuthCredentials = new Map();
@@ -308,7 +318,7 @@ export class AuthGuard implements CanActivate {
       });
     }
 
-    const keyInfo = this.apiKeys.get(this.hashApiKey(apiKey));
+    const keyInfo = this.findApiKeyInfo(apiKey);
 
     if (!keyInfo) {
       throw new UnauthorizedException({
@@ -425,10 +435,83 @@ export class AuthGuard implements CanActivate {
   }
 
   /**
-   * Hash API key for storage
+   * Hash an API key using HMAC-SHA256 with a server-side secret.
+   *
+   * SECURITY (H-09): Plain SHA-256 hashing of API keys is vulnerable because
+   * an attacker who obtains the hashed key database can run offline brute-force
+   * or rainbow-table attacks without knowing a secret. HMAC-SHA256 binds the
+   * hash to a server-side secret (`API_KEY_HMAC_SECRET` env var), so the
+   * attacker must also compromise the secret to mount an offline attack.
+   *
+   * During the migration period, both the new HMAC-SHA256 format and the legacy
+   * SHA-256 format are checked (see {@link findApiKeyInfo}). Once all stored
+   * keys have been re-hashed with HMAC, the legacy path should be removed.
+   *
+   * @param key - The raw API key to hash
+   * @returns HMAC-SHA256 hex digest prefixed with `hmac:` to distinguish from legacy hashes
    */
   private hashApiKey(key: string): string {
+    const hmacSecret = this.configService.get<string>('API_KEY_HMAC_SECRET', '');
+    if (hmacSecret) {
+      return 'hmac:' + crypto.createHmac('sha256', hmacSecret).update(key).digest('hex');
+    }
+    // Fallback to legacy SHA-256 when HMAC secret is not configured (dev/migration)
     return crypto.createHash('sha256').update(key).digest('hex');
+  }
+
+  /**
+   * Hash an API key using the legacy unsalted SHA-256 algorithm.
+   *
+   * SECURITY: This method exists solely for backward compatibility during the
+   * migration period from plain SHA-256 to HMAC-SHA256. It MUST be removed
+   * once all API keys in the store have been re-hashed with the HMAC scheme.
+   *
+   * @param key - The raw API key to hash
+   * @returns Plain SHA-256 hex digest (legacy format, no prefix)
+   */
+  private legacyHashApiKey(key: string): string {
+    return crypto.createHash('sha256').update(key).digest('hex');
+  }
+
+  /**
+   * Look up API key info using timing-safe comparison.
+   *
+   * SECURITY (H-09): Tries the new HMAC-SHA256 hash first, then falls back to
+   * the legacy SHA-256 hash for backward compatibility during migration.
+   * Uses `crypto.timingSafeEqual` to prevent timing side-channel attacks that
+   * could reveal partial hash matches.
+   *
+   * @param rawKey - The raw API key from the request header
+   * @returns The matching ApiKeyInfo, or undefined if no match
+   */
+  private findApiKeyInfo(rawKey: string): ApiKeyInfo | undefined {
+    const hmacHash = this.hashApiKey(rawKey);
+    const legacyHash = this.legacyHashApiKey(rawKey);
+
+    for (const [storedHash, info] of this.apiKeys.entries()) {
+      const storedBuf = Buffer.from(storedHash, 'utf8');
+      const hmacBuf = Buffer.from(hmacHash, 'utf8');
+      const legacyBuf = Buffer.from(legacyHash, 'utf8');
+
+      // Try HMAC-SHA256 match (new format, prefixed with 'hmac:')
+      if (storedBuf.length === hmacBuf.length) {
+        if (crypto.timingSafeEqual(storedBuf, hmacBuf)) {
+          return info;
+        }
+      }
+
+      // Try legacy SHA-256 match (migration period backward compatibility)
+      if (storedBuf.length === legacyBuf.length) {
+        if (crypto.timingSafeEqual(storedBuf, legacyBuf)) {
+          this.logger.warn(
+            'API key matched via legacy SHA-256 hash. Re-hash with HMAC-SHA256 recommended.',
+          );
+          return info;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   /**

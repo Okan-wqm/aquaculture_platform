@@ -10,6 +10,7 @@ import {
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
+import depthLimit from 'graphql-depth-limit';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
@@ -159,6 +160,12 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
         autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        /**
+         * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
+         * Without depth limiting, an attacker can craft a deeply nested GraphQL query
+         * that causes exponential resource consumption on the server.
+         */
+        validationRules: [depthLimit(10)],
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',

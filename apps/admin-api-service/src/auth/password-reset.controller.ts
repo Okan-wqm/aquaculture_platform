@@ -122,9 +122,11 @@ export class PasswordResetController {
           );
         }
 
-        this.logger.log(`Password reset email sent to ${dto.email}`);
+        // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+        this.logger.log(`Password reset email sent for userId=${user.id}`);
       } else {
-        this.logger.debug(`Password reset requested for non-existent email: ${dto.email}`);
+        // SECURITY: Do not log email -- prevents enumeration data in logs (H-14)
+        this.logger.debug('Password reset requested for non-existent account');
       }
     } catch (error) {
       // Log error but don't reveal it to the user
@@ -188,7 +190,8 @@ export class PasswordResetController {
       [user.id],
     );
 
-    this.logger.log(`Password reset successfully for user ${user.email}`);
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Password reset successfully for userId=${user.id}`);
 
     return {
       success: true,

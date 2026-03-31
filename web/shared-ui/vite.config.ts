@@ -51,8 +51,11 @@ export default defineConfig({
         },
       },
     },
-    // Source map oluştur
-    sourcemap: true,
+    // SEC-M04: Source maps disabled in production to prevent exposing TypeScript
+    // source code, internal variable names, and API structures to attackers.
+    // For error tracking (e.g. Sentry), use 'hidden' in CI to upload maps
+    // without serving them publicly. Never set to `true` for production builds.
+    sourcemap: false,
     // Minify
     minify: 'terser',
     terserOptions: {

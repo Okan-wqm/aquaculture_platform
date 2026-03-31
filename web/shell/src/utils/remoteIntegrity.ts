@@ -184,6 +184,29 @@ export function installRemoteIntegrityGuard(): void {
                 `[SH-SEC-04] No integrity hash pinned for remote entry: ${value}. ` +
                   'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.'
               );
+            } else if (import.meta.env.PROD) {
+              // SEC-M02: Runtime warning when SRI hash map is empty in production.
+              // This indicates the CI/CD pipeline has not yet populated REMOTE_HASH_PINS.
+              // Remote modules will still load (allowlist permits them), but without
+              // integrity verification, a CDN or proxy compromise could inject
+              // malicious code. Dispatch a security event for monitoring/alerting.
+              // eslint-disable-next-line no-console
+              console.warn(
+                `[SH-SEC-04] PRODUCTION: No SRI hash pinned for remote entry: ${value}. ` +
+                  'CI/CD must populate REMOTE_HASH_PINS for subresource integrity enforcement.'
+              );
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('aquaculture:security-violation', {
+                    detail: {
+                      type: 'SRI_HASH_MISSING',
+                      src: value,
+                      timestamp: Date.now(),
+                      severity: 'warning',
+                    },
+                  })
+                );
+              }
             }
           }
 

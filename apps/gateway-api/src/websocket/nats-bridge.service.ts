@@ -99,7 +99,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     try {
       this.connection = await connect(connectionOptions);
 
-      this.logger.log(`Connected to NATS at ${natsUrl}`);
+      this.logger.log(`Connected to NATS at ${connectionOptions.servers}`);
 
       // Subscribe to sensor reading events
       this.subscribeToSensorEvents();

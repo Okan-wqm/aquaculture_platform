@@ -76,7 +76,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
 
     try {
       this.connection = await connect(connectionOptions);
-      this.logger.log(`Messaging bridge connected to NATS at ${natsUrl}`);
+      this.logger.log(`Messaging bridge connected to NATS at ${connectionOptions.servers}`);
 
       this.subscribeToMessagingEvents();
       this.handleConnectionEvents();

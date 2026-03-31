@@ -121,7 +121,7 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
 
     try {
       this.connection = await connect(connectionOptions);
-      this.logger.log(`Connected to NATS at ${natsUrl} for ST Language Bridge`);
+      this.logger.log(`Connected to NATS at ${connectionOptions.servers} for ST Language Bridge`);
 
       // Subscribe to server-push events
       this.subscribeToAutomationEvents();

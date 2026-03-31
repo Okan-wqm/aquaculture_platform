@@ -771,6 +771,25 @@ jobs:
               echo "Containers after cleanup:"
               docker ps -a --format '{{.Names}}' | grep -E 'aqua-' || echo "none (clean)"
 
+              # ARCH-031: Pre-deploy NATS JetStream storage maintenance.
+              # If JetStream data exceeds server limit (nats.conf max_file_store: 2GB),
+              # purge the data directory to allow clean startup. NATS will recreate
+              # streams via nats-event-bus.ts setupStream() on first service connection.
+              # This prevents "insufficient storage resources available" (error 10047).
+              echo "=== NATS JetStream storage maintenance ==="
+              NATS_DATA_DIR="/var/lib/docker/volumes/aqua-saas_nats_data/_data/jetstream"
+              if [ -d "$NATS_DATA_DIR" ]; then
+                JS_SIZE=$(du -sm "$NATS_DATA_DIR" 2>/dev/null | awk '{print $1}')
+                echo "JetStream storage usage: ${JS_SIZE:-0}MB / 2048MB limit"
+                if [ "${JS_SIZE:-0}" -gt 1800 ]; then
+                  echo "⚠️  JetStream storage near limit (${JS_SIZE}MB > 1800MB). Purging old data..."
+                  rm -rf "$NATS_DATA_DIR"
+                  echo "JetStream data purged. Streams will be recreated on startup."
+                fi
+              else
+                echo "No existing JetStream data directory found (first deploy or volume not mounted)"
+              fi
+
               echo "=== Ensuring infrastructure databases exist ==="
               # Start only postgres first to create additional databases
               docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true
@@ -794,6 +813,22 @@ jobs:
             else
               # ── Selective deploy mode (only affected services) ──
               echo "=== SELECTIVE DEPLOY: ${DEPLOY_SERVICES} ==="
+
+              # ARCH-031: Pre-deploy NATS JetStream storage maintenance (selective path).
+              echo "=== NATS JetStream storage maintenance ==="
+              NATS_DATA_DIR="/var/lib/docker/volumes/aqua-saas_nats_data/_data/jetstream"
+              if [ -d "$NATS_DATA_DIR" ]; then
+                JS_SIZE=$(du -sm "$NATS_DATA_DIR" 2>/dev/null | awk '{print $1}')
+                echo "JetStream storage usage: ${JS_SIZE:-0}MB / 2048MB limit"
+                if [ "${JS_SIZE:-0}" -gt 1800 ]; then
+                  echo "⚠️  JetStream storage near limit (${JS_SIZE}MB > 1800MB). Purging old data..."
+                  docker stop aqua-nats 2>/dev/null || true
+                  rm -rf "$NATS_DATA_DIR"
+                  echo "JetStream data purged. Streams will be recreated on startup."
+                fi
+              else
+                echo "No existing JetStream data directory found"
+              fi
 
               # Ensure infrastructure services are running (no-op if already up)
               echo "=== Ensuring infrastructure is running ==="

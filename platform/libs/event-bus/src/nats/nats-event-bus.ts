@@ -396,33 +396,52 @@ export class NatsEventBus
   }
 
   /**
-   * Setup the NATS JetStream stream
+   * Setup the NATS JetStream stream.
+   * Creates the stream if missing, or updates existing stream config to enforce
+   * current limits and prevent drift from server-side nats.conf changes.
    */
   private async setupStream(): Promise<void> {
     if (!this.jetStreamManager) {
       return;
     }
 
+    const streamConfig = this.getStreamConfig();
+
     try {
-      // Try to get existing stream
+      // ARCH-031: Always update existing stream config to enforce current limits.
+      // Prevents drift when nats.conf max_file_store or application limits change.
       await this.jetStreamManager.streams.info(this.streamName);
-      this.logger.log(`Stream ${this.streamName} already exists`);
+      this.logger.log(`Stream ${this.streamName} already exists — updating config`);
+      await this.jetStreamManager.streams.update(this.streamName, streamConfig);
+      this.logger.log(`Updated stream ${this.streamName} configuration`);
     } catch {
-      // Create stream if it doesn't exist
+      // Stream doesn't exist — create it
       await this.jetStreamManager.streams.add({
         name: this.streamName,
-        subjects: ['events.>', 'commands.>', 'queries.>'],
-        retention: RetentionPolicy.Limits,
-        storage: StorageType.File,
-        max_age: 7 * 24 * 60 * 60 * 1000000000, // 7 days in nanoseconds
-        max_bytes: 10 * 1024 * 1024 * 1024, // 10GB
-        max_msg_size: 1024 * 1024, // 1MB
-        discard: DiscardPolicy.Old,
-        duplicate_window: 2 * 60 * 1000000000, // 2 minutes for deduplication
-        num_replicas: 1,
+        ...streamConfig,
       });
       this.logger.log(`Created stream ${this.streamName}`);
     }
+  }
+
+  /**
+   * ARCH-031: Shared JetStream stream configuration.
+   * max_bytes MUST be less than nats.conf max_file_store (2GB) to leave headroom
+   * for metadata and potential additional streams.
+   */
+  private getStreamConfig() {
+    return {
+      subjects: ['events.>', 'commands.>', 'queries.>'],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+      max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7 days in nanoseconds
+      max_bytes: 1536 * 1024 * 1024, // 1.5GB — must be < nats.conf max_file_store (2GB)
+      max_msg_size: 1024 * 1024, // 1MB per message
+      max_msgs: 1_000_000, // 1M messages safety net
+      discard: DiscardPolicy.Old,
+      duplicate_window: 2 * 60 * 1_000_000_000, // 2 minutes for deduplication
+      num_replicas: 1,
+    };
   }
 
   /**

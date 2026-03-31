@@ -112,7 +112,7 @@ services:
       # Override via .env or deployment secrets. Defaults are for initial setup only.
       # NATS runs on internal Docker network (aqua-internal), not exposed to host.
       NATS_USER: ${NATS_USER:-nats_internal}
-      NATS_PASS: ${NATS_PASS:-nats_s3cure_default_ch4nge_m3}
+      NATS_PASS: ${NATS_PASS:-natsDefaultPass2026}
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
@@ -201,7 +201,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
@@ -301,7 +301,7 @@ services:
       DATABASE_SYNC: "false"
       DATABASE_LOGGING: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
@@ -347,7 +347,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -394,7 +394,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
@@ -450,7 +450,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
@@ -493,7 +493,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -532,7 +532,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -571,7 +571,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -610,7 +610,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -649,7 +649,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -730,7 +730,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -773,7 +773,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DB: '3'
-      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-nats_s3cure_default_ch4nge_m3}@nats:4222
+      NATS_URL: nats://${NATS_USER:-nats_internal}:${NATS_PASS:-natsDefaultPass2026}@nats:4222
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       MINIO_ENDPOINT: minio

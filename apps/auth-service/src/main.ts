@@ -118,4 +118,20 @@ async function bootstrap(): Promise<void> {
   logger.log(`GraphQL Playground: http://localhost:${port}/graphql`);
 }
 
-void bootstrap();
+bootstrap().catch((err: unknown) => {
+  // ARCH-032: Surface the actual error on bootstrap failure.
+  // NestJS ExceptionHandler serializes Error objects as '{}' via JSON.stringify
+  // because Error properties (message, stack) are non-enumerable.
+  // This catch block ensures the real error is always visible in container logs.
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'fatal',
+    service: 'auth-service',
+    message: `Bootstrap failed: ${message}`,
+    ...(stack ? { stack } : {}),
+    context: 'Bootstrap',
+  }));
+  process.exit(1);
+});

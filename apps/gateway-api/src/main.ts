@@ -194,4 +194,16 @@ async function bootstrap(): Promise<void> {
   logger.log(`GraphQL Playground: http://localhost:${port}/graphql`);
 }
 
-void bootstrap();
+bootstrap().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'fatal',
+    service: 'gateway-api',
+    message: `Bootstrap failed: ${message}`,
+    ...(stack ? { stack } : {}),
+    context: 'Bootstrap',
+  }));
+  process.exit(1);
+});

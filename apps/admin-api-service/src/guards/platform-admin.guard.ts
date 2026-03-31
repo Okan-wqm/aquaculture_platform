@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 
+import { JWT_SECURITY_CONSTANTS } from '@aquaculture/backend-common';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**
@@ -75,10 +76,11 @@ export class PlatformAdminGuard implements CanActivate {
         'Using auto-generated development JWT secret. This is NOT secure for production use.',
       );
     } else {
-      // Validate JWT_SECRET minimum length
-      if (secret.length < 32) {
+      /** SEC-L05: Use shared JWT_SECRET_MIN_LENGTH from backend-common to prevent
+       *  divergence between auth-service, gateway-api, and admin-api-service. */
+      if (secret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
         throw new Error(
-          'JWT_SECRET must be at least 32 characters long for adequate security.',
+          `JWT_SECRET must be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
         );
       }
       this.jwtSecret = secret;

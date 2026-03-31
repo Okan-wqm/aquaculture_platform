@@ -368,6 +368,25 @@ export interface SchemaCreationResult {
 import { SchemaLRUCache } from './schema-lru-cache';
 
 /**
+ * SEC-M13: Validate tenant schema name format to prevent SQL injection.
+ * Only allows the pattern 'public' or 'tenant_{16 hex chars}' which is the
+ * standard tenant schema naming convention used across the platform.
+ * This is a defense-in-depth measure — schema names are also validated at the guard level.
+ *
+ * @param schema - The schema name to validate
+ * @returns The validated schema name (unchanged)
+ * @throws Error if the schema name does not match the expected format
+ */
+export function validateTenantSchemaName(schema: string): string {
+  if (schema === 'public') return schema;
+  const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
+  if (!TENANT_SCHEMA_REGEX.test(schema)) {
+    throw new Error(`SEC-M13: Invalid schema name format: ${schema}`);
+  }
+  return schema;
+}
+
+/**
  * SECURITY: Validate SQL identifier (schema/table name) to prevent injection
  * Only allows alphanumeric characters and underscores
  * @throws BadRequestException if identifier contains invalid characters

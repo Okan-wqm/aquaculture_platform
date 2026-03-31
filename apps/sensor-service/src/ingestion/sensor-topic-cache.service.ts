@@ -59,9 +59,14 @@ interface CacheEntry {
  * - Automatic cache invalidation on sensor changes
  * - Fallback to database on cache miss
  *
+ * SEC-M16: Cache keys are tenant-scoped to prevent cross-tenant cache poisoning.
+ * Without tenant prefixing, a cached topic from tenant A could be served to tenant B,
+ * bypassing tenant isolation at the application layer.
+ *
  * Cache Key Structure:
- * - sensor:topic:{normalized_topic} -> CacheEntry JSON
+ * - sensor:tenant:{tenantId}:topic:{normalized_topic} -> CacheEntry JSON
  * - sensor:id:{sensor_id} -> topics[] (for invalidation)
+ * - sensor:topic:index:{normalized_topic} -> tenantId[] (reverse index for topic lookups)
  */
 @Injectable()
 export class SensorTopicCacheService implements OnModuleInit {
@@ -69,8 +74,11 @@ export class SensorTopicCacheService implements OnModuleInit {
 
   // Cache configuration
   private readonly CACHE_TTL_SECONDS = 3600; // 1 hour
-  private readonly CACHE_KEY_PREFIX = 'sensor:topic:';
+  /** SEC-M16: Tenant-scoped cache key prefix prevents cross-tenant cache poisoning */
+  private readonly CACHE_KEY_PREFIX = 'sensor:tenant:';
   private readonly SENSOR_TOPICS_PREFIX = 'sensor:id:topics:';
+  /** SEC-M16: Reverse index mapping topic -> tenantIds for cross-tenant lookups */
+  private readonly TOPIC_INDEX_PREFIX = 'sensor:topic:index:';
 
   // Local in-memory cache for hot paths (LRU-like behavior)
   private readonly localCache = new Map<string, CacheEntry>();
@@ -89,28 +97,42 @@ export class SensorTopicCacheService implements OnModuleInit {
   }
 
   /**
-   * Get sensor by MQTT topic with multi-level caching
-   * 1. Check local in-memory cache (fastest)
-   * 2. Check Redis cache (fast)
+   * Get sensor by MQTT topic with multi-level caching.
+   * Returns the first matching sensor found across all tenants.
+   *
+   * SEC-M16: Cache keys are tenant-scoped. This method queries the topic index
+   * to find which tenants have sensors for a given topic, then retrieves the
+   * tenant-scoped cache entry. This prevents cross-tenant cache poisoning while
+   * still supporting cross-tenant MQTT topic resolution.
+   *
+   * Lookup pipeline:
+   * 1. Check local in-memory cache (fastest, tenant-scoped key)
+   * 2. Check Redis topic index -> tenant-scoped cache entries (fast)
    * 3. Query database across all tenant schemas (slow - only on cache miss)
    */
   async getSensorByTopic(topic: string): Promise<CachedSensorInfo | null> {
     const normalizedTopic = this.normalizeTopic(topic);
-    const cacheKey = `${this.CACHE_KEY_PREFIX}${normalizedTopic}`;
 
-    // Level 1: Check local in-memory cache
+    // Level 1: Check local in-memory cache (uses tenant-scoped keys internally)
     const localEntry = this.getFromLocalCache(normalizedTopic);
     if (localEntry !== undefined) {
       return localEntry;
     }
 
-    // Level 2: Check Redis cache
+    // Level 2: Check Redis topic index for tenant-scoped cache entries
     try {
-      const cached = await this.redisService.getJson<CacheEntry>(cacheKey);
-      if (cached && this.isCacheValid(cached)) {
-        // Populate local cache
-        this.setLocalCache(normalizedTopic, cached.sensor);
-        return cached.sensor;
+      const indexKey = `${this.TOPIC_INDEX_PREFIX}${normalizedTopic}`;
+      const tenantIds = await this.redisService.getJson<string[]>(indexKey);
+
+      if (tenantIds && tenantIds.length > 0) {
+        for (const tenantId of tenantIds) {
+          const cacheKey = this.buildTenantCacheKey(tenantId, normalizedTopic);
+          const cached = await this.redisService.getJson<CacheEntry>(cacheKey);
+          if (cached && this.isCacheValid(cached) && cached.sensor) {
+            this.setLocalCache(normalizedTopic, cached.sensor);
+            return cached.sensor;
+          }
+        }
       }
     } catch (error) {
       this.logger.warn(`Redis cache error for topic ${topic}: ${(error as Error).message}`);
@@ -127,24 +149,47 @@ export class SensorTopicCacheService implements OnModuleInit {
   }
 
   /**
-   * Invalidate cache for a specific sensor
-   * Called when sensor is updated/deleted
+   * SEC-M16: Build tenant-scoped cache key to enforce tenant isolation.
+   * Format: sensor:tenant:{tenantId}:topic:{normalizedTopic}
    */
-  async invalidateSensor(sensorId: string): Promise<void> {
+  private buildTenantCacheKey(tenantId: string, normalizedTopic: string): string {
+    return `${this.CACHE_KEY_PREFIX}${tenantId}:topic:${normalizedTopic}`;
+  }
+
+  /**
+   * Invalidate cache for a specific sensor.
+   * Called when sensor is updated/deleted.
+   *
+   * SEC-M16: Invalidation uses the sensor's reverse lookup to find all tenant-scoped
+   * cache keys associated with this sensor, ensuring no stale cross-tenant data remains.
+   */
+  async invalidateSensor(sensorId: string, tenantId?: string): Promise<void> {
     try {
       // Get all topics associated with this sensor
       const topicsKey = `${this.SENSOR_TOPICS_PREFIX}${sensorId}`;
-      const topics = await this.redisService.getJson<string[]>(topicsKey);
+      const sensorTopics = await this.redisService.getJson<Array<{ topic: string; tenantId: string }>>(topicsKey);
 
-      if (topics && topics.length > 0) {
-        // Delete all topic cache entries
-        for (const topic of topics) {
-          const cacheKey = `${this.CACHE_KEY_PREFIX}${topic}`;
+      if (sensorTopics && sensorTopics.length > 0) {
+        for (const entry of sensorTopics) {
+          /** SEC-M16: Delete tenant-scoped cache key */
+          const cacheKey = this.buildTenantCacheKey(entry.tenantId, entry.topic);
           await this.redisService.del(cacheKey);
-          this.localCache.delete(topic);
+          this.localCache.delete(entry.topic);
+
+          // Remove tenantId from topic index
+          const indexKey = `${this.TOPIC_INDEX_PREFIX}${entry.topic}`;
+          const tenantIds = await this.redisService.getJson<string[]>(indexKey);
+          if (tenantIds) {
+            const updated = tenantIds.filter(id => id !== entry.tenantId);
+            if (updated.length > 0) {
+              await this.redisService.setJson(indexKey, updated, this.CACHE_TTL_SECONDS);
+            } else {
+              await this.redisService.del(indexKey);
+            }
+          }
         }
 
-        // Delete the topics list
+        // Delete the sensor's reverse lookup
         await this.redisService.del(topicsKey);
       }
 
@@ -155,20 +200,20 @@ export class SensorTopicCacheService implements OnModuleInit {
   }
 
   /**
-   * Invalidate all cached sensors for a tenant
-   * Called when tenant is modified or deleted
+   * Invalidate all cached sensors for a tenant.
+   * Called when tenant is modified or deleted.
+   *
+   * SEC-M16: Uses tenant-scoped key pattern for efficient deletion without
+   * scanning unrelated tenants' cache entries.
    */
   async invalidateTenant(tenantId: string): Promise<void> {
     try {
-      // Delete all entries matching this tenant
-      const pattern = `${this.CACHE_KEY_PREFIX}*`;
+      /** SEC-M16: Scan only this tenant's cache keys using the tenant-scoped prefix */
+      const pattern = `${this.CACHE_KEY_PREFIX}${tenantId}:topic:*`;
       const keys = await this.redisService.keys(pattern);
 
       for (const key of keys) {
-        const entry = await this.redisService.getJson<CacheEntry>(key);
-        if (entry?.sensor?.tenantId === tenantId) {
-          await this.redisService.del(key);
-        }
+        await this.redisService.del(key);
       }
 
       // Clear local cache entries for this tenant
@@ -178,7 +223,7 @@ export class SensorTopicCacheService implements OnModuleInit {
         }
       }
 
-      this.logger.log(`Invalidated cache for tenant ${tenantId}`);
+      this.logger.log(`Invalidated cache for tenant ${tenantId} (${keys.length} keys removed)`);
     } catch (error) {
       this.logger.error(`Error invalidating cache for tenant ${tenantId}: ${(error as Error).message}`);
     }
@@ -347,27 +392,49 @@ export class SensorTopicCacheService implements OnModuleInit {
   }
 
   /**
-   * Cache the sensor lookup result
+   * Cache the sensor lookup result with tenant-scoped keys.
+   *
+   * SEC-M16: Cache entries are stored under tenant-scoped keys to prevent cross-tenant
+   * cache poisoning. A topic index maps normalized topics to the set of tenantIds that
+   * have sensors on that topic, enabling cross-tenant MQTT resolution without leaking data.
    */
   private async cacheResult(normalizedTopic: string, sensor: CachedSensorInfo | null): Promise<void> {
-    const cacheKey = `${this.CACHE_KEY_PREFIX}${normalizedTopic}`;
+    if (!sensor) {
+      // For negative caching, store in local cache only (short TTL, no tenant scope needed)
+      this.setLocalCache(normalizedTopic, null);
+      return;
+    }
+
+    /** SEC-M16: Tenant-scoped cache key */
+    const cacheKey = this.buildTenantCacheKey(sensor.tenantId, normalizedTopic);
     const entry: CacheEntry = {
       sensor,
       cachedAt: Date.now(),
     };
 
     try {
-      // Store in Redis
+      // Store in Redis with tenant-scoped key
       await this.redisService.setJson(cacheKey, entry, this.CACHE_TTL_SECONDS);
 
-      // If sensor exists, also store reverse lookup for invalidation
-      if (sensor) {
-        const topicsKey = `${this.SENSOR_TOPICS_PREFIX}${sensor.id}`;
-        const existingTopics = await this.redisService.getJson<string[]>(topicsKey) || [];
-        if (!existingTopics.includes(normalizedTopic)) {
-          existingTopics.push(normalizedTopic);
-          await this.redisService.setJson(topicsKey, existingTopics, this.CACHE_TTL_SECONDS);
-        }
+      /** SEC-M16: Maintain topic index for cross-tenant lookups.
+       *  Maps normalizedTopic -> tenantId[] so getSensorByTopic can resolve
+       *  which tenants have sensors for a given MQTT topic. */
+      const indexKey = `${this.TOPIC_INDEX_PREFIX}${normalizedTopic}`;
+      const existingTenants = await this.redisService.getJson<string[]>(indexKey) || [];
+      if (!existingTenants.includes(sensor.tenantId)) {
+        existingTenants.push(sensor.tenantId);
+        await this.redisService.setJson(indexKey, existingTenants, this.CACHE_TTL_SECONDS);
+      }
+
+      // Store reverse lookup for invalidation (sensor -> topics+tenants)
+      const topicsKey = `${this.SENSOR_TOPICS_PREFIX}${sensor.id}`;
+      const existingTopics = await this.redisService.getJson<Array<{ topic: string; tenantId: string }>>(topicsKey) || [];
+      const alreadyStored = existingTopics.some(
+        e => e.topic === normalizedTopic && e.tenantId === sensor.tenantId,
+      );
+      if (!alreadyStored) {
+        existingTopics.push({ topic: normalizedTopic, tenantId: sensor.tenantId });
+        await this.redisService.setJson(topicsKey, existingTopics, this.CACHE_TTL_SECONDS);
       }
 
       // Store in local cache

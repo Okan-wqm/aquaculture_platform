@@ -39,13 +39,10 @@ const getAuthHeader = (): Record<string, string> => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-// Generate unique request ID for tracing
+/** SEC-L03: Use cryptographically secure random UUID for request correlation IDs.
+ *  Math.random() is a predictable PRNG — an attacker observing a few values can predict the next. */
 const generateRequestId = (): string => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return crypto.randomUUID();
 };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

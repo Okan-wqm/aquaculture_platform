@@ -213,7 +213,9 @@ export class CacheControlInterceptor implements NestInterceptor {
    */
   private generateETag(data: unknown): string {
     const content = typeof data === 'string' ? data : JSON.stringify(data);
-    const hash = createHash('md5').update(content).digest('hex');
+    /** SEC-L02: Use SHA-256 instead of MD5. MD5 has known collision vulnerabilities
+     *  and is prohibited by NIST SP 800-131A for any new application. */
+    const hash = createHash('sha256').update(content).digest('hex');
     return `"${hash}"`;
   }
 

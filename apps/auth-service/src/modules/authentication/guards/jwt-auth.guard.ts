@@ -60,8 +60,11 @@ export class JwtAuthGuard {
     }
 
     try {
-      // SECURITY: Verify JWT audience to prevent cross-service token replay
+      /** SEC-M14: Explicitly restrict JWT algorithm to HS256 to prevent algorithm confusion attacks.
+       *  Without this, an attacker could forge tokens using RS256 with the public key as HMAC secret.
+       *  Also verifies JWT audience to prevent cross-service token replay. */
       const payload = await this.jwtService.verifyAsync(token, {
+        algorithms: ['HS256'],
         audience: this.expectedAudience,
       }) as JwtPayload;
 

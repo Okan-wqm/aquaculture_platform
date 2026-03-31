@@ -1,6 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
@@ -11,7 +11,7 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -82,6 +82,10 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+      /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+       *  The gateway already blocks batching, but subgraphs must also enforce this as
+       *  defense-in-depth in case a subgraph becomes directly accessible. */
+      allowBatchedHttpRequests: false,
       /**
        * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
        * Without depth limiting, an attacker can craft a deeply nested GraphQL query
@@ -140,6 +144,8 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     BillingModule,
     MeteringModule,
     HealthModule,
+    /** SEC-M22: Audit trail infrastructure for compliance tracking. */
+    AuditLogModule.forRoot(),
   ],
   providers: [
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
@@ -162,6 +168,11 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditLogInterceptor,
     },
   ],
 })

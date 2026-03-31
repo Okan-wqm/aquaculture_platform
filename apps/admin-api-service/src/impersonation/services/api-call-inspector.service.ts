@@ -2,6 +2,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
+/** SEC-L15: Use shared isSensitiveField for consistent PII redaction across all services. */
+import { isSensitiveField } from '@aquaculture/backend-common';
 
 import {
   CapturedApiCall,
@@ -327,17 +329,18 @@ export class ApiCallInspectorService {
   }
 
   /**
-   * Sanitize request body by redacting sensitive fields
+   * SEC-L15: Sanitize request body by redacting sensitive fields.
+   * Uses shared isSensitiveField() for case-insensitive substring matching
+   * to catch nested or prefixed sensitive field names (e.g., 'userPassword').
    */
   private sanitizeBody(body: unknown): unknown {
     if (!body || typeof body !== 'object') return body;
 
-    const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'creditCard'];
     const sanitized = JSON.parse(JSON.stringify(body));
 
     const sanitizeObject = (obj: Record<string, unknown>) => {
       for (const key of Object.keys(obj)) {
-        if (sensitiveFields.some((f) => key.toLowerCase().includes(f.toLowerCase()))) {
+        if (isSensitiveField(key)) {
           obj[key] = '[REDACTED]';
         } else if (typeof obj[key] === 'object' && obj[key] !== null) {
           sanitizeObject(obj[key] as Record<string, unknown>);

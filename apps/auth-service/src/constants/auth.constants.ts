@@ -4,13 +4,16 @@
  * Centralizes magic numbers and configuration defaults to improve
  * maintainability and provide a single source of truth.
  */
+import { JWT_SECURITY_CONSTANTS } from '@aquaculture/backend-common';
 
 /**
  * Security-related constants
+ * SEC-L05: JWT_SECRET_MIN_LENGTH is imported from the shared backend-common library
+ * to prevent divergence between auth-service, gateway-api, and admin-api-service.
  */
 export const SECURITY_CONSTANTS = {
-  /** Minimum length for JWT secret in characters */
-  JWT_SECRET_MIN_LENGTH: 32,
+  /** Minimum length for JWT secret in characters (shared across all services) */
+  JWT_SECRET_MIN_LENGTH: JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH,
 
   /** bcrypt salt rounds for password hashing */
   BCRYPT_SALT_ROUNDS: 12,

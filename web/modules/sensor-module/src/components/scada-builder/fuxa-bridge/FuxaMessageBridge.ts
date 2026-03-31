@@ -122,6 +122,21 @@ export class FuxaMessageBridge {
 
     for (const msg of this.pendingMessages) {
       if (this.messageCount >= MAX_MESSAGES_PER_SECOND) break;
+      /**
+       * SEC-L10: targetOrigin must be '*' for sandboxed iframes.
+       *
+       * The FUXA iframe uses sandbox="allow-scripts" WITHOUT allow-same-origin,
+       * so the iframe's origin is always 'null'. The browser rejects postMessage
+       * calls with a specific targetOrigin if the recipient's origin is 'null'.
+       *
+       * Security is enforced on the RECEIVING side instead:
+       * - The iframe's srcdoc relay script captures and validates the parent
+       *   origin from the first inbound message (SEC-L10 in FuxaWidgetRenderer).
+       * - The parent's handleIncomingMessage() validates event.source matches
+       *   this.iframe.contentWindow (line 162 above).
+       * - The iframe CSP (default-src 'none') blocks all network access,
+       *   preventing exfiltration even if malicious code runs inside the sandbox.
+       */
       contentWindow.postMessage(msg, '*');
       this.messageCount++;
     }

@@ -12,6 +12,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Observable } from 'rxjs';
+import * as crypto from 'crypto';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis.provider';
 import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
@@ -153,7 +154,9 @@ export class MessagingRateLimitInterceptor implements NestInterceptor {
     const key = `msg:${tenantId}:rate:${action}:${userId}`;
     const now = Date.now();
     const windowStart = now - rule.windowSeconds * 1000;
-    const member = `${now}:${Math.random().toString(36).slice(2, 8)}`;
+    /** SEC-L04: Use crypto.randomBytes for rate limit member IDs.
+     *  Predictable member IDs could allow rate limit bypass through collision. */
+    const member = `${now}:${crypto.randomBytes(6).toString('hex')}`;
 
     const pipeline = this.redis.multi();
     pipeline.zremrangebyscore(key, '-inf', windowStart.toString());

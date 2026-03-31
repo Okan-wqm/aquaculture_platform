@@ -28,21 +28,26 @@ const SENTINEL_HUB_STATUS_QUERY = `
   }
 `;
 
+/**
+ * SEC-C14: WMTS config query now returns only instanceId + expiresIn.
+ * The accessToken field is hidden via @HideField() and never reaches the browser.
+ * All tile requests are proxied through the backend (/api/sentinel-hub/wms/:layerId).
+ */
 const SENTINEL_HUB_WMTS_CONFIG_QUERY = `
   query SentinelHubWmtsConfig {
     sentinelHubWmtsConfig {
       instanceId
-      accessToken
       expiresIn
     }
   }
 `;
 
-// Fallback: If no instanceId, use token-only query
-const SENTINEL_HUB_TOKEN_QUERY = `
+/**
+ * SEC-C14: Token check query — only returns expiresIn to verify credentials work.
+ */
+const SENTINEL_HUB_TOKEN_CHECK_QUERY = `
   query SentinelHubToken {
     sentinelHubToken {
-      accessToken
       expiresIn
     }
   }
@@ -142,7 +147,9 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
   }, [authToken]);
 
   /**
-   * Fetch WMTS config (instanceId + token) from backend
+   * SEC-C14: Fetch WMTS config (instanceId + expiresIn) from backend.
+   * The accessToken is hidden via @HideField — it lives only on the backend.
+   * All tile requests are routed through the backend proxy.
    */
   const fetchWmtsConfig = useCallback(async (): Promise<boolean> => {
     if (!authToken) return false;
@@ -150,7 +157,6 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
       const data = await graphqlClient.request<{
         sentinelHubWmtsConfig: {
           instanceId: string;
-          accessToken: string;
           expiresIn: number;
         } | null;
       }>(SENTINEL_HUB_WMTS_CONFIG_QUERY);
@@ -161,7 +167,7 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
         const expiry = new Date(Date.now() + (wmtsConfig.expiresIn - 60) * 1000);
 
         setInstanceId(wmtsConfig.instanceId);
-        setToken(wmtsConfig.accessToken);
+        setToken('proxy-managed');
         setTokenExpiry(expiry);
         setHasWmtsSupport(true);
         setError(null);
@@ -184,21 +190,22 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
   }, [authToken]);
 
   /**
-   * Fallback: Fetch token only (for Processing API if WMTS not available)
+   * SEC-C14: Verify that backend credentials are working (no token returned).
+   * Used as fallback when WMTS instanceId is not configured.
    */
-  const fetchTokenOnly = useCallback(async (): Promise<boolean> => {
+  const verifyCredentials = useCallback(async (): Promise<boolean> => {
     if (!authToken) return false;
     try {
       const data = await graphqlClient.request<{
-        sentinelHubToken: { accessToken: string; expiresIn: number } | null;
-      }>(SENTINEL_HUB_TOKEN_QUERY);
+        sentinelHubToken: { expiresIn: number } | null;
+      }>(SENTINEL_HUB_TOKEN_CHECK_QUERY);
 
       const tokenResult = data.sentinelHubToken;
 
       if (tokenResult) {
         const expiry = new Date(Date.now() + (tokenResult.expiresIn - 60) * 1000);
 
-        setToken(tokenResult.accessToken);
+        setToken('proxy-managed');
         setTokenExpiry(expiry);
         setError(null);
 
@@ -224,14 +231,14 @@ export function useSentinelTiles(): UseSentinelTilesReturn {
       // First try WMTS config
       const wmtsSuccess = await fetchWmtsConfig();
 
-      // If WMTS not available, fall back to token-only
+      // If WMTS not available, fall back to credential verification
       if (!wmtsSuccess) {
-        await fetchTokenOnly();
+        await verifyCredentials();
       }
     } finally {
       setIsLoading(false);
     }
-  }, [fetchWmtsConfig, fetchTokenOnly]);
+  }, [fetchWmtsConfig, verifyCredentials]);
 
   /**
    * Schedule token refresh

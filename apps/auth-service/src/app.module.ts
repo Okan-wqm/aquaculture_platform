@@ -106,6 +106,10 @@ import { TenantModule } from './modules/tenant/tenant.module';
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         return {
           autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+          /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+           *  The gateway already blocks batching, but subgraphs must also enforce this as
+           *  defense-in-depth in case a subgraph becomes directly accessible. */
+          allowBatchedHttpRequests: false,
           /**
            * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
            * Without depth limiting, an attacker can craft a deeply nested GraphQL query
@@ -166,6 +170,8 @@ import { TenantModule } from './modules/tenant/tenant.module';
           return {
             secret: devSecret,
             signOptions: {
+              /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks. */
+              algorithm: 'HS256' as const,
               expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
               issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
               audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
@@ -183,6 +189,9 @@ import { TenantModule } from './modules/tenant/tenant.module';
         return {
           secret,
           signOptions: {
+            /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks.
+             *  Without this, an attacker could forge tokens using RS256 with the public key as HMAC secret. */
+            algorithm: 'HS256' as const,
             expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
             issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
             audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),

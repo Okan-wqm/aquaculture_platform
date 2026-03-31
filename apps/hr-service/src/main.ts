@@ -87,7 +87,9 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
       transform: true,
       transformOptions: {
-        enableImplicitConversion: true,
+        /** SEC-M12: Disable implicit type conversion to prevent type confusion attacks.
+         *  Explicit @Type() decorators must be used on DTOs that need transformation. */
+        enableImplicitConversion: false,
       },
       // SECURITY: Hide internal details from validation errors
       validationError: {

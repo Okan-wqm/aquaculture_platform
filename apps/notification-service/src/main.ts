@@ -11,6 +11,7 @@ bootstrapService(AppModule, {
   serviceName: 'notification-service',
   portEnvVar: 'NOTIFICATION_SERVICE_PORT',
   hasGraphQL: true,
-  /** Enable implicit type conversion for query/param DTOs (string "true" → boolean) */
-  validationPipeOverrides: { transformOptions: { enableImplicitConversion: true } },
+  /** SEC-M12: Disable implicit type conversion to prevent type confusion attacks.
+   *  Explicit @Type() decorators must be used on DTOs that need transformation. */
+  validationPipeOverrides: { transformOptions: { enableImplicitConversion: false } },
 });

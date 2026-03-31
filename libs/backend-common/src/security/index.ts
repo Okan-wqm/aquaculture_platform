@@ -1,6 +1,9 @@
 // Security Module - Comprehensive security utilities for NestJS
 // Following SOLID principles and best practices
 
+// SEC-L15: Centralized sensitive field constants for consistent PII redaction
+export * from './security-constants';
+
 // Interfaces and Types
 export * from './interfaces';
 

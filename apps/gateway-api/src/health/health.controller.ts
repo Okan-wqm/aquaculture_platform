@@ -1,6 +1,7 @@
-import { Controller, Get, HttpCode, HttpException, HttpStatus, Res } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpException, HttpStatus, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 
+import { RolesGuard, Role, Roles } from '@aquaculture/backend-common';
 import { Public } from '../guards/auth.guard';
 
 import { HealthService, HealthStatus } from './health.service';
@@ -118,11 +119,15 @@ export class HealthController {
   }
 
   /**
-   * Detailed health check endpoint (auth required).
-   * Returns full internal details including service URLs, memory, uptime.
-   * For monitoring dashboards and debugging only.
-   * No @Public() decorator = requires authentication via global AuthGuard.
+   * SEC-L06: Detailed health check endpoint restricted to platform administrators.
+   *
+   * Returns full internal details including service URLs, memory usage, and uptime.
+   * This information is valuable for infrastructure reconnaissance attacks if exposed
+   * to regular users, so access is limited to SUPER_ADMIN and TENANT_ADMIN roles.
+   * The global AuthGuard handles JWT verification; RolesGuard enforces role check.
    */
+  @UseGuards(RolesGuard)
+  @Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN)
   @Get('detail')
   @HttpCode(HttpStatus.OK)
   async healthDetail(): Promise<HealthStatus> {

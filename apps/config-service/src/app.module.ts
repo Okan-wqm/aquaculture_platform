@@ -6,9 +6,9 @@ import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/ap
 import { join } from 'path';
 import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard } from '@aquaculture/backend-common';
+import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -62,6 +62,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
       autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+      /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+       *  The gateway already blocks batching, but subgraphs must also enforce this as
+       *  defense-in-depth in case a subgraph becomes directly accessible. */
+      allowBatchedHttpRequests: false,
       /**
        * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
        * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
@@ -88,6 +92,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     CqrsModule.forRoot(),
     ConfigurationModule,
     HealthModule,
+    /** SEC-M22: Audit trail infrastructure for compliance tracking. */
+    AuditLogModule.forRoot(),
   ],
   providers: [
     {
@@ -109,6 +115,11 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditLogInterceptor,
     },
   ],
 })

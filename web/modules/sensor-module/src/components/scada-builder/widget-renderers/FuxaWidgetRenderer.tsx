@@ -63,16 +63,60 @@ export function buildFuxaSrcdoc(svgContent: string): string {
 <body>
   ${svgContent}
   <script>
+    /**
+     * SEC-L10: Capture the parent origin for restricted postMessage targeting.
+     *
+     * This iframe runs with sandbox="allow-scripts" (no allow-same-origin),
+     * so its own origin is 'null'. We capture the parent's origin from the
+     * first incoming putValue message (which comes from our trusted bridge)
+     * and use it as the targetOrigin for all outbound postMessage calls.
+     *
+     * This prevents SCADA control values from leaking to untrusted windows:
+     * - Before the first message: outbound calls are queued (not sent to '*')
+     * - After the first message: outbound calls target only the verified parent origin
+     *
+     * The parent-side FuxaMessageBridge also validates event.source to ensure
+     * only messages from THIS iframe's contentWindow are accepted.
+     */
+    var _trustedParentOrigin = null;
+    var _pendingOutbound = [];
+
     // Bridge relay: forward putValue from parent into the SVG's putValue function
     window.addEventListener('message', function(e) {
+      // SEC-L10: Capture and validate the parent origin on first contact.
+      // Only accept messages that look like our bridge protocol (have type + id).
+      if (e.data && typeof e.data.type === 'string' && typeof e.data.id === 'string') {
+        if (!_trustedParentOrigin && e.origin && e.origin !== 'null') {
+          _trustedParentOrigin = e.origin;
+          // Flush any queued outbound messages now that we know the parent origin
+          for (var i = 0; i < _pendingOutbound.length; i++) {
+            window.parent.postMessage(_pendingOutbound[i], _trustedParentOrigin);
+          }
+          _pendingOutbound = [];
+        }
+      }
       if (e.data && e.data.type === 'putValue' && typeof putValue === 'function') {
         putValue(e.data.id, e.data.value);
       }
     });
+
+    /**
+     * SEC-L10: Safe postMessage wrapper that only sends to verified parent origin.
+     * If the parent origin is not yet known (no putValue received yet), messages
+     * are queued and flushed once the parent origin is established.
+     */
+    function _safePostToParent(msg) {
+      if (_trustedParentOrigin) {
+        window.parent.postMessage(msg, _trustedParentOrigin);
+      } else {
+        _pendingOutbound.push(msg);
+      }
+    }
+
     // Override SVG's postValue to relay user interactions back to parent
     var _origPostValue = typeof postValue === 'function' ? postValue : function(){};
     postValue = function(id, value) {
-      window.parent.postMessage({type:'postValue', id:id, value:value}, '*');
+      _safePostToParent({type:'postValue', id:id, value:value});
     };
   </script>
 </body>

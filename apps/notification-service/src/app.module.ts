@@ -7,7 +7,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { JwtModule } from '@nestjs/jwt';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
 import {
   CorrelationIdMiddleware,
@@ -18,6 +18,8 @@ import {
   ServiceIdentityGuard,
   TenantGuard,
   RolesGuard,
+  AuditLogModule,
+  AuditLogInterceptor,
 } from '@aquaculture/backend-common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
@@ -89,6 +91,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         autoSchemaFile: { federation: 2 },
+        /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+         *  The gateway already blocks batching, but subgraphs must also enforce this as
+         *  defense-in-depth in case a subgraph becomes directly accessible. */
+        allowBatchedHttpRequests: false,
         /**
          * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
          * Without depth limiting, an attacker can craft a deeply nested GraphQL query
@@ -161,6 +167,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     // Feature modules
     NotificationModule,
     HealthModule,
+    /** SEC-M22: Audit trail infrastructure for compliance tracking. */
+    AuditLogModule.forRoot(),
   ],
   providers: [
     {
@@ -195,6 +203,11 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditLogInterceptor,
     },
   ],
 })

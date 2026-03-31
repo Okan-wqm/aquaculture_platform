@@ -77,8 +77,13 @@ export class SentinelHubResolver {
   }
 
   /**
-   * Get access token from CDSE (proxied to avoid CORS)
-   * Frontend calls this instead of CDSE directly
+   * SEC-C14: Token query now returns only expiresIn metadata.
+   *
+   * The accessToken field is hidden via @HideField() on SentinelHubToken.
+   * All actual Sentinel Hub API calls are proxied through
+   * SentinelHubProxyController (/api/sentinel-hub/*), which injects
+   * the OAuth token server-side. The frontend uses this query only to
+   * check if a valid token can be obtained (i.e., credentials are working).
    */
   @Query(() => SentinelHubToken, { name: 'sentinelHubToken', nullable: true })
   async getAccessToken(
@@ -93,8 +98,11 @@ export class SentinelHubResolver {
   }
 
   /**
-   * Get WMTS configuration (instanceId + token)
-   * Used by frontend to construct WMTS tile URLs for fast satellite imagery
+   * SEC-C14: WMTS config query now returns only instanceId + expiresIn.
+   *
+   * The accessToken is hidden via @HideField() on SentinelHubWmtsConfig.
+   * The frontend uses the instanceId to construct proxy URLs (routed through
+   * /api/sentinel-hub/wms/:layerId) and expiresIn for refresh scheduling.
    */
   @Query(() => SentinelHubWmtsConfig, { name: 'sentinelHubWmtsConfig', nullable: true })
   async getWmtsConfig(

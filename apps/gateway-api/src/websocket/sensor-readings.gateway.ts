@@ -321,22 +321,44 @@ export class SensorReadingsGateway
   }
 
   /**
-   * Client subscribes to edge device I/O data stream
+   * SEC-M18: Client subscribes to edge device I/O data stream.
+   *
+   * Validates device code format and enforces tenant ownership before subscribing.
+   * Without this check, any authenticated user could subscribe to another tenant's
+   * device data by guessing/enumerating device codes. The room name already includes
+   * tenantId (scoped to the JWT), but we additionally validate the device code format
+   * to reject injection attempts and ensure only safe identifiers reach the room system.
    */
   @SubscribeMessage('subscribeEdgeIo')
   handleSubscribeEdgeIo(
     client: Socket,
     payload: { deviceCode: string },
-  ): { success: boolean } {
+  ): { success: boolean; reason?: string } {
     const clientData = this.clients.get(client.id);
     if (!clientData || !payload?.deviceCode) {
-      return { success: false };
+      return { success: false, reason: 'Not authenticated or missing deviceCode' };
     }
 
+    // SEC-M18: Validate device code format — only alphanumeric, hyphens, and underscores allowed.
+    // Prevents injection of special characters (e.g., colons, slashes) into the room name.
+    const DEVICE_CODE_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
+    if (!DEVICE_CODE_REGEX.test(payload.deviceCode)) {
+      this.logger.warn(
+        `SEC-M18: Client ${client.id} sent invalid device code format: ${payload.deviceCode.substring(0, 50)}`,
+      );
+      return { success: false, reason: 'Invalid device code format' };
+    }
+
+    // SEC-M18: The room is always scoped to the client's tenantId from JWT.
+    // This ensures tenant isolation — a client cannot subscribe to another tenant's
+    // device stream because the tenantId is derived from the authenticated JWT, not
+    // from the payload. The topic format `edgeIo:{tenantId}:{deviceCode}` guarantees
+    // that even if a deviceCode exists in another tenant, data is only routed to
+    // rooms matching the publishing tenant.
     const room = `edgeIo:${clientData.tenantId}:${payload.deviceCode}`;
     void client.join(room);
     this.logger.debug(
-      `Client ${client.id} subscribed to edge I/O: ${payload.deviceCode}`,
+      `Client ${client.id} subscribed to edge I/O: ${payload.deviceCode} (tenant: ${clientData.tenantId})`,
     );
     return { success: true };
   }

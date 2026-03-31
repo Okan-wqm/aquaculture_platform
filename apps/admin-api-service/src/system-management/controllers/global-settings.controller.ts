@@ -676,7 +676,8 @@ export class GlobalSettingsController {
   // Provisioning Configuration
   // ============================================================================
 
-  @Public()
+  /** SEC-M19: Removed @Public() — this endpoint exposes platform configuration
+   *  and must be protected by the class-level PlatformAdminGuard. */
   @Get('provisioning-config')
   async getProvisioningConfig() {
     return this.globalSettingsService.getProvisioningConfig();

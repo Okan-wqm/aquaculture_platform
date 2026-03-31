@@ -110,7 +110,9 @@ export class FeedingCronService {
    * Creates a deterministic 32-bit integer for PostgreSQL advisory locks
    */
   private getAdvisoryLockKey(jobName: string): number {
-    const hash = crypto.createHash('md5').update(jobName).digest();
+    /** SEC-L02: Use SHA-256 instead of MD5. MD5 has known collision vulnerabilities
+     *  and is prohibited by NIST SP 800-131A for any new application. */
+    const hash = crypto.createHash('sha256').update(jobName).digest();
     return hash.readInt32LE(0);
   }
 

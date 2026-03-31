@@ -308,6 +308,16 @@ export class TokenService {
       const cleanId = user.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
       const schemaName = `tenant_${cleanId}`;
 
+      /**
+       * SEC-M13: Validate schema name before SQL interpolation to prevent injection.
+       * Defense-in-depth — the cleanId derivation above already constrains the format,
+       * but explicit validation ensures no code path can bypass the check.
+       */
+      const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
+      if (!TENANT_SCHEMA_REGEX.test(schemaName)) {
+        throw new Error(`SEC-M13: Invalid schema name format: ${schemaName}`);
+      }
+
       const rows: Array<{ resource_permissions: string[] | null }> = await this.dataSource.query(
         `
         SELECT trp.resource_permissions

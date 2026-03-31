@@ -12,7 +12,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Int, HideField } from '@nestjs/graphql';
 
 @ObjectType()
 @Entity('sentinel_hub_settings')
@@ -93,21 +93,39 @@ export class SentinelHubCredentials {
   isConfigured: boolean;
 }
 
+/**
+ * SEC-C14: SentinelHubToken — accessToken is hidden from GraphQL schema.
+ *
+ * The accessToken field is intentionally excluded from the GraphQL response
+ * via @HideField(). All Sentinel Hub API calls are now proxied through the
+ * backend (see SentinelHubProxyController), so the frontend never needs
+ * direct access to OAuth tokens.
+ *
+ * This eliminates the XSS token exfiltration attack surface: even if an
+ * attacker achieves XSS, there is no token in the browser to steal.
+ */
 @ObjectType()
 export class SentinelHubToken {
-  @Field()
+  @HideField()
   accessToken: string;
 
   @Field(() => Int)
   expiresIn: number;
 }
 
+/**
+ * SEC-C14: SentinelHubWmtsConfig — accessToken is hidden from GraphQL schema.
+ *
+ * Same rationale as SentinelHubToken above. The instanceId remains visible
+ * because it is not a secret — it identifies the WMTS configuration but
+ * cannot be used without an OAuth token.
+ */
 @ObjectType()
 export class SentinelHubWmtsConfig {
   @Field()
   instanceId: string;
 
-  @Field()
+  @HideField()
   accessToken: string;
 
   @Field(() => Int)

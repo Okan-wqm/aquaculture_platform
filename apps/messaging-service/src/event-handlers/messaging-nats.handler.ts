@@ -9,6 +9,23 @@ import { PartitionManagerService } from '../partition/partition-manager.service'
 /** UUID representing an anonymised / deleted user. */
 const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
 
+/**
+ * SEC-M17: Strict tenant schema name validation regex.
+ *
+ * NATS messages are internal but may originate from compromised containers.
+ * Only 'public', 'messaging', or 'tenant_{uuid}' format is accepted.
+ * This prevents SQL injection via crafted schema names in NATS payloads.
+ */
+const TENANT_SCHEMA_REGEX =
+  /^tenant_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * SEC-M17: Validate a tenant ID for use in SQL search_path.
+ * Accepts only lowercase UUID v4 format to prevent injection.
+ */
+const TENANT_ID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 interface VerifyMembershipPayload {
   channelId: string;
   userId: string;
@@ -75,16 +92,26 @@ export class MessagingNatsHandler {
   ) {}
 
   /**
-   * Set the PostgreSQL search_path to the tenant schema for a query runner.
+   * SEC-M17: Set the PostgreSQL search_path to the tenant schema for a query runner.
+   *
    * Must be called before any tenant-scoped DB operation in NATS handlers,
    * because there is no HTTP middleware to set the schema automatically.
+   * Validates tenant ID against strict UUID regex before interpolation to
+   * prevent SQL injection via crafted NATS messages from compromised containers.
+   *
+   * @throws Error if tenantId does not match UUID v4 format
    */
   private async setTenantSchema(
     queryRunner: import('typeorm').QueryRunner,
     tenantId: string,
   ): Promise<void> {
+    if (!TENANT_ID_REGEX.test(tenantId)) {
+      throw new Error(
+        `SEC-M17: Invalid tenant ID format rejected: ${tenantId.substring(0, 50)}`,
+      );
+    }
     await queryRunner.query(
-      `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
+      `SET search_path TO "tenant_${tenantId}", messaging, public`,
     );
   }
 
@@ -228,12 +255,32 @@ export class MessagingNatsHandler {
   }
 
   /**
-   * When a new tenant is provisioned, create messaging partitions for its schema.
+   * SEC-M17: When a new tenant is provisioned, create messaging partitions for its schema.
+   *
+   * Validates both tenantId (UUID) and schemaName (tenant_{uuid} format) from the
+   * NATS payload before processing. Rejects payloads with invalid formats to prevent
+   * SQL injection via crafted NATS messages from compromised containers.
    */
   @EventPattern('events.TenantProvisioned')
   async handleTenantProvisioned(
     @Payload() data: TenantProvisionedPayload,
   ): Promise<void> {
+    // SEC-M17: Validate tenantId format
+    if (!TENANT_ID_REGEX.test(data.tenantId)) {
+      this.logger.error(
+        `SEC-M17: Rejected TenantProvisioned with invalid tenantId: ${String(data.tenantId).substring(0, 50)}`,
+      );
+      return;
+    }
+
+    // SEC-M17: Validate schemaName format (must be tenant_{uuid})
+    if (!TENANT_SCHEMA_REGEX.test(data.schemaName)) {
+      this.logger.error(
+        `SEC-M17: Rejected TenantProvisioned with invalid schemaName: ${String(data.schemaName).substring(0, 80)}`,
+      );
+      return;
+    }
+
     this.logger.log(
       `TenantProvisioned received — ensuring partitions for ${data.schemaName}`,
     );

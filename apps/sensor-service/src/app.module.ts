@@ -239,6 +239,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
         return {
           autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+          /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+           *  The gateway already blocks batching, but subgraphs must also enforce this as
+           *  defense-in-depth in case a subgraph becomes directly accessible. */
+          allowBatchedHttpRequests: false,
           buildSchemaOptions: {
             // VFD entities and their nested types are registered via @ObjectType decorators
             // This ensures proper schema composition in Apollo Federation

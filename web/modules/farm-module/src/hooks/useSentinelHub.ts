@@ -31,12 +31,14 @@ const SENTINEL_HUB_STATUS_QUERY = `
   }
 `;
 
-// Request a short-lived Sentinel Hub access token from the backend.
-// The backend exchanges clientId/clientSecret server-side and returns only the token.
-const SENTINEL_HUB_TOKEN_QUERY = `
+/**
+ * SEC-C14: Token check query returns only expiresIn (accessToken is @HideField).
+ * Used solely to verify that backend credentials are configured and working.
+ * All actual Sentinel Hub API calls go through the backend proxy (/api/sentinel-hub/*).
+ */
+const SENTINEL_HUB_TOKEN_CHECK_QUERY = `
   query SentinelHubToken {
     sentinelHubToken {
-      accessToken
       expiresIn
     }
   }
@@ -77,8 +79,8 @@ export interface UseSentinelHubReturn {
 export function useSentinelHub(): UseSentinelHubReturn {
   const { token: authToken } = useAuth();
 
-  // State
-  const [sentinelToken, setSentinelToken] = useState<string | null>(null);
+  // SEC-C14: sentinelToken is no longer stored in the browser.
+  // It exists only on the backend. We track only "verified" state.
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isConfigured, setIsConfigured] = useState(false);
@@ -111,18 +113,18 @@ export function useSentinelHub(): UseSentinelHubReturn {
   }, [authToken]);
 
   /**
-   * Fetch a short-lived Sentinel Hub access token from the backend.
-   * The backend performs the OAuth client_credentials exchange server-side.
+   * SEC-C14: Verify that backend credentials are working.
+   * The token never reaches the browser — only expiresIn is returned.
+   * All API calls go through the backend proxy (/api/sentinel-hub/*).
    */
-  const fetchToken = useCallback(async () => {
+  const verifyCredentials = useCallback(async () => {
     if (!authToken) return;
     try {
       const data = await graphqlClient.request<{
-        sentinelHubToken: { accessToken: string; expiresIn: number };
-      }>(SENTINEL_HUB_TOKEN_QUERY);
+        sentinelHubToken: { expiresIn: number } | null;
+      }>(SENTINEL_HUB_TOKEN_CHECK_QUERY);
 
-      if (data.sentinelHubToken?.accessToken) {
-        setSentinelToken(data.sentinelHubToken.accessToken);
+      if (data.sentinelHubToken?.expiresIn) {
         setIsInitialized(true);
         setError(null);
       } else {
@@ -130,7 +132,7 @@ export function useSentinelHub(): UseSentinelHubReturn {
         setIsInitialized(false);
       }
     } catch (err) {
-      if (import.meta.env.DEV) console.error('Failed to fetch Sentinel Hub token:', err);
+      if (import.meta.env.DEV) console.error('Failed to verify Sentinel Hub credentials:', err);
       setIsConfigured(false);
       setIsInitialized(false);
     }
@@ -142,9 +144,9 @@ export function useSentinelHub(): UseSentinelHubReturn {
   useEffect(() => {
     if (authToken) {
       fetchStatus();
-      fetchToken();
+      verifyCredentials();
     }
-  }, [authToken, fetchStatus, fetchToken]);
+  }, [authToken, fetchStatus, verifyCredentials]);
 
   /**
    * Clean up blob URLs on unmount
@@ -158,7 +160,8 @@ export function useSentinelHub(): UseSentinelHubReturn {
   }, []);
 
   /**
-   * Fetch satellite image using the server-supplied access token
+   * Fetch satellite image via backend proxy.
+   * SEC-C14: No token is passed — the backend handles authentication.
    */
   const fetchImage = useCallback(
     async (
@@ -166,7 +169,7 @@ export function useSentinelHub(): UseSentinelHubReturn {
       date: Date,
       layer: LayerType = 'TRUE-COLOR'
     ) => {
-      if (!isInitialized || !sentinelToken) {
+      if (!isInitialized) {
         setError('Sentinel Hub yapılandırılmamış. Ayarlar sayfasından yapılandırın.');
         return;
       }
@@ -187,7 +190,6 @@ export function useSentinelHub(): UseSentinelHubReturn {
             width: 512,
             height: 512,
           },
-          sentinelToken,
         );
 
         if (previousImageUrl.current) {
@@ -204,36 +206,35 @@ export function useSentinelHub(): UseSentinelHubReturn {
         setIsLoading(false);
       }
     },
-    [isInitialized, sentinelToken]
+    [isInitialized]
   );
 
   /**
-   * Fetch available dates for a location
+   * Fetch available dates for a location via backend proxy
    */
   const fetchAvailableDates = useCallback(
     async (bbox: [number, number, number, number], from: Date, to: Date) => {
-      if (!isInitialized || !sentinelToken) return;
+      if (!isInitialized) return;
 
       try {
-        const dates = await getAvailableDates(bbox, from, to, sentinelToken);
+        const dates = await getAvailableDates(bbox, from, to);
         setAvailableDates(dates);
       } catch (err) {
         if (import.meta.env.DEV) console.error('Failed to fetch available dates:', err);
         setAvailableDates([]);
       }
     },
-    [isInitialized, sentinelToken]
+    [isInitialized]
   );
 
   /**
-   * Refresh token and status from backend
+   * Refresh credential status from backend
    */
   const refreshCredentials = useCallback(async () => {
     setIsInitialized(false);
-    setSentinelToken(null);
     await fetchStatus();
-    await fetchToken();
-  }, [fetchStatus, fetchToken]);
+    await verifyCredentials();
+  }, [fetchStatus, verifyCredentials]);
 
   /**
    * Clear image cache

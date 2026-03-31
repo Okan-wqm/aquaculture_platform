@@ -160,6 +160,10 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
         autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+         *  The gateway already blocks batching, but subgraphs must also enforce this as
+         *  defense-in-depth in case a subgraph becomes directly accessible. */
+        allowBatchedHttpRequests: false,
         /**
          * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
          * Without depth limiting, an attacker can craft a deeply nested GraphQL query

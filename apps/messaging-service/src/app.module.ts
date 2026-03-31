@@ -188,6 +188,10 @@ const complexityCache = new Map<string, number>();
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
+          /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+           *  The gateway already blocks batching, but subgraphs must also enforce this as
+           *  defense-in-depth in case a subgraph becomes directly accessible. */
+          allowBatchedHttpRequests: false,
           autoSchemaFile: {
             federation: 2,
             path: join('/tmp', 'messaging-schema.graphql'),
@@ -199,7 +203,9 @@ const complexityCache = new Map<string, number>();
                 async didResolveOperation({ request, document, schema }) {
                   const docSource = request.query ?? '';
                   const opName = request.operationName ?? '';
-                  const cacheKey = createHash('sha1')
+                  /** SEC-L01: Use SHA-256 instead of deprecated SHA-1 for cache key generation.
+                   *  SHA-1 has known collision vulnerabilities (SHAttered attack, 2017). */
+                  const cacheKey = createHash('sha256')
                     .update(docSource)
                     .update('\x00')
                     .update(opName)

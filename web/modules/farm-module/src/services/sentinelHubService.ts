@@ -13,41 +13,36 @@
  * - MOISTURE: Nem indeksi
  */
 
-import {
-  setAuthToken,
-  BBox,
-  CRS_EPSG4326,
-  MimeTypes,
-  ApiType,
-  S2L2ALayer,
-} from '@sentinel-hub/sentinelhub-js';
 import { graphqlClient } from '@aquaculture/shared-ui';
 
-// GraphQL query to get token from backend (proxied to avoid CORS)
-const SENTINEL_HUB_TOKEN_QUERY = `
+/**
+ * SEC-C14: Token query now only returns expiresIn (accessToken is @HideField).
+ * This query is used solely to verify that Sentinel Hub credentials are working.
+ * All actual API calls go through the backend proxy (/api/sentinel-hub/*).
+ */
+const SENTINEL_HUB_TOKEN_CHECK_QUERY = `
   query SentinelHubToken {
     sentinelHubToken {
-      accessToken
       expiresIn
     }
   }
 `;
 
 /**
- * Request OAuth token from backend (which proxies to CDSE).
- * Uses graphqlClient which injects the user's auth token via shared-ui interceptors.
- * Never reads from localStorage directly.
+ * SEC-C14: Verify that Sentinel Hub credentials are configured and working.
+ * Returns the expiresIn value if credentials are valid. The actual OAuth token
+ * is never sent to the browser — it lives only on the backend.
  */
-async function requestTokenFromBackend(): Promise<string> {
+async function verifyCredentialsWithBackend(): Promise<number> {
   const data = await graphqlClient.request<{
-    sentinelHubToken: { accessToken: string; expiresIn: number };
-  }>(SENTINEL_HUB_TOKEN_QUERY);
+    sentinelHubToken: { expiresIn: number } | null;
+  }>(SENTINEL_HUB_TOKEN_CHECK_QUERY);
 
-  if (!data.sentinelHubToken?.accessToken) {
+  if (!data.sentinelHubToken?.expiresIn) {
     throw new Error('Sentinel Hub yapılandırılmamış');
   }
 
-  return data.sentinelHubToken.accessToken;
+  return data.sentinelHubToken.expiresIn;
 }
 
 // SentinelConfig is kept for type compatibility but the clientSecret
@@ -180,73 +175,62 @@ const imageCache = new Map<string, { blob: Blob; expiry: Date }>();
 const CACHE_DURATION_HOURS = 24;
 
 /**
- * TokenManager - Sentinel Hub CDSE token yönetimi
- * - Otomatik token yenileme (expiry öncesi)
- * - Thread-safe (birden fazla eşzamanlı istek için)
- * - Error retry mekanizması
+ * SEC-C14: CredentialManager replaces TokenManager.
+ *
+ * OAuth tokens no longer leave the backend. This manager tracks only whether
+ * Sentinel Hub credentials are configured and valid by calling the backend's
+ * token-check query (which returns expiresIn but NOT the accessToken itself).
+ *
+ * All Sentinel Hub API calls are now proxied through the backend endpoints
+ * at /api/sentinel-hub/*, which inject the OAuth token server-side.
  */
-class TokenManager {
-  private token: string | null = null;
+class CredentialManager {
+  private verified = false;
   private expiry: number = 0;
-  private refreshPromise: Promise<string> | null = null;
-  private refreshBuffer: number = 60000; // 60 saniye önce yenile
+  private verifyPromise: Promise<void> | null = null;
+  private refreshBuffer: number = 60000; // Refresh 60s before expiry
 
   /**
-   * Token geçerli mi kontrol et
+   * Check if credentials have been recently verified
    */
-  private isTokenValid(): boolean {
-    return !!(this.token && Date.now() < this.expiry - this.refreshBuffer);
+  private isVerified(): boolean {
+    return this.verified && Date.now() < this.expiry - this.refreshBuffer;
   }
 
   /**
-   * Geçerli bir token al (gerekirse yenile)
+   * Ensure credentials are verified (backend has a working token)
    */
-  async getValidToken(): Promise<string> {
-    // Token hala geçerliyse direkt döndür
-    if (this.isTokenValid()) {
-      return this.token!;
+  async ensureVerified(): Promise<void> {
+    if (this.isVerified()) return;
+
+    if (this.verifyPromise) {
+      return this.verifyPromise;
     }
 
-    // Zaten bir yenileme işlemi varsa onu bekle
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    // Yeni token al
-    this.refreshPromise = this.refreshToken();
-
+    this.verifyPromise = this.verify();
     try {
-      const token = await this.refreshPromise;
-      return token;
+      await this.verifyPromise;
     } finally {
-      this.refreshPromise = null;
+      this.verifyPromise = null;
     }
   }
 
   /**
-   * Backend'den yeni token al
+   * Verify credentials with the backend
    */
-  private async refreshToken(): Promise<string> {
+  private async verify(): Promise<void> {
     const maxRetries = 2;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const token = await requestTokenFromBackend();
-
-        // Token'ı kaydet
-        this.token = token;
-        this.expiry = Date.now() + 1800 * 1000; // 30 dakika
-
-        // Sentinel Hub JS library için de ayarla
-        setAuthToken(token);
-
-        return token;
+        const expiresIn = await verifyCredentialsWithBackend();
+        this.verified = true;
+        this.expiry = Date.now() + expiresIn * 1000;
+        return;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-
         if (attempt < maxRetries) {
-          // Exponential backoff
           await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
         }
       }
@@ -256,72 +240,78 @@ class TokenManager {
   }
 
   /**
-   * Mevcut token'ı geçersiz kıl (401 hatasında kullanılır)
+   * Mark credentials as needing re-verification
    */
   invalidate(): void {
-    this.token = null;
+    this.verified = false;
     this.expiry = 0;
   }
 
   /**
-   * Token durumu
+   * Get credential status
    */
   getStatus(): { hasToken: boolean; expiresIn: number | null } {
     return {
-      hasToken: !!this.token,
-      expiresIn: this.token ? Math.max(0, Math.floor((this.expiry - Date.now()) / 1000)) : null,
+      hasToken: this.verified,
+      expiresIn: this.verified ? Math.max(0, Math.floor((this.expiry - Date.now()) / 1000)) : null,
     };
   }
 }
 
-// Singleton instance
-const tokenManager = new TokenManager();
+/** Singleton instance */
+const credentialManager = new CredentialManager();
 
 /**
- * Get valid token for Sentinel Hub API calls
- * Use this from other services (like sentinelTileService)
+ * SEC-C14: Ensure backend credentials are verified.
+ * Returns a placeholder string since the actual token lives on the backend.
+ * Retained for API compatibility with sentinelTileService imports.
  */
 export async function getValidToken(): Promise<string> {
-  return tokenManager.getValidToken();
+  await credentialManager.ensureVerified();
+  return 'proxy-managed';
 }
 
 /**
- * Invalidate current token (call on 401 errors)
+ * Invalidate cached credential verification (call on 401 errors from proxy)
  */
 export function invalidateToken(): void {
-  tokenManager.invalidate();
+  credentialManager.invalidate();
 }
 
 /**
- * Get token status for debugging
+ * Get credential status for debugging
  */
 export function getTokenStatus(): { hasToken: boolean; expiresIn: number | null } {
-  return tokenManager.getStatus();
+  return credentialManager.getStatus();
 }
 
 /**
- * Initialize Sentinel Hub with credentials
- * Gets token from backend (which proxies to CDSE to avoid CORS)
+ * Initialize Sentinel Hub — verifies backend credentials are working.
+ * SEC-C14: No tokens are stored in the browser.
  */
 export async function initSentinelHub(_config?: SentinelConfig): Promise<void> {
   try {
-    await tokenManager.getValidToken();
+    await credentialManager.ensureVerified();
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Sentinel Hub kimlik doğrulama başarısız');
   }
 }
 
 /**
- * Ensure we have a valid token
+ * SEC-C14: Proxy URL for backend Processing API calls.
+ * The backend injects the OAuth token server-side.
  */
-async function ensureValidToken(): Promise<void> {
-  await tokenManager.getValidToken();
-}
+const PROXY_PROCESS_URL = '/api/sentinel-hub/process';
 
 /**
- * Get satellite image for a bounding box.
+ * Get satellite image for a bounding box via backend proxy.
+ *
+ * SEC-C14: The image request is sent to the backend proxy, which injects
+ * the OAuth token server-side and forwards to Sentinel Hub. No token
+ * is present in the browser.
+ *
  * @param params Image request parameters
- * @param _accessToken Optional server-issued access token (ignored — tokenManager handles auth)
+ * @param _accessToken Deprecated — tokens are managed server-side
  */
 export async function getSatelliteImage(
   params: ImageParams,
@@ -335,33 +325,28 @@ export async function getSatelliteImage(
     return cached.blob;
   }
 
-  await ensureValidToken();
+  await credentialManager.ensureVerified();
 
   const evalscript = getEvalscript(params.layer || 'TRUE-COLOR');
 
-  const layer = new S2L2ALayer({
-    evalscript,
-  });
-
-  const bbox = new BBox(
-    CRS_EPSG4326,
-    params.bbox[0], // minLon
-    params.bbox[1], // minLat
-    params.bbox[2], // maxLon
-    params.bbox[3]  // maxLat
-  );
-
-  const getMapParams = {
-    bbox,
-    fromTime: params.fromDate,
-    toTime: params.toDate,
-    width: params.width || 512,
-    height: params.height || 512,
-    format: MimeTypes.PNG,
-  };
-
   try {
-    const blob = await layer.getMap(getMapParams, ApiType.PROCESSING);
+    // SEC-C14: Route through backend proxy instead of direct CDSE call
+    const queryParams = new URLSearchParams({
+      bbox: params.bbox.join(','),
+      fromDate: params.fromDate.toISOString(),
+      toDate: params.toDate.toISOString(),
+      width: String(params.width || 512),
+      height: String(params.height || 512),
+      evalscript: encodeURIComponent(evalscript),
+    });
+
+    const response = await fetch(`${PROXY_PROCESS_URL}?${queryParams.toString()}`);
+
+    if (!response.ok) {
+      throw new Error(`Proxy returned ${response.status}`);
+    }
+
+    const blob = await response.blob();
 
     // Cache result
     imageCache.set(cacheKey, {
@@ -377,8 +362,12 @@ export async function getSatelliteImage(
 }
 
 /**
- * Get available satellite image dates for a location.
- * @param _accessToken Optional — ignored, tokenManager handles auth
+ * Get available satellite image dates for a location via backend proxy.
+ *
+ * SEC-C14: Catalog search is now proxied through the backend.
+ * The backend injects the OAuth token server-side.
+ *
+ * @param _accessToken Deprecated — tokens are managed server-side
  */
 export async function getAvailableDates(
   bbox: [number, number, number, number],
@@ -386,14 +375,34 @@ export async function getAvailableDates(
   toDate: Date,
   _accessToken?: string,
 ): Promise<Date[]> {
-  await ensureValidToken();
-
-  const layer = new S2L2ALayer({});
-  const bboxObj = new BBox(CRS_EPSG4326, bbox[0], bbox[1], bbox[2], bbox[3]);
+  await credentialManager.ensureVerified();
 
   try {
-    const dates = await layer.findDatesUTC(bboxObj, fromDate, toDate);
-    return dates;
+    const queryParams = new URLSearchParams({
+      bbox: bbox.join(','),
+      fromDate: fromDate.toISOString(),
+      toDate: toDate.toISOString(),
+      collections: 'sentinel-2-l2a',
+    });
+
+    const response = await fetch(`/api/sentinel-hub/catalog/search?${queryParams.toString()}`);
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+
+    // Extract dates from STAC catalog features
+    if (data.features && Array.isArray(data.features)) {
+      const dates: Date[] = data.features
+        .map((f: { properties?: { datetime?: string } }) => f.properties?.datetime)
+        .filter(Boolean)
+        .map((d: string) => new Date(d));
+      return dates;
+    }
+
+    return [];
   } catch (error) {
     if (import.meta.env.DEV) console.error('Failed to get available dates:', error);
     return [];

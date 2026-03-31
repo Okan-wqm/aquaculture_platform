@@ -6,22 +6,8 @@ import {
   UpdateEvent,
   RemoveEvent,
 } from 'typeorm';
-import { getRequestContext } from '@aquaculture/backend-common';
+import { getRequestContext, SENSITIVE_FIELDS_SET } from '@aquaculture/backend-common';
 import { isAuditable } from './auditable.decorator';
-
-/**
- * Sensitive fields that should never be stored in audit logs.
- * Values for these fields are replaced with '[REDACTED]'.
- */
-const SENSITIVE_FIELDS = new Set([
-  'password',
-  'appKey',
-  'clientPrivateKey',
-  'clientCertificate',
-  'serverCertificate',
-  'provisioningToken',
-  'mqttPasswordHash',
-]);
 
 /**
  * Redact sensitive fields from an object before persisting to sensor_audit_logs.
@@ -31,9 +17,10 @@ function redactSensitiveFields(
 ): Record<string, unknown> | undefined {
   if (!obj) return undefined;
 
+  /** SEC-L15: Use shared SENSITIVE_FIELDS_SET for consistent PII redaction across all services. */
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
-    result[key] = SENSITIVE_FIELDS.has(key) ? '[REDACTED]' : value;
+    result[key] = SENSITIVE_FIELDS_SET.has(key) ? '[REDACTED]' : value;
   }
   return result;
 }

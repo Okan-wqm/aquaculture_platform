@@ -11,8 +11,17 @@
 
 import { LayerType, getValidToken, invalidateToken } from './sentinelHubService';
 
-// CDSE Sentinel Hub endpoints
-const CDSE_PROCESS_URL = 'https://sh.dataspace.copernicus.eu/api/v1/process';
+/**
+ * SEC-C14: Processing API requests are now proxied through the backend.
+ * The backend injects the OAuth token server-side, so tokens never reach the browser.
+ * The proxy endpoint is provided by SentinelHubProxyController in farm-service.
+ */
+const PROXY_PROCESS_URL = '/api/sentinel-hub/process';
+
+/**
+ * @deprecated Direct CDSE URL retained only for reference. All calls go through backend proxy.
+ */
+const _CDSE_PROCESS_URL_DEPRECATED = 'https://sh.dataspace.copernicus.eu/api/v1/process';
 
 // =============================================================================
 // Rate Limiting - 429 Too Many Requests önleme
@@ -206,8 +215,12 @@ async function fetchWithRetry(
 
   throw new Error('Max retries exceeded');
 }
-const CDSE_CATALOG_URL = 'https://sh.dataspace.copernicus.eu/api/v1/catalog/1.0.0/search';
-const CDSE_WMTS_URL = 'https://sh.dataspace.copernicus.eu/ogc/wmts';
+/**
+ * SEC-C14: Catalog and WMTS requests are now proxied through the backend.
+ * OAuth tokens are injected server-side by SentinelHubProxyController.
+ */
+const PROXY_CATALOG_URL = '/api/sentinel-hub/catalog/search';
+const PROXY_WMS_BASE_URL = '/api/sentinel-hub/wms';
 
 // Tile size (standard web map tile)
 export const TILE_SIZE = 256;
@@ -257,26 +270,23 @@ export function getRecommendedAPI(layer: LayerType): 'WMTS' | 'PROCESSING' {
 }
 
 /**
- * Generate WMTS tile URL for Leaflet TileLayer
- * Uses CDSE (Copernicus Data Space Ecosystem) WMTS endpoint
+ * Generate WMTS tile URL for Leaflet TileLayer.
  *
- * IMPORTANT: This requires a Configuration Instance to be created in Sentinel Hub Dashboard
- * with layers matching the WMTS_LAYER_NAMES above.
- *
- * NOTE: For water quality layers, WMTS uses proxy layers which may not be accurate.
- * Use Processing API for accurate water quality results.
+ * SEC-C14: Requests are now routed through the backend proxy
+ * (/api/sentinel-hub/wms/:layerId) which injects the OAuth token server-side.
+ * The token parameter is no longer appended to the URL.
  *
  * @param instanceId - Configuration Instance ID from Sentinel Hub Dashboard
  * @param layer - Layer type to display
  * @param date - Date for satellite imagery
- * @param token - Access token from CDSE
+ * @param _token - Deprecated. Tokens are injected server-side by the proxy.
  * @returns URL template for Leaflet TileLayer (with {z}, {x}, {y} placeholders)
  */
 export function getWMTSTileUrl(
   instanceId: string,
   layer: LayerType,
   date: Date,
-  token: string
+  _token?: string
 ): string {
   const layerName = WMTS_LAYER_NAMES[layer];
 
@@ -287,10 +297,9 @@ export function getWMTSTileUrl(
   startDate.setDate(startDate.getDate() - 30);
   const startDateStr = startDate.toISOString().split('T')[0];
 
-  // WMTS GetTile URL with Leaflet placeholder format
-  // Note: Token is optional for public Configuration Instances
-  // Using date range instead of single date for better mosaic selection
-  const baseUrl = `${CDSE_WMTS_URL}/${instanceId}` +
+  // SEC-C14: Route through backend proxy. The proxy injects the OAuth token
+  // server-side, so no token appears in the browser's network requests.
+  const baseUrl = `${PROXY_WMS_BASE_URL}/${instanceId}` +
     `?layer=${layerName}` +
     `&tilematrixset=PopularWebMercator256` +
     `&Service=WMTS&Request=GetTile&Version=1.0.0` +
@@ -299,8 +308,7 @@ export function getWMTSTileUrl(
     `&TIME=${startDateStr}/${endDate}` +
     `&showLogo=false`;
 
-  // Add token if provided (for private instances)
-  return token ? `${baseUrl}&token=${token}` : baseUrl;
+  return baseUrl;
 }
 
 /**
@@ -808,32 +816,36 @@ async function fetchTileInternal(
   // Build request with EPSG:3857 CRS
   const requestBody = buildTileRequest(bbox, layer, date, maxCloudCoverage, 'EPSG:3857');
 
-  // Retry logic for 401 errors
+  // SEC-C14: Processing API calls are now proxied through the backend.
+  // The backend injects the OAuth token server-side, so we send the
+  // request body as query parameters to the proxy endpoint.
   const maxRetries = 1;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // Get token if not provided or on retry
-      const authToken = attempt === 0 && token ? token : await getValidToken();
-
-      // Use fetchWithRetry for 429 handling with exponential backoff
+      // SEC-C14: Use backend proxy instead of direct CDSE call.
+      // The proxy handles token injection server-side.
       const response = await fetchWithRetry(
-        CDSE_PROCESS_URL,
+        PROXY_PROCESS_URL + '?' + new URLSearchParams({
+          bbox: bbox.join(','),
+          fromDate: (requestBody as Record<string, unknown> & { input: { data: Array<{ dataFilter: { timeRange: { from: string } } }> } }).input.data[0].dataFilter.timeRange.from,
+          toDate: (requestBody as Record<string, unknown> & { input: { data: Array<{ dataFilter: { timeRange: { to: string } } }> } }).input.data[0].dataFilter.timeRange.to,
+          width: String(TILE_SIZE),
+          height: String(TILE_SIZE),
+          evalscript: encodeURIComponent(EVALSCRIPTS[layer]),
+        }),
         {
-          method: 'POST',
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${authToken}`,
           },
-          body: JSON.stringify(requestBody),
         },
         3 // max 3 retries for 429
       );
 
-      // Handle 401 - token expired
+      // Handle 401 - user auth expired
       if (response.status === 401) {
-        invalidateToken();
         if (attempt < maxRetries) {
-          continue; // Retry with new token
+          continue;
         }
         return null;
       }

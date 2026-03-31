@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { getRequestContext } from '../logging/request-context';
+import { validateTenantSchemaName } from './schema-manager.service';
 
 /**
  * Tenant schema regex — only matches tenant_<16 hex chars>.
@@ -63,6 +64,8 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
             }
 
             if (schemaName && TENANT_SCHEMA_REGEX.test(schemaName)) {
+              /** SEC-M13: Validate schema name before SQL interpolation as defense-in-depth */
+              validateTenantSchemaName(schemaName);
               client.query(
                 `SET search_path TO "${schemaName}", ${src}, public`,
                 (qErr: any) => {
@@ -96,6 +99,8 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
 
           if (schemaName && TENANT_SCHEMA_REGEX.test(schemaName)) {
             try {
+              /** SEC-M13: Validate schema name before SQL interpolation as defense-in-depth */
+              validateTenantSchemaName(schemaName);
               await client.query(`SET search_path TO "${schemaName}", ${src}, public`);
             } catch (qErr) {
               logger.error(`Failed to set search_path to ${schemaName}: ${(qErr as Error).message}`);

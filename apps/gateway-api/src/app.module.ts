@@ -24,6 +24,7 @@ import {
   RedisModule,
   RedisService,
   generateServiceIdentityHeaders,
+  JWT_SECURITY_CONSTANTS,
 } from '@aquaculture/backend-common';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
@@ -31,6 +32,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard, JwtPayload } from './guards/auth.guard';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { JwtMiddleware } from './middleware/jwt.middleware';
+import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
 import { StripInternalHeadersMiddleware } from './middleware/strip-internal-headers.middleware';
 import { CsrfMiddleware } from './middleware/csrf.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
@@ -279,21 +281,27 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
           return {
             secret: devSecret,
             signOptions: {
+              /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks. */
+              algorithm: 'HS256' as const,
               expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
             },
           };
         }
 
-        // Validate JWT_SECRET minimum length
-        if (secret.length < 32) {
+        /** SEC-L05: Use shared JWT_SECRET_MIN_LENGTH from backend-common to prevent
+         *  divergence between auth-service, gateway-api, and admin-api-service. */
+        if (secret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
           throw new Error(
-            'JWT_SECRET must be at least 32 characters long for adequate security.',
+            `JWT_SECRET must be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
           );
         }
 
         return {
           secret,
           signOptions: {
+            /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks.
+             *  Without this, an attacker could forge tokens using RS256 with the public key as HMAC secret. */
+            algorithm: 'HS256' as const,
             expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
           },
         };
@@ -616,6 +624,18 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
+    /**
+     * SEC-L08: Register SecurityHeadersMiddleware for all routes.
+     *
+     * This middleware sets defense-in-depth security headers (X-Content-Type-Options,
+     * X-Frame-Options, Strict-Transport-Security, CSP, Permissions-Policy, etc.)
+     * as a fallback when NGINX headers are not applied (e.g., direct API access,
+     * development environments, or NGINX misconfiguration).
+     */
+    consumer
+      .apply(SecurityHeadersMiddleware)
+      .forRoutes('*');
+
     consumer
       .apply(
         // Order matters:

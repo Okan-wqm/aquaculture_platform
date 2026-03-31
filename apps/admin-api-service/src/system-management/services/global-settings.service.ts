@@ -349,7 +349,9 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   private calculateBucket(key: string, identifier: string): number {
-    const hash = crypto.createHash('md5').update(`${key}:${identifier}`).digest('hex');
+    /** SEC-L02: Use SHA-256 instead of MD5. MD5 has known collision vulnerabilities
+     *  and is prohibited by NIST SP 800-131A for any new application. */
+    const hash = crypto.createHash('sha256').update(`${key}:${identifier}`).digest('hex');
     const num = parseInt(hash.substring(0, 8), 16);
     return (num % 100) + 1;
   }

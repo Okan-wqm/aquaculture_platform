@@ -10,6 +10,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
+/** SEC-L15: Use shared SENSITIVE_FIELDS_SET for consistent PII redaction across all services. */
+import { SENSITIVE_FIELDS_SET } from '@aquaculture/backend-common';
 import { AuditLog, AuditAction, AuditChanges, AuditMetadata } from '../entities/audit-log.entity';
 
 export interface LogAuditParams {
@@ -322,12 +324,15 @@ export class AuditLogService {
   /**
    * Entity'yi loglanabilir hale getir (hassas alanları temizle)
    */
+  /**
+   * SEC-L15: Sanitize entity for audit logging using shared SENSITIVE_FIELDS_SET.
+   * Replaces sensitive field values with '[REDACTED]' to prevent PII leakage in logs.
+   */
   private sanitizeEntity(entity: Record<string, unknown>): Record<string, unknown> {
-    const sensitiveFields = ['password', 'token', 'secret', 'apiKey'];
     const sanitized = { ...entity };
 
-    for (const field of sensitiveFields) {
-      if (field in sanitized) {
+    for (const field of Object.keys(sanitized)) {
+      if (SENSITIVE_FIELDS_SET.has(field)) {
         sanitized[field] = '[REDACTED]';
       }
     }

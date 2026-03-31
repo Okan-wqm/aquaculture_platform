@@ -99,7 +99,7 @@ export class TenantRlsService {
     return (
       `CREATE POLICY "${policyName}" ON "${schema}"."${table}" ` +
       `FOR ALL ` +
-      `USING ("${tenantIdColumn}" = current_setting('app.current_tenant')::text)`
+      `USING ("${tenantIdColumn}" = COALESCE(current_setting('app.current_tenant', true), '')::uuid)`
     );
   }
 
@@ -127,6 +127,45 @@ export class TenantRlsService {
       `SELECT set_config('app.current_tenant', $1, true) /* SET LOCAL for RLS */`,
       [tenantId],
     );
+  }
+
+  /**
+   * Clear the tenant context by resetting app.current_tenant to empty string.
+   * When the RLS policy evaluates COALESCE(current_setting('app.current_tenant', true), '')::uuid,
+   * an empty string fails the uuid cast, ensuring no rows are returned.
+   *
+   * This should be called in finally blocks to prevent tenant context leaking
+   * across transactions on the same connection.
+   *
+   * @param manager - The EntityManager (within a transaction)
+   */
+  async clearTenantContext(manager: EntityManager): Promise<void> {
+    await manager.query(
+      `SELECT set_config('app.current_tenant', '', true) /* Clear RLS context */`,
+    );
+  }
+
+  /**
+   * Execute a callback within a tenant-scoped RLS context.
+   * Sets the tenant context before execution and clears it in the finally block,
+   * ensuring no tenant context leakage even if the callback throws.
+   *
+   * @param manager - The EntityManager (must be within an active transaction)
+   * @param tenantId - The tenant UUID to scope the operation to
+   * @param callback - The operation to execute within tenant context
+   * @returns The result of the callback
+   */
+  async withTenantContext<T>(
+    manager: EntityManager,
+    tenantId: string,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    await this.setTenantContext(manager, tenantId);
+    try {
+      return await callback();
+    } finally {
+      await this.clearTenantContext(manager);
+    }
   }
 
   /**

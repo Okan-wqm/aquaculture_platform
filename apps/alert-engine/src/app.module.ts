@@ -6,7 +6,7 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { join } from 'path';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
@@ -24,6 +24,8 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
+  AuditLogModule,
+  AuditLogInterceptor,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
@@ -99,6 +101,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+         *  The gateway already blocks batching, but subgraphs must also enforce this as
+         *  defense-in-depth in case a subgraph becomes directly accessible. */
+        allowBatchedHttpRequests: false,
         /**
          * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
          * Without depth limiting, an attacker can craft a deeply nested GraphQL query
@@ -150,6 +156,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     // Feature modules
     AlertModule,
     HealthModule,
+    /** SEC-M22: Audit trail infrastructure for compliance tracking. */
+    AuditLogModule.forRoot(),
   ],
   providers: [
     // Global exception filter
@@ -172,6 +180,11 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditLogInterceptor,
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,

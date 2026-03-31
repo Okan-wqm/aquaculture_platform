@@ -5,7 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
@@ -27,6 +27,8 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
+  AuditLogModule,
+  AuditLogInterceptor,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
@@ -120,6 +122,10 @@ const complexityCache = new Map<string, number>();
           autoSchemaFile: {
             federation: 2,
           },
+          /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
+           *  The gateway already blocks batching, but subgraphs must also enforce this as
+           *  defense-in-depth in case a subgraph becomes directly accessible. */
+          allowBatchedHttpRequests: false,
           validationRules: [depthLimit(10)],
           plugins: [
             {
@@ -130,7 +136,9 @@ const complexityCache = new Map<string, number>();
                   // so distinct named operations in the same document are treated separately.
                   const docSource = request.query ?? '';
                   const opName = request.operationName ?? '';
-                  const cacheKey = createHash('sha1')
+                  /** SEC-L01: Use SHA-256 instead of deprecated SHA-1 for cache key generation.
+                   *  SHA-1 has known collision vulnerabilities (SHAttered attack, 2017). */
+                  const cacheKey = createHash('sha256')
                     .update(docSource)
                     .update('\x00')
                     .update(opName)
@@ -193,6 +201,8 @@ const complexityCache = new Map<string, number>();
     AuditModule,
     CostModule,
     ChatModule,
+    /** SEC-M22: Audit trail infrastructure for compliance tracking. */
+    AuditLogModule.forRoot(),
   ],
   providers: [
     {
@@ -206,6 +216,11 @@ const complexityCache = new Map<string, number>();
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditLogInterceptor,
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,

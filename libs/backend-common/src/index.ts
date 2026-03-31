@@ -65,5 +65,11 @@ export * from './pagination';
 // Health - Standard K8s health check controller and module
 export * from './health';
 
+// Audit - Shared audit trail infrastructure (interceptor, service, entity, module)
+export * from './audit';
+
+// Decorators - Audit logging
+export * from './decorators/audit-log.decorator';
+
 // Bootstrap - Shared NestJS application factory (eliminates main.ts duplication)
 export * from './bootstrap';

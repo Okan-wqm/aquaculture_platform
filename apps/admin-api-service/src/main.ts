@@ -118,8 +118,14 @@ async function bootstrap() {
 
   const port = process.env['PORT'] || 3000;
 
-  // OpenAPI / Swagger documentation (non-production only by default)
-  if (!isProduction || process.env['ENABLE_SWAGGER'] === 'true') {
+  /**
+   * SEC-L14: Swagger UI is strictly disabled in production.
+   *
+   * API documentation exposure in production reveals endpoint structure, request/response
+   * schemas, and authentication requirements — valuable reconnaissance for attackers.
+   * The previous ENABLE_SWAGGER env var override is removed; only NODE_ENV controls this.
+   */
+  if (!isProduction) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Aquaculture Admin API')
       .setDescription('Platform administration API for the Aquaculture SaaS platform')

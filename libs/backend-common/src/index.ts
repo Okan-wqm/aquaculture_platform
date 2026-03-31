@@ -68,6 +68,9 @@ export * from './health';
 // Audit - Shared audit trail infrastructure (interceptor, service, entity, module)
 export * from './audit';
 
+// NATS - Shared connection factory with SEC-H01 authentication support
+export { buildNatsConnectionOptions, buildNatsTransportOptions } from './nats/nats-connection.factory';
+
 // Decorators - Audit logging
 export * from './decorators/audit-log.decorator';
 

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common';
 import { MessagingOutbox } from './messaging-outbox.entity';
 import { OutboxWorkerService } from './outbox-worker.service';
 
@@ -14,13 +15,12 @@ import { OutboxWorkerService } from './outbox-worker.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([MessagingOutbox]),
+    /** SEC-H01: NATS client with shared auth factory. */
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
         transport: Transport.NATS,
-        options: {
-          servers: [process.env['NATS_URL'] || 'nats://localhost:4222'],
-        },
+        options: buildNatsTransportOptions('messaging-service'),
       },
     ]),
   ],

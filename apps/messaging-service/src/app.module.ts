@@ -16,6 +16,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common';
 import { APP_GUARD } from '@nestjs/core';
 import {
   ApolloFederationDriver,
@@ -253,14 +254,12 @@ const complexityCache = new Map<string, number>();
     // Scheduled tasks (partition manager, outbox cleanup)
     ScheduleModule.forRoot(),
 
-    // NATS client for publishing events
+    /** SEC-H01: NATS client with shared auth factory. */
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
         transport: Transport.NATS,
-        options: {
-          servers: [process.env['NATS_URL'] || 'nats://localhost:4222'],
-        },
+        options: buildNatsTransportOptions('messaging-service'),
       },
     ]),
 

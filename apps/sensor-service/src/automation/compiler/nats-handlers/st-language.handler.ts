@@ -6,6 +6,7 @@ import {
   Subscription,
   StringCodec,
 } from 'nats';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
 
 import { NATS_SUBJECTS } from '../compiler.constants';
 import { NatsLanguageRequest, NatsLanguageReply } from '../compiler.types';
@@ -63,12 +64,10 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
   }
 
   private async connectAndSubscribe(): Promise<void> {
+    /** SEC-H01: Use shared NATS connection factory for consistent auth. */
     this.connection = await connect({
-      servers: this.natsUrl.split(','),
-      name: `sensor-service-st-language-${process.pid}`,
-      reconnect: true,
+      ...buildNatsConnectionOptions(`sensor-service-st-language-${process.pid}`),
       maxReconnectAttempts: -1,
-      reconnectTimeWait: 2000,
     });
 
     this.logger.log('Connected to NATS for ST language request-reply');

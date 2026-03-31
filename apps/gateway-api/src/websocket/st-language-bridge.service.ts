@@ -8,6 +8,7 @@ import {
   ConnectionOptions,
   headers as natsHeaders,
 } from 'nats';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
 import * as fs from 'fs';
 
 import { STLanguageGateway } from './st-language.gateway';
@@ -87,14 +88,9 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
   // -----------------------------------------------------------------------
 
   private async connectToNats(): Promise<void> {
-    const natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
-
+    /** SEC-H01: Use shared NATS connection factory for consistent auth across all services. */
     const connectionOptions: ConnectionOptions = {
-      servers: natsUrl,
-      name: 'gateway-api-st-language-bridge',
-      reconnect: true,
-      maxReconnectAttempts: this.configService.get<number>('NATS_MAX_RECONNECT_ATTEMPTS', 50),
-      reconnectTimeWait: 2000,
+      ...buildNatsConnectionOptions('gateway-api-st-language-bridge'),
     };
 
     // TLS

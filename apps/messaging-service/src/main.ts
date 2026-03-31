@@ -9,7 +9,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { StructuredLoggerService } from '@aquaculture/backend-common';
+import { StructuredLoggerService, buildNatsTransportOptions } from '@aquaculture/backend-common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -23,12 +23,11 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const isProduction = configService.get('NODE_ENV') === 'production';
 
-  // NATS microservice transport for event-driven communication
-  const natsUrl = configService.get<string>('NATS_URL', 'nats://localhost:4222');
+  /** SEC-H01: Use shared NATS factory for consistent auth across all services. */
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.NATS,
     options: {
-      servers: [natsUrl],
+      ...buildNatsTransportOptions('messaging-service'),
       queue: 'messaging-service',
     },
   });

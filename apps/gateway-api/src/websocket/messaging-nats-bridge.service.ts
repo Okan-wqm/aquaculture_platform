@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
 
 import { MessagingGateway } from './messaging.gateway';
 
@@ -68,14 +69,9 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
   }
 
   private async connect(): Promise<void> {
-    const natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
-
+    /** SEC-H01: Use shared NATS connection factory for consistent auth across all services. */
     const connectionOptions: ConnectionOptions = {
-      servers: natsUrl,
-      name: 'gateway-api-messaging-bridge',
-      reconnect: true,
-      maxReconnectAttempts: this.configService.get<number>('NATS_MAX_RECONNECT_ATTEMPTS', 50),
-      reconnectTimeWait: 2000,
+      ...buildNatsConnectionOptions('gateway-api-messaging-bridge'),
     };
 
     try {

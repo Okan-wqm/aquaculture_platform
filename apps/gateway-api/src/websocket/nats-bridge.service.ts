@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
 import * as fs from 'fs';
 
 import { SensorReadingsGateway } from './sensor-readings.gateway';
@@ -55,16 +56,11 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async connect(): Promise<void> {
-    const natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
+    /** SEC-H01: Use shared NATS connection factory for consistent auth across all services. */
+    const baseOptions = buildNatsConnectionOptions('gateway-api-websocket-bridge');
 
-    // SECURITY: Build connection options with TLS and auth support
     const connectionOptions: ConnectionOptions = {
-      servers: natsUrl,
-      name: 'gateway-api-websocket-bridge',
-      reconnect: true,
-      // SECURITY FIX: Limited reconnect attempts to prevent infinite loop
-      maxReconnectAttempts: this.configService.get<number>('NATS_MAX_RECONNECT_ATTEMPTS', 50),
-      reconnectTimeWait: 2000,
+      ...baseOptions,
     };
 
     // SECURITY: Add TLS configuration if enabled

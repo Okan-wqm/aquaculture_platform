@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common';
 import { Message } from '../message/entities/message.entity';
 import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { PresenceModule } from '../presence/presence.module';
@@ -18,13 +19,12 @@ import { GdprService } from './gdpr.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Message, MessagingOutbox]),
+    /** SEC-H01: NATS client with shared auth factory. */
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
         transport: Transport.NATS,
-        options: {
-          servers: [process.env['NATS_URL'] || 'nats://localhost:4222'],
-        },
+        options: buildNatsTransportOptions('messaging-service'),
       },
     ]),
     // PresenceModule provides the REDIS_CLIENT token

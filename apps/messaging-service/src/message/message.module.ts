@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common';
 
 // Entities
 import { Message } from './entities/message.entity';
@@ -49,13 +50,12 @@ import { MessageResolver } from './resolvers/message.resolver';
       MessagingOutbox,
     ]),
     CqrsModule,
+    /** SEC-H01: NATS client with shared auth factory. */
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
         transport: Transport.NATS,
-        options: {
-          servers: [process.env['NATS_URL'] || 'nats://localhost:4222'],
-        },
+        options: buildNatsTransportOptions('messaging-service'),
       },
     ]),
     ChannelModule,

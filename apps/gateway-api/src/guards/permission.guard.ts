@@ -83,7 +83,7 @@ export const RequireResourcePermission = (permission: ResourcePermission): Retur
  * Role hierarchy definition
  * Keys match the Role enum values from JWT tokens (uppercase)
  */
-const ROLE_HIERARCHY: Record<string, string[]> = {
+export const ROLE_HIERARCHY: Record<string, string[]> = {
   SUPER_ADMIN: ['TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER'],
   TENANT_ADMIN: ['MODULE_MANAGER', 'MODULE_USER'],
   MODULE_MANAGER: ['MODULE_USER'],
@@ -94,7 +94,7 @@ const ROLE_HIERARCHY: Record<string, string[]> = {
  * Default role permissions
  * Keys match the Role enum values from JWT tokens (uppercase)
  */
-const ROLE_PERMISSIONS: Record<string, string[]> = {
+export const ROLE_PERMISSIONS: Record<string, string[]> = {
   SUPER_ADMIN: ['*'],
   TENANT_ADMIN: [
     'users:manage',

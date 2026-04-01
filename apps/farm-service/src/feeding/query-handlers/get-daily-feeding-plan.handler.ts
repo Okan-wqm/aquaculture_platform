@@ -20,7 +20,7 @@ import {
 import { FeedingProgram } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { DailyFeedingExecution } from '../entities/daily-feeding-execution.entity';
-import { Site } from '../../farm/entities/site.entity';
+import { Site } from '../../site/entities/site.entity';
 
 /**
  * Query handler for daily feeding plans.

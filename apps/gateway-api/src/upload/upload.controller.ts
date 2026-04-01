@@ -11,7 +11,7 @@ import {
   Delete,
   Param,
   Body,
-  UseGuards,
+  Inject,
   UseInterceptors,
   UploadedFile,
   ParseFilePipe,
@@ -43,7 +43,7 @@ import {
   ApiNotFoundError,
 } from '@platform/shared';
 
-import { AuthGuard, AuthenticatedRequest } from '../guards/auth.guard';
+import { AuthenticatedRequest } from '../guards/auth.guard';
 import {
   UploadBatchDocumentDto,
   BatchDocumentCategory,
@@ -146,11 +146,10 @@ interface BatchDocumentUploadResponse {
 @ApiTags('Upload')
 @ApiBearerAuth()
 @Controller('upload')
-@UseGuards(AuthGuard)
 export class UploadController {
   private readonly logger = new Logger(UploadController.name);
 
-  constructor(private readonly minioClient: MinioClientService) {}
+  constructor(@Inject(MinioClientService) private readonly minioClient: MinioClientService) {}
 
   /**
    * Upload a document for a chemical

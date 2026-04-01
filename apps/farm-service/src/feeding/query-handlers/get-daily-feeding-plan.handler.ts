@@ -3,13 +3,13 @@
  *
  * Handles GetDailyFeedingPlanQuery and returns the daily feeding plan
  * for a given site. Aggregates data from active feeding programs,
- * their tank assignments, and today's execution records.
+ * their tank assignments, and daily execution records.
  *
  * @module Feeding/QueryHandlers
  */
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 
 import {
@@ -25,7 +25,7 @@ import { Site } from '../../farm/entities/site.entity';
 /**
  * Query handler for daily feeding plans.
  * Fetches active feeding programs for a site, calculates planned amounts
- * per tank, and compares with actual execution data for the given date.
+ * per equipment (tank/pond/cage), and compares with actual execution data.
  */
 @Injectable()
 @QueryHandler(GetDailyFeedingPlanQuery)
@@ -45,7 +45,7 @@ export class GetDailyFeedingPlanHandler
 
   /**
    * Execute the daily feeding plan query.
-   * Returns planned vs actual feeding data for all tanks at the given site.
+   * Returns planned vs actual feeding data for all equipment at the given site.
    */
   async execute(query: GetDailyFeedingPlanQuery): Promise<DailyFeedingPlanResult> {
     const { tenantId, siteId, date } = query;
@@ -60,77 +60,88 @@ export class GetDailyFeedingPlanHandler
 
     // Get active feeding programs for this site
     const programs = await this.programRepository.find({
-      where: { tenantId, siteId, isActive: true },
-      relations: ['feed'],
+      where: { tenantId, siteId, isDeleted: false },
     });
+    const activePrograms = programs.filter((p) => p.status === ('active' as never));
 
     // Get program tank assignments
-    const programIds = programs.map((p) => p.id);
+    const programIds = activePrograms.map((p) => p.id);
     let programTanks: FeedingProgramTank[] = [];
     if (programIds.length > 0) {
       programTanks = await this.programTankRepository
         .createQueryBuilder('pt')
-        .leftJoinAndSelect('pt.tank', 'tank')
-        .leftJoinAndSelect('pt.batch', 'batch')
-        .leftJoinAndSelect('batch.species', 'species')
         .where('pt.tenantId = :tenantId', { tenantId })
         .andWhere('pt.feedingProgramId IN (:...programIds)', { programIds })
         .andWhere('pt.isActive = true')
         .getMany();
     }
 
-    // Get today's executions
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Get today's executions (using executionDate column, type: date)
+    const executionDate = new Date(date);
+    executionDate.setHours(0, 0, 0, 0);
+    const dateStr = executionDate.toISOString().split('T')[0];
 
     let executions: DailyFeedingExecution[] = [];
     if (programIds.length > 0) {
-      executions = await this.executionRepository.find({
-        where: {
-          tenantId,
-          feedingDate: Between(startOfDay, endOfDay),
-        },
-      });
+      executions = await this.executionRepository
+        .createQueryBuilder('ex')
+        .where('ex.tenantId = :tenantId', { tenantId })
+        .andWhere('ex.feedingProgramId IN (:...programIds)', { programIds })
+        .andWhere('ex.executionDate = :dateStr', { dateStr })
+        .getMany();
     }
 
-    // Build tank plans with planned vs actual
+    // Build tank plans with planned vs actual from execution JSONB data
     const tankPlans: TankFeedingPlan[] = [];
     let totalPlannedKg = 0;
     let totalActualKg = 0;
 
     for (const pt of programTanks) {
-      const program = programs.find((p) => p.id === pt.feedingProgramId);
+      const program = activePrograms.find((p) => p.id === pt.feedingProgramId);
       if (!program) continue;
 
-      const tankExecutions = executions.filter(
-        (e) => e.tankId === pt.tankId && e.feedingProgramId === pt.feedingProgramId,
+      // Find executions for this equipment
+      const equipmentExecs = executions.filter(
+        (e) => e.equipmentId === pt.equipmentId && e.feedingProgramId === pt.feedingProgramId,
       );
 
-      const plannedKg = pt.dailyAmountKg ?? 0;
-      const actualKg = tankExecutions.reduce(
-        (sum, e) => sum + (e.actualAmountKg ?? 0),
+      // Sum planned and actual from execution JSONB fields
+      const plannedKg = equipmentExecs.reduce(
+        (sum, e) => sum + (e.calculations?.plannedFeedKg ?? 0),
         0,
       );
-      const completedMeals = tankExecutions.filter((e) => e.isCompleted).length;
+      const actualKg = equipmentExecs.reduce(
+        (sum, e) => sum + (e.actualResults?.actualFeedGivenKg ?? 0),
+        0,
+      );
+      const completedMeals = equipmentExecs.filter((e) => e.isCompleted()).length;
+
+      // Get current feed info from program tank or first feed assignment
+      const firstAssignment = program.feedAssignments?.[0];
+      const feedId = pt.currentFeedId ?? firstAssignment?.feedId ?? '';
+      const feedName = pt.currentFeedCode ?? firstAssignment?.feedName ?? '';
+
+      // Get fish/weight info from the latest execution calculations
+      const latestCalc = equipmentExecs.length > 0
+        ? equipmentExecs[equipmentExecs.length - 1]?.calculations
+        : undefined;
 
       tankPlans.push({
-        tankId: pt.tankId,
-        tankCode: pt.tank?.code ?? '',
-        tankName: pt.tank?.name ?? '',
-        batchId: pt.batchId ?? '',
-        batchNumber: pt.batch?.batchNumber ?? '',
-        speciesName: pt.batch?.species?.commonName ?? '',
-        currentQuantity: pt.batch?.currentQuantity ?? 0,
-        avgWeightG: pt.batch?.avgWeight ?? 0,
-        biomassKg: pt.batch?.biomassKg ?? 0,
-        feedId: program.feedId ?? '',
-        feedName: program.feed?.name ?? '',
+        tankId: pt.equipmentId,
+        tankCode: pt.equipmentCode,
+        tankName: pt.equipmentName,
+        batchId: '',
+        batchNumber: '',
+        speciesName: '',
+        currentQuantity: latestCalc?.fishCount ?? 0,
+        avgWeightG: latestCalc?.avgWeightG ?? 0,
+        biomassKg: latestCalc?.biomassKg ?? 0,
+        feedId,
+        feedName,
         plannedAmountKg: plannedKg,
-        feedingRatePercent: program.feedingRatePercent ?? 0,
-        mealsPerDay: program.mealsPerDay ?? 0,
-        amountPerMealKg: program.mealsPerDay ? plannedKg / program.mealsPerDay : 0,
+        feedingRatePercent: latestCalc?.feedingRatePercent ?? 0,
+        mealsPerDay: equipmentExecs.length,
+        amountPerMealKg: equipmentExecs.length > 0 ? plannedKg / equipmentExecs.length : 0,
         completedMeals,
         actualAmountTodayKg: actualKg,
         remainingAmountKg: Math.max(0, plannedKg - actualKg),

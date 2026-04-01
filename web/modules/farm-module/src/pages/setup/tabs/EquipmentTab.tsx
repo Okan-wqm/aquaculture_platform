@@ -33,19 +33,22 @@ import { FeederCalibrationSection } from '../components/FeederCalibrationSection
 
 // Equipment categories for two-stage selection
 // Values must match backend EquipmentCategory enum (UPPERCASE)
+// Equipment categories for two-stage selection
+// Values must match backend equipment_types.category column (lowercase in DB)
 const EQUIPMENT_CATEGORIES = [
-  { value: 'TANK', label: 'Tank' },
-  { value: 'POND', label: 'Pond' },
-  { value: 'CAGE', label: 'Cage' },
-  { value: 'PUMP', label: 'Pump' },
-  { value: 'FILTRATION', label: 'Filter' },
-  { value: 'HEATING_COOLING', label: 'Heater/Chiller' },
-  { value: 'MONITORING', label: 'Sensor' },
-  { value: 'AERATION', label: 'Blower/Aerator' },
-  { value: 'FEEDING', label: 'Feeder' },
-  { value: 'ELECTRICAL', label: 'Generator' },
-  { value: 'WATER_TREATMENT', label: 'Water Treatment' },
-  { value: 'OTHER', label: 'Other' },
+  { value: 'tank', label: 'Tank' },
+  { value: 'pond', label: 'Pond' },
+  { value: 'cage', label: 'Cage' },
+  { value: 'pump', label: 'Pump' },
+  { value: 'filtration', label: 'Filter' },
+  { value: 'heating_cooling', label: 'Heater/Chiller' },
+  { value: 'monitoring', label: 'Sensor' },
+  { value: 'aeration', label: 'Blower/Aerator' },
+  { value: 'feeding', label: 'Feeder' },
+  { value: 'electrical', label: 'Generator' },
+  { value: 'water_treatment', label: 'Water Treatment' },
+  { value: 'plumbing', label: 'Plumbing' },
+  { value: 'other', label: 'Other' },
 ];
 
 const statusColors: Record<string, string> = {
@@ -65,7 +68,7 @@ const statusColors: Record<string, string> = {
   QUARANTINE: 'bg-red-100 text-red-800',
 };
 
-const TANK_CATEGORIES = ['TANK', 'POND', 'CAGE'];
+const TANK_CATEGORIES = ['tank', 'pond', 'cage'];
 
 // PERF-018: Pre-compile the camelCase regex once at module scope so it is not
 // reallocated inside the render loop on every equipment card render.
@@ -412,8 +415,8 @@ export const EquipmentTab: React.FC = () => {
     }
 
     // Tank/Pond/Cage category: volume must be > 0
-    const TANK_VOLUME_CATEGORIES = ['TANK', 'POND', 'CAGE', 'RACEWAY', 'NET_PEN'];
-    if (TANK_VOLUME_CATEGORIES.includes(formData.selectedCategory?.toUpperCase() ?? '')) {
+    const TANK_VOLUME_CATEGORIES = ['tank', 'pond', 'cage', 'raceway', 'net_pen'];
+    if (TANK_VOLUME_CATEGORIES.includes(formData.selectedCategory?.toLowerCase() ?? '')) {
       const specs = (formData.specifications || {}) as Record<string, unknown>;
       const volume = Number(specs.volume) || 0;
       const dims = specs.dimensions as Record<string, unknown> | undefined;
@@ -595,7 +598,7 @@ export const EquipmentTab: React.FC = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Status</option>
-            <optgroup label="General">
+            <optgroup label="Equipment">
               <option value="OPERATIONAL">Operational</option>
               <option value="MAINTENANCE">Maintenance</option>
               <option value="REPAIR">Repair</option>

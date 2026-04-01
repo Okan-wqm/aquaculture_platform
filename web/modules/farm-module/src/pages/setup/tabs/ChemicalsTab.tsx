@@ -20,6 +20,7 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
+import { useToast } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -408,6 +409,7 @@ const DocumentsSection: React.FC<{
 // ============================================================================
 
 export const ChemicalsTab: React.FC = () => {
+  const { toast } = useToast();
   // API hooks
   const { data: chemicalsData, isLoading, error, refetch } = useChemicalList();
   const { data: chemicalTypesData = [] } = useChemicalTypes();
@@ -515,9 +517,27 @@ export const ChemicalsTab: React.FC = () => {
       setFormData(initialFormData);
       setEditingId(null);
       setEditingChemical(null);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to save chemical:', err);
-      alert('Failed to save chemical. Please try again.');
+      // BUG-09: Surface duplicate/conflict errors from backend to the user
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const isDuplicate = errorMessage.toLowerCase().includes('duplicate') ||
+        errorMessage.toLowerCase().includes('conflict') ||
+        errorMessage.toLowerCase().includes('already exists') ||
+        errorMessage.includes('409');
+      if (isDuplicate) {
+        toast({
+          title: 'Duplicate Chemical',
+          description: 'A chemical with this name or code already exists. Please use a different name or code.',
+          variant: 'error',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Failed to save chemical. Please try again.',
+          variant: 'error',
+        });
+      }
     } finally {
       setIsSaving(false);
     }

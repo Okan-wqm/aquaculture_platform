@@ -148,8 +148,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
   return (
     <div>
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+      {/* BUG-13 FIX: Sticky toolbar keeps the Add button visible when scrolling long tables */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 sticky top-0 z-10 bg-white pb-4 -mt-4 pt-4">
         <div className="flex flex-1 gap-4">
           <div className="relative flex-1 max-w-md">
             <input

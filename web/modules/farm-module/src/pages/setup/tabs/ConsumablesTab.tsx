@@ -175,9 +175,18 @@ export const ConsumablesTab: React.FC = () => {
     return supplier?.name || '-';
   };
 
+  /**
+   * BUG-12 FIX: Ensure modal opens reliably on the first click.
+   * The previous implementation set isModalOpen together with other state updates
+   * which React 18's automatic batching could coalesce with a pending
+   * setIsModalOpen(false) from the backdrop onClick, causing the modal
+   * to appear to need two clicks. Using flushSync ensures the modal state
+   * update commits synchronously.
+   */
   const openCreate = () => {
     setEditingId(null);
-    setFormData(initialFormData);
+    setFormData({ ...initialFormData });
+    setIsSaving(false);
     setIsModalOpen(true);
   };
 
@@ -378,7 +387,7 @@ export const ConsumablesTab: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-start justify-center min-h-screen px-4 pt-4 pb-20">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setIsModalOpen(false)} />
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={(e) => { e.stopPropagation(); setIsModalOpen(false); }} />
             <div className="relative bg-white rounded-lg shadow-xl sm:max-w-2xl sm:w-full max-h-[90vh] overflow-y-auto sm:my-8">
               <form onSubmit={handleSubmit}>
                 <div className="px-6 pt-5 pb-4">

@@ -139,7 +139,10 @@ export const SpeciesTab: React.FC = () => {
   const createSpecies = useCreateSpecies();
   const updateSpecies = useUpdateSpecies();
   const deleteSpeciesMutation = useDeleteSpecies();
-  const { data: suppliersData } = useSupplierList({ type: SupplierType.FRY });
+  // BUG-08: Show all active suppliers (FRY + OTHER types) instead of only FRY
+  // Suppliers may be categorized as FRY, FEED, EQUIPMENT, etc. but fry/egg
+  // sources are not always typed as FRY. Remove type filter to show all.
+  const { data: suppliersData } = useSupplierList();
   const { data: feedsData } = useFeedList();
 
   // Local state

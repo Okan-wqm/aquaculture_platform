@@ -68,8 +68,10 @@ const statusOptions = [
 const timezoneOptions = [
   { value: 'UTC', label: 'UTC' },
   { value: 'Europe/Oslo', label: 'Europe/Oslo (CET)' },
+  { value: 'Europe/Istanbul', label: 'Europe/Istanbul (TRT)' },
   { value: 'Europe/London', label: 'Europe/London (GMT)' },
   { value: 'America/New_York', label: 'America/New York (EST)' },
+  { value: 'Asia/Istanbul', label: 'Asia/Istanbul (TRT)' },
   { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST)' },
 ];
 

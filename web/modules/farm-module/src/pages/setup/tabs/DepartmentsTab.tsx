@@ -46,6 +46,13 @@ interface DepartmentFormData {
   notes: string;
 }
 
+/** Per-field validation error messages for the department form */
+interface DepartmentFormErrors {
+  name?: string;
+  code?: string;
+  siteId?: string;
+}
+
 const initialFormData: DepartmentFormData = {
   name: '',
   code: '',
@@ -71,6 +78,7 @@ export const DepartmentsTab: React.FC = () => {
   const [formData, setFormData] = useState<DepartmentFormData>(initialFormData);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deptToDelete, setDeptToDelete] = useState<Department | null>(null);
+  const [formErrors, setFormErrors] = useState<DepartmentFormErrors>({});
 
   // Delete preview query
   const { data: deletePreview, isLoading: isPreviewLoading } = useDepartmentDeletePreview(
@@ -149,11 +157,16 @@ export const DepartmentsTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!editingId) {
-      if (!formData.name) { alert('Please enter a name.'); return; }
-      if (!formData.code) { alert('Please enter a code.'); return; }
-      if (!formData.siteId) { alert('Please select a site.'); return; }
+    // BUG-11: Validate required fields and show inline error messages
+    const errors: DepartmentFormErrors = {};
+    if (!formData.name.trim()) errors.name = 'Name is required.';
+    if (!formData.code.trim()) errors.code = 'Code is required.';
+    if (!editingId && !formData.siteId) errors.siteId = 'Please select a site.';
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
     }
+    setFormErrors({});
 
     try {
       if (editingId) {
@@ -196,6 +209,7 @@ export const DepartmentsTab: React.FC = () => {
       capacity: dept.capacity || 0,
       notes: dept.notes || '',
     });
+    setFormErrors({});
     setIsModalOpen(true);
   };
 
@@ -259,6 +273,7 @@ export const DepartmentsTab: React.FC = () => {
           onClick={() => {
             setEditingId(null);
             setFormData(initialFormData);
+            setFormErrors({});
             setIsModalOpen(true);
           }}
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
@@ -418,24 +433,32 @@ export const DepartmentsTab: React.FC = () => {
                   </h3>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Name</label>
+                      <label className="block text-sm font-medium text-gray-700">Name *</label>
                       <input
                         type="text"
                         required
                         value={formData.name}
-                        onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        onChange={e => {
+                          setFormData(prev => ({ ...prev, name: e.target.value }));
+                          if (formErrors.name && e.target.value.trim()) setFormErrors(prev => ({ ...prev, name: undefined }));
+                        }}
+                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
                       />
+                      {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Code</label>
+                      <label className="block text-sm font-medium text-gray-700">Code *</label>
                       <input
                         type="text"
                         required
                         value={formData.code}
-                        onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        onChange={e => {
+                          setFormData(prev => ({ ...prev, code: e.target.value }));
+                          if (formErrors.code && e.target.value.trim()) setFormErrors(prev => ({ ...prev, code: undefined }));
+                        }}
+                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formErrors.code ? 'border-red-500' : 'border-gray-300'}`}
                       />
+                      {formErrors.code && <p className="mt-1 text-sm text-red-600">{formErrors.code}</p>}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Type</label>
@@ -453,8 +476,11 @@ export const DepartmentsTab: React.FC = () => {
                       <label className="block text-sm font-medium text-gray-700">Site *</label>
                       <select
                         value={formData.siteId}
-                        onChange={e => setFormData(prev => ({ ...prev, siteId: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        onChange={e => {
+                          setFormData(prev => ({ ...prev, siteId: e.target.value }));
+                          if (formErrors.siteId && e.target.value) setFormErrors(prev => ({ ...prev, siteId: undefined }));
+                        }}
+                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formErrors.siteId ? 'border-red-500' : 'border-gray-300'}`}
                         required
                       >
                         <option value="">Select Site...</option>
@@ -462,6 +488,7 @@ export const DepartmentsTab: React.FC = () => {
                           <option key={site.id} value={site.id}>{site.name}</option>
                         ))}
                       </select>
+                      {formErrors.siteId && <p className="mt-1 text-sm text-red-600">{formErrors.siteId}</p>}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Capacity</label>

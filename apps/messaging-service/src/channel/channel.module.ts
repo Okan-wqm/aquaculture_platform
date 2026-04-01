@@ -1,16 +1,18 @@
 /**
  * @module ChannelModule
  * @description Channel domain module providing CQRS command/query handlers,
- * GraphQL resolver, and domain services for channel lifecycle management.
+ * GraphQL resolvers (Channel + ChannelMember), and domain services for
+ * channel lifecycle management.
  * @see ADR-012 section 3 (Channel domain)
  */
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 
 // Entities
 import { Channel } from './entities/channel.entity';
 import { ChannelMember } from './entities/channel-member.entity';
+import { Message } from '../message/entities/message.entity';
 
 // Command Handlers
 import { CreateChannelHandler } from './commands/create-channel.handler';
@@ -23,11 +25,14 @@ import { ArchiveChannelHandler } from './commands/archive-channel.handler';
 import { GetChannelsHandler } from './queries/get-channels.handler';
 import { GetChannelHandler } from './queries/get-channel.handler';
 
-// Resolver
-import { ChannelResolver } from './resolvers/channel.resolver';
+// Resolvers
+import { ChannelResolver, ChannelMemberResolver } from './resolvers/channel.resolver';
 
 // Service
 import { ChannelService } from './services/channel.service';
+
+// Cross-module services needed for field resolvers
+import { PresenceModule } from '../presence/presence.module';
 
 const commandHandlers = [
   CreateChannelHandler,
@@ -43,11 +48,16 @@ const queryHandlers = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Channel, ChannelMember]), CqrsModule],
+  imports: [
+    TypeOrmModule.forFeature([Channel, ChannelMember, Message]),
+    CqrsModule,
+    forwardRef(() => PresenceModule),
+  ],
   providers: [
     ...commandHandlers,
     ...queryHandlers,
     ChannelResolver,
+    ChannelMemberResolver,
     ChannelService,
   ],
   exports: [ChannelService, TypeOrmModule],

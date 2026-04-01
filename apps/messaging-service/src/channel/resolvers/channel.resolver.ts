@@ -14,10 +14,15 @@ import {
   Int,
   ObjectType,
   Field,
+  ResolveField,
+  Parent,
+  Context,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import DataLoader from 'dataloader';
 import {
   TenantGuard,
   Tenant,
@@ -30,6 +35,7 @@ import {
 // Entities
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole, NotificationPreference } from '../entities/channel-member.entity';
+import { Message } from '../../message/entities/message.entity';
 
 // DTOs
 import { CreateChannelInput } from '../dto/create-channel.input';
@@ -52,6 +58,10 @@ import { ChannelService } from '../services/channel.service';
 
 // Handler result types
 import { GetChannelsResult } from '../queries/get-channels.handler';
+
+// Message resolver types (for user federation)
+import { MessageUser } from '../../message/resolvers/message.resolver';
+import { PresenceService } from '../../presence/presence.service';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -83,6 +93,11 @@ export class ChannelResolver {
     private readonly queryBus: QueryBus,
     private readonly channelService: ChannelService,
     private readonly dataSource: DataSource,
+    @InjectRepository(ChannelMember)
+    private readonly memberRepo: Repository<ChannelMember>,
+    @InjectRepository(Message)
+    private readonly messageRepo: Repository<Message>,
+    private readonly presenceService: PresenceService,
   ) {}
 
   // ==========================================================================
@@ -262,8 +277,170 @@ export class ChannelResolver {
   }
 
   // ==========================================================================
+  // FIELD RESOLVERS — computed fields for Channel @ObjectType
+  // ==========================================================================
+
+  /**
+   * Resolve the lastMessage field for a channel.
+   * Returns the most recent non-deleted message in the channel, or null.
+   * When the channel list query (GetChannelsHandler) already computed lastMessageAt,
+   * we still need to fetch the full message object for the GraphQL response.
+   */
+  @ResolveField(() => Message, { name: 'lastMessage', nullable: true, description: 'Most recent message in the channel' })
+  async resolveLastMessage(
+    @Parent() channel: Channel,
+    @Context() ctx: { lastMessageLoader?: DataLoader<string, Message | null> },
+  ): Promise<Message | null> {
+    if (!ctx.lastMessageLoader) {
+      ctx.lastMessageLoader = new DataLoader<string, Message | null>(
+        async (channelIds: readonly string[]) => {
+          return this.batchLoadLastMessages([...channelIds]);
+        },
+        { cache: true },
+      );
+    }
+    return ctx.lastMessageLoader.load(channel.id);
+  }
+
+  /**
+   * Resolve the members field for a channel.
+   * Returns active (non-left) members. For the channel list query,
+   * members are eagerly loaded by GetChannelsHandler only for the
+   * single-channel query; for the list query we resolve lazily via DataLoader.
+   */
+  @ResolveField(() => [ChannelMember], { name: 'members', nullable: true, description: 'Active channel members' })
+  async resolveMembers(
+    @Parent() channel: Channel,
+    @Context() ctx: { membersLoader?: DataLoader<string, ChannelMember[]> },
+  ): Promise<ChannelMember[]> {
+    // If already loaded (e.g. single-channel query), return directly
+    if (channel.members && channel.members.length > 0 && channel.members[0]?.id) {
+      return channel.members;
+    }
+
+    if (!ctx.membersLoader) {
+      ctx.membersLoader = new DataLoader<string, ChannelMember[]>(
+        async (channelIds: readonly string[]) => {
+          return this.batchLoadMembers([...channelIds]);
+        },
+        { cache: true },
+      );
+    }
+    return ctx.membersLoader.load(channel.id);
+  }
+
+  /**
+   * Resolve the unreadCount field for a channel.
+   * If already computed by GetChannelsHandler (list query), return the cached value.
+   * Otherwise compute on demand for single-channel queries.
+   */
+  @ResolveField(() => Int, { name: 'unreadCount', nullable: true, description: 'Unread message count for the current user' })
+  async resolveUnreadCount(
+    @Parent() channel: Channel & { unreadCount?: number },
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<number> {
+    // Already computed by GetChannelsHandler
+    if (channel.unreadCount !== undefined && channel.unreadCount !== null) {
+      return channel.unreadCount;
+    }
+
+    // Compute on-demand for single-channel view
+    const membership = await this.memberRepo.findOne({
+      where: { channelId: channel.id, userId: user.sub, leftAt: IsNull() },
+      select: ['lastReadAt'],
+    });
+
+    if (!membership) return 0;
+
+    const lastReadAt = membership.lastReadAt ?? new Date('1970-01-01');
+    const count = await this.messageRepo
+      .createQueryBuilder('m')
+      .where('m."channelId" = :channelId', { channelId: channel.id })
+      .andWhere('m."isDeleted" = false')
+      .andWhere('m."createdAt" > :lastReadAt', { lastReadAt })
+      .getCount();
+
+    return count;
+  }
+
+  /**
+   * Resolve the memberCount field for a channel.
+   * If already computed by GetChannelsHandler (list query), return the cached value.
+   * Otherwise compute on demand.
+   */
+  @ResolveField(() => Int, { name: 'memberCount', nullable: true, description: 'Active member count' })
+  async resolveMemberCount(
+    @Parent() channel: Channel & { memberCount?: number },
+  ): Promise<number> {
+    // Already computed by GetChannelsHandler
+    if (channel.memberCount !== undefined && channel.memberCount !== null) {
+      return channel.memberCount;
+    }
+
+    // Compute on-demand
+    return this.memberRepo.count({
+      where: { channelId: channel.id, leftAt: IsNull() },
+    });
+  }
+
+  // ==========================================================================
   // PRIVATE HELPERS
   // ==========================================================================
+
+  /**
+   * Batch load the most recent non-deleted message for each channel.
+   * Uses a lateral join pattern to efficiently fetch one message per channel
+   * in a single query, avoiding N+1.
+   *
+   * @param channelIds - Array of channel UUIDs to load last messages for
+   * @returns Array of Message|null in the same order as channelIds
+   */
+  private async batchLoadLastMessages(channelIds: string[]): Promise<(Message | null)[]> {
+    if (channelIds.length === 0) return [];
+
+    // Use DISTINCT ON to get the latest message per channel in one query
+    const messages = await this.messageRepo
+      .createQueryBuilder('m')
+      .where('m."channelId" IN (:...channelIds)', { channelIds })
+      .andWhere('m."isDeleted" = false')
+      .orderBy('m."channelId"', 'ASC')
+      .addOrderBy('m."createdAt"', 'DESC')
+      .distinctOn(['m."channelId"'])
+      .getMany();
+
+    // Build lookup map
+    const messageByChannel = new Map<string, Message>();
+    for (const msg of messages) {
+      messageByChannel.set(msg.channelId, msg);
+    }
+
+    return channelIds.map((id) => messageByChannel.get(id) ?? null);
+  }
+
+  /**
+   * Batch load active members for multiple channels in a single query.
+   *
+   * @param channelIds - Array of channel UUIDs
+   * @returns Array of ChannelMember arrays in the same order as channelIds
+   */
+  private async batchLoadMembers(channelIds: string[]): Promise<ChannelMember[][]> {
+    if (channelIds.length === 0) return [];
+
+    const allMembers = await this.memberRepo.find({
+      where: channelIds.map((channelId) => ({ channelId, leftAt: IsNull() })),
+      order: { joinedAt: 'ASC' },
+    });
+
+    // Group by channel
+    const membersByChannel = new Map<string, ChannelMember[]>();
+    for (const member of allMembers) {
+      const list = membersByChannel.get(member.channelId) ?? [];
+      list.push(member);
+      membersByChannel.set(member.channelId, list);
+    }
+
+    return channelIds.map((id) => membersByChannel.get(id) ?? []);
+  }
 
   /**
    * Extract the highest platform role from the user payload.
@@ -288,5 +465,72 @@ export class ChannelResolver {
     }
 
     return Role.MODULE_USER;
+  }
+}
+
+// ============================================================================
+// CHANNEL MEMBER RESOLVER — resolves computed fields on ChannelMember
+// ============================================================================
+
+/**
+ * Resolves the `user` field on ChannelMember by loading user data
+ * from the auth-service (via inter-service call or federation).
+ * Uses a request-scoped DataLoader to batch user lookups and avoid N+1 queries.
+ */
+@Resolver(() => ChannelMember)
+@UseGuards(TenantGuard)
+export class ChannelMemberResolver {
+  private readonly logger = new Logger(ChannelMemberResolver.name);
+
+  constructor(
+    private readonly presenceService: PresenceService,
+  ) {}
+
+  /**
+   * Resolve the user field for a ChannelMember.
+   * Returns a MessageUser with profile details for rendering member lists and DM channel names.
+   */
+  @ResolveField(() => MessageUser, { name: 'user', nullable: true, description: 'User profile details for this channel member' })
+  async resolveUser(
+    @Parent() member: ChannelMember,
+    @Tenant() tenantId: string,
+    @Context() ctx: { memberUserLoader?: DataLoader<string, MessageUser> },
+  ): Promise<MessageUser | null> {
+    if (!ctx.memberUserLoader) {
+      ctx.memberUserLoader = new DataLoader<string, MessageUser>(
+        async (userIds: readonly string[]) => {
+          return this.batchLoadMemberUsers([...userIds], tenantId);
+        },
+        { cache: true },
+      );
+    }
+    return ctx.memberUserLoader.load(member.userId);
+  }
+
+  /**
+   * Batch load user profiles for channel members.
+   *
+   * TODO: Replace with actual inter-service call to auth-service for user profile data.
+   *       Current implementation returns placeholder data with the user ID.
+   *
+   * @param userIds - Array of user UUIDs to resolve
+   * @param tenantId - Tenant context for presence lookups
+   * @returns Array of MessageUser objects in the same order as userIds
+   */
+  private async batchLoadMemberUsers(userIds: string[], tenantId: string): Promise<MessageUser[]> {
+    // Get online status for all users in one call
+    const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
+
+    return userIds.map((id) => ({
+      id,
+      firstName: null,
+      lastName: null,
+      email: null,
+      displayName: null,
+      profileImageUrl: null,
+      avatarUrl: null,
+      isOnline: onlineMap.get(id) ?? false,
+      lastSeenAt: null,
+    }));
   }
 }

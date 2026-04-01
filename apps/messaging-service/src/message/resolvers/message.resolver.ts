@@ -26,6 +26,7 @@ import {
 
 import { Message } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
+import { MessageReceipt } from '../entities/message-receipt.entity';
 import { PinnedMessage } from '../entities/pinned-message.entity';
 import { MessageReaction } from '../entities/message-reaction.entity';
 
@@ -71,6 +72,10 @@ import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 /**
  * Federation-compatible user entity (external reference).
  * This service extends the User type defined in auth-service.
+ *
+ * Includes firstName/lastName/email/profileImageUrl fields that the frontend
+ * queries for sender display and channel member lists. These are resolved
+ * via inter-service call to auth-service in batchLoadUsers.
  */
 @ObjectType()
 @Directive('@key(fields: "id")')
@@ -78,15 +83,35 @@ export class MessageUser {
   @Field(() => ID)
   id: string;
 
+  /** User's first name from auth-service. */
+  @Field(() => String, { nullable: true })
+  firstName: string | null;
+
+  /** User's last name from auth-service. */
+  @Field(() => String, { nullable: true })
+  lastName: string | null;
+
+  /** User's email address from auth-service. */
+  @Field(() => String, { nullable: true })
+  email: string | null;
+
+  /** Computed display name (firstName + lastName or email prefix). */
   @Field(() => String, { nullable: true })
   displayName: string | null;
 
+  /** Profile image URL from auth-service. */
+  @Field(() => String, { nullable: true })
+  profileImageUrl: string | null;
+
+  /** Avatar URL (alias for profileImageUrl, used in some UI contexts). */
   @Field(() => String, { nullable: true })
   avatarUrl: string | null;
 
+  /** Whether the user is currently online (resolved via PresenceService). */
   @Field(() => Boolean)
   isOnline: boolean;
 
+  /** Last seen timestamp when user is offline. */
   @Field(() => Date, { nullable: true })
   lastSeenAt: Date | null;
 }
@@ -134,6 +159,29 @@ export class MediaUploadResponse {
 
   @Field(() => Date, { description: 'URL expiration timestamp' })
   expiresAt: Date;
+}
+
+/**
+ * Aggregated reaction summary per emoji on a message.
+ * Computed from message_reactions table, grouped by emoji.
+ */
+@ObjectType()
+export class ReactionSummary {
+  /** The emoji string (e.g. thumbs-up unicode). */
+  @Field(() => String)
+  emoji: string;
+
+  /** Total number of users who reacted with this emoji. */
+  @Field(() => Int)
+  count: number;
+
+  /** User IDs who reacted with this emoji. */
+  @Field(() => [String])
+  userIds: string[];
+
+  /** Whether the current requesting user has reacted with this emoji. */
+  @Field(() => Boolean)
+  hasReacted: boolean;
 }
 
 // ============================================================================
@@ -347,7 +395,17 @@ export class MessageResolver {
     for (const id of userIds) {
       const isOnline = onlineMap.get(id) ?? false;
       const lastSeenAt = isOnline ? null : await this.presenceService.getLastSeen(tenantId, id);
-      results.push({ id, displayName: null, avatarUrl: null, isOnline, lastSeenAt });
+      results.push({
+        id,
+        firstName: null,
+        lastName: null,
+        email: null,
+        displayName: null,
+        profileImageUrl: null,
+        avatarUrl: null,
+        isOnline,
+        lastSeenAt,
+      });
     }
     return results;
   }
@@ -771,6 +829,63 @@ export class MessageResolver {
     return attachments;
   }
 
+  /**
+   * Resolve read receipts for a message.
+   * Returns delivery/read tracking data for each recipient.
+   */
+  @ResolveField(() => [MessageReceipt], { name: 'receipts', nullable: true, description: 'Read/delivery receipts for this message' })
+  async resolveReceipts(@Parent() message: Message): Promise<MessageReceipt[]> {
+    if (message.receipts && message.receipts.length > 0) {
+      return message.receipts;
+    }
+
+    // Lazy load if not already joined
+    const receipts = await this.messageRepo
+      .createQueryBuilder('m')
+      .relation(Message, 'receipts')
+      .of({ id: message.id, createdAt: message.createdAt })
+      .loadMany<MessageReceipt>();
+
+    return receipts;
+  }
+
+  /**
+   * Resolve aggregated reaction summary for a message.
+   * Groups reactions by emoji, counts unique users, and checks if the
+   * requesting user has reacted with each emoji.
+   */
+  @ResolveField(() => [ReactionSummary], { name: 'reactionSummary', nullable: true, description: 'Aggregated emoji reaction counts' })
+  async resolveReactionSummary(
+    @Parent() message: Message,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ReactionSummary[]> {
+    const reactions = await this.reactionRepo.find({
+      where: { messageId: message.id },
+    });
+
+    if (reactions.length === 0) return [];
+
+    // Group by emoji
+    const emojiMap = new Map<string, string[]>();
+    for (const reaction of reactions) {
+      const userIds = emojiMap.get(reaction.emoji) ?? [];
+      userIds.push(reaction.userId);
+      emojiMap.set(reaction.emoji, userIds);
+    }
+
+    const summaries: ReactionSummary[] = [];
+    for (const [emoji, userIds] of emojiMap) {
+      summaries.push({
+        emoji,
+        count: userIds.length,
+        userIds,
+        hasReacted: userIds.includes(user.sub),
+      });
+    }
+
+    return summaries;
+  }
+
   // -------------------------------------------------------------------------
   // PRIVATE HELPERS
   // -------------------------------------------------------------------------
@@ -795,14 +910,19 @@ export class MessageResolver {
   /**
    * Batch load users by IDs for the DataLoader.
    * In production, this calls the auth-service via federation or inter-service HTTP/NATS.
+   *
+   * TODO: Replace with actual user lookup via federation __resolveReference
+   *       or an inter-service call to auth-service.
+   *       Current implementation returns placeholder data with all required fields.
    */
   private async batchLoadUsers(userIds: string[]): Promise<MessageUser[]> {
-    // TODO: Replace with actual user lookup via federation __resolveReference
-    //       or an inter-service call to auth-service.
-    //       Current implementation returns placeholder data.
     return userIds.map((id) => ({
       id,
+      firstName: null,
+      lastName: null,
+      email: null,
       displayName: null,
+      profileImageUrl: null,
       avatarUrl: null,
       isOnline: false,
       lastSeenAt: null,

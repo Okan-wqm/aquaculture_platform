@@ -83,6 +83,25 @@ export class Channel {
   @Column({ type: 'varchar', length: 512, nullable: true })
   aiServiceUrl: string | null;
 
+  /**
+   * Active members of this channel.
+   * GraphQL field declared via @ResolveField on ChannelResolver — not via @Field here
+   * to avoid duplicate schema declarations.
+   */
   @OneToMany(() => ChannelMember, (member) => member.channel, { cascade: true })
   members: ChannelMember[];
+
+  /**
+   * Number of active members in this channel.
+   * Computed via SQL subquery in GetChannelsHandler and exposed via @ResolveField.
+   * Not persisted — virtual property attached at runtime.
+   */
+  memberCount?: number;
+
+  /**
+   * Number of unread messages for the requesting user.
+   * Computed via SQL subquery in GetChannelsHandler and exposed via @ResolveField.
+   * Not persisted — virtual property attached at runtime.
+   */
+  unreadCount?: number;
 }

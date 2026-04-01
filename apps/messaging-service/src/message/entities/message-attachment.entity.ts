@@ -60,6 +60,14 @@ export class MessageAttachment {
   @Column({ type: 'varchar', length: 512, nullable: true })
   thumbnailKey: string | null;
 
+  /** Presigned thumbnail download URL (computed at resolve time, not persisted). */
+  @Field(() => String, { nullable: true, description: 'Presigned thumbnail URL for image/video attachments' })
+  thumbnailUrl?: string | null;
+
+  /** Presigned file download URL (computed at resolve time, not persisted). */
+  @Field(() => String, { nullable: true, description: 'Presigned download URL for the attachment' })
+  downloadUrl?: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

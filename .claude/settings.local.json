@@ -514,11 +514,17 @@
       "Bash(ruflo agent:*)",
       "Bash(ruflo sparc:*)",
       "Bash(ruflo workflow:*)",
-      "Bash(ruflo memory:*)"
+      "Bash(ruflo memory:*)",
+      "mcp__ruflo__swarm_init",
+      "mcp__ruflo__agent_spawn",
+      "mcp__ruflo__task_create"
     ],
     "deny": [],
     "ask": []
   },
+  "enabledMcpjsonServers": [
+    "claude-flow"
+  ],
   "enabledPlugins": {
     "context7@claude-plugins-official": true,
     "supabase@claude-plugins-official": true,

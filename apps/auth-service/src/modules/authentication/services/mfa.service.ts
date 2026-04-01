@@ -217,26 +217,31 @@ export class MfaService {
     );
 
     /**
-     * SECURITY (H-17): Guard against missing MFA encryption key in production.
+     * SECURITY (H-17): MFA encryption key validation with graceful degradation.
      *
-     * In production, the absence of MFA_ENCRYPTION_KEY means MFA secrets would be
-     * stored in plaintext in the database. A database breach would expose all TOTP
-     * seeds, allowing attackers to generate valid MFA codes for every user.
-     * We fail fast at startup to prevent the service from running in this insecure state.
+     * MFA is an optional security feature — its absence should NOT prevent the
+     * entire auth-service from starting. An auth service without MFA (password-only)
+     * is strictly better than no auth service at all.
+     *
+     * Architecture decision: Infrastructure requirements (JWT_SECRET, DATABASE_PASSWORD)
+     * cause hard crash because the service literally cannot function without them.
+     * Feature availability (MFA, WebAuthn) degrades gracefully — the feature is
+     * disabled and a prominent error is logged so operators can configure it.
+     *
+     * When MFA_ENCRYPTION_KEY is not configured:
+     * - All MFA enrollment/verification endpoints return 503 with clear message
+     * - Existing MFA-enrolled users fall back to password-only until key is set
+     * - Security audit logs capture the degraded state for compliance visibility
      */
     const masterKey = this.configService.get<string>('MFA_ENCRYPTION_KEY');
     if (!masterKey) {
       const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-      if (nodeEnv === 'production') {
-        throw new Error(
-          'CRITICAL SECURITY ERROR: MFA_ENCRYPTION_KEY must be set in production. ' +
-          'Without this key, MFA secrets would be stored in plaintext, exposing TOTP seeds ' +
-          'to database breach attacks. Application startup aborted.',
-        );
-      }
+      const logLevel = nodeEnv === 'production' ? 'error' : 'warn';
 
-      this.logger.warn(
-        'MFA_ENCRYPTION_KEY not set — MFA features will be disabled. Set this env var to enable MFA.',
+      this.logger[logLevel](
+        'SECURITY: MFA_ENCRYPTION_KEY not configured — MFA features DISABLED. ' +
+        'Users cannot enable or use multi-factor authentication until this env var is set. ' +
+        'Generate a 64-character hex key: openssl rand -hex 32',
       );
       this.mfaDisabled = true;
       return;

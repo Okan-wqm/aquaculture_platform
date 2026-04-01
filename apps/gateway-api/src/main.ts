@@ -31,11 +31,34 @@ async function bootstrap(): Promise<void> {
     );
   }
 
-  const app = await NestFactory.create(AppModule, {
-    // SECURITY: Disable raw body parsing - we configure it ourselves with limits
-    rawBody: false,
-    logger: new StructuredLoggerService('gateway-api'),
-  });
+  /**
+   * ARCH-032: Wrap NestFactory.create() to surface readable errors.
+   *
+   * NestJS ExceptionHandler serializes Error objects via JSON.stringify, which
+   * produces '{}' because Error properties (message, stack) are non-enumerable.
+   * By catching here, we log the actual error message BEFORE NestJS can swallow it,
+   * ensuring container logs always show what went wrong during module initialization.
+   */
+  let app;
+  try {
+    app = await NestFactory.create(AppModule, {
+      // SECURITY: Disable raw body parsing - we configure it ourselves with limits
+      rawBody: false,
+      logger: new StructuredLoggerService('gateway-api'),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      service: 'gateway-api',
+      message: `Module initialization failed: ${message}`,
+      ...(stack ? { stack } : {}),
+      context: 'Bootstrap',
+    }));
+    process.exit(1);
+  }
 
   const configService = app.get(ConfigService);
 

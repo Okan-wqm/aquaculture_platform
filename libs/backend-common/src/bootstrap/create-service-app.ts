@@ -481,11 +481,33 @@ export async function createServiceApp(
 
   // -----------------------------------------------------------------------
   // 2. Create the NestJS application
+  //
+  // ARCH-032: Wrap NestFactory.create() to surface readable errors.
+  // NestJS ExceptionHandler serializes Error objects via JSON.stringify,
+  // which produces '{}' because Error properties (message, stack) are
+  // non-enumerable. By catching here, we log the actual error message
+  // BEFORE NestJS can swallow it, ensuring container logs always show
+  // what went wrong during module initialization.
   // -----------------------------------------------------------------------
-  const app = await NestFactory.create(appModule, {
-    logger: new StructuredLoggerService(serviceName),
-    ...nestFactoryOptions,
-  });
+  let app: INestApplication;
+  try {
+    app = await NestFactory.create(appModule, {
+      logger: new StructuredLoggerService(serviceName),
+      ...nestFactoryOptions,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      service: serviceName,
+      message: `Module initialization failed: ${message}`,
+      ...(stack ? { stack } : {}),
+      context: 'Bootstrap',
+    }));
+    process.exit(1);
+  }
 
   const configService = app.get(ConfigService);
   const isProduction = configService.get('NODE_ENV') === 'production';
@@ -562,8 +584,13 @@ export async function createServiceApp(
 
 /**
  * Convenience wrapper that calls `createServiceApp` and handles fatal errors
- * with a log + process.exit(1). This is the recommended entry point for
- * service main.ts files.
+ * with structured JSON logging + process.exit(1). This is the recommended
+ * entry point for service main.ts files.
+ *
+ * ARCH-032: Uses console.error with JSON.stringify instead of Logger.error()
+ * because NestJS Logger serializes Error objects as '{}' via JSON.stringify
+ * (Error properties are non-enumerable). Structured JSON ensures the actual
+ * error message and stack trace are always visible in container logs.
  *
  * @example
  * import { bootstrapService } from '@aquaculture/backend-common';
@@ -574,10 +601,17 @@ export function bootstrapService(
   appModule: Type<unknown>,
   options: ServiceBootstrapOptions,
 ): void {
-  const bootstrapLogger = new Logger(`${options.serviceName}:bootstrap`);
-
-  createServiceApp(appModule, options).catch((error: unknown) => {
-    bootstrapLogger.error(`${options.serviceName} failed to start:`, error);
+  createServiceApp(appModule, options).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      service: options.serviceName,
+      message: `Bootstrap failed: ${message}`,
+      ...(stack ? { stack } : {}),
+      context: 'Bootstrap',
+    }));
     process.exit(1);
   });
 }

@@ -13,9 +13,32 @@ const DEFAULT_DEV_ORIGINS = 'http://localhost:3000,http://localhost:5173,http://
 async function bootstrap() {
   const logger = new Logger('EventStoreService');
 
-  const app = await NestFactory.create(AppModule, {
-    logger: new StructuredLoggerService('event-store-service'),
-  });
+  /**
+   * ARCH-032: Wrap NestFactory.create() to surface readable errors.
+   *
+   * NestJS ExceptionHandler serializes Error objects via JSON.stringify, which
+   * produces '{}' because Error properties (message, stack) are non-enumerable.
+   * By catching here, we log the actual error message BEFORE NestJS can swallow it,
+   * ensuring container logs always show what went wrong during module initialization.
+   */
+  let app;
+  try {
+    app = await NestFactory.create(AppModule, {
+      logger: new StructuredLoggerService('event-store-service'),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      service: 'event-store-service',
+      message: `Module initialization failed: ${message}`,
+      ...(stack ? { stack } : {}),
+      context: 'Bootstrap',
+    }));
+    process.exit(1);
+  }
 
   // Retrieve ConfigService for environment-aware configuration
   const configService = app.get(ConfigService);
@@ -149,9 +172,22 @@ async function bootstrap() {
   logger.log(`Environment: ${isProduction ? 'production' : 'development'}`);
 }
 
-// Bootstrap error handler - log the error and exit with failure code
-const bootstrapLogger = new Logger('EventStoreServiceBootstrap');
-bootstrap().catch((error) => {
-  bootstrapLogger.error('Event Store Service failed to start', error instanceof Error ? error.stack : error);
+/**
+ * ARCH-032: Surface the actual error on bootstrap failure.
+ * NestJS Logger serializes Error objects as '{}' via JSON.stringify because
+ * Error properties (message, stack) are non-enumerable. Structured JSON
+ * ensures the real error is always visible in container logs.
+ */
+bootstrap().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'fatal',
+    service: 'event-store-service',
+    message: `Bootstrap failed: ${message}`,
+    ...(stack ? { stack } : {}),
+    context: 'Bootstrap',
+  }));
   process.exit(1);
 });

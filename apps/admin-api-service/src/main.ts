@@ -10,9 +10,33 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const structuredLogger = new StructuredLoggerService('admin-api-service');
   const logger = new Logger('AdminApiService');
-  const app = await NestFactory.create(AppModule, {
-    logger: structuredLogger,
-  });
+
+  /**
+   * ARCH-032: Wrap NestFactory.create() to surface readable errors.
+   *
+   * NestJS ExceptionHandler serializes Error objects via JSON.stringify, which
+   * produces '{}' because Error properties (message, stack) are non-enumerable.
+   * By catching here, we log the actual error message BEFORE NestJS can swallow it,
+   * ensuring container logs always show what went wrong during module initialization.
+   */
+  let app;
+  try {
+    app = await NestFactory.create(AppModule, {
+      logger: structuredLogger,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'fatal',
+      service: 'admin-api-service',
+      message: `Module initialization failed: ${message}`,
+      ...(stack ? { stack } : {}),
+      context: 'Bootstrap',
+    }));
+    process.exit(1);
+  }
 
   const configService = app.get(ConfigService);
   const isProduction = process.env['NODE_ENV'] === 'production';
@@ -157,8 +181,22 @@ async function bootstrap() {
   logger.log(`Health check (unversioned): http://localhost:${port}/health`);
 }
 
-const bootstrapLogger = new Logger('AdminApiServiceBootstrap');
-bootstrap().catch((error) => {
-  bootstrapLogger.error('Admin API Service failed to start:', error);
+/**
+ * ARCH-032: Surface the actual error on bootstrap failure.
+ * NestJS Logger serializes Error objects as '{}' via JSON.stringify because
+ * Error properties (message, stack) are non-enumerable. Structured JSON
+ * ensures the real error is always visible in container logs.
+ */
+bootstrap().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'fatal',
+    service: 'admin-api-service',
+    message: `Bootstrap failed: ${message}`,
+    ...(stack ? { stack } : {}),
+    context: 'Bootstrap',
+  }));
   process.exit(1);
 });

@@ -743,9 +743,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        // Discover tenantIds within this schema
+        /**
+         * Discover tenantIds within this schema.
+         * Table name must match the Batch entity mapping: @Entity('batches_v2').
+         * Previously referenced the legacy 'batches' table, which lacks columns
+         * like "isActive" that were introduced in the batches_v2 migration.
+         */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
            WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
         );
 
@@ -797,9 +802,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        // Discover tenantIds within this schema
+        /**
+         * Discover tenantIds within this schema.
+         * Table name must match the Batch entity mapping: @Entity('batches_v2').
+         * Previously referenced the legacy 'batches' table, which lacks columns
+         * like "isActive" that were introduced in the batches_v2 migration.
+         */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
            WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
         );
 
@@ -864,9 +874,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        // Discover tenantIds within this schema
+        /**
+         * Discover tenantIds within this schema.
+         * Table name must match the Batch entity mapping: @Entity('batches_v2').
+         * Previously referenced the legacy 'batches' table, which lacks columns
+         * like "isActive" that were introduced in the batches_v2 migration.
+         */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
            WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
         );
 
@@ -925,9 +940,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        // Discover tenantIds within this schema
+        /**
+         * Discover tenantIds within this schema.
+         * Table name must match the Batch entity mapping: @Entity('batches_v2').
+         * Previously referenced the legacy 'batches' table, which lacks columns
+         * like "isActive" that were introduced in the batches_v2 migration.
+         */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
            WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
         );
 
@@ -994,9 +1014,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        // Discover tenantIds within this schema
+        /**
+         * Discover tenantIds within this schema.
+         * Table name must match the Batch entity mapping: @Entity('batches_v2').
+         * Previously referenced the legacy 'batches' table, which lacks columns
+         * like "isActive" that were introduced in the batches_v2 migration.
+         */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
            WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
         );
 
@@ -1068,9 +1093,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        // Discover tenantIds within this schema
+        /**
+         * Discover tenantIds within this schema.
+         * Table name must match the Batch entity mapping: @Entity('batches_v2').
+         * Previously referenced the legacy 'batches' table, which lacks columns
+         * like "isActive" that were introduced in the batches_v2 migration.
+         */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
-          `SELECT DISTINCT "tenantId" AS "tenantId" FROM batches
+          `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
            WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
         );
 

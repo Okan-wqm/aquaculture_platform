@@ -32,8 +32,6 @@ import {
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 
 // Equipment categories for two-stage selection
-// Values must match backend EquipmentCategory enum (UPPERCASE)
-// Equipment categories for two-stage selection
 // Values must match backend equipment_types.category column (lowercase in DB)
 const EQUIPMENT_CATEGORIES = [
   { value: 'tank', label: 'Tank' },

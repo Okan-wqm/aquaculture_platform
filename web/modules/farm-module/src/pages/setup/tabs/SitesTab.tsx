@@ -3,6 +3,7 @@
  * Displays list of sites with CRUD operations
  */
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup } from '@aquaculture/shared-ui';
 import { SiteFormModal } from '../components/SiteFormModal';
 import {
@@ -24,6 +25,8 @@ const statusColors: Record<string, string> = {
 };
 
 export const SitesTab: React.FC = () => {
+  const navigate = useNavigate();
+
   // API hooks
   const { data: sitesData, isLoading, error, refetch } = useSiteList();
   const createSite = useCreateSite();
@@ -325,7 +328,7 @@ export const SitesTab: React.FC = () => {
                 <span>Created: {new Date(site.createdAt).toLocaleDateString()}</span>
                 <button
                   className="text-blue-600 hover:text-blue-800 font-medium"
-                  onClick={() => {/* Navigate to site details */}}
+                  onClick={() => navigate(`/sites/${site.id}`)}
                 >
                   View Details →
                 </button>

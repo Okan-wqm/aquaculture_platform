@@ -420,7 +420,21 @@ const LayerButton: React.FC<LayerButtonProps> = ({
 
 /**
  * BaseLayer Component - Renders the base tile layer
+ *
+ * Uses CartoDB Voyager as primary OSM-style tile source because
+ * tile.openstreetmap.org enforces strict rate limits (503 errors)
+ * for production applications. CartoDB Voyager is CDN-backed, free
+ * for moderate usage, and renders OSM data with the same attribution.
  */
+
+/** CartoDB Voyager CDN -- reliable, CDN-backed OSM tile renderer */
+const CARTO_VOYAGER_URL =
+  'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+
+/** Fallback: direct OSM tile server (may 503 under load) */
+const OSM_FALLBACK_URL =
+  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
 interface BaseLayerProps {
   layer: MapLayerType;
 }
@@ -431,15 +445,19 @@ export const BaseLayer: React.FC<BaseLayerProps> = ({ layer }) => {
       <TileLayer
         attribution="Esri, Maxar, Earthstar Geographics"
         url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        maxZoom={19}
       />
     );
   }
 
-  // Default: OpenStreetMap
+  // Default: OpenStreetMap via CartoDB Voyager CDN
   return (
     <TileLayer
-      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      url={CARTO_VOYAGER_URL}
+      subdomains="abcd"
+      maxZoom={20}
+      errorTileUrl={OSM_FALLBACK_URL.replace('{s}', 'a').replace('{z}', '0').replace('{x}', '0').replace('{y}', '0')}
     />
   );
 };

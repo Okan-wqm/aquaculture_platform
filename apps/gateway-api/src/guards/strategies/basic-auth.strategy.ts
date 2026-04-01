@@ -13,6 +13,7 @@ import {
   Injectable,
   UnauthorizedException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -21,13 +22,17 @@ import { AuthenticatedRequest } from '../../types/index';
 /**
  * Basic Authentication Strategy
  * Handles validation of HTTP Basic Auth credentials
+ *
+ * NOTE: Explicit @Inject() decorators are required because Nx webpack (SWC loader)
+ * strips TypeScript emitDecoratorMetadata (design:paramtypes) during bundling.
+ * Without explicit @Inject(), NestJS cannot resolve constructor dependencies at runtime.
  */
 @Injectable()
 export class BasicAuthStrategy {
   private readonly logger = new Logger(BasicAuthStrategy.name);
   private readonly basicAuthCredentials: Map<string, string>;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     this.basicAuthCredentials = new Map();
     this.loadBasicAuthCredentials();
   }

@@ -14,6 +14,7 @@ import {
   Logger,
   SetMetadata,
   OnModuleDestroy,
+  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -141,8 +142,8 @@ export class PermissionGuard implements CanActivate, OnModuleDestroy {
   private readonly cleanupInterval: NodeJS.Timeout;
 
   constructor(
-    private readonly reflector: Reflector,
-    private readonly configService: ConfigService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
     this.cacheTtl = this.configService.get<number>('PERMISSION_CACHE_TTL', 300000);
     this.maxCacheSize = this.configService.get<number>('PERMISSION_CACHE_MAX_SIZE', 10000);

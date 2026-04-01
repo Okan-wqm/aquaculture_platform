@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'events';
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
@@ -163,7 +163,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
   private healthCheckIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
   private stickySessionCleanupInterval?: ReturnType<typeof setInterval>;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     super();
   }
 

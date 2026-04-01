@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common';
 import { RateLimitStore } from './rate-limit.guard';
 
@@ -19,7 +19,7 @@ export class RedisRateLimitStore implements RateLimitStore {
   private readonly logger = new Logger(RedisRateLimitStore.name);
   private readonly keyPrefix = 'ratelimit:';
 
-  constructor(private readonly redisService: RedisService) {}
+  constructor(@Inject(RedisService) private readonly redisService: RedisService) {}
 
   async get(key: string): Promise<RateLimitEntry | null> {
     try {

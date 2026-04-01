@@ -16,6 +16,7 @@ import {
   Injectable,
   UnauthorizedException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -24,13 +25,17 @@ import { AuthenticatedRequest, ApiKeyInfo } from '../../types/index';
 /**
  * API Key Authentication Strategy
  * Handles validation of API key credentials from request headers
+ *
+ * NOTE: Explicit @Inject() decorators are required because Nx webpack (SWC loader)
+ * strips TypeScript emitDecoratorMetadata (design:paramtypes) during bundling.
+ * Without explicit @Inject(), NestJS cannot resolve constructor dependencies at runtime.
  */
 @Injectable()
 export class ApiKeyAuthStrategy {
   private readonly logger = new Logger(ApiKeyAuthStrategy.name);
   private readonly apiKeys: Map<string, ApiKeyInfo>;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     this.apiKeys = new Map();
     this.loadApiKeys();
   }

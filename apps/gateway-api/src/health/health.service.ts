@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
@@ -55,7 +55,7 @@ export class HealthService {
   private cacheExpiry = 0;
   private readonly cacheTtlMs: number;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     this.healthCheckTimeout = this.configService.get<number>(
       'HEALTH_CHECK_TIMEOUT_MS',
       5000,

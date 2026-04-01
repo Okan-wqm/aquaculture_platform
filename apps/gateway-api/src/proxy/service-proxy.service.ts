@@ -6,7 +6,7 @@
  * Supports HTTP, WebSocket, and SSE proxying.
  */
 
-import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException } from '@nestjs/common';
+import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 
@@ -133,9 +133,9 @@ export class ServiceProxyService {
   ];
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly circuitBreaker: CircuitBreakerService,
-    private readonly loadBalancer: LoadBalancerService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(CircuitBreakerService) private readonly circuitBreaker: CircuitBreakerService,
+    @Inject(LoadBalancerService) private readonly loadBalancer: LoadBalancerService,
   ) {
     this.defaultConfig = {
       timeout: this.configService.get<number>('PROXY_TIMEOUT', 30000),

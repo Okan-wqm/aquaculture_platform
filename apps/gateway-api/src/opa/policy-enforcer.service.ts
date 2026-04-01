@@ -6,7 +6,7 @@
  * Handles policy loading, caching, and decision auditing.
  */
 
-import { Injectable, Logger, ForbiddenException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { OpaClientService, OpaResult, OpaHealthStatus } from './opa-client.service';
@@ -129,8 +129,8 @@ export class PolicyEnforcerService implements OnModuleInit {
   private isOpaAvailable = false;
 
   constructor(
-    private readonly opaClient: OpaClientService,
-    private readonly configService: ConfigService,
+    @Inject(OpaClientService) private readonly opaClient: OpaClientService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
     this.enableAuditLog = this.configService.get<boolean>('POLICY_AUDIT_LOG', true);
     this.failOpen = this.configService.get<boolean>('POLICY_FAIL_OPEN', false);

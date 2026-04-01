@@ -194,8 +194,8 @@ export class RateLimitGuard implements CanActivate {
   private readonly ipv6Regex = /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$/;
 
   constructor(
-    private readonly reflector: Reflector,
-    private readonly configService: ConfigService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Optional() @Inject(RATE_LIMIT_STORE) private readonly redisStore?: RateLimitStore,
   ) {
     this.defaultLimit = this.configService.get<number>(

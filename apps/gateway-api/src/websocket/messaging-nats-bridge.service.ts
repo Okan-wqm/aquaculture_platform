@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
@@ -50,8 +50,8 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
   private readonly sc = StringCodec();
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly messagingGateway: MessagingGateway,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(MessagingGateway) private readonly messagingGateway: MessagingGateway,
   ) {}
 
   async onModuleInit(): Promise<void> {

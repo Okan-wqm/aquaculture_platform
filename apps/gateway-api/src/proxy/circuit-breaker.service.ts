@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'events';
 
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
@@ -344,7 +344,7 @@ export class CircuitBreakerService extends EventEmitter {
   private readonly circuits = new Map<string, CircuitBreaker>();
   private readonly defaultConfig: CircuitBreakerConfig;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     super();
 
     this.defaultConfig = {

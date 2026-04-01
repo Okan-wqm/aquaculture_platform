@@ -13,7 +13,7 @@
  * be picked up by downstream middleware/guards.
  */
 
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
 import * as crypto from 'crypto';
@@ -29,7 +29,7 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
   private readonly logger = new Logger(StripInternalHeadersMiddleware.name);
   private readonly serviceSecret: string | undefined;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     this.serviceSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
   }
 

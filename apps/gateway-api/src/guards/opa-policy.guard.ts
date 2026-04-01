@@ -13,6 +13,7 @@ import {
   ForbiddenException,
   Logger,
   SetMetadata,
+  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -142,8 +143,8 @@ export class OpaPolicyGuard implements CanActivate {
   private readonly cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
-    private readonly reflector: Reflector,
-    private readonly configService: ConfigService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
     this.opaUrl = this.configService.get<string>(
       'OPA_URL',

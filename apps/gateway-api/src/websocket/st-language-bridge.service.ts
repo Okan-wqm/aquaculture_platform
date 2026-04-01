@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   connect,
@@ -56,8 +56,8 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly sc = StringCodec();
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly stGateway: STLanguageGateway,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(STLanguageGateway) private readonly stGateway: STLanguageGateway,
   ) {}
 
   // -----------------------------------------------------------------------

@@ -9,7 +9,7 @@
 import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
@@ -121,7 +121,7 @@ export class OpaClientService extends EventEmitter implements OnModuleInit, OnMo
   private readonly maxCacheSize: number;
   private cacheCleanupInterval?: ReturnType<typeof setInterval>;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     super();
 
     this.config = {

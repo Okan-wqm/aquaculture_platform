@@ -24,8 +24,8 @@ export class JwtMiddleware implements NestMiddleware {
   private readonly isProduction: boolean;
 
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Optional()
     @Inject(TOKEN_BLACKLIST_STORE)
     private readonly tokenBlacklist?: TokenBlacklistStore,

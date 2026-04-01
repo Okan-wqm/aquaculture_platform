@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common';
 
 /**
@@ -39,7 +39,7 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
   private readonly logger = new Logger(RedisTokenBlacklistStore.name);
   private readonly keyPrefix = 'token:blacklist:';
 
-  constructor(private readonly redisService: RedisService) {}
+  constructor(@Inject(RedisService) private readonly redisService: RedisService) {}
 
   async add(jti: string, exp: number): Promise<void> {
     // Calculate TTL (time until token expires)

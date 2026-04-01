@@ -64,7 +64,7 @@ export class DeviceOwnershipService implements OnModuleDestroy {
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Optional()
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,

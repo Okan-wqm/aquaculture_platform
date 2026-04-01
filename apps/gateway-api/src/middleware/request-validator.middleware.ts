@@ -6,7 +6,7 @@
  * Protects against common attack vectors like injection attacks.
  */
 
-import { Injectable, NestMiddleware, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, BadRequestException, InternalServerErrorException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
 
@@ -120,7 +120,7 @@ export class RequestValidatorMiddleware implements NestMiddleware {
     /\brm\b\s+-rf/i,
   ];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     this.config = {
       maxBodySize: this.configService.get<number>('VALIDATOR_MAX_BODY_SIZE', 1048576), // 1MB
       maxUrlLength: this.configService.get<number>('VALIDATOR_MAX_URL_LENGTH', 2048),

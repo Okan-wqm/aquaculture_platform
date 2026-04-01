@@ -14,6 +14,7 @@ import {
   UnauthorizedException,
   Logger,
   SetMetadata,
+  Inject,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
@@ -53,12 +54,15 @@ export type { TenantContext };
 /**
  * Tenant Isolation Guard
  * Enforces strict tenant isolation across all requests
+ *
+ * NOTE: Explicit @Inject() decorators are required because Nx webpack (SWC loader)
+ * strips TypeScript emitDecoratorMetadata (design:paramtypes) during bundling.
  */
 @Injectable()
 export class TenantIsolationGuard implements CanActivate {
   private readonly logger = new Logger(TenantIsolationGuard.name);
 
-  constructor(private readonly reflector: Reflector) {}
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     // Check if endpoint is public

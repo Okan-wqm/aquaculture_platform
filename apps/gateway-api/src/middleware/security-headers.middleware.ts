@@ -6,7 +6,7 @@
  * Configurable for different security levels and environments.
  */
 
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
 
@@ -36,7 +36,7 @@ export class SecurityHeadersMiddleware implements NestMiddleware {
   private readonly isProduction: boolean;
   private readonly config: SecurityHeadersConfig;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
     this.isProduction = this.configService.get('NODE_ENV') === 'production';
     this.config = this.buildSecurityConfig();
 

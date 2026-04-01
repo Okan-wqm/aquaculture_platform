@@ -117,7 +117,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
       FARM_SERVICE_URL: http://farm-service:3000/graphql
       SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
@@ -199,7 +199,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
       # OpenTelemetry Tracing
@@ -253,7 +253,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required - generate with: openssl rand -base64 32}
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       FARM_SEED_ENABLED: "false"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
@@ -473,7 +473,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -560,7 +560,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       NODE_OPTIONS: "--max-old-space-size=384"
     healthcheck:
       # ARCH-HC-001: Use /health/live for Docker liveness (consistent with all other services)
@@ -607,7 +607,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
     ports:
       - "3008:3000"
     healthcheck:

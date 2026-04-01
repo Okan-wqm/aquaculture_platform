@@ -51,7 +51,7 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       - NATS_URL=nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      - JWT_SECRET="${JWT_SECRET:?JWT_SECRET is required}"
       - PORT=3000
     ports:
       - "3001:3000"
@@ -89,7 +89,7 @@ services:
       - NATS_URL=nats://nats:4222
       - PORT=3000
       # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY is required - generate with: openssl rand -base64 32}
+      - ENCRYPTION_KEY="${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       - FARM_SEED_ENABLED=false
     ports:
       - "3002:3000"

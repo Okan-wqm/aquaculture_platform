@@ -112,7 +112,7 @@ services:
       # SEC-NEW01: Mandatory credentials — no default fallback allowed in any environment.
       # Generate with: openssl rand -base64 32
       NATS_USER: ${NATS_USER:-nats_internal}
-      NATS_PASS: ${NATS_PASS:?NATS_PASS is required - generate with: openssl rand -base64 32}
+      NATS_PASS: "${NATS_PASS:?NATS_PASS is required}"
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
@@ -204,7 +204,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
@@ -307,7 +307,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
@@ -356,7 +356,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -406,7 +406,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
@@ -465,7 +465,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -512,7 +512,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -554,7 +554,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -596,7 +596,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -638,7 +638,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -680,7 +680,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -765,7 +765,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -811,7 +811,7 @@ services:
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       MINIO_ENDPOINT: minio

@@ -117,9 +117,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       ALLOW_DEV_JWT_SECRET: "true"
-      DEV_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      DEV_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
       FARM_SERVICE_URL: http://farm-service:3000/graphql
       SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
@@ -185,7 +185,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-DevPassword123!}
@@ -230,13 +230,13 @@ services:
       NATS_URL: nats://nats:4222
       FARM_SEED_ENABLED: "false"
       # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required - generate with: openssl rand -base64 32}
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       # SEC-NEW08: Credential encryption key must be unique per environment — generate with: openssl rand -base64 32
-      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required - generate with: openssl rand -base64 32}
+      CREDENTIAL_ENCRYPTION_KEY: "${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}"
       # SEC-NEW08: Sentinel Hub encryption key must be unique per environment
-      SENTINEL_HUB_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required - generate with: openssl rand -base64 32}
+      SENTINEL_HUB_ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -275,7 +275,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       MQTT_ENABLED: "true"
       MQTT_BROKER_URL: mqtt://host.docker.internal:1883
     healthcheck:
@@ -316,7 +316,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -390,7 +390,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -457,7 +457,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -495,7 +495,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       NODE_OPTIONS: "--max-old-space-size=256"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health/live"]

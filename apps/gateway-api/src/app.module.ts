@@ -5,9 +5,9 @@ import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import depthLimit from 'graphql-depth-limit';
 import {
   getComplexity,
@@ -42,6 +42,7 @@ import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { MutationRateLimitGuard } from './guards/mutation-rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
 import {
+  TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
   RedisTokenBlacklistStore,
   InMemoryTokenBlacklistStore,
@@ -566,12 +567,32 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
-    // Global auth guard (supports JWT, API key, and basic auth)
-    // SECURITY: AuthGuard performs proper JWT signature verification
-    // with timing-safe comparison and supports token blacklisting
+    /**
+     * Global auth guard — supports JWT, API Key, and Basic Auth.
+     *
+     * useFactory with explicit inject array bypasses webpack's stripping of
+     * TypeScript emitDecoratorMetadata. This is the NestJS-recommended pattern
+     * for webpack-bundled production builds where design:paramtypes metadata
+     * is unavailable at runtime.
+     */
     {
       provide: APP_GUARD,
-      useClass: AuthGuard,
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        jwtService: JwtService,
+        apiKeyStrategy: ApiKeyAuthStrategy,
+        basicStrategy: BasicAuthStrategy,
+        tokenBlacklist?: TokenBlacklistStore,
+      ) => new AuthGuard(reflector, configService, jwtService, apiKeyStrategy, basicStrategy, tokenBlacklist),
+      inject: [
+        Reflector,
+        ConfigService,
+        JwtService,
+        ApiKeyAuthStrategy,
+        BasicAuthStrategy,
+        { token: TOKEN_BLACKLIST_STORE, optional: true },
+      ],
     },
     /**
      * SECURITY (M-11): TenantIsolationGuard registered as a global guard.

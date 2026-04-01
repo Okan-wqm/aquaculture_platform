@@ -9,6 +9,12 @@ import { Request, Response } from 'express';
 
 /**
  * JWT payload interface
+ *
+ * SEC-COMPAT: The `type` field is optional for backward compatibility with
+ * tokens issued before the security hardening (pre-2026-04). Legacy tokens
+ * do not carry `type` or `jti`. During the transition period, tokens without
+ * `type` are treated as access tokens. Once all legacy tokens have expired,
+ * `type` should be changed back to required.
  */
 export interface JwtPayload {
   sub: string; // User ID
@@ -16,7 +22,7 @@ export interface JwtPayload {
   tenantId: string;
   roles: string[];
   permissions?: string[];
-  type: 'access' | 'refresh';
+  type?: 'access' | 'refresh'; // Optional for backward compat with legacy tokens
   iat: number;
   exp: number;
   iss?: string;

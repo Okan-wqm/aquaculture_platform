@@ -10,6 +10,15 @@ export interface JwtUser {
   roles?: string[];
   /** @deprecated Use `roles` array instead */
   role?: string;
+  /**
+   * Whether the user has completed MFA verification in the current session.
+   * Set by the auth service when MFA challenge is successfully completed.
+   * Used by TenantGuard to enforce MFA step-up for SUPER_ADMIN cross-tenant access
+   * when MFA_REQUIRED_FOR_CROSS_TENANT=true.
+   */
+  mfaVerified?: boolean;
+  /** User email address, decoded from JWT if present */
+  email?: string;
 }
 
 /**

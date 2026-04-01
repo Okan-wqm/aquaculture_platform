@@ -3,12 +3,17 @@ import {
   CanActivate,
   ExecutionContext,
   BadRequestException,
+  ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
 import { TenantRequest } from '../types/tenant-request.interface';
+import { AuditLogService } from '../audit/audit-log.service';
+import { AuditSeverity } from '../audit/audit-log.entity';
 
 /** UUID v4 format validator. */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,14 +42,36 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  *   checks both `skipTenantGuard` and `isPublic` metadata so either
  *   decorator is sufficient to bypass tenant validation.
  *
- * SECURITY (H-13): SUPER_ADMIN cross-tenant access is audit-logged with
- * userId, sourceTenantId, targetTenantId, endpoint, and timestamp.
+ * SECURITY (H-13): SUPER_ADMIN cross-tenant access is **persistently** audit-logged
+ * via AuditLogService with action `SUPER_ADMIN_CROSS_TENANT_ACCESS`. The audit record
+ * includes userId, sourceTenantId, targetTenantId, endpoint, timestamp, client IP,
+ * and user agent. An ephemeral logger.warn() is also emitted for real-time observability.
+ *
+ * MFA Step-Up: When `MFA_REQUIRED_FOR_CROSS_TENANT=true` environment variable is set,
+ * SUPER_ADMIN cross-tenant access requires `mfaVerified: true` in the JWT claims.
+ * This is opt-in to avoid breaking existing flows before MFA is configured.
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
   private readonly logger = new Logger(TenantGuard.name);
 
-  constructor(private reflector: Reflector) {}
+  /** Whether MFA step-up is required for SUPER_ADMIN cross-tenant access. */
+  private readonly mfaRequiredForCrossTenant: boolean;
+
+  constructor(
+    private reflector: Reflector,
+    @Optional() private readonly auditLogService?: AuditLogService,
+    @Optional() private readonly configService?: ConfigService,
+  ) {
+    this.mfaRequiredForCrossTenant =
+      this.configService?.get<string>('MFA_REQUIRED_FOR_CROSS_TENANT', 'false') === 'true';
+
+    if (!this.auditLogService) {
+      this.logger.warn(
+        'AuditLogService not available — SUPER_ADMIN cross-tenant access will only be logged ephemerally',
+      );
+    }
+  }
 
   canActivate(context: ExecutionContext): boolean {
     // Skip if endpoint is marked public
@@ -93,18 +120,20 @@ export class TenantGuard implements CanActivate {
             'X-Act-As-Tenant header must be a valid UUID',
           );
         }
+
+        const sourceTenantId = user?.tenantId ?? 'system';
+        const isCrossTenant = actAsTenant !== sourceTenantId;
+
+        // SECURITY (H-13): MFA step-up enforcement for cross-tenant access
+        if (isCrossTenant) {
+          this.enforceMfaStepUp(user);
+        }
+
         request.tenantId = actAsTenant;
 
-        // Audit log when SUPER_ADMIN accesses a different tenant's data
-        const sourceTenantId = user?.tenantId ?? 'system';
-        if (actAsTenant !== sourceTenantId) {
-          this.logger.warn('SUPER_ADMIN cross-tenant access', {
-            userId: user?.sub,
-            sourceTenantId,
-            targetTenantId: actAsTenant,
-            endpoint: `${request.method} ${request.url}`,
-            timestamp: new Date().toISOString(),
-          });
+        // SECURITY (H-13): Persistent audit logging for cross-tenant access
+        if (isCrossTenant) {
+          this.auditCrossTenantAccess(request, user, sourceTenantId, actAsTenant);
         }
       }
       return true;
@@ -141,6 +170,104 @@ export class TenantGuard implements CanActivate {
     if (user.roles?.includes(Role.SUPER_ADMIN)) return true;
     if (user.role === Role.SUPER_ADMIN) return true;
     return false;
+  }
+
+  /**
+   * Enforce MFA step-up for SUPER_ADMIN cross-tenant access.
+   *
+   * When the environment variable MFA_REQUIRED_FOR_CROSS_TENANT is set to 'true',
+   * the JWT must contain `mfaVerified: true` for the request to proceed.
+   * This prevents a compromised SUPER_ADMIN session (without MFA) from
+   * accessing other tenants' data.
+   *
+   * @throws ForbiddenException if MFA is required but not verified
+   */
+  private enforceMfaStepUp(user: TenantRequest['user']): void {
+    if (!this.mfaRequiredForCrossTenant) {
+      return;
+    }
+
+    if (!user?.mfaVerified) {
+      this.logger.warn('SUPER_ADMIN cross-tenant access denied: MFA not verified', {
+        userId: user?.sub,
+      });
+      throw new ForbiddenException(
+        'MFA verification is required for cross-tenant access. ' +
+        'Please complete MFA step-up authentication before accessing another tenant.',
+      );
+    }
+  }
+
+  /**
+   * Persist an audit record for SUPER_ADMIN cross-tenant access.
+   *
+   * SECURITY (H-13): This replaces the previous ephemeral `this.logger.warn()` with a
+   * persistent database record via AuditLogService. The record includes:
+   * - userId: the SUPER_ADMIN performing the action
+   * - sourceTenantId: the admin's own tenant (or 'system')
+   * - targetTenantId: the tenant being accessed
+   * - endpoint: HTTP method + URL
+   * - timestamp: ISO 8601 timestamp
+   * - client IP and user agent for forensic traceability
+   *
+   * The operation is fire-and-forget to avoid blocking the request pipeline.
+   * If AuditLogService is not available, falls back to ephemeral logger.warn().
+   */
+  private auditCrossTenantAccess(
+    request: TenantRequest,
+    user: TenantRequest['user'],
+    sourceTenantId: string,
+    targetTenantId: string,
+  ): void {
+    const endpoint = `${request.method} ${request.url}`;
+    const timestamp = new Date().toISOString();
+    const ip = this.extractClientIp(request);
+    const userAgent = typeof request.headers['user-agent'] === 'string'
+      ? request.headers['user-agent']
+      : undefined;
+
+    // Always emit an ephemeral log for real-time observability
+    this.logger.warn('SUPER_ADMIN cross-tenant access', {
+      userId: user?.sub,
+      sourceTenantId,
+      targetTenantId,
+      endpoint,
+      timestamp,
+    });
+
+    // Persist to audit trail via AuditLogService (fire-and-forget)
+    if (this.auditLogService) {
+      this.auditLogService.record({
+        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        resource: 'TenantGuard',
+        resourceId: targetTenantId,
+        userId: user?.sub ?? null,
+        userEmail: user?.email ?? null,
+        tenantId: targetTenantId,
+        metadata: {
+          sourceTenantId,
+          targetTenantId,
+          endpoint,
+          timestamp,
+          mfaVerified: user?.mfaVerified ?? false,
+        },
+        ip: ip ?? null,
+        userAgent: userAgent ?? null,
+        severity: AuditSeverity.WARNING,
+      });
+    }
+  }
+
+  /**
+   * Extract the client IP address from the request.
+   * Considers X-Forwarded-For for requests behind a reverse proxy.
+   */
+  private extractClientIp(request: TenantRequest): string | undefined {
+    const forwarded = request.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0]?.trim();
+    }
+    return request.ip;
   }
 
   /**

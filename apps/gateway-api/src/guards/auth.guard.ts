@@ -56,6 +56,13 @@ export const BasicAuth = (): ReturnType<typeof SetMetadata> => SetMetadata(BASIC
 
 /**
  * JWT payload interface
+ *
+ * SEC-COMPAT: The `type` field is optional for backward compatibility with
+ * tokens issued before the security hardening (pre-2026-04). Legacy tokens
+ * do not carry `type` or `jti`. During the transition period, tokens without
+ * `type` are treated as access tokens. Once all legacy tokens have expired
+ * (max JWT lifetime), `type` should be changed back to required and the
+ * backward-compat guards removed.
  */
 export interface JwtPayload {
   sub: string; // User ID
@@ -63,7 +70,7 @@ export interface JwtPayload {
   tenantId: string;
   roles: string[];
   permissions?: string[];
-  type: 'access' | 'refresh';
+  type?: 'access' | 'refresh'; // Optional for backward compat with legacy tokens
   iat: number;
   exp: number;
   iss?: string;
@@ -179,21 +186,31 @@ export class AuthGuard implements CanActivate {
     if (request.user) {
       const payload = request.user;
 
-      // Check token type
-      if (payload.type !== 'access') {
+      /**
+       * SEC-COMPAT: Token type check with backward compatibility.
+       * Legacy tokens (pre-hardening) do not carry a `type` field. Tokens
+       * without `type` are treated as access tokens during the transition
+       * period. Only explicitly non-access types (e.g. 'refresh') are
+       * rejected. Once all legacy tokens have expired, tighten this to
+       * require `payload.type === 'access'`.
+       */
+      if (payload.type && payload.type !== 'access') {
         throw new UnauthorizedException({
           code: 'INVALID_TOKEN_TYPE',
           message: 'Access token required',
         });
       }
 
-      // SECURITY: Reject tokens without jti in production - they cannot be revoked
+      /**
+       * SEC-COMPAT: Legacy tokens without jti cannot be individually revoked
+       * but are still cryptographically valid. Log for monitoring and allow
+       * during transition period. New tokens always include jti.
+       */
       const isProduction = process.env['NODE_ENV'] === 'production';
       if (isProduction && !payload.jti) {
-        throw new UnauthorizedException({
-          code: 'MISSING_JTI',
-          message: 'Token must include jti claim',
-        });
+        this.logger.warn(
+          `Legacy token without jti detected for user ${payload.sub} — token cannot be individually revoked. Will be replaced on next login.`,
+        );
       }
 
       // Blacklist check already done in JwtMiddleware, but verify again for safety
@@ -235,21 +252,31 @@ export class AuthGuard implements CanActivate {
         algorithms: ['HS256'],
       });
 
-      // Check token type
-      if (payload.type !== 'access') {
+      /**
+       * SEC-COMPAT: Token type check with backward compatibility.
+       * Legacy tokens (pre-hardening) do not carry a `type` field. Tokens
+       * without `type` are treated as access tokens during the transition
+       * period. Only explicitly non-access types (e.g. 'refresh') are
+       * rejected. Once all legacy tokens have expired, tighten this to
+       * require `payload.type === 'access'`.
+       */
+      if (payload.type && payload.type !== 'access') {
         throw new UnauthorizedException({
           code: 'INVALID_TOKEN_TYPE',
           message: 'Access token required',
         });
       }
 
-      // SECURITY: Reject tokens without jti in production
+      /**
+       * SEC-COMPAT: Legacy tokens without jti cannot be individually revoked
+       * but are still cryptographically valid. Log for monitoring and allow
+       * during transition period. New tokens always include jti.
+       */
       const isProduction = process.env['NODE_ENV'] === 'production';
       if (isProduction && !payload.jti) {
-        throw new UnauthorizedException({
-          code: 'MISSING_JTI',
-          message: 'Token must include jti claim',
-        });
+        this.logger.warn(
+          `Legacy token without jti detected for user ${payload.sub} — token cannot be individually revoked. Will be replaced on next login.`,
+        );
       }
 
       // Validate issuer

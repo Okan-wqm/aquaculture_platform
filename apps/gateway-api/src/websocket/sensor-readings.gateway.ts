@@ -1,6 +1,7 @@
 import { Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { ClientProxy } from '@nestjs/microservices';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -9,6 +10,7 @@ import {
   OnGatewayInit,
   SubscribeMessage,
 } from '@nestjs/websockets';
+import { firstValueFrom, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
 
 interface SensorReadingEvent {
@@ -97,6 +99,21 @@ export class SensorReadingsGateway
   private readonly isProduction: boolean;
   private readonly allowedOrigins: string[];
 
+  /**
+   * SEC-M18: In-memory cache for device ownership verification results.
+   * Key format: `${tenantId}:${deviceCode}` -> { owned, expiresAt }.
+   * TTL prevents stale positive results from lingering when a device
+   * is moved or decommissioned, while avoiding repeated DB round-trips
+   * for legitimate high-frequency subscription attempts.
+   */
+  private readonly deviceOwnershipCache = new Map<string, { owned: boolean; expiresAt: number }>();
+
+  /** SEC-M18: Cache TTL for device ownership results (5 minutes) */
+  private static readonly DEVICE_OWNERSHIP_CACHE_TTL_MS = 5 * 60 * 1000;
+
+  /** SEC-M18: Timeout for NATS device ownership verification requests */
+  private static readonly DEVICE_OWNERSHIP_VERIFY_TIMEOUT_MS = 5_000;
+
   constructor(
     private readonly jwtService: JwtService,
     @Optional()
@@ -104,6 +121,9 @@ export class SensorReadingsGateway
     @Optional()
     @Inject(SENSOR_AUTH_SERVICE)
     private readonly sensorAuthService?: ISensorAuthorizationService,
+    @Optional()
+    @Inject('NATS_SERVICE')
+    private readonly natsClient?: ClientProxy,
   ) {
     this.isProduction = process.env['NODE_ENV'] === 'production';
 
@@ -323,23 +343,30 @@ export class SensorReadingsGateway
   /**
    * SEC-M18: Client subscribes to edge device I/O data stream.
    *
-   * Validates device code format and enforces tenant ownership before subscribing.
-   * Without this check, any authenticated user could subscribe to another tenant's
-   * device data by guessing/enumerating device codes. The room name already includes
-   * tenantId (scoped to the JWT), but we additionally validate the device code format
-   * to reject injection attempts and ensure only safe identifiers reach the room system.
+   * Validates device code format, verifies device ownership via a NATS
+   * request-reply to sensor-service, and only then subscribes the client
+   * to the tenant-scoped room. Without the ownership check, any authenticated
+   * user could subscribe to data from a device in their own tenant's namespace
+   * by guessing device codes, even if that device does not belong to their tenant.
+   *
+   * The room name `edgeIo:{tenantId}:{deviceCode}` already prevents cross-tenant
+   * data leakage at the broadcast level. The ownership verification adds defense-in-depth
+   * by ensuring the device actually exists under the requesting tenant.
+   *
+   * Ownership results are cached for 5 minutes to reduce NATS/DB round-trips
+   * on repeated subscription attempts for the same device.
    */
   @SubscribeMessage('subscribeEdgeIo')
-  handleSubscribeEdgeIo(
+  async handleSubscribeEdgeIo(
     client: Socket,
     payload: { deviceCode: string },
-  ): { success: boolean; reason?: string } {
+  ): Promise<{ success: boolean; reason?: string }> {
     const clientData = this.clients.get(client.id);
     if (!clientData || !payload?.deviceCode) {
       return { success: false, reason: 'Not authenticated or missing deviceCode' };
     }
 
-    // SEC-M18: Validate device code format — only alphanumeric, hyphens, and underscores allowed.
+    // SEC-M18: Validate device code format -- only alphanumeric, hyphens, and underscores allowed.
     // Prevents injection of special characters (e.g., colons, slashes) into the room name.
     const DEVICE_CODE_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
     if (!DEVICE_CODE_REGEX.test(payload.deviceCode)) {
@@ -349,12 +376,25 @@ export class SensorReadingsGateway
       return { success: false, reason: 'Invalid device code format' };
     }
 
+    // SEC-M18: Verify device ownership via NATS request to sensor-service.
+    // The device must exist in the database with a matching tenantId.
+    const owned = await this.verifyDeviceOwnership(
+      payload.deviceCode,
+      clientData.tenantId,
+    );
+
+    if (!owned) {
+      this.logger.warn(
+        `SEC-M18: Client ${client.id} denied edge I/O subscription — device ${payload.deviceCode} not owned by tenant ${clientData.tenantId}`,
+      );
+      return { success: false, reason: 'Device not found or access denied' };
+    }
+
     // SEC-M18: The room is always scoped to the client's tenantId from JWT.
-    // This ensures tenant isolation — a client cannot subscribe to another tenant's
+    // This ensures tenant isolation -- a client cannot subscribe to another tenant's
     // device stream because the tenantId is derived from the authenticated JWT, not
-    // from the payload. The topic format `edgeIo:{tenantId}:{deviceCode}` guarantees
-    // that even if a deviceCode exists in another tenant, data is only routed to
-    // rooms matching the publishing tenant.
+    // from the payload. Combined with ownership verification above, both layers
+    // guarantee that only legitimate device owners receive data.
     const room = `edgeIo:${clientData.tenantId}:${payload.deviceCode}`;
     void client.join(room);
     this.logger.debug(
@@ -500,6 +540,75 @@ export class SensorReadingsGateway
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);
       return null;
+    }
+  }
+
+  /**
+   * SEC-M18: Verify that an edge device belongs to a specific tenant.
+   *
+   * Sends a NATS request-reply to sensor-service, which performs the
+   * database lookup. Results are cached for DEVICE_OWNERSHIP_CACHE_TTL_MS
+   * to avoid repeated round-trips for the same device/tenant pair.
+   *
+   * Safe defaults:
+   * - If NATS client is not available: deny (production), allow (development)
+   * - If sensor-service is unreachable or times out: deny
+   * - If cache entry exists and has not expired: use cached result
+   *
+   * @param deviceCode - The edge device code to verify
+   * @param tenantId - The tenant ID from the authenticated JWT
+   * @returns true if the device belongs to the tenant, false otherwise
+   */
+  private async verifyDeviceOwnership(
+    deviceCode: string,
+    tenantId: string,
+  ): Promise<boolean> {
+    // Check cache first
+    const cacheKey = `${tenantId}:${deviceCode}`;
+    const cached = this.deviceOwnershipCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.owned;
+    }
+
+    // Evict expired entry
+    if (cached) {
+      this.deviceOwnershipCache.delete(cacheKey);
+    }
+
+    if (!this.natsClient) {
+      this.logger.warn(
+        'SEC-M18: NATS client not available for device ownership verification',
+      );
+      // Safe default: deny in production, allow in development for backwards compatibility
+      return !this.isProduction;
+    }
+
+    try {
+      const result = await firstValueFrom(
+        this.natsClient
+          .send<{ owned: boolean }>('request.sensor.verifyDeviceOwnership', {
+            deviceCode,
+            tenantId,
+          })
+          .pipe(timeout(SensorReadingsGateway.DEVICE_OWNERSHIP_VERIFY_TIMEOUT_MS)),
+      );
+
+      const owned = !!result?.owned;
+
+      // Cache the result (both positive and negative)
+      this.deviceOwnershipCache.set(cacheKey, {
+        owned,
+        expiresAt: Date.now() + SensorReadingsGateway.DEVICE_OWNERSHIP_CACHE_TTL_MS,
+      });
+
+      return owned;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `SEC-M18: Device ownership verification failed (denying access): ${message}`,
+      );
+      // Safe default: deny access when sensor-service is unreachable
+      return false;
     }
   }
 }

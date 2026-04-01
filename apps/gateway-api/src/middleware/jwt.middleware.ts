@@ -42,11 +42,17 @@ export class JwtMiddleware implements NestMiddleware {
         algorithms: ['HS256'],
       });
 
-      // SECURITY: Reject tokens without jti in production - they cannot be revoked
+      /**
+       * SEC-COMPAT: Legacy tokens without jti cannot be individually revoked
+       * but are still cryptographically valid. Log for monitoring and allow
+       * during transition period. New tokens always include jti. Once all
+       * legacy tokens have expired, this can be tightened to reject them.
+       */
       const isProduction = process.env['NODE_ENV'] === 'production';
       if (isProduction && !payload.jti) {
-        this.logger.warn('Rejected token without jti claim in production');
-        return next();
+        this.logger.warn(
+          `Legacy token without jti detected for user ${payload.sub} — allowing during transition period.`,
+        );
       }
 
       // SECURITY: Check blacklist BEFORE setting req.user

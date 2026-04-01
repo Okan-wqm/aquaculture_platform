@@ -8,6 +8,7 @@ import { PlcAlarm } from '../plc-control/entities/plc-alarm.entity';
 // SharedMqttModule is @Global, no need to import explicitly
 
 import { DeviceEventService } from './device-event.service';
+import { EdgeDeviceNatsController } from './edge-device-nats.controller';
 import { EdgeDeviceResolver } from './edge-device.resolver';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
@@ -38,7 +39,7 @@ import { TenantKeyService } from './tenant-key.service';
     ]),
     // MqttClientService is available via @Global SharedMqttModule
   ],
-  controllers: [ProvisioningController, MqttAuthController],
+  controllers: [ProvisioningController, MqttAuthController, EdgeDeviceNatsController],
   providers: [
     EdgeDeviceService,
     EdgeDeviceResolver,

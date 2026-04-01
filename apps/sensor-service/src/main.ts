@@ -2,7 +2,8 @@ import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { initTelemetry, StructuredLoggerService } from '@aquaculture/backend-common';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { initTelemetry, StructuredLoggerService, buildNatsTransportOptions } from '@aquaculture/backend-common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
@@ -43,6 +44,19 @@ async function bootstrap(): Promise<void> {
 
   const configService = app.get(ConfigService);
   const isProduction = configService.get('NODE_ENV') === 'production';
+
+  /**
+   * SEC-M18: Connect a NATS microservice transport so that sensor-service can
+   * respond to request-reply messages from gateway-api (e.g., device ownership
+   * verification). Uses the shared NATS connection factory for consistent auth.
+   */
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.NATS,
+    options: {
+      ...buildNatsTransportOptions('sensor-service'),
+      queue: 'sensor-service',
+    },
+  });
 
   // Trust proxy configuration for deployments behind reverse proxy
   // SECURITY: Only enable this when behind a trusted proxy
@@ -167,6 +181,7 @@ async function bootstrap(): Promise<void> {
     ?? configService.get<number>('PORT')
     ?? 3000;
 
+  await app.startAllMicroservices();
   await app.listen(port);
 
   logger.log(`Sensor Service running on port ${port}`);

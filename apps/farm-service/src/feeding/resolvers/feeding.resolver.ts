@@ -819,13 +819,19 @@ export class FeedingResolver {
   }
 
   /**
-   * Get daily feeding plan for a site
+   * Get daily feeding plan for a site.
+   *
+   * The date argument is explicitly typed as Date (maps to the DateTime scalar)
+   * so that the federated schema exposes `date: DateTime` and matches the
+   * frontend variable declaration `$date: DateTime`.  Without the explicit
+   * `type` option NestJS may fall back to `String`, causing an HTTP 400 when
+   * the gateway validates the incoming query against the composed supergraph.
    */
   @Query(() => DailyFeedingPlanResponse)
   async dailyFeedingPlan(
     @CurrentTenant() tenantId: string,
     @Args('siteId', { type: () => ID }) siteId: string,
-    @Args('date', { nullable: true }) date?: Date,
+    @Args('date', { type: () => Date, nullable: true }) date?: Date,
   ): Promise<DailyFeedingPlanResponse> {
     return this.queryBus.execute(
       new GetDailyFeedingPlanQuery(tenantId, siteId, date || new Date()),

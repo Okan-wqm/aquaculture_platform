@@ -327,7 +327,24 @@ export function useFeedingRecordsList(
 }
 
 /**
- * Hook to fetch daily feeding plan for a site
+ * Normalize a date string to a full ISO-8601 datetime so it satisfies the
+ * GraphQL `DateTime` scalar.  Date-only strings such as "2026-04-01" are
+ * converted to "2026-04-01T00:00:00.000Z"; values that already contain a
+ * time component are returned unchanged.
+ */
+function toISODateTime(value?: string): string | undefined {
+  if (!value) return undefined;
+  // Already contains a time portion — return as-is
+  if (value.includes('T')) return value;
+  return `${value}T00:00:00.000Z`;
+}
+
+/**
+ * Hook to fetch daily feeding plan for a site.
+ *
+ * The `date` parameter is a date string (e.g. "2026-04-01") which is
+ * normalised to a full ISO-8601 datetime before being sent as the
+ * GraphQL `DateTime` variable.
  */
 export function useDailyFeedingPlan(
   siteId: string,
@@ -341,7 +358,7 @@ export function useDailyFeedingPlan(
     queryFn: async () => {
       const data = await graphqlClient.request<{ dailyFeedingPlan: DailyFeedingPlanResponse }>(
         DAILY_FEEDING_PLAN_QUERY,
-        { siteId, date }
+        { siteId, date: toISODateTime(date) }
       );
       return data.dailyFeedingPlan;
     },

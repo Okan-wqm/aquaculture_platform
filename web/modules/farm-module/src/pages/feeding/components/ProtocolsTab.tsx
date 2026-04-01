@@ -53,6 +53,12 @@ interface ProtocolFormData {
   totalMealsPerDay: number;
 }
 
+/** Per-field validation error messages for the protocol form */
+interface ProtocolFormErrors {
+  name?: string;
+  species?: string;
+}
+
 const emptyForm: ProtocolFormData = {
   name: '',
   description: '',
@@ -364,6 +370,7 @@ const ProtocolFormModal: React.FC<{
 }> = ({ protocol, speciesList, onSave, onClose, isSaving }) => {
   const isEdit = !!protocol;
 
+  const [formErrors, setFormErrors] = useState<ProtocolFormErrors>({});
   const [form, setForm] = useState<ProtocolFormData>(() => {
     if (protocol) {
       return {
@@ -460,6 +467,16 @@ const ProtocolFormModal: React.FC<{
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validate required fields and show inline error messages
+    const errors: ProtocolFormErrors = {};
+    if (!form.name.trim()) errors.name = 'Name is required.';
+    if (!form.species) errors.species = 'Please select a species.';
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors({});
+
     const input: CreateFeedingProtocolInput = {
       name: form.name,
       species: form.species,
@@ -529,10 +546,14 @@ const ProtocolFormModal: React.FC<{
                       type="text"
                       required
                       value={form.name}
-                      onChange={(e) => updateField('name', e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                      onChange={(e) => {
+                        updateField('name', e.target.value);
+                        if (formErrors.name && e.target.value.trim()) setFormErrors(prev => ({ ...prev, name: undefined }));
+                      }}
+                      className={`mt-1 block w-full rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
                       placeholder="e.g., Atlantic Salmon - Grower Phase"
                     />
+                    {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
                   </div>
 
                   <div>
@@ -542,8 +563,11 @@ const ProtocolFormModal: React.FC<{
                     <select
                       required
                       value={form.species}
-                      onChange={(e) => updateField('species', e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                      onChange={(e) => {
+                        updateField('species', e.target.value);
+                        if (formErrors.species && e.target.value) setFormErrors(prev => ({ ...prev, species: undefined }));
+                      }}
+                      className={`mt-1 block w-full rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${formErrors.species ? 'border-red-500' : 'border-gray-300'}`}
                     >
                       <option value="">Select species...</option>
                       {speciesList.map((sp) => (
@@ -554,6 +578,7 @@ const ProtocolFormModal: React.FC<{
                         <option value={form.species}>{form.species}</option>
                       )}
                     </select>
+                    {formErrors.species && <p className="mt-1 text-sm text-red-600">{formErrors.species}</p>}
                   </div>
 
                   <div>

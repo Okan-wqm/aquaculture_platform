@@ -18,7 +18,6 @@ import {
   SetMetadata,
   Inject,
   Optional,
-  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -75,13 +74,11 @@ export class AuthGuard implements CanActivate {
   private readonly tokenBlacklist: TokenBlacklistStore;
 
   constructor(
-    private readonly reflector: Reflector,
-    private readonly configService: ConfigService,
-    private readonly jwtService: JwtService,
-    @Inject(forwardRef(() => ApiKeyAuthStrategy))
-    private readonly apiKeyAuthStrategy: ApiKeyAuthStrategy,
-    @Inject(forwardRef(() => BasicAuthStrategy))
-    private readonly basicAuthStrategy: BasicAuthStrategy,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(ApiKeyAuthStrategy) private readonly apiKeyAuthStrategy: ApiKeyAuthStrategy,
+    @Inject(BasicAuthStrategy) private readonly basicAuthStrategy: BasicAuthStrategy,
     @Optional()
     @Inject(TOKEN_BLACKLIST_STORE)
     tokenBlacklistStore?: TokenBlacklistStore,

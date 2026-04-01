@@ -128,7 +128,7 @@ export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Fee
         pelletSize: input.pelletSize,
         floatingType: input.floatingType ?? FloatingType.FLOATING,
         nutritionalContent: input.nutritionalContent,
-        status: FeedStatus.AVAILABLE,
+        status: input.status ?? FeedStatus.AVAILABLE,
         quantity: input.quantity ?? 0,
         minStock: input.minStock ?? 0,
         unit: input.unit ?? 'kg',

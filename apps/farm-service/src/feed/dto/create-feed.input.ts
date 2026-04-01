@@ -5,7 +5,7 @@ import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, MinLength, IsEnum, IsArray, ValidateNested, IsUUID, IsDate, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-type-json';
-import { FeedType, FloatingType } from '../entities/feed.entity';
+import { FeedType, FloatingType, FeedStatus } from '../entities/feed.entity';
 import { FeedGrowthStage, FeedSpeciesRecommendation } from '../entities/feed-type-species.entity';
 
 @InputType()
@@ -312,6 +312,12 @@ export class CreateFeedInput {
   @ValidateNested()
   @Type(() => NutritionalContentInput)
   nutritionalContent?: NutritionalContentInput;
+
+  /** Feed availability status. Defaults to AVAILABLE when not provided. */
+  @Field(() => FeedStatus, { nullable: true, defaultValue: FeedStatus.AVAILABLE, description: 'Feed availability status' })
+  @IsOptional()
+  @IsEnum(FeedStatus)
+  status?: FeedStatus;
 
   @Field(() => Float, { nullable: true, description: 'Initial quantity in stock (kg)' })
   @IsOptional()

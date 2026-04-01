@@ -32,12 +32,16 @@ interface FeedingRecordsTabProps {
 // FEEDING METHOD LABELS
 // ============================================================================
 
+/**
+ * Feeding method labels — keyed by GraphQL enum KEYS (uppercase).
+ * The backend FeedingMethod enum uses uppercase keys (MANUAL, AUTOMATIC, etc.).
+ */
 const feedingMethodLabels: Record<FeedingMethod, string> = {
-  manual: 'Manual',
-  automatic: 'Automatic',
-  demand: 'Demand',
-  broadcast: 'Broadcast',
-  spot: 'Spot',
+  MANUAL: 'Manual',
+  AUTOMATIC: 'Automatic',
+  DEMAND: 'Demand',
+  BROADCAST: 'Broadcast',
+  SPOT: 'Spot',
 };
 
 // ============================================================================
@@ -116,7 +120,7 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
           plannedAmount: formData.plannedAmount,
           actualAmount: formData.actualAmount,
           wasteAmount: formData.wasteAmount || undefined,
-          feedingMethod: formData.feedingMethod || 'manual',
+          feedingMethod: formData.feedingMethod || 'MANUAL',
           feedingDurationMinutes: formData.feedingDurationMinutes || undefined,
           feedCost: formData.feedCost || undefined,
           currency: formData.currency || undefined,
@@ -363,7 +367,7 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
     plannedAmount: record?.plannedAmount || '',
     actualAmount: record?.actualAmount || '',
     wasteAmount: record?.wasteAmount || '',
-    feedingMethod: record?.feedingMethod || 'manual',
+    feedingMethod: record?.feedingMethod || 'MANUAL',
     feedingDurationMinutes: record?.feedingDurationMinutes || '',
     feedCost: record?.feedCost || '',
     currency: record?.currency || 'NOK',
@@ -521,11 +525,11 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                     onChange={handleChange}
                     className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                   >
-                    <option value="manual">Manual</option>
-                    <option value="automatic">Automatic</option>
-                    <option value="demand">Demand</option>
-                    <option value="broadcast">Broadcast</option>
-                    <option value="spot">Spot</option>
+                    <option value="MANUAL">Manual</option>
+                    <option value="AUTOMATIC">Automatic</option>
+                    <option value="DEMAND">Demand</option>
+                    <option value="BROADCAST">Broadcast</option>
+                    <option value="SPOT">Spot</option>
                   </select>
                 </div>
               )}

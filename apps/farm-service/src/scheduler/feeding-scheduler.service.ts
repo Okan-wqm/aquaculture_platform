@@ -751,7 +751,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
          */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
           `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+           WHERE "isActive" = true LIMIT 100`,
         );
 
         for (const { tenantId } of tenantRows) {
@@ -810,7 +810,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
          */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
           `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+           WHERE "isActive" = true LIMIT 100`,
         );
 
         for (const { tenantId } of tenantRows) {
@@ -882,7 +882,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
          */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
           `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+           WHERE "isActive" = true LIMIT 100`,
         );
 
         for (const { tenantId } of tenantRows) {
@@ -948,7 +948,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
          */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
           `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+           WHERE "isActive" = true LIMIT 100`,
         );
 
         for (const { tenantId } of tenantRows) {
@@ -1022,7 +1022,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
          */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
           `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+           WHERE "isActive" = true LIMIT 100`,
         );
 
         for (const { tenantId } of tenantRows) {
@@ -1101,7 +1101,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
          */
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
           `SELECT DISTINCT "tenantId" AS "tenantId" FROM "batches_v2"
-           WHERE "isActive" = true AND "deletedAt" IS NULL LIMIT 100`,
+           WHERE "isActive" = true LIMIT 100`,
         );
 
         for (const { tenantId } of tenantRows) {

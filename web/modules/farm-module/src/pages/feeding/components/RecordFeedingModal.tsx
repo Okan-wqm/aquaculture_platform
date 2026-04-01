@@ -21,12 +21,15 @@ import { useTankFeeders } from '../../../hooks/useTankFeeders';
 // FEEDING METHOD OPTIONS
 // ============================================================================
 
+/**
+ * Feeding method options — uses GraphQL enum KEYS (uppercase).
+ */
 const FEEDING_METHODS: { value: FeedingMethodType; label: string }[] = [
-  { value: 'manual', label: 'Manuel' },
-  { value: 'automatic', label: 'Otomatik' },
-  { value: 'demand', label: 'Demand' },
-  { value: 'broadcast', label: 'Broadcast' },
-  { value: 'spot', label: 'Spot' },
+  { value: 'MANUAL', label: 'Manual' },
+  { value: 'AUTOMATIC', label: 'Automatic' },
+  { value: 'DEMAND', label: 'Demand' },
+  { value: 'BROADCAST', label: 'Broadcast' },
+  { value: 'SPOT', label: 'Spot' },
 ];
 
 // ============================================================================
@@ -64,7 +67,7 @@ export const RecordFeedingModal: React.FC<RecordFeedingModalProps> = ({
   const { toast } = useToast();
 
   // Fetch feeders for this tank
-  const showFeederDropdown = feedingMethod === 'automatic' || feedingMethod === 'demand';
+  const showFeederDropdown = feedingMethod === 'AUTOMATIC' || feedingMethod === 'DEMAND';
   const { data: feeders } = useTankFeeders(showFeederDropdown ? execution.equipmentId : undefined);
 
   // Reset state when execution changes — always start with 0 so user enters actual amount
@@ -296,7 +299,7 @@ export const RecordFeedingModal: React.FC<RecordFeedingModalProps> = ({
                     type="button"
                     onClick={() => {
                       setFeedingMethod(feedingMethod === m.value ? undefined : m.value);
-                      if (m.value !== 'automatic' && m.value !== 'demand') {
+                      if (m.value !== 'AUTOMATIC' && m.value !== 'DEMAND') {
                         setFeederEquipmentId(undefined);
                       }
                     }}

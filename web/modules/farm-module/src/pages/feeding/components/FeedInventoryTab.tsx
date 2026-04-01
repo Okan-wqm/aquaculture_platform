@@ -40,12 +40,17 @@ type ModalType = 'add' | 'consume' | 'adjust' | null;
 // STATUS DISPLAY
 // ============================================================================
 
+/**
+ * Status display configuration — keyed by GraphQL enum KEYS (uppercase).
+ * The backend InventoryStatus enum uses uppercase keys (AVAILABLE, LOW_STOCK, etc.)
+ * which is what GraphQL returns and expects in filters.
+ */
 const statusConfig: Record<InventoryStatus, { label: string; className: string }> = {
-  available: { label: 'Available', className: 'bg-green-100 text-green-800' },
-  low_stock: { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800' },
-  out_of_stock: { label: 'Out of Stock', className: 'bg-red-100 text-red-800' },
-  expired: { label: 'Expired', className: 'bg-gray-100 text-gray-800' },
-  quarantine: { label: 'Quarantine', className: 'bg-purple-100 text-purple-800' },
+  AVAILABLE: { label: 'Available', className: 'bg-green-100 text-green-800' },
+  LOW_STOCK: { label: 'Low Stock', className: 'bg-yellow-100 text-yellow-800' },
+  OUT_OF_STOCK: { label: 'Out of Stock', className: 'bg-red-100 text-red-800' },
+  EXPIRED: { label: 'Expired', className: 'bg-gray-100 text-gray-800' },
+  QUARANTINE: { label: 'Quarantine', className: 'bg-purple-100 text-purple-800' },
 };
 
 // ============================================================================
@@ -134,7 +139,7 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
       const input: ConsumeFeedInventoryInput = {
         inventoryId: data.inventoryId,
         quantityKg: Number(data.quantityKg),
-        reason: data.reason || 'feeding',
+        reason: data.reason || 'FEEDING',
         notes: data.notes || undefined,
       };
       await consumeMutation.mutateAsync(input);
@@ -200,11 +205,11 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
             className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">All Statuses</option>
-            <option value="available">Available</option>
-            <option value="low_stock">Low Stock</option>
-            <option value="out_of_stock">Out of Stock</option>
-            <option value="expired">Expired</option>
-            <option value="quarantine">Quarantine</option>
+            <option value="AVAILABLE">Available</option>
+            <option value="LOW_STOCK">Low Stock</option>
+            <option value="OUT_OF_STOCK">Out of Stock</option>
+            <option value="EXPIRED">Expired</option>
+            <option value="QUARANTINE">Quarantine</option>
           </select>
         </div>
         <button
@@ -246,7 +251,7 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
                 </tr>
               )}
               {data?.items?.map((inv) => {
-                const statusCfg = statusConfig[inv.status] || statusConfig.available;
+                const statusCfg = statusConfig[inv.status] || statusConfig.AVAILABLE;
                 return (
                   <tr key={inv.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -543,7 +548,7 @@ const ConsumeInventoryModal: React.FC<ConsumeInventoryModalProps> = ({
   const [formData, setFormData] = useState({
     inventoryId: inventory.id,
     quantityKg: '',
-    reason: 'feeding' as ConsumptionReason,
+    reason: 'FEEDING' as ConsumptionReason,
     notes: '',
   });
 
@@ -594,11 +599,11 @@ const ConsumeInventoryModal: React.FC<ConsumeInventoryModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
               <select name="reason" value={formData.reason} onChange={handleChange}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                <option value="feeding">Feeding</option>
-                <option value="waste">Waste</option>
-                <option value="expired">Expired</option>
-                <option value="transfer">Transfer</option>
-                <option value="adjustment">Adjustment</option>
+                <option value="FEEDING">Feeding</option>
+                <option value="WASTE">Waste</option>
+                <option value="EXPIRED">Expired</option>
+                <option value="TRANSFER">Transfer</option>
+                <option value="ADJUSTMENT">Adjustment</option>
               </select>
             </div>
             <div>
@@ -641,7 +646,7 @@ const AdjustInventoryModal: React.FC<AdjustInventoryModalProps> = ({
 }) => {
   const [formData, setFormData] = useState({
     inventoryId: inventory.id,
-    adjustmentType: 'increase' as AdjustmentType,
+    adjustmentType: 'INCREASE' as AdjustmentType,
     quantity: '',
     reason: '',
     notes: '',
@@ -687,14 +692,14 @@ const AdjustInventoryModal: React.FC<AdjustInventoryModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 mb-1">Adjustment Type *</label>
               <select name="adjustmentType" value={formData.adjustmentType} onChange={handleChange}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                <option value="increase">Increase</option>
-                <option value="decrease">Decrease</option>
-                <option value="set_quantity">Set Exact Quantity</option>
+                <option value="INCREASE">Increase</option>
+                <option value="DECREASE">Decrease</option>
+                <option value="SET_QUANTITY">Set Exact Quantity</option>
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {formData.adjustmentType === 'set_quantity' ? 'New Quantity (kg) *' : 'Amount (kg) *'}
+                {formData.adjustmentType === 'SET_QUANTITY' ? 'New Quantity (kg) *' : 'Amount (kg) *'}
               </label>
               <input type="number" name="quantity" value={formData.quantity} onChange={handleChange}
                 required step="0.1" min="0"

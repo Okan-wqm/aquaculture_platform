@@ -171,10 +171,17 @@ const FeedingPage: React.FC = () => {
 
   // Data fetching
   const { data: sitesData, isLoading: sitesLoading } = useSiteList();
+  /**
+   * Fetch all production-relevant batches for the feeding page.
+   * Includes ACTIVE, GROWING, and PRE_HARVEST statuses since all these
+   * require feeding. QUARANTINE batches are excluded as they follow
+   * separate feeding protocols.
+   */
   const { data: batchesData, isLoading: batchesLoading } = useBatchList(
     {
       siteId: selectedSiteId || undefined,
-      status: ['ACTIVE'] as BatchStatus[],
+      status: ['ACTIVE', 'GROWING', 'PRE_HARVEST'] as BatchStatus[],
+      isActive: true,
     },
   );
 

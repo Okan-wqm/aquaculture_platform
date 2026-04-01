@@ -41,12 +41,17 @@ export type FeedingStatus =
   | 'PARTIAL'
   | 'TRANSITION_WARNING';
 
+/**
+ * Feeding method type — uses GraphQL enum KEYS (uppercase).
+ * Backend FeedingMethod enum: MANUAL='manual', AUTOMATIC='automatic', etc.
+ * GraphQL always uses the KEY, not the DB value.
+ */
 export type FeedingMethodType =
-  | 'manual'
-  | 'automatic'
-  | 'demand'
-  | 'broadcast'
-  | 'spot';
+  | 'MANUAL'
+  | 'AUTOMATIC'
+  | 'DEMAND'
+  | 'BROADCAST'
+  | 'SPOT';
 
 export interface DailyFeedingExecution {
   id: string;
@@ -307,11 +312,11 @@ export function getVarianceColor(variancePercent: number | null | undefined, sta
 export function formatFeedingMethod(method?: FeedingMethodType, feederName?: string): string {
   if (!method) return '-';
   const labels: Record<FeedingMethodType, string> = {
-    manual: 'Manuel',
-    automatic: 'Auto',
-    demand: 'Demand',
-    broadcast: 'Broadcast',
-    spot: 'Spot',
+    MANUAL: 'Manuel',
+    AUTOMATIC: 'Auto',
+    DEMAND: 'Demand',
+    BROADCAST: 'Broadcast',
+    SPOT: 'Spot',
   };
   const label = labels[method] ?? method;
   return feederName ? `${label} / ${feederName}` : label;

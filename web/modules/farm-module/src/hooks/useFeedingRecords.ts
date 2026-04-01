@@ -23,15 +23,20 @@ import {
 // TYPES
 // ============================================================================
 
-export type FeedingMethod = 'manual' | 'automatic' | 'demand' | 'broadcast' | 'spot';
+/**
+ * GraphQL enum values — must match the registered enum KEYS (uppercase),
+ * not the DB string values (lowercase). GraphQL enums are always referenced
+ * by their key in queries and variables.
+ */
+export type FeedingMethod = 'MANUAL' | 'AUTOMATIC' | 'DEMAND' | 'BROADCAST' | 'SPOT';
 
-export type FishAppetite = 'excellent' | 'good' | 'moderate' | 'poor' | 'none';
+export type FishAppetite = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'POOR' | 'NONE';
 
-export type InventoryStatus = 'available' | 'low_stock' | 'out_of_stock' | 'expired' | 'quarantine';
+export type InventoryStatus = 'AVAILABLE' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'EXPIRED' | 'QUARANTINE';
 
-export type ConsumptionReason = 'feeding' | 'waste' | 'adjustment' | 'expired' | 'transfer';
+export type ConsumptionReason = 'FEEDING' | 'WASTE' | 'ADJUSTMENT' | 'EXPIRED' | 'TRANSFER';
 
-export type AdjustmentType = 'increase' | 'decrease' | 'set_quantity';
+export type AdjustmentType = 'INCREASE' | 'DECREASE' | 'SET_QUANTITY';
 
 export interface FeedingEnvironment {
   waterTemp?: number;
@@ -472,7 +477,6 @@ export function useFeedInventoryList(
       const data = await graphqlClient.request<{ feedInventory: FeedInventoryConnection }>(
         FEED_INVENTORY_QUERY,
         {
-          tenantId,
           filter,
           pagination: {
             page: pagination?.page ?? 1,

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { MobilePermissionsProvider, useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
 import { MobileLayout } from './layouts/MobileLayout';
@@ -7,6 +7,17 @@ import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { InstallPrompt } from './components/InstallPrompt';
 import { MultiFeatureRoute } from './components/MultiFeatureRoute';
+
+/**
+ * BUG-16: Redirect component that captures :tankId param and forwards it to /cull/record/:tankId.
+ * React Router's Navigate component treats the `to` prop as a static string and does not
+ * interpolate route parameters. This component reads the matched :tankId from useParams
+ * and builds the correct target path dynamically.
+ */
+function CullingToTankRedirect() {
+  const { tankId } = useParams<{ tankId: string }>();
+  return <Navigate to={`/cull/record/${tankId}`} replace />;
+}
 
 // PERF-02: Lazy-load page components so the initial bundle only contains the
 // login and home pages. Feature pages are code-split and loaded on demand.
@@ -218,6 +229,15 @@ export function App() {
                       <Route path="/messages/media/:attachmentId" element={<MediaViewerPage />} />
 
                       <Route path="/account" element={<AccountPage />} />
+
+                      {/* BUG-16: Backward-compatible redirect: /culling/* -> /cull/*
+                          Users and bookmarks may reference the longer "culling" path form
+                          (e.g. /mobile/culling/record) which has no matching route, causing
+                          the catch-all to redirect to home. Map the common variants so both
+                          "cull" and "culling" resolve correctly. */}
+                      <Route path="/culling/record/:tankId" element={<CullingToTankRedirect />} />
+                      <Route path="/culling/record" element={<Navigate to="/cull/record" replace />} />
+                      <Route path="/culling" element={<Navigate to="/cull/record" replace />} />
 
                       {/* Backward-compatible redirect: old /record tab now goes to /operations */}
                       <Route path="/record" element={<Navigate to="/operations" replace />} />

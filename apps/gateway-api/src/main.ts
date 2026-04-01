@@ -173,7 +173,7 @@ async function bootstrap(): Promise<void> {
     origin: parsedOrigins,
     // SECURITY: credentials must be false when using wildcard origin
     credentials: !isWildcard,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
       'Authorization',

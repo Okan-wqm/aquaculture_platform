@@ -4,8 +4,16 @@ import { useState, useEffect, useRef } from 'react';
 // even WiFi with no internet routing. This is common in field deployments.
 // We use a periodic connectivity probe against the health endpoint to determine
 // actual server reachability, with navigator.onLine as a fast "definitely offline" signal.
+//
+// BUG-17: The probe previously used HEAD /graphql, which returned 503 because the
+// GraphQL module only handles POST requests. NestJS Apollo does not respond to HEAD
+// by default, and while a middleware workaround existed in the gateway, it was fragile
+// (ordering-sensitive, not always deployed). Using the dedicated /health/live liveness
+// endpoint is architecturally correct -- it is a lightweight, unauthenticated GET
+// endpoint that returns 200 as long as the gateway process is running and the
+// supergraph is composed. This also avoids unnecessary load on the GraphQL pipeline.
 
-const PROBE_URL = '/graphql';
+const PROBE_URL = '/health/live';
 const PROBE_INTERVAL_MS = 30_000; // 30 seconds
 const PROBE_TIMEOUT_MS = 5_000; // 5 seconds per probe
 
@@ -14,7 +22,7 @@ async function probeConnectivity(): Promise<boolean> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
     const response = await fetch(PROBE_URL, {
-      method: 'HEAD',
+      method: 'GET',
       signal: controller.signal,
       // No credentials/auth — just checking reachability
       cache: 'no-store',

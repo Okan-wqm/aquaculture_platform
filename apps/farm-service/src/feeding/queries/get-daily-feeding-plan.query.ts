@@ -1,51 +1,48 @@
 /**
  * GetDailyFeedingPlanQuery
  *
- * Belirli bir güne ait yemleme planını getirir.
+ * Fetches the daily feeding plan for a given site and date.
+ * The result interface mirrors the GraphQL DailyFeedingPlanResponse type
+ * so the resolver can return the handler result directly.
  *
  * @module Feeding/Queries
  */
 import { ITenantQuery } from '@platform/cqrs';
 
 /**
- * Tank bazlı yemleme planı
+ * Individual planned feeding entry per equipment (tank/pond/cage).
+ * Shape matches the GraphQL PlannedFeeding ObjectType exactly.
  */
-export interface TankFeedingPlan {
-  tankId: string;
-  tankCode: string;
-  tankName: string;
+export interface PlannedFeeding {
   batchId: string;
-  batchNumber: string;
-  speciesName: string;
-  currentQuantity: number;
-  avgWeightG: number;
-  biomassKg: number;
+  batchCode: string;
+  tankId?: string;
+  tankCode?: string;
   feedId: string;
   feedName: string;
   plannedAmountKg: number;
-  feedingRatePercent: number;
-  mealsPerDay: number;
-  amountPerMealKg: number;
-  completedMeals: number;
-  actualAmountTodayKg: number;
-  remainingAmountKg: number;
+  actualAmountKg: number;
+  mealsPlanned: number;
+  mealsCompleted: number;
+  isComplete: boolean;
 }
 
 /**
- * Günlük yemleme planı özeti
+ * Daily feeding plan summary.
+ * Shape matches the GraphQL DailyFeedingPlanResponse ObjectType exactly.
  */
 export interface DailyFeedingPlanResult {
   date: Date;
   siteId: string;
-  siteName: string;
+  plannedFeedings: PlannedFeeding[];
   totalPlannedKg: number;
   totalActualKg: number;
-  totalVarianceKg: number;
-  variancePercent: number;
   completionPercent: number;
-  tankPlans: TankFeedingPlan[];
 }
 
+/**
+ * Query to retrieve the daily feeding plan for a specific site and date.
+ */
 export class GetDailyFeedingPlanQuery implements ITenantQuery {
   readonly queryName = 'GetDailyFeedingPlanQuery';
 

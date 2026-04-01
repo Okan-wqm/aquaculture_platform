@@ -5,6 +5,9 @@
  * for a given site. Aggregates data from active feeding programs,
  * their tank assignments, and daily execution records.
  *
+ * The returned shape MUST match the GraphQL DailyFeedingPlanResponse type:
+ *   { date, siteId, plannedFeedings: PlannedFeeding[], totalPlannedKg, totalActualKg, completionPercent }
+ *
  * @module Feeding/QueryHandlers
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -15,7 +18,6 @@ import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import {
   GetDailyFeedingPlanQuery,
   DailyFeedingPlanResult,
-  TankFeedingPlan,
 } from '../queries/get-daily-feeding-plan.query';
 import { FeedingProgram } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
@@ -26,6 +28,7 @@ import { Site } from '../../site/entities/site.entity';
  * Query handler for daily feeding plans.
  * Fetches active feeding programs for a site, calculates planned amounts
  * per equipment (tank/pond/cage), and compares with actual execution data.
+ * Returns data in the shape expected by the DailyFeedingPlanResponse GraphQL type.
  */
 @Injectable()
 @QueryHandler(GetDailyFeedingPlanQuery)
@@ -45,7 +48,13 @@ export class GetDailyFeedingPlanHandler
 
   /**
    * Execute the daily feeding plan query.
-   * Returns planned vs actual feeding data for all equipment at the given site.
+   *
+   * Collects active feeding programs for the site, loads their tank/equipment
+   * assignments, fetches execution records for the target date, and maps
+   * everything into PlannedFeeding objects that match the GraphQL schema.
+   *
+   * @param query - Contains tenantId, siteId, date, and optional departmentId
+   * @returns DailyFeedingPlanResult with plannedFeedings array (never null)
    */
   async execute(query: GetDailyFeedingPlanQuery): Promise<DailyFeedingPlanResult> {
     const { tenantId, siteId, date } = query;
@@ -91,8 +100,8 @@ export class GetDailyFeedingPlanHandler
         .getMany();
     }
 
-    // Build tank plans with planned vs actual from execution JSONB data
-    const tankPlans: TankFeedingPlan[] = [];
+    // Build planned feedings matching GraphQL PlannedFeeding shape
+    const plannedFeedings: DailyFeedingPlanResult['plannedFeedings'] = [];
     let totalPlannedKg = 0;
     let totalActualKg = 0;
 
@@ -115,36 +124,25 @@ export class GetDailyFeedingPlanHandler
         0,
       );
       const completedMeals = equipmentExecs.filter((e) => e.isCompleted()).length;
+      const mealsPlanned = equipmentExecs.length;
 
       // Get current feed info from program tank or first feed assignment
       const firstAssignment = program.feedAssignments?.[0];
       const feedId = pt.currentFeedId ?? firstAssignment?.feedId ?? '';
       const feedName = pt.currentFeedCode ?? firstAssignment?.feedName ?? '';
 
-      // Get fish/weight info from the latest execution calculations
-      const latestCalc = equipmentExecs.length > 0
-        ? equipmentExecs[equipmentExecs.length - 1]?.calculations
-        : undefined;
-
-      tankPlans.push({
+      plannedFeedings.push({
+        batchId: '',
+        batchCode: '',
         tankId: pt.equipmentId,
         tankCode: pt.equipmentCode,
-        tankName: pt.equipmentName,
-        batchId: '',
-        batchNumber: '',
-        speciesName: '',
-        currentQuantity: latestCalc?.fishCount ?? 0,
-        avgWeightG: latestCalc?.avgWeightG ?? 0,
-        biomassKg: latestCalc?.biomassKg ?? 0,
         feedId,
         feedName,
         plannedAmountKg: plannedKg,
-        feedingRatePercent: latestCalc?.feedingRatePercent ?? 0,
-        mealsPerDay: equipmentExecs.length,
-        amountPerMealKg: equipmentExecs.length > 0 ? plannedKg / equipmentExecs.length : 0,
-        completedMeals,
-        actualAmountTodayKg: actualKg,
-        remainingAmountKg: Math.max(0, plannedKg - actualKg),
+        actualAmountKg: actualKg,
+        mealsPlanned,
+        mealsCompleted: completedMeals,
+        isComplete: mealsPlanned > 0 && completedMeals >= mealsPlanned,
       });
 
       totalPlannedKg += plannedKg;
@@ -157,16 +155,10 @@ export class GetDailyFeedingPlanHandler
     return {
       date,
       siteId,
-      siteName: site.name,
+      plannedFeedings,
       totalPlannedKg,
       totalActualKg,
-      totalVarianceKg: totalActualKg - totalPlannedKg,
-      variancePercent:
-        totalPlannedKg > 0
-          ? Math.round(((totalActualKg - totalPlannedKg) / totalPlannedKg) * 100)
-          : 0,
       completionPercent,
-      tankPlans,
     };
   }
 }

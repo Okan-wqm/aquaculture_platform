@@ -3,7 +3,7 @@ import { ValidationError } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { initTelemetry, StructuredLoggerService, buildNatsTransportOptions } from '@aquaculture/backend-common';
+import { initTelemetry, StructuredLoggerService, buildNatsTransportOptions, logBootstrapError } from '@aquaculture/backend-common';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
@@ -29,16 +29,7 @@ async function bootstrap(): Promise<void> {
       logger: new StructuredLoggerService('sensor-service'),
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: 'fatal',
-      service: 'sensor-service',
-      message: `Module initialization failed: ${message}`,
-      ...(stack ? { stack } : {}),
-      context: 'Bootstrap',
-    }));
+    logBootstrapError('sensor-service', err, 'Module initialization');
     process.exit(1);
   }
 
@@ -195,15 +186,6 @@ async function bootstrap(): Promise<void> {
  * ensures the real error is always visible in container logs.
  */
 bootstrap().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  const stack = err instanceof Error ? err.stack : undefined;
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    service: 'sensor-service',
-    message: `Bootstrap failed: ${message}`,
-    ...(stack ? { stack } : {}),
-    context: 'Bootstrap',
-  }));
+  logBootstrapError('sensor-service', err, 'Bootstrap');
   process.exit(1);
 });

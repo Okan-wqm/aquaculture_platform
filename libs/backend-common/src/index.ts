@@ -13,6 +13,7 @@ export * from './guards/roles.guard';
 export * from './guards/tenant.guard';
 export * from './guards/tenant-permission.guard';
 export * from './guards/service-identity.guard';
+export * from './guards/token-revocation.service';
 
 // Utils - Inter-service authentication
 export * from './utils/service-identity.util';
@@ -71,8 +72,20 @@ export * from './audit';
 // NATS - Shared connection factory with SEC-H01 authentication support
 export { buildNatsConnectionOptions, buildNatsTransportOptions } from './nats/nats-connection.factory';
 
+// Constants - Shared NATS patterns and validation regexes
+export { NATS_PATTERNS } from './constants/nats-patterns';
+export {
+  DEVICE_CODE_REGEX,
+  TENANT_ID_REGEX,
+  UUID_REGEX,
+  VALIDATION_PATTERNS,
+} from './constants/validation-patterns';
+
 // Decorators - Audit logging
 export * from './decorators/audit-log.decorator';
 
 // Bootstrap - Shared NestJS application factory (eliminates main.ts duplication)
 export * from './bootstrap';
+
+// Monitoring - Legacy token metrics for JWT sunset tracking
+export * from './monitoring';

@@ -26,11 +26,27 @@ export interface CreateAuditEntryDto {
  * AuditLogService
  *
  * Handles persisting audit log entries to the database.
- * All writes are fire-and-forget to avoid blocking the response pipeline.
+ *
+ * Two recording modes are available:
+ * - `record()` — fire-and-forget; errors are caught and counted but never
+ *   propagated. Suitable for non-critical audit events.
+ * - `recordAwait()` — awaitable; the caller blocks until the write succeeds
+ *   or fails. Suitable for critical security events (e.g. SUPER_ADMIN
+ *   cross-tenant access) where silent loss is unacceptable.
+ *
+ * SECURITY (BULGU-4): A failure counter tracks silent write failures.
+ * The counter is exposed via `getFailureCount()` and logged with every
+ * failure so monitoring systems can alert on `AUDIT_FAILURE` log lines.
  */
 @Injectable()
 export class AuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
+
+  /**
+   * Monotonically increasing counter of audit record persistence failures.
+   * Exposed via `getFailureCount()` for health checks and Prometheus scraping.
+   */
+  private auditFailureCount = 0;
 
   constructor(
     @Optional()
@@ -40,7 +56,10 @@ export class AuditLogService {
 
   /**
    * Persist an audit log entry (fire-and-forget).
-   * Errors are caught and logged, never propagated to the caller.
+   *
+   * Errors are caught, counted, and logged — never propagated to the caller.
+   * For critical security events where silent loss is unacceptable, use
+   * `recordAwait()` instead.
    */
   record(dto: CreateAuditEntryDto): void {
     if (!this.auditLogRepository) {
@@ -66,11 +85,68 @@ export class AuditLogService {
     });
 
     // Fire-and-forget: save asynchronously without awaiting
-    this.auditLogRepository.save(entity).catch((err: Error) => {
+    this.auditLogRepository.save(entity).catch((err: unknown) => {
+      this.auditFailureCount++;
+      const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
-        `Failed to persist audit log: ${dto.action} on ${dto.resource} - ${err.message}`,
+        `AUDIT_FAILURE [count=${this.auditFailureCount}]: Failed to persist audit log: ${dto.action} on ${dto.resource} - ${message}`,
       );
     });
+  }
+
+  /**
+   * Persist an audit log entry and await the result.
+   *
+   * Unlike `record()`, this method propagates errors to the caller so they
+   * can decide how to handle the failure. The failure counter is still
+   * incremented on error for consistency.
+   *
+   * Use this for critical security events (SUPER_ADMIN cross-tenant access,
+   * permission escalation, etc.) where silent audit loss is unacceptable.
+   *
+   * @throws Error if the database write fails
+   */
+  async recordAwait(dto: CreateAuditEntryDto): Promise<void> {
+    if (!this.auditLogRepository) {
+      this.logger.debug(
+        `Audit log skipped (no repository): ${dto.action} on ${dto.resource}`,
+      );
+      return;
+    }
+
+    const entity = this.auditLogRepository.create({
+      action: dto.action,
+      resource: dto.resource,
+      resourceId: dto.resourceId ?? null,
+      userId: dto.userId ?? null,
+      userEmail: dto.userEmail ?? null,
+      tenantId: dto.tenantId ?? null,
+      schemaName: dto.schemaName ?? null,
+      metadata: dto.metadata ?? null,
+      ip: dto.ip ?? null,
+      userAgent: dto.userAgent ?? null,
+      severity: dto.severity ?? AuditSeverity.INFO,
+      correlationId: dto.correlationId ?? null,
+    });
+
+    try {
+      await this.auditLogRepository.save(entity);
+    } catch (err: unknown) {
+      this.auditFailureCount++;
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `AUDIT_FAILURE [count=${this.auditFailureCount}]: Failed to persist audit log: ${dto.action} on ${dto.resource} - ${message}`,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Return the number of audit record persistence failures since process start.
+   * Useful for health checks and Prometheus gauge/counter metrics.
+   */
+  getFailureCount(): number {
+    return this.auditFailureCount;
   }
 
   /**

@@ -1,7 +1,7 @@
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { initTelemetry, StructuredLoggerService } from '@aquaculture/backend-common';
+import { initTelemetry, StructuredLoggerService, logBootstrapError } from '@aquaculture/backend-common';
 import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
@@ -47,16 +47,7 @@ async function bootstrap(): Promise<void> {
       logger: new StructuredLoggerService('gateway-api'),
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: 'fatal',
-      service: 'gateway-api',
-      message: `Module initialization failed: ${message}`,
-      ...(stack ? { stack } : {}),
-      context: 'Bootstrap',
-    }));
+    logBootstrapError('gateway-api', err, 'Module initialization');
     process.exit(1);
   }
 
@@ -218,15 +209,6 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  const stack = err instanceof Error ? err.stack : undefined;
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    service: 'gateway-api',
-    message: `Bootstrap failed: ${message}`,
-    ...(stack ? { stack } : {}),
-    context: 'Bootstrap',
-  }));
+  logBootstrapError('gateway-api', err, 'Bootstrap');
   process.exit(1);
 });

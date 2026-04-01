@@ -7,24 +7,31 @@
  */
 
 import { Injectable, NestMiddleware, Logger, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response, NextFunction } from 'express';
-import { JwtPayload, AuthenticatedRequest } from '../guards/auth.guard';
+
+import { JwtPayload, AuthenticatedRequest } from '../types/index';
 import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
 } from '../guards/redis-token-blacklist.store';
+import { validateAccessTokenCompat } from '../guards/utils/token-validation.util';
 
 @Injectable()
 export class JwtMiddleware implements NestMiddleware {
   private readonly logger = new Logger(JwtMiddleware.name);
+  private readonly isProduction: boolean;
 
   constructor(
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     @Optional()
     @Inject(TOKEN_BLACKLIST_STORE)
     private readonly tokenBlacklist?: TokenBlacklistStore,
-  ) {}
+  ) {
+    this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
+  }
 
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
     const authHeader = req.headers['authorization'];
@@ -42,18 +49,8 @@ export class JwtMiddleware implements NestMiddleware {
         algorithms: ['HS256'],
       });
 
-      /**
-       * SEC-COMPAT: Legacy tokens without jti cannot be individually revoked
-       * but are still cryptographically valid. Log for monitoring and allow
-       * during transition period. New tokens always include jti. Once all
-       * legacy tokens have expired, this can be tightened to reject them.
-       */
-      const isProduction = process.env['NODE_ENV'] === 'production';
-      if (isProduction && !payload.jti) {
-        this.logger.warn(
-          `Legacy token without jti detected for user ${payload.sub} — allowing during transition period.`,
-        );
-      }
+      // SEC-COMPAT: Centralized legacy token validation (type check + jti warning)
+      validateAccessTokenCompat(payload, this.logger, this.isProduction);
 
       // SECURITY: Check blacklist BEFORE setting req.user
       // This prevents revoked token identity from being forwarded to subgraphs

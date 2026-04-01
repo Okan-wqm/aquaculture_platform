@@ -116,7 +116,8 @@ services:
       DATABASE_URL: postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
       FARM_SERVICE_URL: http://farm-service:3000/graphql
       SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
@@ -197,7 +198,8 @@ services:
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
       # OpenTelemetry Tracing
@@ -250,7 +252,8 @@ services:
       DATABASE_LOGGING: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-aquaculture-dev-encryption-32ch!}
+      # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required - generate with: openssl rand -base64 32}
       FARM_SEED_ENABLED: "false"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
@@ -469,7 +472,8 @@ services:
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -555,7 +559,8 @@ services:
       MINIO_USE_SSL: "false"
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
       NODE_OPTIONS: "--max-old-space-size=384"
     healthcheck:
       # ARCH-HC-001: Use /health/live for Docker liveness (consistent with all other services)
@@ -601,7 +606,8 @@ services:
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
     ports:
       - "3008:3000"
     healthcheck:

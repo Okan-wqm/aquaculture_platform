@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { StructuredLoggerService } from '@aquaculture/backend-common';
+import { StructuredLoggerService, logBootstrapError } from '@aquaculture/backend-common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -22,16 +22,7 @@ async function bootstrap() {
       logger: new StructuredLoggerService('hr-service'),
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: 'fatal',
-      service: 'hr-service',
-      message: `Module initialization failed: ${message}`,
-      ...(stack ? { stack } : {}),
-      context: 'Bootstrap',
-    }));
+    logBootstrapError('hr-service', err, 'Module initialization');
     process.exit(1);
   }
 
@@ -144,16 +135,11 @@ async function bootstrap() {
  * Error properties (message, stack) are non-enumerable. Structured JSON
  * ensures the real error is always visible in container logs.
  */
+/**
+ * ARCH-032: Surface the actual error on bootstrap failure.
+ * Uses logBootstrapError() for sanitized, truncated stack trace output.
+ */
 bootstrap().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err);
-  const stack = err instanceof Error ? err.stack : undefined;
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    service: 'hr-service',
-    message: `Bootstrap failed: ${message}`,
-    ...(stack ? { stack } : {}),
-    context: 'Bootstrap',
-  }));
+  logBootstrapError('hr-service', err, 'Bootstrap');
   process.exit(1);
 });

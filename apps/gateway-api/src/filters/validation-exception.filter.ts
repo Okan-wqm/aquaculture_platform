@@ -17,6 +17,8 @@ import {
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
+import { GqlContext } from '../types/index';
+
 /**
  * Validation error structure
  */
@@ -98,13 +100,6 @@ const CONSTRAINT_MESSAGES: Record<string, (field: string, args?: unknown[]) => s
   isOptional: () => '', // No message needed
   validateNested: (field) => `${field} contains invalid nested data`,
 };
-
-/**
- * GraphQL context interface
- */
-interface GqlContext {
-  req?: Request;
-}
 
 /**
  * Validation Exception Filter

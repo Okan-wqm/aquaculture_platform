@@ -2,7 +2,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { initTelemetry, StructuredLoggerService } from '@aquaculture/backend-common';
+import { initTelemetry, StructuredLoggerService, logBootstrapError } from '@aquaculture/backend-common';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
@@ -30,16 +30,7 @@ async function bootstrap(): Promise<void> {
       logger: new StructuredLoggerService('auth-service'),
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: 'fatal',
-      service: 'auth-service',
-      message: `Module initialization failed: ${message}`,
-      ...(stack ? { stack } : {}),
-      context: 'Bootstrap',
-    }));
+    logBootstrapError('auth-service', err, 'Module initialization');
     process.exit(1);
   }
 
@@ -142,20 +133,11 @@ async function bootstrap(): Promise<void> {
   logger.log(`GraphQL Playground: http://localhost:${port}/graphql`);
 }
 
+/**
+ * ARCH-032: Surface the actual error on bootstrap failure.
+ * Uses logBootstrapError() for sanitized, truncated stack trace output.
+ */
 bootstrap().catch((err: unknown) => {
-  // ARCH-032: Surface the actual error on bootstrap failure.
-  // NestJS ExceptionHandler serializes Error objects as '{}' via JSON.stringify
-  // because Error properties (message, stack) are non-enumerable.
-  // This catch block ensures the real error is always visible in container logs.
-  const message = err instanceof Error ? err.message : String(err);
-  const stack = err instanceof Error ? err.stack : undefined;
-  console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
-    level: 'fatal',
-    service: 'auth-service',
-    message: `Bootstrap failed: ${message}`,
-    ...(stack ? { stack } : {}),
-    context: 'Bootstrap',
-  }));
+  logBootstrapError('auth-service', err, 'Bootstrap');
   process.exit(1);
 });

@@ -59,9 +59,9 @@ interface IpWhitelistRequest extends Omit<Request, 'connection' | 'socket'> {
 }
 
 /**
- * GraphQL context interface
+ * GraphQL context with optional IpWhitelistRequest
  */
-interface GqlContext {
+interface IpWhitelistGqlContext {
   req?: IpWhitelistRequest;
 }
 
@@ -159,7 +159,7 @@ export class IpWhitelistGuard implements CanActivate {
    */
   private getRequest(context: ExecutionContext): IpWhitelistRequest {
     const gqlContext = GqlExecutionContext.create(context);
-    const ctx = gqlContext.getContext<GqlContext>();
+    const ctx = gqlContext.getContext<IpWhitelistGqlContext>();
     const gqlRequest = ctx?.req;
 
     if (gqlRequest) {

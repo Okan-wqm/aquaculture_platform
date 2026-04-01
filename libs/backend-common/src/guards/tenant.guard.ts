@@ -73,7 +73,15 @@ export class TenantGuard implements CanActivate {
     }
   }
 
-  canActivate(context: ExecutionContext): boolean {
+  /**
+   * Evaluate tenant isolation rules for the current request.
+   *
+   * SECURITY (ONEMLI-05): Signature is `async` because cross-tenant audit
+   * logging for SUPER_ADMIN must be awaited to guarantee persistence of
+   * critical security events. NestJS guards fully support both sync
+   * (`boolean`) and async (`Promise<boolean>`) return types.
+   */
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     // Skip if endpoint is marked public
     const isPublic = this.reflector.getAllAndOverride<boolean>(
       IS_PUBLIC_KEY,
@@ -131,9 +139,10 @@ export class TenantGuard implements CanActivate {
 
         request.tenantId = actAsTenant;
 
-        // SECURITY (H-13): Persistent audit logging for cross-tenant access
+        // SECURITY (H-13 + BULGU-4): Persistent audit logging for cross-tenant access.
+        // Critical security events MUST be awaited to prevent silent audit loss.
         if (isCrossTenant) {
-          this.auditCrossTenantAccess(request, user, sourceTenantId, actAsTenant);
+          await this.auditCrossTenantAccess(request, user, sourceTenantId, actAsTenant);
         }
       }
       return true;
@@ -201,8 +210,12 @@ export class TenantGuard implements CanActivate {
   /**
    * Persist an audit record for SUPER_ADMIN cross-tenant access.
    *
-   * SECURITY (H-13): This replaces the previous ephemeral `this.logger.warn()` with a
-   * persistent database record via AuditLogService. The record includes:
+   * SECURITY (H-13 + BULGU-4): This method uses `recordAwait()` so the
+   * audit write is awaited before the request proceeds. Cross-tenant access
+   * by a SUPER_ADMIN is a critical security event — fire-and-forget is
+   * unacceptable because a silent DB failure would leave no forensic trail.
+   *
+   * The record includes:
    * - userId: the SUPER_ADMIN performing the action
    * - sourceTenantId: the admin's own tenant (or 'system')
    * - targetTenantId: the tenant being accessed
@@ -210,15 +223,17 @@ export class TenantGuard implements CanActivate {
    * - timestamp: ISO 8601 timestamp
    * - client IP and user agent for forensic traceability
    *
-   * The operation is fire-and-forget to avoid blocking the request pipeline.
    * If AuditLogService is not available, falls back to ephemeral logger.warn().
+   * If the awaited write fails, the error is logged but not propagated — the
+   * guard still allows the request (audit failure must not block legitimate
+   * admin operations, but the failure IS counted and logged).
    */
-  private auditCrossTenantAccess(
+  private async auditCrossTenantAccess(
     request: TenantRequest,
     user: TenantRequest['user'],
     sourceTenantId: string,
     targetTenantId: string,
-  ): void {
+  ): Promise<void> {
     const endpoint = `${request.method} ${request.url}`;
     const timestamp = new Date().toISOString();
     const ip = this.extractClientIp(request);
@@ -235,39 +250,59 @@ export class TenantGuard implements CanActivate {
       timestamp,
     });
 
-    // Persist to audit trail via AuditLogService (fire-and-forget)
+    // Persist to audit trail via AuditLogService (awaited for critical events)
     if (this.auditLogService) {
-      this.auditLogService.record({
-        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
-        resource: 'TenantGuard',
-        resourceId: targetTenantId,
-        userId: user?.sub ?? null,
-        userEmail: user?.email ?? null,
-        tenantId: targetTenantId,
-        metadata: {
-          sourceTenantId,
-          targetTenantId,
-          endpoint,
-          timestamp,
-          mfaVerified: user?.mfaVerified ?? false,
-        },
-        ip: ip ?? null,
-        userAgent: userAgent ?? null,
-        severity: AuditSeverity.WARNING,
-      });
+      try {
+        await this.auditLogService.recordAwait({
+          action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+          resource: 'TenantGuard',
+          resourceId: targetTenantId,
+          userId: user?.sub ?? null,
+          userEmail: user?.email ?? null,
+          tenantId: targetTenantId,
+          metadata: {
+            sourceTenantId,
+            targetTenantId,
+            endpoint,
+            timestamp,
+            mfaVerified: user?.mfaVerified ?? false,
+          },
+          ip: ip ?? null,
+          userAgent: userAgent ?? null,
+          severity: AuditSeverity.WARNING,
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `Critical audit write failed for SUPER_ADMIN cross-tenant access: ${message}`,
+          { userId: user?.sub, sourceTenantId, targetTenantId, endpoint },
+        );
+        // Do not re-throw: audit failure must not block legitimate admin operations
+      }
     }
   }
 
   /**
    * Extract the client IP address from the request.
-   * Considers X-Forwarded-For for requests behind a reverse proxy.
+   *
+   * SECURITY (BULGU-7): Prefer Express `request.ip` which respects the
+   * application-level `trust proxy` configuration. When trust proxy is
+   * properly set, Express parses X-Forwarded-For securely and returns
+   * the correct client IP. Falling back to raw X-Forwarded-For header
+   * only when `request.ip` is unavailable ensures IP spoofing is
+   * prevented in environments where trust proxy is configured.
    */
   private extractClientIp(request: TenantRequest): string | undefined {
+    // Prefer Express request.ip which respects trust proxy configuration
+    if (request.ip) {
+      return request.ip;
+    }
+    // Fallback to X-Forwarded-For header
     const forwarded = request.headers['x-forwarded-for'];
     if (typeof forwarded === 'string') {
       return forwarded.split(',')[0]?.trim();
     }
-    return request.ip;
+    return undefined;
   }
 
   /**

@@ -109,10 +109,10 @@ services:
     command: ["--config", "/etc/nats/nats.conf"]
     environment:
       # SEC-H01: NATS credentials for authenticated broker access.
-      # Override via .env or deployment secrets. Defaults are for initial setup only.
-      # NATS runs on internal Docker network (aqua-internal), not exposed to host.
+      # SEC-NEW01: Mandatory credentials — no default fallback allowed in any environment.
+      # Generate with: openssl rand -base64 32
       NATS_USER: ${NATS_USER:-nats_internal}
-      NATS_PASS: ${NATS_PASS:-natsDefaultPass2026}
+      NATS_PASS: ${NATS_PASS:?NATS_PASS is required - generate with: openssl rand -base64 32}
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
@@ -203,7 +203,8 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
@@ -305,7 +306,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
@@ -353,7 +355,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -402,7 +405,8 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
@@ -460,7 +464,8 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -506,7 +511,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -547,7 +553,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -588,7 +595,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -629,7 +637,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -670,7 +679,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -754,7 +764,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -799,14 +810,16 @@ services:
       REDIS_DB: '3'
       NATS_URL: nats://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-      NATS_AUTH_PASS: ${NATS_AUTH_PASS:-natsDefaultPass2026}
+      # SEC-NEW01: NATS password must be provided via .env — no default fallback
+      NATS_AUTH_PASS: ${NATS_AUTH_PASS:?NATS_AUTH_PASS is required - must match NATS_PASS}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: 'false'
-      MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
+      # SEC-NEW02: MinIO credentials must be provided — no default fallback for object storage access
+      MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
       TRUST_PROXY: 'true'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     networks:

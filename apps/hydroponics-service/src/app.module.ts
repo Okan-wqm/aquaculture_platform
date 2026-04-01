@@ -159,7 +159,9 @@ const complexityCache = new Map<string, number>();
            * Disabled in production for security (no introspection exposure).
            */
           playground: !isProduction && configService.get('GRAPHQL_PLAYGROUND', 'true') === 'true',
-          introspection: !isProduction || configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
+          /** SEC-NEW06: Disable introspection override — gateway handles introspection centrally.
+           *  Subgraph introspection in production exposes internal schema details. */
+          introspection: !isProduction,
           context: ({ req }: { req: Request }) => ({ req }),
         };
       },

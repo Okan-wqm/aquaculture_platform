@@ -50,7 +50,8 @@ services:
       - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       - NATS_URL=nats://nats:4222
-      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required - generate with: openssl rand -base64 48}
       - PORT=3000
     ports:
       - "3001:3000"
@@ -87,7 +88,8 @@ services:
       - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
       - NATS_URL=nats://nats:4222
       - PORT=3000
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-aquaculture-dev-encryption-32ch!}
+      # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY is required - generate with: openssl rand -base64 32}
       - FARM_SEED_ENABLED=false
     ports:
       - "3002:3000"

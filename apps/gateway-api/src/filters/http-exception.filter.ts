@@ -17,6 +17,8 @@ import {
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 
+import { GqlContext } from '../types/index';
+
 /**
  * Standard error response format
  */
@@ -96,13 +98,6 @@ const USER_FRIENDLY_MESSAGES: Record<number, string> = {
   [HttpStatus.SERVICE_UNAVAILABLE]: 'The service is temporarily unavailable.',
   [HttpStatus.GATEWAY_TIMEOUT]: 'The upstream service did not respond in time.',
 };
-
-/**
- * GraphQL context interface
- */
-interface GqlContext {
-  req?: Request;
-}
 
 /**
  * HTTP Exception Filter

@@ -1,20 +1,13 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 
+import {
+  NATS_PATTERNS,
+  DEVICE_CODE_REGEX,
+  TENANT_ID_REGEX,
+} from '@aquaculture/backend-common';
+
 import { EdgeDeviceService } from './edge-device.service';
-
-/**
- * SEC-M18: Strict validation regex for tenant IDs used in database queries.
- * Only lowercase UUID v4 format is accepted to prevent injection.
- */
-const TENANT_ID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-/**
- * SEC-M18: Strict validation regex for device codes.
- * Only alphanumeric characters, hyphens, and underscores are accepted (max 128 chars).
- */
-const DEVICE_CODE_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
 
 /**
  * Payload for device ownership verification NATS request.
@@ -57,7 +50,7 @@ export class EdgeDeviceNatsController {
    * @param data - The verification payload containing deviceCode and tenantId
    * @returns Ownership verification result
    */
-  @MessagePattern('request.sensor.verifyDeviceOwnership')
+  @MessagePattern(NATS_PATTERNS.SENSOR.VERIFY_DEVICE_OWNERSHIP)
   async verifyDeviceOwnership(
     @Payload() data: VerifyDeviceOwnershipPayload,
   ): Promise<VerifyDeviceOwnershipResponse> {

@@ -20,7 +20,7 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Request } from 'express';
 
-import { JwtPayload, AuthenticatedRequest } from './auth.guard';
+import { JwtPayload, AuthenticatedRequest, GqlContext } from '../types/index';
 
 /**
  * Permission check mode
@@ -78,13 +78,6 @@ export const RESOURCE_PERMISSION_KEY = 'resourcePermission';
  */
 export const RequireResourcePermission = (permission: ResourcePermission): ReturnType<typeof SetMetadata> =>
   SetMetadata(RESOURCE_PERMISSION_KEY, permission);
-
-/**
- * GraphQL context interface
- */
-interface GqlContext {
-  req: Request;
-}
 
 /**
  * Role hierarchy definition
@@ -503,57 +496,5 @@ export class PermissionGuard implements CanActivate, OnModuleDestroy {
   }
 }
 
-/**
- * Helper to check if user has permission
- */
-export function userHasPermission(user: JwtPayload, permission: string): boolean {
-  const permissions = user.permissions || [];
-
-  // Check wildcard
-  if (permissions.includes('*')) {
-    return true;
-  }
-
-  // Check exact match
-  if (permissions.includes(permission)) {
-    return true;
-  }
-
-  // Check resource wildcard
-  const [resource] = permission.split(':');
-  if (permissions.includes(`${resource}:*`) || permissions.includes(`${resource}:manage`)) {
-    return true;
-  }
-
-  // Check role-based permissions
-  for (const role of user.roles) {
-    const rolePerms = ROLE_PERMISSIONS[role] || [];
-    if (rolePerms.includes('*') || rolePerms.includes(permission)) {
-      return true;
-    }
-    if (rolePerms.includes(`${resource}:*`) || rolePerms.includes(`${resource}:manage`)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Helper to check if user has role
- */
-export function userHasRole(user: JwtPayload, role: string): boolean {
-  if (user.roles.includes(role)) {
-    return true;
-  }
-
-  // Check role hierarchy
-  for (const userRole of user.roles) {
-    const inheritedRoles = ROLE_HIERARCHY[userRole] || [];
-    if (inheritedRoles.includes(role)) {
-      return true;
-    }
-  }
-
-  return false;
-}
+// Re-export helper functions from extracted module for backward compatibility
+export { userHasPermission, userHasRole } from './permission.helpers';

@@ -30,6 +30,8 @@ import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard, JwtPayload } from './guards/auth.guard';
+import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
+import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
@@ -556,6 +558,9 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     }),
   ],
   providers: [
+    // Authentication strategy services (injected into AuthGuard)
+    ApiKeyAuthStrategy,
+    BasicAuthStrategy,
     // Global exception filter
     {
       provide: APP_FILTER,

@@ -45,6 +45,124 @@ function validateSchemaName(schemaName: string): string {
   return schemaName;
 }
 
+// ============================================================================
+// SQL Statement Validator (NEW-05)
+// ============================================================================
+
+/**
+ * Result of SQL statement validation against the migration security policy.
+ */
+interface MigrationValidationResult {
+  /** Statements that passed the whitelist and are safe to execute */
+  valid: string[];
+  /** Statements that were rejected with their rejection reasons */
+  rejected: Array<{ statement: string; reason: string }>;
+}
+
+/**
+ * SECURITY (NEW-05): Validates that SQL statements conform to a DDL-only whitelist.
+ *
+ * Migration scripts should only contain schema-definition statements (CREATE, ALTER, DROP
+ * on tables, indexes, constraints, etc.). This validator rejects:
+ *   - DML statements (INSERT, UPDATE, DELETE, SELECT INTO) unless ALLOW_DML_MIGRATIONS=true
+ *   - DCL statements (GRANT, REVOKE)
+ *   - Dangerous operations (DROP DATABASE, DROP SCHEMA public, TRUNCATE, COPY)
+ *   - PostgreSQL administrative commands (SET ROLE, pg_* functions)
+ *
+ * The blacklist check runs BEFORE the whitelist, so dangerous statements are always
+ * rejected regardless of the ALLOW_DML_MIGRATIONS flag.
+ *
+ * @param statements - Array of individual SQL statements to validate
+ * @param allowDml - When true, permits DML statements (INSERT/UPDATE/DELETE/SELECT)
+ *                   in addition to DDL. Defaults to false.
+ * @returns MigrationValidationResult with valid and rejected statement arrays
+ */
+function validateMigrationStatements(
+  statements: string[],
+  allowDml = false,
+): MigrationValidationResult {
+  /**
+   * Whitelist: DDL statements that are safe for tenant schema migrations.
+   * Matches CREATE/ALTER/DROP on standard database objects.
+   */
+  const DDL_WHITELIST =
+    /^\s*(CREATE|ALTER|DROP)\s+(TABLE|INDEX|CONSTRAINT|TYPE|SEQUENCE|EXTENSION|VIEW|FUNCTION|TRIGGER)\b/i;
+
+  /**
+   * Extended whitelist: CREATE TABLE IF NOT EXISTS, CREATE UNIQUE INDEX, etc.
+   * Covers common DDL variants with optional qualifiers.
+   */
+  const DDL_EXTENDED_WHITELIST =
+    /^\s*(CREATE\s+(OR\s+REPLACE\s+)?(UNIQUE\s+)?|ALTER|DROP)\s+(TABLE|INDEX|CONSTRAINT|TYPE|SEQUENCE|EXTENSION|VIEW|FUNCTION|TRIGGER)\b/i;
+
+  /**
+   * DML whitelist: Only enabled when ALLOW_DML_MIGRATIONS=true.
+   * Permits data manipulation for seed/backfill migrations.
+   */
+  const DML_WHITELIST = /^\s*(INSERT|UPDATE|DELETE|SELECT)\b/i;
+
+  /**
+   * Blacklist: Statements that are ALWAYS rejected regardless of configuration.
+   * These represent operations that could destroy infrastructure, exfiltrate data,
+   * or escalate privileges beyond tenant schema scope.
+   */
+  const DANGEROUS_BLACKLIST =
+    /^\s*(DROP\s+DATABASE|DROP\s+SCHEMA\s+public|TRUNCATE|GRANT|REVOKE|COPY|\\copy|LOAD|DO\s+\$|SET\s+ROLE\s+(?!NONE))/i;
+
+  /**
+   * Additional blacklist: PostgreSQL administrative function calls that could
+   * access system internals or modify server configuration.
+   */
+  const PG_ADMIN_BLACKLIST = /\bpg_(read_file|write_file|execute_server_program|ls_dir|sleep)\b/i;
+
+  const valid: string[] = [];
+  const rejected: Array<{ statement: string; reason: string }> = [];
+
+  for (const rawStatement of statements) {
+    const statement = rawStatement.trim();
+    if (!statement) continue;
+
+    // Dangerous operations are ALWAYS rejected (blacklist before whitelist)
+    if (DANGEROUS_BLACKLIST.test(statement)) {
+      rejected.push({
+        statement: statement.substring(0, 200),
+        reason: 'Matches dangerous operation blacklist (DROP DATABASE, TRUNCATE, GRANT, etc.)',
+      });
+      continue;
+    }
+
+    if (PG_ADMIN_BLACKLIST.test(statement)) {
+      rejected.push({
+        statement: statement.substring(0, 200),
+        reason: 'Contains PostgreSQL administrative function call',
+      });
+      continue;
+    }
+
+    // DDL is always allowed
+    if (DDL_WHITELIST.test(statement) || DDL_EXTENDED_WHITELIST.test(statement)) {
+      valid.push(statement);
+      continue;
+    }
+
+    // DML is conditionally allowed
+    if (allowDml && DML_WHITELIST.test(statement)) {
+      valid.push(statement);
+      continue;
+    }
+
+    // Everything else is rejected
+    rejected.push({
+      statement: statement.substring(0, 200),
+      reason: allowDml
+        ? 'Statement does not match DDL or DML whitelist'
+        : 'Statement does not match DDL whitelist (set ALLOW_DML_MIGRATIONS=true for DML)',
+    });
+  }
+
+  return { valid, rejected };
+}
+
 // Available migrations registry
 const MIGRATION_REGISTRY: MigrationDefinition[] = [
   {
@@ -316,17 +434,37 @@ export class MigrationManagementService {
       const safeSchemaName = validateSchemaName(schema.schemaName);
       await queryRunner.query(`SET search_path TO "${safeSchemaName}"`);
 
+      // SECURITY (NEW-05): Validate all SQL statements against DDL whitelist before execution
+      const rawStatements = migration.upScript.split(';').filter(s => s.trim());
+      const allowDml = process.env['ALLOW_DML_MIGRATIONS'] === 'true';
+      const validation = validateMigrationStatements(rawStatements, allowDml);
+
+      if (validation.rejected.length > 0) {
+        // Log each rejected statement with WARNING level and the executor identity
+        for (const rejection of validation.rejected) {
+          this.logger.warn(
+            `SECURITY: Migration ${version} for tenant ${tenantId} — rejected SQL statement ` +
+            `by user ${executedBy ?? 'unknown'}: "${rejection.statement}" — Reason: ${rejection.reason}`,
+          );
+        }
+        // Atomic rejection: if ANY statement fails validation, abort the entire migration
+        throw new BadRequestException(
+          `Migration ${version} contains ${validation.rejected.length} disallowed SQL statement(s). ` +
+          `All statements must conform to the DDL whitelist. ` +
+          `Rejected: ${validation.rejected.map(r => r.reason).join('; ')}`,
+        );
+      }
+
       if (isDryRun) {
-        // For dry run, just validate the SQL
-        await queryRunner.query(`EXPLAIN ${migration.upScript.split(';')[0]}`);
-        this.logger.log(`Dry run successful for migration ${version}`);
+        // For dry run, validate the SQL plan without executing
+        if (validation.valid.length > 0) {
+          await queryRunner.query(`EXPLAIN ${validation.valid[0]}`);
+        }
+        this.logger.log(`Dry run successful for migration ${version} (${validation.valid.length} statements validated)`);
       } else {
-        // Execute migration
-        const statements = migration.upScript.split(';').filter(s => s.trim());
-        for (const statement of statements) {
-          if (statement.trim()) {
-            await queryRunner.query(statement);
-          }
+        // Execute validated statements only
+        for (const statement of validation.valid) {
+          await queryRunner.query(statement);
         }
       }
 
@@ -546,12 +684,27 @@ export class MigrationManagementService {
       const safeSchemaName = validateSchemaName(schema.schemaName);
       await queryRunner.query(`SET search_path TO "${safeSchemaName}"`);
 
-      // Execute rollback
-      const statements = migration.downScript.split(';').filter(s => s.trim());
-      for (const statement of statements) {
-        if (statement.trim()) {
-          await queryRunner.query(statement);
+      // SECURITY (NEW-05): Validate rollback statements against DDL whitelist
+      const rawStatements = migration.downScript.split(';').filter(s => s.trim());
+      const allowDml = process.env['ALLOW_DML_MIGRATIONS'] === 'true';
+      const validation = validateMigrationStatements(rawStatements, allowDml);
+
+      if (validation.rejected.length > 0) {
+        for (const rejection of validation.rejected) {
+          this.logger.warn(
+            `SECURITY: Rollback ${version} for tenant ${tenantId} — rejected SQL statement ` +
+            `by user ${executedBy ?? 'unknown'}: "${rejection.statement}" — Reason: ${rejection.reason}`,
+          );
         }
+        throw new BadRequestException(
+          `Rollback ${version} contains ${validation.rejected.length} disallowed SQL statement(s). ` +
+          `Rejected: ${validation.rejected.map(r => r.reason).join('; ')}`,
+        );
+      }
+
+      // Execute validated rollback statements
+      for (const statement of validation.valid) {
+        await queryRunner.query(statement);
       }
 
       await queryRunner.commitTransaction();

@@ -43,6 +43,7 @@ import type { INestApplication, Type } from '@nestjs/common';
 import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { StructuredLoggerService } from '../logging';
+import { logBootstrapError } from './safe-error-logger';
 import helmet from 'helmet';
 import type { HelmetOptions } from 'helmet';
 
@@ -496,16 +497,7 @@ export async function createServiceApp(
       ...nestFactoryOptions,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: 'fatal',
-      service: serviceName,
-      message: `Module initialization failed: ${message}`,
-      ...(stack ? { stack } : {}),
-      context: 'Bootstrap',
-    }));
+    logBootstrapError(serviceName, err, 'Module initialization');
     process.exit(1);
   }
 
@@ -602,16 +594,7 @@ export function bootstrapService(
   options: ServiceBootstrapOptions,
 ): void {
   createServiceApp(appModule, options).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level: 'fatal',
-      service: options.serviceName,
-      message: `Bootstrap failed: ${message}`,
-      ...(stack ? { stack } : {}),
-      context: 'Bootstrap',
-    }));
+    logBootstrapError(options.serviceName, err, 'Bootstrap');
     process.exit(1);
   });
 }

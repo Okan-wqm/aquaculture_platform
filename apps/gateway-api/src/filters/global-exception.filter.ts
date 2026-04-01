@@ -10,19 +10,14 @@ import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
 import { Response, Request } from 'express';
 import { GraphQLError } from 'graphql';
 
+import { GqlContext } from '../types/index';
+
 /**
  * Extended request interface with custom properties
  */
 interface ExtendedRequest extends Request {
   tenantId?: string;
   correlationId?: string;
-}
-
-/**
- * GraphQL context interface
- */
-interface GqlContext {
-  req?: ExtendedRequest;
 }
 
 /**

@@ -9,3 +9,9 @@ export {
   bootstrapService,
   type ServiceBootstrapOptions,
 } from './create-service-app';
+
+export {
+  sanitizeForLogging,
+  truncateStack,
+  logBootstrapError,
+} from './safe-error-logger';

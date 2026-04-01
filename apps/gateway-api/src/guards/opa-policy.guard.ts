@@ -108,9 +108,9 @@ interface OpaRequest extends Omit<Request, 'connection'> {
 }
 
 /**
- * GraphQL context interface
+ * GraphQL context with optional OpaRequest
  */
-interface GqlContext {
+interface OpaGqlContext {
   req?: OpaRequest;
 }
 
@@ -334,7 +334,7 @@ export class OpaPolicyGuard implements CanActivate {
    */
   private getRequest(context: ExecutionContext): OpaRequest {
     const gqlContext = GqlExecutionContext.create(context);
-    const ctx = gqlContext.getContext<GqlContext>();
+    const ctx = gqlContext.getContext<OpaGqlContext>();
     const gqlRequest = ctx?.req;
 
     if (gqlRequest) {

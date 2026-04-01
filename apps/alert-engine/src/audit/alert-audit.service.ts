@@ -252,14 +252,11 @@ export class AlertAuditService implements OnModuleInit {
 
   onModuleInit(): void {
     this.setupEventListeners();
-    this.log({
-      category: AuditCategory.SYSTEM,
-      eventType: AuditEventType.SYSTEM_STARTED,
-      severity: AuditSeverity.INFO,
-      action: 'startup',
-      description: 'Alert audit service started',
-      success: true,
-    });
+    // NOTE: Do NOT persist a SYSTEM_STARTED audit entry to the database here.
+    // At module-init time there is no tenant context, so the repository targets
+    // the template schema ("alert").  Writing rows to the template schema causes
+    // SOURCE_CONTAMINATION watchdog violations.  A console log is sufficient for
+    // service-lifecycle events.
     this.logger.log('AlertAuditService initialized with PostgreSQL persistence');
   }
 

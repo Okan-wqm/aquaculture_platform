@@ -273,15 +273,29 @@ export function RecordTransferPage() {
                   {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
                 </option>
               ))}
-              {/* WHY: Show batchless tanks as disabled so users know the tank exists but has no fish to transfer */}
+              {/* WHY: Show batchless tanks as disabled options with their real ID so users know
+                  the tank exists but has no fish to transfer. Using the actual tank ID (not
+                  empty string) prevents the browser from treating disabled selection as valid. */}
               {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value="" disabled>
+                <option key={t.id} value={t.id} disabled>
                   {t.name} (No active batch)
                 </option>
               ))}
             </ListInput>
           </List>
           {errors.sourceTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.sourceTank}</p>}
+          {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
+              every dropdown option is disabled and no selection is possible. */}
+          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
+            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
+              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
+                All tanks currently have no active batches.
+              </p>
+              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
+                Stock fish into a tank before recording transfers.
+              </p>
+            </div>
+          )}
         </>
       )}
 

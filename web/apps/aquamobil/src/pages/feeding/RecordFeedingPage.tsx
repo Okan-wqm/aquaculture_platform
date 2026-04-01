@@ -223,7 +223,9 @@ export function RecordFeedingPage() {
 
       {/* Tank Selector */}
       {/* WHY: Only tanks with active batches are selectable — feeding requires a batch context
-          to look up the daily feeding plan and match to the correct feed program. */}
+          to look up the daily feeding plan and match to the correct feed program.
+          Tanks without batches are shown disabled with their real ID (not empty value) so that
+          the user understands which tanks exist but cannot be selected. */}
       {!tankId && (
         <>
           <BlockTitle>Select Tank</BlockTitle>
@@ -236,13 +238,25 @@ export function RecordFeedingPage() {
                 </option>
               ))}
               {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value="" disabled>
+                <option key={t.id} value={t.id} disabled>
                   {t.name} (No active batch)
                 </option>
               ))}
             </ListInput>
           </List>
           {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
+          {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
+              every dropdown option is disabled and no selection is possible. */}
+          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
+            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
+              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
+                All tanks currently have no active batches.
+              </p>
+              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
+                Stock fish into a tank before recording feeding.
+              </p>
+            </div>
+          )}
         </>
       )}
 

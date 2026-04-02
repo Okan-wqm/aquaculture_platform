@@ -308,6 +308,16 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'user_ai_consents',
     ],
   },
+  {
+    moduleName: 'auth',
+    sourceSchema: 'auth',
+    referenceDataTables: [],
+    tables: [
+      'tenant_roles',
+      'tenant_role_permissions',
+      'user_role_assignments',
+    ],
+  },
 ];
 
 /**

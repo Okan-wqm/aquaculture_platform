@@ -367,6 +367,65 @@ export async function syncOperation(
   }
 }
 
+/**
+ * Maximum number of retry attempts before an operation is considered permanently
+ * failed. After this threshold the operation remains in the queue with 'failed'
+ * status so the user can manually inspect or remove it from the Sync Status page.
+ */
+export const MAX_RETRY_COUNT = 5;
+
+/**
+ * Exponential backoff base delay in milliseconds for retry scheduling.
+ * Actual delay = BASE_RETRY_DELAY_MS * 2^(retryCount - 1), capped at 5 minutes.
+ */
+const BASE_RETRY_DELAY_MS = 2_000;
+const MAX_RETRY_DELAY_MS = 5 * 60 * 1_000;
+
+/**
+ * Calculate the next retry delay using exponential backoff with jitter.
+ * Prevents thundering-herd when many operations fail simultaneously.
+ *
+ * @param retryCount - Current retry attempt number (1-based after first failure)
+ * @returns Delay in milliseconds before the next retry attempt
+ */
+export function calculateRetryDelay(retryCount: number): number {
+  const exponentialDelay = BASE_RETRY_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1));
+  const cappedDelay = Math.min(exponentialDelay, MAX_RETRY_DELAY_MS);
+  // Add 0-25% jitter to prevent synchronized retries across multiple operations
+  const jitter = cappedDelay * Math.random() * 0.25;
+  return cappedDelay + jitter;
+}
+
+/**
+ * Determine whether a failed operation is eligible for automatic retry.
+ *
+ * Distinguishes between transient errors (network timeouts, 5xx server errors)
+ * and permanent errors (validation failures, 4xx client errors) to avoid
+ * wasting retry budget on operations that will never succeed.
+ *
+ * @param errorMessage - The truncated error message from the last sync attempt
+ * @returns true if the error is likely transient and worth retrying
+ */
+function isRetryableError(errorMessage?: string): boolean {
+  if (!errorMessage) return true;
+  const lower = errorMessage.toLowerCase();
+
+  // Permanent errors that should NOT be retried — these indicate bad data
+  // or business-rule violations that won't resolve without user intervention.
+  const permanentPatterns = [
+    'validation',
+    'not found',
+    'forbidden',
+    'unauthorized',
+    'duplicate',
+    'constraint',
+    'invalid input',
+    'bad request',
+  ];
+
+  return !permanentPatterns.some((pattern) => lower.includes(pattern));
+}
+
 export async function syncAllOperations(
   executeGraphQL: GraphQLExecutor
 ): Promise<{ success: number; failed: number }> {
@@ -376,13 +435,22 @@ export async function syncAllOperations(
   const staleSync = allOps.filter((op) => op.status === 'syncing');
   await Promise.all(staleSync.map((op) => updateOperation(op.id, { status: 'pending' })));
 
+  // BUG-17: Promote retryable 'failed' operations back to 'pending' so they
+  // are included in this sync pass. Previously, failed items were skipped
+  // permanently — they never transitioned back to 'pending', leaving the user
+  // with a dead queue that only manual deletion could resolve.
+  const retryableFailed = allOps.filter(
+    (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
+  );
+  await Promise.all(retryableFailed.map((op) => updateOperation(op.id, { status: 'pending' })));
+
   const operations = await getPendingOperations();
   let success = 0;
   let failed = 0;
 
   for (const op of operations) {
-    // Skip if already tried too many times
-    if (op.retryCount >= 3) {
+    // Skip permanently failed operations (exceeded max retries or non-retryable error)
+    if (op.retryCount >= MAX_RETRY_COUNT) {
       failed++;
       continue;
     }

@@ -1,6 +1,7 @@
 import { Navbar, Block, BlockTitle, Button, List, ListItem } from 'konsta/react';
-import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { MAX_RETRY_COUNT } from '@/pwa/offline-queue';
 import { clsx } from 'clsx';
 
 // BUG-06: Include recordFeeding so feeding queue entries show a friendly label.
@@ -88,9 +89,18 @@ export function SyncStatusPage() {
           <List strongIos insetIos>
             {pendingOperations.map((op) => {
               const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };
+              // BUG-17: Distinguish between retryable failures (will auto-retry)
+              // and permanently failed operations (exceeded MAX_RETRY_COUNT).
+              const isPermanentlyFailed = op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
+              const isRetrying = op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
+
               const statusIcon =
                 op.status === 'syncing' ? (
                   <RefreshCw size={16} className="animate-spin text-blue-500" />
+                ) : isPermanentlyFailed ? (
+                  <AlertCircle size={16} className="text-red-500" />
+                ) : isRetrying ? (
+                  <RotateCcw size={16} className="text-amber-500" />
                 ) : op.status === 'failed' ? (
                   <AlertCircle size={16} className="text-red-500" />
                 ) : (
@@ -109,7 +119,17 @@ export function SyncStatusPage() {
                   subtitle={
                     <span className="text-xs">
                       {formatDate(op.createdAt)}
-                      {op.retryCount > 0 && ` • Retries: ${op.retryCount}`}
+                      {op.retryCount > 0 && ` • Retries: ${op.retryCount}/${MAX_RETRY_COUNT}`}
+                      {isRetrying && (
+                        <span className="text-amber-600 dark:text-amber-400 block">
+                          Will auto-retry
+                        </span>
+                      )}
+                      {isPermanentlyFailed && (
+                        <span className="text-red-600 dark:text-red-400 block">
+                          Permanently failed — please remove
+                        </span>
+                      )}
                       {op.lastError && (
                         // SEC-07: Truncate error messages to limit social engineering
                         // potential from server-sourced text rendered in the UI.
@@ -152,8 +172,8 @@ export function SyncStatusPage() {
           <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
             <li>• Data entries are saved locally first</li>
             <li>• Automatic sync when online</li>
-            <li>• Failed syncs retry up to 3 times</li>
-            <li>• You can manually remove failed entries</li>
+            <li>• Failed syncs auto-retry up to {MAX_RETRY_COUNT} times with backoff</li>
+            <li>• Permanently failed entries can be manually removed</li>
           </ul>
         </div>
       </Block>

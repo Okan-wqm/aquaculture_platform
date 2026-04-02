@@ -76,11 +76,18 @@ export async function authenticatedFetch(
     credentials: options?.credentials ?? 'include',
   });
 
-  // 401 -> attempt one silent refresh, then retry the original request
+  // 401 -> attempt one silent refresh, then retry the original request.
+  // BUG-18: After refresh, re-read BOTH accessToken AND tenantId from the
+  // auth store. The refresh response may carry an updated tenantId, and the
+  // retry must send the fresh value in the X-Tenant-Id header. Previously
+  // only Authorization was updated, leaving a stale or missing X-Tenant-Id.
   if (response.status === 401 && authStore.refreshAuth) {
     const refreshed = await authStore.refreshAuth();
     if (refreshed && authStore.accessToken) {
       headers['Authorization'] = `Bearer ${authStore.accessToken}`;
+      if (authStore.tenantId) {
+        headers['X-Tenant-Id'] = authStore.tenantId;
+      }
       response = await fetch(url, {
         ...options,
         headers,

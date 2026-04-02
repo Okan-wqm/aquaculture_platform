@@ -399,7 +399,7 @@ describe('Offline Queue', () => {
   });
 
   // ========================================================================
-  // Retry policy: 3 attempts then permanent fail
+  // Retry policy: MAX_RETRY_COUNT attempts then permanent fail
   // ========================================================================
 
   describe('Retry Policy', () => {
@@ -417,18 +417,52 @@ describe('Offline Queue', () => {
       expect(updated!.status).toBe('failed');
     });
 
-    it('should skip operations with retryCount >= 3 (permanent fail)', async () => {
+    it('should skip operations with retryCount >= MAX_RETRY_COUNT (permanent fail)', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
       const id = await queueOperation('recordMortality', payload);
 
-      // Manually set retryCount to 3
-      await updateOperation(id, { retryCount: 3, status: 'failed' });
+      // Manually set retryCount to MAX_RETRY_COUNT
+      await updateOperation(id, { retryCount: 5, status: 'failed' });
 
       const mockExecutor = vi.fn().mockResolvedValue({ success: true });
 
       const result = await syncAllOperations(mockExecutor);
 
       // Should be counted as failed, not retried
+      expect(result.failed).toBe(1);
+      expect(result.success).toBe(0);
+      expect(mockExecutor).not.toHaveBeenCalled();
+    });
+
+    it('should promote retryable failed operations back to pending (BUG-17)', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const id = await queueOperation('recordMortality', payload);
+
+      // Simulate a failed operation with retryCount < MAX_RETRY_COUNT
+      await updateOperation(id, { retryCount: 2, status: 'failed', lastError: 'Network timeout' });
+
+      const mockExecutor = vi.fn().mockResolvedValue({ success: true });
+
+      const result = await syncAllOperations(mockExecutor);
+
+      // Should have been promoted to pending and retried successfully
+      expect(result.success).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(mockExecutor).toHaveBeenCalledTimes(1);
+    });
+
+    it('should NOT retry operations with permanent error messages', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const id = await queueOperation('recordMortality', payload);
+
+      // Simulate a permanent failure (validation error)
+      await updateOperation(id, { retryCount: 1, status: 'failed', lastError: 'Validation failed: quantity must be positive' });
+
+      const mockExecutor = vi.fn().mockResolvedValue({ success: true });
+
+      const result = await syncAllOperations(mockExecutor);
+
+      // Permanent errors should NOT be promoted to pending
       expect(result.failed).toBe(1);
       expect(result.success).toBe(0);
       expect(mockExecutor).not.toHaveBeenCalled();

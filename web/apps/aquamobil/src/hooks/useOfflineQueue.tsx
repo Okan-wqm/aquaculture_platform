@@ -5,6 +5,7 @@ import {
   getPendingCount,
   syncAllOperations,
   removeOperation,
+  MAX_RETRY_COUNT,
 } from '@/pwa/offline-queue';
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
@@ -380,6 +381,31 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline, pendingCount]);
+
+  // BUG-17: Periodic retry for failed operations.
+  // When online with failed items in the queue, schedule automatic retries
+  // at a fixed interval. syncAllOperations() now promotes retryable 'failed'
+  // operations back to 'pending' before processing, so this interval ensures
+  // transient failures (network blips, 5xx) are retried without user action.
+  // Interval is 30 seconds — long enough to avoid hammering the server, short
+  // enough that users see progress without manual intervention.
+  useEffect(() => {
+    if (!isOnline || pendingCount === 0) return;
+
+    const hasRetryableFailures = pendingOperations.some(
+      (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT,
+    );
+    if (!hasRetryableFailures) return;
+
+    const retryInterval = setInterval(() => {
+      if (!isSyncingRef.current) {
+        syncNowRef.current();
+      }
+    }, 30_000);
+
+    return () => clearInterval(retryInterval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, pendingCount, pendingOperations]);
 
   return (
     <OfflineContext.Provider

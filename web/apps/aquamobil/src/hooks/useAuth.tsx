@@ -291,6 +291,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsMobileDisabled(false);
   }, [state.accessToken, state.user?.id]);
 
+  // BUG-18: refreshAuth must update tenantId from the fresh server response.
+  // Previously only accessToken was extracted, leaving tenantId stale in React
+  // state. When the old token expired, the stale tenantId was sent as
+  // X-Tenant-Id header and was inconsistent with the JWT's own tenantId claim,
+  // causing "Tenant ID is required" errors on downstream subgraph calls.
   const refreshAuth = useCallback(async () => {
     try {
       const response = await fetch('/graphql', {
@@ -313,12 +318,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const { accessToken } = result.data.refreshToken;
+      const { accessToken, user: refreshedUser } = result.data.refreshToken;
 
-      setState((prev) => ({
-        ...prev,
-        accessToken,
-      }));
+      setState((prev) => {
+        // Update tenantId and user from the server response to keep them
+        // in sync with the fresh JWT claims. If the server returns user data,
+        // merge it; otherwise preserve existing state (defensive).
+        if (refreshedUser) {
+          const displayName = `${refreshedUser.firstName || ''} ${refreshedUser.lastName || ''}`.trim()
+            || refreshedUser.email?.split('@')[0]
+            || prev.user?.name
+            || '';
+          return {
+            ...prev,
+            accessToken,
+            tenantId: refreshedUser.tenantId ?? prev.tenantId,
+            user: prev.user ? { ...prev.user, ...refreshedUser, name: displayName } : prev.user,
+          };
+        }
+        return { ...prev, accessToken };
+      });
     } catch {
       logout();
     }
@@ -332,6 +351,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logoutRef = useRef(logout);
   logoutRef.current = logout;
 
+  // BUG-18: refreshAuthForInterceptor must also extract the fresh tenantId
+  // from the server response, matching the fix applied to refreshAuth above.
+  // The interceptor path is invoked by authenticatedFetch on 401 responses,
+  // so stale tenantId here would cause the retried request to fail again.
   const refreshAuthForInterceptor = useCallback(async (): Promise<boolean> => {
     try {
       const response = await fetch('/graphql', {
@@ -353,14 +376,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      const { accessToken: newToken } = result.data.refreshToken;
+      const { accessToken: newToken, user: refreshedUser } = result.data.refreshToken;
+      const freshTenantId = refreshedUser?.tenantId ?? state.tenantId;
 
-      // Update React state (will trigger syncAuthStore via useEffect)
-      setState((prev) => ({ ...prev, accessToken: newToken }));
+      // Update React state with fresh token and tenantId
+      setState((prev) => {
+        if (refreshedUser) {
+          const displayName = `${refreshedUser.firstName || ''} ${refreshedUser.lastName || ''}`.trim()
+            || refreshedUser.email?.split('@')[0]
+            || prev.user?.name
+            || '';
+          return {
+            ...prev,
+            accessToken: newToken,
+            tenantId: refreshedUser.tenantId ?? prev.tenantId,
+            user: prev.user ? { ...prev.user, ...refreshedUser, name: displayName } : prev.user,
+          };
+        }
+        return { ...prev, accessToken: newToken };
+      });
 
       // Also update the module store immediately so the retry uses the new token
       // without waiting for the next React render cycle.
-      syncAuthStore(newToken, state.tenantId, refreshAuthForInterceptor);
+      syncAuthStore(newToken, freshTenantId, refreshAuthForInterceptor);
 
       return true;
     } catch {

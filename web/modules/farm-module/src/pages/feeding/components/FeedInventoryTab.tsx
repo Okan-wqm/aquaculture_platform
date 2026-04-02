@@ -110,8 +110,16 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
     setModalType('adjust');
   };
 
+  /**
+   * Submit handler for adding new feed inventory.
+   * Validates user context before sending the mutation.
+   */
   const handleAddSubmit = async (data: any) => {
     try {
+      if (!user?.id) {
+        console.error('Failed to add inventory: user context missing');
+        return;
+      }
       const input: AddFeedInventoryInput = {
         feedId: data.feedId,
         siteId: data.siteId,
@@ -125,7 +133,7 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
         currency: data.currency || undefined,
         storageLocation: data.storageLocation || undefined,
         notes: data.notes || undefined,
-        createdBy: user?.id || '',
+        createdBy: user.id,
       };
       await addMutation.mutateAsync(input);
       setModalType(null);

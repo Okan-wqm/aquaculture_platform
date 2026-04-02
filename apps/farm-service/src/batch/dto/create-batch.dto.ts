@@ -11,6 +11,8 @@ import {
   IsNumber,
   IsUUID,
   IsDateString,
+  IsArray,
+  ArrayMinSize,
   Min,
   Max,
   MaxLength,
@@ -230,8 +232,10 @@ export class CreateBatchInput {
   @Type(() => BatchDocumentInput)
   importDocuments?: BatchDocumentInput[];
 
-  // Tank allocations
+  // Tank allocations — at least one location is required
   @Field(() => [InitialLocationInput])
+  @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => InitialLocationInput)
   initialLocations: InitialLocationInput[];

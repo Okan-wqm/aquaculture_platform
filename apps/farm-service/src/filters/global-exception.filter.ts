@@ -56,7 +56,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const context = gqlHost.getContext();
     const request = context?.req;
 
-    const { statusCode, message } = this.parseException(exception);
+    const { statusCode, message, validationErrors } = this.parseException(exception);
 
     const sanitizedMessage = this.isProduction ? this.sanitizeMessage(message) : message;
 
@@ -69,20 +69,25 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     this.logError(exception, errorResponse);
 
+    // Build extensions with optional validation error details
+    const extensions: Record<string, unknown> = {
+      code: this.getGraphQLErrorCode(statusCode),
+      statusCode,
+    };
+    if (validationErrors && validationErrors.length > 0 && !this.isProduction) {
+      extensions['validationErrors'] = validationErrors;
+    }
+
     return new GraphQLError(
       this.isProduction ? this.sanitizeMessage(message) : message,
-      {
-        extensions: {
-          code: this.getGraphQLErrorCode(statusCode),
-          statusCode,
-        },
-      },
+      { extensions },
     );
   }
 
   private parseException(exception: unknown): {
     statusCode: number;
     message: string;
+    validationErrors?: string[];
   } {
     if (exception instanceof HttpException) {
       const response = exception.getResponse();
@@ -91,9 +96,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           ? response
           : (response as Record<string, unknown>)['message'] || exception.message;
 
+      // Preserve individual validation error strings so they can be
+      // forwarded to the client inside GraphQL error extensions.
+      const validationErrors = Array.isArray(message) ? message.map(String) : undefined;
+
       return {
         statusCode: exception.getStatus(),
         message: Array.isArray(message) ? message.join(', ') : String(message),
+        validationErrors,
       };
     }
 
@@ -145,20 +155,38 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return message;
   }
 
+  /**
+   * Log error details including field-level validation messages
+   * from BadRequestException responses (class-validator output).
+   */
   private logError(
     exception: unknown,
     errorResponse: Record<string, unknown>,
   ): void {
     const statusCode = errorResponse['statusCode'] as number;
+    const correlationId = errorResponse['correlationId'] || 'N/A';
 
     if (statusCode >= 500) {
       this.logger.error(
-        `[${errorResponse['correlationId'] || 'N/A'}] ${errorResponse['message']}`,
+        `[${correlationId}] ${errorResponse['message']}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     } else if (statusCode >= 400) {
+      // For 400 errors, include the full validation details so we can
+      // see WHICH fields failed and WHY (class-validator messages).
+      let detail = '';
+      if (exception instanceof HttpException) {
+        const response = exception.getResponse();
+        if (typeof response === 'object' && response !== null) {
+          try {
+            detail = ` | details: ${JSON.stringify(response)}`;
+          } catch {
+            detail = ` | details: [unserializable response]`;
+          }
+        }
+      }
       this.logger.warn(
-        `[${errorResponse['correlationId'] || 'N/A'}] ${errorResponse['message']}`,
+        `[${correlationId}] ${errorResponse['message']}${detail}`,
       );
     }
   }

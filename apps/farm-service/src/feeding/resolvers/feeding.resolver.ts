@@ -21,7 +21,7 @@ import {
   ObjectType,
   registerEnumType,
 } from '@nestjs/graphql';
-import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate } from 'class-validator';
+import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate, IsEnum, IsNotEmpty, IsString } from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -70,255 +70,404 @@ registerEnumType(AdjustmentType, {
 // INPUT TYPES
 // ============================================================================
 
+/**
+ * Feeding environment conditions recorded during a feeding event.
+ */
 @InputType()
 export class FeedingEnvironmentInput {
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   waterTemp?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   dissolvedOxygen?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
   weather?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   windLevel?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   visibility?: string;
 }
 
+/**
+ * Fish behavior observations during a feeding event.
+ */
 @InputType()
 export class FishBehaviorInput {
   @Field(() => FishAppetite)
+  @IsEnum(FishAppetite)
   appetite: FishAppetite;
 
   @Field(() => Int)
+  @IsInt()
+  @Min(0)
   feedingIntensity: number;
 
   @Field({ nullable: true })
+  @IsOptional()
   surfaceActivity?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   schoolingBehavior?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   abnormalBehavior?: string;
 }
 
+/**
+ * Input type for creating a new feeding record.
+ * Every field carries at least one class-validator decorator so that the
+ * global ValidationPipe (whitelist + forbidNonWhitelisted) accepts them.
+ */
 @InputType()
 export class CreateFeedingRecordInput {
   @Field(() => ID)
+  @IsUUID()
   batchId: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   tankId?: string;
 
   @Field()
+  @IsDate()
   feedingDate: Date;
 
   @Field()
+  @IsNotEmpty()
+  @IsString()
   feedingTime: string;
 
   @Field(() => Int, { defaultValue: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
   feedingSequence: number;
 
   @Field(() => Int, { defaultValue: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
   totalMealsToday: number;
 
   @Field(() => ID)
+  @IsUUID()
   feedId: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   feedBatchNumber?: string;
 
   @Field(() => Float)
+  @IsNumber()
+  @Min(0)
   plannedAmount: number;
 
   @Field(() => Float)
+  @IsNumber()
+  @Min(0)
   actualAmount: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   wasteAmount?: number;
 
   @Field(() => FeedingEnvironmentInput, { nullable: true })
+  @IsOptional()
   environment?: FeedingEnvironmentInput;
 
   @Field(() => FishBehaviorInput, { nullable: true })
+  @IsOptional()
   fishBehavior?: FishBehaviorInput;
 
   @Field(() => FeedingMethod, { defaultValue: FeedingMethod.MANUAL })
+  @IsOptional()
+  @IsEnum(FeedingMethod)
   feedingMethod: FeedingMethod;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   equipmentId?: string;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   feedingDurationMinutes?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   feedCost?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
   currency?: string;
 
   @Field(() => ID)
+  @IsUUID()
   fedBy: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   notes?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   skipReason?: string;
 }
 
+/**
+ * Input type for updating an existing feeding record.
+ */
 @InputType()
 export class UpdateFeedingRecordInput {
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   actualAmount?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   wasteAmount?: number;
 
   @Field(() => FeedingEnvironmentInput, { nullable: true })
+  @IsOptional()
   environment?: FeedingEnvironmentInput;
 
   @Field(() => FishBehaviorInput, { nullable: true })
+  @IsOptional()
   fishBehavior?: FishBehaviorInput;
 
   @Field({ nullable: true })
+  @IsOptional()
   notes?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   verifiedBy?: string;
 }
 
+/**
+ * Input type for adding feed inventory (purchase / stock-in).
+ * Every field carries at least one class-validator decorator so that the
+ * global ValidationPipe (whitelist + forbidNonWhitelisted) accepts them.
+ */
 @InputType()
 export class AddFeedInventoryInput {
   @Field(() => ID)
+  @IsUUID()
   feedId: string;
 
   @Field(() => ID)
+  @IsUUID()
   siteId: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   departmentId?: string;
 
   @Field(() => Float)
+  @IsNumber()
+  @Min(0.001)
   quantityKg: number;
 
   @Field({ nullable: true })
+  @IsOptional()
   lotNumber?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsDate()
   manufacturingDate?: Date;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsDate()
   expiryDate?: Date;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsDate()
   receivedDate?: Date;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   unitPricePerKg?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
   currency?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   storageLocation?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   notes?: string;
 
   @Field(() => ID)
+  @IsUUID()
   createdBy: string;
 }
 
+/**
+ * Input type for consuming feed from inventory (usage / feeding).
+ */
 @InputType()
 export class ConsumeFeedInventoryInput {
   @Field(() => ID)
+  @IsUUID()
   inventoryId: string;
 
   @Field(() => Float)
+  @IsNumber()
+  @Min(0.001)
   quantityKg: number;
 
   @Field(() => ConsumptionReason, { defaultValue: ConsumptionReason.FEEDING })
+  @IsOptional()
+  @IsEnum(ConsumptionReason)
   reason: ConsumptionReason;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   feedingRecordId?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   notes?: string;
 }
 
+/**
+ * Input type for adjusting feed inventory (correction / audit).
+ */
 @InputType()
 export class AdjustFeedInventoryInput {
   @Field(() => ID)
+  @IsUUID()
   inventoryId: string;
 
   @Field(() => AdjustmentType)
+  @IsEnum(AdjustmentType)
   adjustmentType: AdjustmentType;
 
   @Field(() => Float)
+  @IsNumber()
+  @IsPositive()
   quantity: number;
 
+  /** Human-readable reason for the adjustment. */
   @Field(() => String)
+  @IsNotEmpty()
+  @IsString()
   reason: string;
 
   @Field(() => String, { nullable: true })
+  @IsOptional()
   notes?: string;
 }
 
+/**
+ * Filter input for feeding record queries.
+ */
 @InputType()
 export class FeedingRecordFilterInput {
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   batchId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   tankId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   feedId?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsDate()
   startDate?: Date;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsDate()
   endDate?: Date;
 
   @Field(() => FeedingMethod, { nullable: true })
+  @IsOptional()
+  @IsEnum(FeedingMethod)
   feedingMethod?: FeedingMethod;
 
   @Field({ nullable: true })
+  @IsOptional()
   appetite?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   fedBy?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   hasVariance?: boolean;
 }
 
+/**
+ * Filter input for feed inventory queries.
+ */
 @InputType()
 export class FeedInventoryFilterInput {
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   siteId?: string;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   feedId?: string;
 
   @Field(() => InventoryStatus, { nullable: true })
+  @IsOptional()
+  @IsEnum(InventoryStatus)
   status?: InventoryStatus;
 
   @Field({ nullable: true })
+  @IsOptional()
   includeLowStock?: boolean;
 
   @Field({ nullable: true })
+  @IsOptional()
   includeExpiringSoon?: boolean;
 
   @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
   departmentId?: string;
 }
 

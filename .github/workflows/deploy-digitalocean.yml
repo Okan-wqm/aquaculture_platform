@@ -810,6 +810,16 @@ jobs:
               docker exec aqua-nginx nginx -s reload 2>&1 || true
               sleep 2
 
+              # ARCH-GW-006: Force Apollo Gateway to recompose supergraph schema.
+              # After backend services restart with new GraphQL types/fields, the
+              # gateway may hold a stale supergraph from the previous composition.
+              # The pollIntervalInMs (300s) would eventually refresh it, but during
+              # that window frontend queries for new fields return 400.
+              # Restarting the gateway forces immediate schema introspection.
+              echo "=== Restarting gateway for schema recomposition ==="
+              docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1 || true
+              sleep 15
+
             else
               # ── Selective deploy mode (only affected services) ──
               echo "=== SELECTIVE DEPLOY: ${DEPLOY_SERVICES} ==="
@@ -851,6 +861,16 @@ jobs:
               echo "=== Reloading nginx to pick up new container IPs ==="
               docker exec aqua-nginx nginx -s reload 2>&1 || docker compose -f docker-compose.droplet.yml restart nginx 2>&1 || true
               sleep 2
+
+              # ARCH-GW-006: Force gateway schema recomposition when backend services change.
+              # Only restart gateway when a backend subgraph service was deployed, since
+              # frontend-only deploys don't affect the supergraph schema.
+              BACKEND_PATTERN="gateway-api|auth-service|farm-service|sensor-service|alert-engine|billing-service|hr-service|hydroponics-service|notification-service|config-service|messaging-service"
+              if echo "${DEPLOY_SERVICES}" | grep -qE "${BACKEND_PATTERN}"; then
+                echo "=== Backend subgraph changed — restarting gateway for schema recomposition ==="
+                docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1 || true
+                sleep 15
+              fi
             fi
 
             echo "=== Container health status ==="

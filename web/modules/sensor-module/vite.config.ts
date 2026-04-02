@@ -28,11 +28,6 @@ export default defineConfig({
       shared: {
         react: { singleton: true, requiredVersion: '^18.2.0' },
         'react-dom': { singleton: true, requiredVersion: '^18.2.0' },
-        /**
-         * MF-SINGLETON: react/jsx-runtime must be shared so the JSX
-         * transform resolves to the host React instance at runtime.
-         */
-        'react/jsx-runtime': { singleton: true, requiredVersion: '^18.2.0' },
         'react-router-dom': { singleton: true, requiredVersion: '^6.21.0' },
         '@tanstack/react-query': { singleton: true, requiredVersion: '^5.17.0' },
         '@aquaculture/shared-ui': { singleton: true, import: true },

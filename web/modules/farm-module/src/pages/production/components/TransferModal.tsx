@@ -472,6 +472,18 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           </div>
         )}
 
+        {/* Validation Errors */}
+        {errors.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm font-medium text-red-800 mb-1">Please fix the following:</p>
+            <ul className="list-disc list-inside space-y-1">
+              {errors.map((error, index) => (
+                <li key={index} className="text-sm text-red-700">{error}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-4 border-t">
           <Button variant="secondary" onClick={handleClose}>

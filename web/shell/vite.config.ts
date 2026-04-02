@@ -55,26 +55,13 @@ export default defineConfig(({ command }) => {
             requiredVersion: '^4.4.0',
           },
           /**
-           * MF-SINGLETON: reactflow and use-sync-external-store are consumed
-           * only by sensor-module, but the host MUST list them as shared
-           * singletons so that @originjs/vite-plugin-federation can negotiate
-           * the singleton contract at runtime. Without the host-side entry,
-           * the remote bundles its own copy which pulls a separate React
-           * instance -- causing "Cannot read properties of null (reading
-           * 'useRef')" in ReactFlow hooks.
-           *
-           * import: false prevents the host from actually bundling these
-           * libraries; it only participates in the shared-scope handshake.
+           * MF-SINGLETON: ReactFlow's duplicate-React crash is solved by
+           * ensuring react + react-dom are shared singletons (above).
+           * The remote's reactflow singleton declaration is sufficient --
+           * the host does NOT need to list reactflow/use-sync-external-store
+           * because Vite's exports resolver fails when the package is not
+           * installed in the host (Missing "./package.json" specifier).
            */
-          reactflow: {
-            singleton: true,
-            requiredVersion: '^11.10.0',
-            import: false,
-          },
-          'use-sync-external-store': {
-            singleton: true,
-            import: false,
-          },
         },
       }),
     ],

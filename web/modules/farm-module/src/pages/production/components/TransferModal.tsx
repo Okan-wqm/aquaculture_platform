@@ -59,13 +59,14 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     return destinationTanks.find((t: AvailableTank) => t.id === destinationTankId);
   }, [destinationTanks, destinationTankId]);
 
-  // Calculate biomass being transferred
+  // Calculate biomass from source tank average weight (not user-editable)
+  const sourceAvgWeightG = tank.avgWeightG || 0;
   const calculatedBiomass = useMemo(() => {
-    if (quantity > 0 && avgWeightG > 0) {
-      return (quantity * avgWeightG) / 1000; // kg
+    if (quantity > 0 && sourceAvgWeightG > 0) {
+      return (quantity * sourceAvgWeightG) / 1000; // kg
     }
     return 0;
-  }, [quantity, avgWeightG]);
+  }, [quantity, sourceAvgWeightG]);
 
   // Calculate post-operation states
   const postOperationStates = useMemo(() => {
@@ -142,7 +143,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         sourceTankId: tank.equipmentId, // Source tank
         destinationTankId: destinationTankId,
         quantity,
-        avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
+        avgWeightG: tank.avgWeightG > 0 ? tank.avgWeightG : undefined,
         transferReason,
         transferredAt,
         notes,
@@ -312,15 +313,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <input
               type="number"
               id="avgWeight"
-              min="0"
-              step="0.1"
-              value={avgWeightG || ''}
-              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Enter average weight"
+              value={tank.avgWeightG?.toFixed(1) || 0}
+              readOnly
+              disabled
+              className="mt-1 block w-full rounded-md border-gray-200 bg-gray-50 shadow-sm sm:text-sm text-gray-600 cursor-not-allowed"
             />
             <p className="mt-1 text-xs text-gray-500">
-              Default: {tank.avgWeightG?.toFixed(1) || 0} g (tank average)
+              Source tank average — cannot be changed during transfer. Biomass is calculated automatically.
             </p>
           </div>
 

@@ -55,13 +55,26 @@ export default defineConfig(({ command }) => {
             requiredVersion: '^4.4.0',
           },
           /**
-           * MF-SINGLETON: ReactFlow's duplicate-React crash is solved by
-           * ensuring react + react-dom are shared singletons (above).
-           * The remote's reactflow singleton declaration is sufficient --
-           * the host does NOT need to list reactflow/use-sync-external-store
-           * because Vite's exports resolver fails when the package is not
-           * installed in the host (Missing "./package.json" specifier).
+           * MF-SINGLETON: ReactFlow and use-sync-external-store must be
+           * shared singletons so the sensor-module remote negotiates them
+           * with the host at runtime. Without these entries, the remote
+           * bundles its own copies pulling a separate React instance.
+           *
+           * IMPORTANT: reactflow and use-sync-external-store are installed
+           * as devDependencies in shell/package.json solely to satisfy
+           * Vite's exports resolver during build. import: false ensures
+           * they are NOT bundled into the shell — only the shared-scope
+           * handshake metadata is emitted.
            */
+          reactflow: {
+            singleton: true,
+            requiredVersion: '^11.10.0',
+            import: false,
+          },
+          'use-sync-external-store': {
+            singleton: true,
+            import: false,
+          },
         },
       }),
     ],

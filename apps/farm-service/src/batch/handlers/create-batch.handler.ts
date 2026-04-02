@@ -316,6 +316,11 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
               capacityUsedPercent: capacityUsedPercent,
               isOverCapacity: isOverCapacity,
               isMixedBatch: false,
+              /** Cleaner fish fields default to zero for production batches.
+               *  TypeORM create() sends explicit null for omitted fields,
+               *  bypassing the DB column default — must be set explicitly. */
+              cleanerFishBiomassKg: 0,
+              cleanerFishQuantity: 0,
             });
 
             this.logger.log(`Created new TankBatch for equipment ${equipment.code}`);

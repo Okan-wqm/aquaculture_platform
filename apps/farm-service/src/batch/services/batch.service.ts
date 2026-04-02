@@ -590,6 +590,8 @@ export class BatchService {
       tankBatch = manager.create(TankBatch, {
         tenantId,
         tankId,
+        cleanerFishBiomassKg: 0,
+        cleanerFishQuantity: 0,
       });
     }
 

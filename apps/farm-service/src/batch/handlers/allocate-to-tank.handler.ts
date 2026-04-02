@@ -148,6 +148,8 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
           densityKgM3: 0,
           isMixedBatch: false,
           isOverCapacity: false,
+          cleanerFishBiomassKg: 0,
+          cleanerFishQuantity: 0,
         });
       }
 

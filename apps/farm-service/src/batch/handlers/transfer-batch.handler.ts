@@ -358,6 +358,8 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         densityKgM3: effectiveVolume ? biomassDelta / Number(effectiveVolume) : 0,
         isMixedBatch: false,
         isOverCapacity: false,
+        cleanerFishBiomassKg: 0,
+        cleanerFishQuantity: 0,
       });
     } else if (tankBatch) {
       // Ensure numeric operations (database may return decimal columns as strings)

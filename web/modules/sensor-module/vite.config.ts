@@ -32,8 +32,6 @@ export default defineConfig({
         '@tanstack/react-query': { singleton: true, requiredVersion: '^5.17.0' },
         '@aquaculture/shared-ui': { singleton: true, import: true },
         zustand: { singleton: true, requiredVersion: '^4.4.0' },
-        'use-sync-external-store': { singleton: true },
-        reactflow: { singleton: true, requiredVersion: '^11.10.0' },
       },
     }),
   ],

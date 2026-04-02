@@ -55,11 +55,35 @@ export default defineConfig(({ command }) => {
             requiredVersion: '^4.4.0',
           },
           /**
-           * SEC-L11: use-sync-external-store and reactflow are NOT shared here
-           * because they are not direct dependencies of the shell host.
-           * Module Federation requires shared deps to exist in both host and remote.
-           * These libraries are consumed only by remotes (sensor-module) and pinned there.
+           * MF-SINGLETON: react/jsx-runtime must be shared so the JSX transform
+           * inside every remote resolves to the host React instance, preventing
+           * duplicate-React "null useRef" crashes.
            */
+          'react/jsx-runtime': {
+            singleton: true,
+            requiredVersion: '^18.2.0',
+          },
+          /**
+           * MF-SINGLETON: reactflow and use-sync-external-store are consumed
+           * only by sensor-module, but the host MUST list them as shared
+           * singletons so that @originjs/vite-plugin-federation can negotiate
+           * the singleton contract at runtime. Without the host-side entry,
+           * the remote bundles its own copy which pulls a separate React
+           * instance -- causing "Cannot read properties of null (reading
+           * 'useRef')" in ReactFlow hooks.
+           *
+           * import: false prevents the host from actually bundling these
+           * libraries; it only participates in the shared-scope handshake.
+           */
+          reactflow: {
+            singleton: true,
+            requiredVersion: '^11.10.0',
+            import: false,
+          },
+          'use-sync-external-store': {
+            singleton: true,
+            import: false,
+          },
         },
       }),
     ],

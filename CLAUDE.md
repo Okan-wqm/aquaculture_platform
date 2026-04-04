@@ -1,4 +1,4 @@
-# Claude Code Configuration - RuFlo V3
+# Claude Code Configuration
 
 ## Behavioral Rules (Always Enforced)
 
@@ -7,7 +7,6 @@
 - ALWAYS prefer editing an existing file to creating a new one
 - NEVER proactively create documentation files (*.md) or README files unless explicitly requested
 - NEVER save working files, text/mds, or tests to the root folder
-- Never continuously check status after spawning a swarm — wait for results
 - ALWAYS read a file before editing it
 - NEVER commit secrets, credentials, or .env files
 
@@ -29,14 +28,6 @@
 - Prefer TDD London School (mock-first) for new code
 - Use event sourcing for state changes
 - Ensure input validation at system boundaries
-
-### Project Config
-
-- **Topology**: hierarchical-mesh
-- **Max Agents**: 15
-- **Memory**: hybrid
-- **HNSW**: Enabled
-- **Neural**: Enabled
 
 ## Build & Test
 
@@ -62,36 +53,8 @@ npm run lint
 - Always sanitize file paths to prevent directory traversal
 - Review security implications of all changes before committing
 
-## Concurrency: 1 MESSAGE = ALL RELATED OPERATIONS
+## Concurrency
 
 - All operations MUST be concurrent/parallel in a single message
-- Use Claude Code's Task tool for spawning agents, not just MCP
-- ALWAYS batch ALL todos in ONE TodoWrite call (5-10+ minimum)
-- ALWAYS spawn ALL agents in ONE message with full instructions via Task tool
 - ALWAYS batch ALL file reads/writes/edits in ONE message
 - ALWAYS batch ALL Bash commands in ONE message
-
-## Swarm Orchestration
-
-- MUST initialize the swarm using CLI tools when starting complex tasks
-- MUST spawn concurrent agents using Claude Code's Task tool
-- Never use CLI tools alone for execution — Task tool agents do the actual work
-- MUST call CLI tools AND Task tool in ONE message for complex work
-
-### 3-Tier Model Routing (ADR-026)
-
-| Tier | Handler | Latency | Cost | Use Cases |
-|------|---------|---------|------|-----------|
-| **1** | Agent Booster (WASM) | <1ms | $0 | Simple transforms (var→const, add types) — Skip LLM |
-| **2** | Haiku | ~500ms | $0.0002 | Simple tasks, low complexity (<30%) |
-| **3** | Sonnet/Opus | 2-5s | $0.003-0.015 | Complex reasoning, architecture, security (>30%) |
-
-- Always check for `[AGENT_BOOSTER_AVAILABLE]` or `[TASK_MODEL_RECOMMENDATION]` before spawning agents
-- Use Edit tool directly when `[AGENT_BOOSTER_AVAILABLE]`
-
-## Agent Execution Rules
-
-- ALWAYS use `run_in_background: true` for all agent Task calls
-- ALWAYS put ALL agent Task calls in ONE message for parallel execution
-- After spawning, STOP — do NOT add more tool calls or check status
-- When agent results arrive, review ALL results before proceeding

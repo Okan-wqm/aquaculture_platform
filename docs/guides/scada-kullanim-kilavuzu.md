@@ -2,7 +2,7 @@
 
 **Surum:** 1.0
 **Son Guncelleme:** 2026-03-26
-**Platform:** RuFlo Aquaculture v3
+**Platform:** Aquaculture Platform v3
 
 ---
 
@@ -1323,5 +1323,5 @@ SCADA ekranlarinn bir paket olarak yonetilir:
 
 ---
 
-**Bu kilavuz, RuFlo Aquaculture Platform v3 SCADA Builder sistemi icin hazirlanmistir.**
+**Bu kilavuz, Aquaculture Platform v3 SCADA Builder sistemi icin hazirlanmistir.**
 **Teknik sorulariniz icin platform yoneticinize basvurun.**

@@ -1,6 +1,6 @@
 # SCADA Builder -- Ileri Seviye Kilavuz
 
-**Platform:** RuFlo Aquaculture SaaS
+**Platform:** Aquaculture SaaS
 **Surumu:** v2.x (Mart 2026)
 **Hedef Kitle:** SCADA operatorleri, proses muhendisleri, sistem entegratorleri
 
@@ -25,7 +25,7 @@
 
 FUXA, acik kaynak kodlu bir SCADA/HMI projesidir. Topluluk tarafindan gelistirilen 1.450'den fazla SVG widget icerir. Bu widget'lar endustriyel kalitede animasyonlu bilesenlerdir: pompalar doner, valfler acilir/kapanir, tanklar dolar/bosalir.
 
-RuFlo SCADA Builder, FUXA topluluk widget'larini dogrudan icerir cunku:
+SCADA Builder, FUXA topluluk widget'larini dogrudan icerir cunku:
 
 - Endustriyel standartlarda animasyonlu goruntuler sunarlar
 - 6 durumlu (state) animasyon sistemi ile donanimlarin gercek zamanli durumunu yansitirlar

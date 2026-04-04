@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Last Updated:** 2026-03-27
-**Platform:** RuFlo Aquaculture v3
+**Platform:** Aquaculture Platform v3
 **Audience:** System administrators, engineers, integrators
 
 ---
@@ -739,7 +739,7 @@ SCADA projects can be exported and imported as JSON files.
 
 FUXA is an open-source SCADA/HMI project with a community of contributors who have created over 1,450 SVG widgets. These are industrial-quality animated components: pumps that spin, valves that open and close, tanks that fill and empty.
 
-RuFlo SCADA Builder includes FUXA community widgets because:
+SCADA Builder includes FUXA community widgets because:
 
 - They provide industrial-standard animated visuals.
 - Their 6-state animation system reflects real-time equipment status.
@@ -1621,6 +1621,6 @@ This table lists every widget type in the SCADA Builder with its key information
 
 ---
 
-**This guide was written for the RuFlo Aquaculture Platform v3 SCADA Builder system.**
+**This guide was written for the Aquaculture Platform v3 SCADA Builder system.**
 
 **For questions, contact your platform administrator or system integrator.**

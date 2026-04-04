@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Last Updated:** 2026-03-27
-**Platform:** RuFlo Aquaculture v3
+**Platform:** Aquaculture Platform v3
 
 ---
 
@@ -61,7 +61,7 @@ With SCADA, you sit at your desk (or look at your phone), and you see all of thi
 ### 2.1 How to Find SCADA in the Menu
 
 1. **Open** your web browser (Chrome is recommended).
-2. **Go to** the RuFlo Aquaculture platform by typing the address in your browser.
+2. **Go to** the Aquaculture platform by typing the address in your browser.
 3. **Log in** with your username and password.
 4. **Look** at the left side of the screen. You will see a menu with several sections.
 5. **Click** on **Sensor Module** in the left menu.
@@ -1635,6 +1635,6 @@ If you saved after deleting, check if your system has version history. Contact y
 
 ---
 
-**This guide was written for the RuFlo Aquaculture Platform v3 SCADA Builder system.**
+**This guide was written for the Aquaculture Platform v3 SCADA Builder system.**
 
 **If you have questions, contact your platform administrator or system integrator.**

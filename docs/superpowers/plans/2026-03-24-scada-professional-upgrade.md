@@ -1314,7 +1314,7 @@ git commit -m "feat(scada): SCADA Professional Upgrade - enterprise animation, e
 
 ---
 
-## Ruflo Memory References
+## Memory References
 
 - `scada-upgrade/scada-animation-engine-arch` — Animation Engine architecture
 - `scada-upgrade/scada-event-bus-arch` — Event Bus architecture

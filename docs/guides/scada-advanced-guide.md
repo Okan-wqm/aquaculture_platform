@@ -713,7 +713,7 @@ SCADA projects can be exported and imported as JSON files.
   "metadata": {
     "exportedAt": "2026-03-27T14:30:00Z",
     "exportedBy": "engineer@aqua.com",
-    "platform": "ruflo-v3"
+    "platform": "aquaculture-platform"
   }
 }
 ```

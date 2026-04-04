@@ -1,6 +1,6 @@
 # VFD Remote Programming — Implementation Plan
 
-> **For agentic workers:** This plan is executed via ruflo swarm orchestration with specialized agents per phase. Each phase is a parallel workstream with its own agent prompt.
+> **For agentic workers:** This plan is executed with specialized agents per phase. Each phase is a parallel workstream with its own agent prompt.
 
 **Goal:** Implement enterprise-grade VFD remote parameter programming with Maker-Checker workflow, batch change sets, automation rules, and dual UI (dedicated page + SCADA widget).
 

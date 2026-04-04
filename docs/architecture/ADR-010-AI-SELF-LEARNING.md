@@ -82,7 +82,7 @@ We will implement a **Tenant-Isolated Self-Learning AI System** with the followi
 
 2. **Tenant-Isolated Learning**: Each tenant's learned patterns, trajectories, and recommendation history are stored exclusively within their tenant schema (`tenant_{id}`). There is zero cross-tenant data sharing for learned patterns. A shared, read-only species knowledge base provides the baseline.
 
-3. **Closed-Loop Learning with Mandatory User Feedback**: Every AI recommendation requires explicit user feedback. The system never silently updates its models. Every pattern adjustment is traceable, auditable, and reversible. This is inspired by ruflo's ReasoningBank approach to accountable AI decision-making.
+3. **Closed-Loop Learning with Mandatory User Feedback**: Every AI recommendation requires explicit user feedback. The system never silently updates its models. Every pattern adjustment is traceable, auditable, and reversible. This follows the ReasoningBank approach to accountable AI decision-making.
 
 4. **Five-Layer Capability Architecture**: AI capabilities are organized into five distinct layers, each with clear boundaries, enabling progressive rollout and independent scaling.
 
@@ -376,7 +376,7 @@ Data isolation is a non-negotiable requirement. Each tenant's AI knowledge evolv
 
 ### 3.4 Closed-Loop Learning Pipeline
 
-The learning pipeline is inspired by ruflo's ReasoningBank architecture, adapted for the aquaculture domain. Every AI reasoning cycle follows four explicit, auditable steps.
+The learning pipeline follows the ReasoningBank architecture, adapted for the aquaculture domain. Every AI reasoning cycle follows four explicit, auditable steps.
 
 ```
 +------------------------------------------------------------------+
@@ -1786,7 +1786,7 @@ Level 4: EXECUTIVE ALERT
 
 | Reference | URL | Relevance |
 |---|---|---|
-| ruflo ReasoningBank | https://github.com/ruvnet/ruflo | Inspiration for closed-loop reasoning pipeline (RETRIEVE-JUDGE-RECOMMEND-VERIFY) |
+| ReasoningBank Pattern | - | Closed-loop reasoning pipeline (RETRIEVE-JUDGE-RECOMMEND-VERIFY) |
 | Model Context Protocol | https://modelcontextprotocol.io | MCP specification for tool-based AI interaction |
 | pgvector | https://github.com/pgvector/pgvector | PostgreSQL extension for vector similarity search (pattern matching) |
 | Aquaculture Best Practices (FAO) | https://www.fao.org/fishery/ | Academic baseline for species knowledge base |

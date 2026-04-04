@@ -992,7 +992,7 @@ SCADA projeleri, tum ekranlar, widget konfigurasyonlari ve edge baglantilariyla 
   "metadata": {
     "exportedAt": "2026-03-26T14:30:00Z",
     "exportedBy": "okan@aqua.com",
-    "platform": "ruflo-v2"
+    "platform": "aquaculture-platform"
   }
 }
 ```

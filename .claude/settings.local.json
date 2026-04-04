@@ -500,14 +500,16 @@
       "Bash(for wt:*)",
       "Bash(bash -s -- --full)",
       "Bash(npm list:*)",
-      "Read(//root/.claude/**)"
+      "Read(//root/.claude/**)",
+      "Bash(crontab -l)",
+      "Bash(systemctl list-unit-files:*)",
+      "Bash(env)",
+      "Bash(head -50 /var/aqua-saas/apps/farm-service/src/events/*.listener.ts)"
     ],
     "deny": [],
     "ask": []
   },
   "enabledPlugins": {
-    "context7@claude-plugins-official": true,
-    "supabase@claude-plugins-official": true,
-    "serena@claude-plugins-official": true
+    "context7@claude-plugins-official": true
   }
 }

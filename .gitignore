@@ -116,3 +116,7 @@ schema.graphql
 # It must never be committed because it contains a GraphQL-caching SW that leaks
 # authenticated responses if deployed to production.
 web/apps/aquamobil/dev-dist/
+
+# Ruflo/claude-flow remnants - REMOVED for security
+.swarm/
+.claude-flow/

@@ -76,7 +76,7 @@ import { Goal } from './performance/entities/goal.entity';
 import { EmployeeKPI } from './performance/entities/kpi.entity';
 
 // Nested ObjectTypes for orphanedTypes registration
-import { ContactInfo, Address, NextOfKin, EmergencyInfo } from './hr/entities/employee.entity';
+import { ContactInfo, Address, NextOfKin } from './hr/entities/employee.entity';
 import { GeoCoordinates } from './aquaculture/entities/work-area.entity';
 import { TransportInfo, CheckInLocation, CheckInHistoryEntry } from './aquaculture/entities/work-rotation.entity';
 import { DailyAttendanceOverview } from './attendance/query-handlers/get-daily-attendance-overview.handler';
@@ -190,7 +190,10 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
           ContactInfo,
           Address,
           NextOfKin,
-          EmergencyInfo,
+          // EmergencyInfo removed: the type contains medical PII (bloodType, medicalConditions,
+          // allergies) and is @HideField() on Employee — it is never returned by any resolver.
+          // Registering it as an orphanedType unnecessarily exposes field names in GraphQL
+          // introspection, leaking PII schema structure to anyone with schema access.
           GeoCoordinates,
           TransportInfo,
           CheckInLocation,

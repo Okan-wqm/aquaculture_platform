@@ -9,6 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
@@ -49,11 +50,13 @@ export class EmployeeKPI {
   category!: string;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  // DecimalTransformer: KPI metrics (targetValue, actualValue, weight, score) are used in
+  // weighted performance score calculation. String arithmetic produces NaN in all KPI reports.
+  @Column({ type: 'decimal', precision: 12, scale: 2 , transformer: new DecimalTransformer() })
   targetValue!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 , transformer: new DecimalTransformer() })
   currentValue!: number;
 
   @Field({ nullable: true })
@@ -69,11 +72,11 @@ export class EmployeeKPI {
   periodEnd!: Date;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 1.0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 1.0 , transformer: new DecimalTransformer() })
   weight!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 , transformer: new DecimalTransformer() })
   achievementPercent!: number;
 
   @Field()

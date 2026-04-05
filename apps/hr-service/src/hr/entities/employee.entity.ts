@@ -13,6 +13,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { Payroll } from './payroll.entity';
 import { DepartmentHR } from './department.entity';
 
@@ -215,7 +216,9 @@ export class Employee {
   terminationDate?: Date;
 
   @HideField()
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  // DecimalTransformer: baseSalary is the base for payroll calculations (overtime multipliers,
+  // pro-rata for partial months, annual leave encashment). String multiplication produces NaN.
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   baseSalary!: number;
 
   @Field()

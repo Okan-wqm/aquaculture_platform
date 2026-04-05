@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { StartRotationCommand } from '../commands/start-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
+import { Employee, PersonnelCategory } from '../../hr/entities/employee.entity';
 
 @Injectable()
 @CommandHandler(StartRotationCommand)
@@ -42,11 +44,46 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
         );
       }
 
+      // LIFE-SAFETY: Verify employee seaWorthy status before offshore deployment.
+      // CertificationExpiryService (daily cron) sets seaWorthy=false when any mandatory
+      // offshore certification expires. Without this check, employees with expired certs
+      // can be deployed offshore — violating safety regulations and risking lives.
+      // Reading inside the transaction ensures we see the committed seaWorthy state.
+      const employee = await queryRunner.manager.findOne(Employee, {
+        where: { id: rotation.employeeId, tenantId },
+        select: ['id', 'seaWorthy', 'personnelCategory'],
+      });
+
+      if (!employee) {
+        throw new NotFoundException(`Employee not found for rotation: ${rotation.employeeId}`);
+      }
+
+      // Only OFFSHORE and HYBRID personnel require the seaWorthy check.
+      // ONSHORE employees do not hold offshore certifications.
+      if (
+        employee.personnelCategory !== PersonnelCategory.ONSHORE &&
+        !employee.seaWorthy
+      ) {
+        throw new ForbiddenException(
+          `Employee ${rotation.employeeId} is not seaWorthy. ` +
+          `Offshore rotation cannot start until all mandatory certifications are valid and current.`,
+        );
+      }
+
       rotation.status = RotationStatus.IN_PROGRESS;
       rotation.actualStartTime = actualStartDate ? new Date(actualStartDate) : new Date();
       rotation.updatedBy = userId;
 
       const saved = await repo.save(rotation);
+
+      // Track who is currently offshore: update currentRotationId on Employee.
+      // BEFORE this fix: currentRotationId was never set, making it impossible to
+      // generate an accurate muster list in emergency evacuation scenarios.
+      await queryRunner.manager.update(Employee,
+        { id: rotation.employeeId, tenantId },
+        { currentRotationId: saved.id },
+      );
+
       await queryRunner.commitTransaction();
 
       this.logger.log(

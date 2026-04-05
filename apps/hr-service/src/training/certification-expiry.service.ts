@@ -75,27 +75,51 @@ export class CertificationExpiryService {
 
         // Collect unique employee IDs for seaWorthy re-evaluation
         const affectedEmployeeIds = new Set<string>();
-
-        // Batch update statuses
         for (const cert of expiredCerts) {
-          cert.status = CertificationStatus.EXPIRED;
           affectedEmployeeIds.add(cert.employeeId);
         }
 
-        await manager.save(EmployeeCertification, expiredCerts);
-
-        this.logger.log(
-          `Schema ${schema}: marked ${expiredCerts.length} certification(s) as EXPIRED.`,
-        );
-        totalExpired += expiredCerts.length;
-
-        // Re-evaluate seaWorthy for each affected employee
+        // Process each employee atomically: cert expiry + seaWorthy update MUST be atomic.
+        // BEFORE this fix: updates ran sequentially without a transaction. A crash between
+        // marking a cert EXPIRED and updating seaWorthy=false would leave the employee with
+        // an expired cert but seaWorthy=true — allowing unsafe offshore deployment.
+        // Each employee gets its OWN QueryRunner to avoid multiple startTransaction() calls
+        // on the same connection — reusing a QR across startTransaction/commit/rollback
+        // cycles is fragile across drivers. A fresh QR per employee is safe and explicit.
         for (const employeeId of affectedEmployeeIds) {
-          const updated = await this.evaluateSeaWorthy(manager, employeeId);
-          if (updated) {
-            totalSeaWorthyRevoked++;
+          const empQr = this.dataSource.createQueryRunner();
+          await empQr.connect();
+          await empQr.query(`SET search_path TO "${schema}", hr, public`);
+          await empQr.startTransaction();
+          try {
+            const employeeCerts = expiredCerts.filter(c => c.employeeId === employeeId);
+            for (const cert of employeeCerts) {
+              cert.status = CertificationStatus.EXPIRED;
+            }
+            await empQr.manager.save(EmployeeCertification, employeeCerts);
+
+            const updated = await this.evaluateSeaWorthy(empQr.manager, employeeId);
+            if (updated) {
+              totalSeaWorthyRevoked++;
+            }
+
+            await empQr.commitTransaction();
+            totalExpired += employeeCerts.length;
+          } catch (employeeErr) {
+            await empQr.rollbackTransaction();
+            this.logger.error(
+              `Schema ${schema}: failed to update seaWorthy for employee ${employeeId} — rolled back. ` +
+              `${employeeErr instanceof Error ? employeeErr.message : String(employeeErr)}`,
+            );
+          } finally {
+            await empQr.query('RESET search_path').catch(() => {});
+            await empQr.release();
           }
         }
+
+        this.logger.log(
+          `Schema ${schema}: marked certifications as EXPIRED, seaWorthy evaluated.`,
+        );
       } catch (err) {
         this.logger.error(
           `Certification expiry failed for schema ${schema}: ${err instanceof Error ? err.message : String(err)}`,

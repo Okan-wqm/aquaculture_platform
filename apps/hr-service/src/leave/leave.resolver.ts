@@ -292,7 +292,9 @@ export class LeaveResolver {
 
   @Mutation(() => LeaveRequest)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: leave approval is a supervisory action requiring MODULE_MANAGER.
+  // BEFORE: regular employees could approve any colleague's leave request.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async approveLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -307,7 +309,8 @@ export class LeaveResolver {
 
   @Mutation(() => LeaveRequest)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: leave rejection is a supervisory action requiring MODULE_MANAGER.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async rejectLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Args('reason') reason: string,

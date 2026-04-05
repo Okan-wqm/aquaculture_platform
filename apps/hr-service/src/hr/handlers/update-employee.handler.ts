@@ -1,8 +1,10 @@
 import { Injectable, NotFoundException, ConflictException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource, QueryRunner, Not } from 'typeorm';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { UpdateEmployeeCommand } from '../commands/update-employee.command';
 import { Employee } from '../entities/employee.entity';
+import { createEmployeeUpdatedEvent, createEmployeeTerminatedEvent } from '../events/hr.events';
+import { EmployeeStatus } from '../entities/employee.entity';
 
 @Injectable()
 @CommandHandler(UpdateEmployeeCommand)
@@ -11,6 +13,7 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
 
   constructor(
     private readonly dataSource: DataSource,
+    private readonly eventBus: EventBus,
   ) {}
 
   async execute(command: UpdateEmployeeCommand): Promise<Employee> {
@@ -81,6 +84,10 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
         updateData.terminationDate = parsedTerminationDate;
       }
 
+      // Capture original status before Object.assign mutates the entity.
+      // Used below to detect status TRANSITIONS (e.g., ACTIVE → TERMINATED).
+      const statusBeforeUpdate = employee.status;
+
       Object.assign(employee, updateData);
 
       const savedEmployee = await employeeRepo.save(employee);
@@ -91,6 +98,39 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
       this.logger.log(
         `Employee updated: ${savedEmployee.id} (${savedEmployee.employeeNumber}) for tenant ${tenantId}`,
       );
+
+      // Publish EmployeeUpdatedEvent AFTER commit.
+      // BEFORE this fix: no event was published — cross-service caches (sensor assignments,
+      // messaging profiles) were never invalidated when employee data changed.
+      this.eventBus.publish(createEmployeeUpdatedEvent(savedEmployee, userId)).catch((err: unknown) => {
+        this.logger.error(
+          `Failed to publish EmployeeUpdatedEvent for ${savedEmployee.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+
+      // Publish EmployeeTerminatedEvent only when status CHANGES to TERMINATED.
+      // Bug fix: checking savedEmployee.status === TERMINATED without checking prior state
+      // would fire the event on ANY update to an already-terminated employee
+      // (e.g., correcting their termination date after the fact).
+      // The pre-update employee object (before Object.assign) holds the original status.
+      // We capture it as statusBeforeUpdate from the employee loaded at the start.
+      // Only fire TerminatedEvent when status TRANSITIONS to TERMINATED.
+      // statusBeforeUpdate was captured before Object.assign — it holds the original value.
+      if (savedEmployee.status === EmployeeStatus.TERMINATED &&
+          statusBeforeUpdate !== EmployeeStatus.TERMINATED) {
+        this.eventBus.publish(
+          createEmployeeTerminatedEvent(
+            savedEmployee,
+            savedEmployee.terminationDate ?? new Date(),
+            undefined,
+            userId,
+          ),
+        ).catch((err: unknown) => {
+          this.logger.error(
+            `Failed to publish EmployeeTerminatedEvent for ${savedEmployee.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      }
 
       return savedEmployee;
     } catch (error) {

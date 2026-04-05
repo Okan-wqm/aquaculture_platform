@@ -9,6 +9,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CancelRotationCommand } from '../commands/cancel-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
+import { Employee } from '../../hr/entities/employee.entity';
 
 @Injectable()
 @CommandHandler(CancelRotationCommand)
@@ -42,6 +43,10 @@ export class CancelRotationHandler implements ICommandHandler<CancelRotationComm
         );
       }
 
+      // Capture original status BEFORE mutating the object.
+      // Bug fix: checking rotation.status AFTER setting it to CANCELLED would always be false.
+      const wasInProgress = rotation.status === RotationStatus.IN_PROGRESS;
+
       rotation.status = RotationStatus.CANCELLED;
       rotation.notes = rotation.notes
         ? `${rotation.notes}\n---\nCancellation reason: ${reason}`
@@ -49,6 +54,18 @@ export class CancelRotationHandler implements ICommandHandler<CancelRotationComm
       rotation.updatedBy = userId;
 
       const saved = await repo.save(rotation);
+
+      // If the rotation was IN_PROGRESS when cancelled, the employee is now back onshore.
+      // Clear currentRotationId so the muster list no longer shows them as deployed.
+      // BEFORE: cancelling an active rotation left currentRotationId pointing to a
+      // CANCELLED rotation, creating the same ghost-rotation problem as end-rotation.
+      if (wasInProgress) {
+        await queryRunner.manager.update(Employee,
+          { id: rotation.employeeId, tenantId },
+          { currentRotationId: null },
+        );
+      }
+
       await queryRunner.commitTransaction();
 
       this.logger.log(

@@ -340,7 +340,10 @@ export class AttendanceResolver {
 
   @Mutation(() => AttendanceRecord)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: manual attendance creation is an administrative override action
+  // (correcting missed clock-ins). BEFORE: regular employees could create attendance
+  // records for any colleague, enabling time record falsification.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createManualAttendance(
     @Args('input') input: ManualAttendanceInput,
     @Context() context: GraphQLContext,
@@ -363,7 +366,9 @@ export class AttendanceResolver {
 
   @Mutation(() => AttendanceRecord)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: attendance approval requires supervisory authority.
+  // BEFORE: regular employees could approve their own attendance corrections.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async approveAttendance(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

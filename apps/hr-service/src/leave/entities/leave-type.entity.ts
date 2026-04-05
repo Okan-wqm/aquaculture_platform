@@ -7,6 +7,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum LeaveCategory {
@@ -67,11 +68,13 @@ export class LeaveType {
   isAccrued!: boolean;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  // DecimalTransformer: defaultDaysPerYear seeds the initial leave balance allocation.
+  // String comparison against accrualRate breaks proration calculations.
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   defaultDaysPerYear?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   maxCarryOverDays?: number;
 
   @Field(() => Int, { nullable: true })
@@ -83,7 +86,9 @@ export class LeaveType {
   minDaysNotice?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 6, scale: 4, nullable: true })
+  // DecimalTransformer: accrualRate (days per month) is multiplied by months worked to compute earned days.
+  // String multiplication produces NaN, disabling leave accrual.
+  @Column({ type: 'decimal', precision: 6, scale: 4, nullable: true, transformer: new DecimalTransformer() })
   accrualRate?: number;
 
   @Field(() => Int)

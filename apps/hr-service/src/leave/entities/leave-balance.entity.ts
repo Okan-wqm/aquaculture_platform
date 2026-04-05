@@ -9,6 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
@@ -50,27 +51,30 @@ export class LeaveBalance {
   year!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
+  // DecimalTransformer: leave balance fields participate in balance arithmetic (remaining = openingBalance + accrued - used).
+  // String subtraction produces NaN, breaking leave balance displays. The currentBalance getter already uses Number() as a workaround;
+  // transformer makes it unnecessary.
+  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0, transformer: new DecimalTransformer() })
   openingBalance!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0, transformer: new DecimalTransformer() })
   accrued!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0, transformer: new DecimalTransformer() })
   used!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0, transformer: new DecimalTransformer() })
   pending!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0, transformer: new DecimalTransformer() })
   adjustment!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 6, scale: 2, default: 0, transformer: new DecimalTransformer() })
   carriedOver!: number;
 
   /**

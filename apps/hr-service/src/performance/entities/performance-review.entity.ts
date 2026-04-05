@@ -9,6 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
@@ -108,7 +109,9 @@ export class PerformanceReview {
   selfAssessment?: string;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
+  // DecimalTransformer: rating scores (selfRating, managerRating, overallScore) are averaged
+  // to produce the final performance review score. String averaging produces NaN.
+  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true , transformer: new DecimalTransformer() })
   selfRating?: number;
 
   @Field({ nullable: true })
@@ -116,11 +119,11 @@ export class PerformanceReview {
   managerAssessment?: string;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true , transformer: new DecimalTransformer() })
   managerRating?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true , transformer: new DecimalTransformer() })
   finalRating?: number;
 
   @Field(() => [CompetencyRating], { nullable: true })

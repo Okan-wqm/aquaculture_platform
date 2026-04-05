@@ -10,6 +10,7 @@ import {
   JoinColumn,
   BeforeInsert,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
@@ -113,7 +114,9 @@ export class LeaveRequest {
   endDate!: Date;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2 })
+  // DecimalTransformer: totalDays is computed from startDate to endDate and used in leave balance deductions.
+  // String subtraction of leave days from balance produces NaN.
+  @Column({ type: 'decimal', precision: 5, scale: 2, transformer: new DecimalTransformer() })
   totalDays!: number;
 
   @Field()

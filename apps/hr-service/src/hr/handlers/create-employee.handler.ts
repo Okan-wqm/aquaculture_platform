@@ -1,8 +1,9 @@
 import { Injectable, ConflictException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { CreateEmployeeCommand } from '../commands/create-employee.command';
 import { Employee } from '../entities/employee.entity';
+import { createEmployeeCreatedEvent } from '../events/hr.events';
 
 @Injectable()
 @CommandHandler(CreateEmployeeCommand)
@@ -11,6 +12,7 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
 
   constructor(
     private readonly dataSource: DataSource,
+    private readonly eventBus: EventBus,
   ) {}
 
   async execute(command: CreateEmployeeCommand): Promise<Employee> {
@@ -74,6 +76,15 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
       this.logger.log(
         `Employee created: ${savedEmployee.id} (${savedEmployee.employeeNumber}) for tenant ${tenantId} by user ${userId}`,
       );
+
+      // Publish EmployeeCreatedEvent AFTER commit so consumers can load the employee from DB.
+      // BEFORE this fix: no event was published — downstream services (notifications, messaging,
+      // billing) never learned about new employees, silently breaking cross-service integrations.
+      this.eventBus.publish(createEmployeeCreatedEvent(savedEmployee, userId)).catch((err: unknown) => {
+        this.logger.error(
+          `Failed to publish EmployeeCreatedEvent for ${savedEmployee.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
 
       return savedEmployee;
     } catch (error) {

@@ -9,6 +9,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { EndRotationCommand } from '../commands/end-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
+import { Employee } from '../../hr/entities/employee.entity';
 
 @Injectable()
 @CommandHandler(EndRotationCommand)
@@ -50,6 +51,16 @@ export class EndRotationHandler implements ICommandHandler<EndRotationCommand, W
       rotation.updatedBy = userId;
 
       const saved = await repo.save(rotation);
+
+      // Clear currentRotationId on Employee when rotation ends.
+      // BEFORE this fix: currentRotationId was never cleared, causing "ghost rotations"
+      // where the system continued to show employees as offshore after they had returned.
+      // This corrupts muster lists and prevents new rotations from being assigned correctly.
+      await queryRunner.manager.update(Employee,
+        { id: rotation.employeeId, tenantId },
+        { currentRotationId: null },
+      );
+
       await queryRunner.commitTransaction();
 
       this.logger.log(

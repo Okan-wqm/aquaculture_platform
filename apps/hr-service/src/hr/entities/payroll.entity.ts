@@ -10,6 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { Employee } from './employee.entity';
 
 export enum PayrollStatus {
@@ -151,7 +152,10 @@ export class Payroll {
   deductions!: DeductionsBreakdown;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  // DecimalTransformer: netPay = grossPay - totalDeductions. Both operands are stored in
+  // jsonb (EarningsBreakdown/DeductionsBreakdown) and this column holds the computed result.
+  // String subtraction produces NaN, leading to incorrect pay slips displayed to employees.
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   netPay!: number;
 
   @Field()

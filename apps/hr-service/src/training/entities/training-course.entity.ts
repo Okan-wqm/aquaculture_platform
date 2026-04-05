@@ -7,6 +7,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum TrainingType {
@@ -67,7 +68,9 @@ export class TrainingCourse {
   durationMinutes!: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true })
+  // DecimalTransformer: training cost and completion rate are used in HR analytics.
+  // String division (completionRate = completed/enrolled) produces NaN.
+  @Column({ type: 'decimal', precision: 8, scale: 2, nullable: true , transformer: new DecimalTransformer() })
   cost?: number;
 
   @Field()
@@ -79,7 +82,7 @@ export class TrainingCourse {
   requiresAssessment!: boolean;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true , transformer: new DecimalTransformer() })
   passingScore?: number; // Percentage
 
   @Field(() => Int, { nullable: true })

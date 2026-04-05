@@ -9,6 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { TrainingCourse } from './training-course.entity';
@@ -101,11 +102,13 @@ export class TrainingEnrollment {
   completedAt?: Date;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  // DecimalTransformer: enrollment score is compared against passingScore to determine certification.
+  // String comparison ('70.0' >= '100.0') is lexicographic — '9' > '100' as string, breaking pass/fail logic.
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 , transformer: new DecimalTransformer() })
   progressPercent!: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true , transformer: new DecimalTransformer() })
   finalScore?: number;
 
   @Field(() => Int)

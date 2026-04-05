@@ -10,6 +10,7 @@ import {
   JoinColumn,
   OneToMany,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
@@ -129,7 +130,9 @@ export class Goal {
   completedDate?: Date;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  // DecimalTransformer: progressPercentage (0-100) is compared against target to determine goal status.
+  // String comparison ('75.00' >= '100.00') uses lexicographic order — '9' > '100' as string.
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0, transformer: new DecimalTransformer() })
   progressPercent!: number;
 
   @Field(() => [KeyResult], { nullable: true })

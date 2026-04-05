@@ -218,7 +218,10 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlan)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: createWeeklyPlan is a management-level operation.
+  // Regular employees (MODULE_USER) can VIEW their schedules but cannot modify planning.
+  // BEFORE: any employee could create/modify/publish/delete shift plans for all colleagues.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createWeeklyPlan(
     @Args('input') input: CreateWeeklyPlanInput,
     @Context() context: GraphQLContext,
@@ -240,7 +243,10 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlanEntry)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: updatePlanEntry is a management-level operation.
+  // Regular employees (MODULE_USER) can VIEW their schedules but cannot modify planning.
+  // BEFORE: any employee could create/modify/publish/delete shift plans for all colleagues.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updatePlanEntry(
     @Args('input') input: UpdatePlanEntryInput,
     @Context() context: GraphQLContext,
@@ -264,7 +270,10 @@ export class SchedulingResolver {
 
   @Mutation(() => BulkAssignResultType)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: bulkAssignShifts is a management-level operation.
+  // Regular employees (MODULE_USER) can VIEW their schedules but cannot modify planning.
+  // BEFORE: any employee could create/modify/publish/delete shift plans for all colleagues.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async bulkAssignShifts(
     @Args('input') input: BulkAssignShiftsInput,
     @Context() context: GraphQLContext,
@@ -287,7 +296,10 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlan)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: copyWeeklyPlan is a management-level operation.
+  // Regular employees (MODULE_USER) can VIEW their schedules but cannot modify planning.
+  // BEFORE: any employee could create/modify/publish/delete shift plans for all colleagues.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async copyWeeklyPlan(
     @Args('sourceId', { type: () => ID }) sourceId: string,
     @Args('targetWeekStartDate') targetWeekStartDate: string,
@@ -302,7 +314,10 @@ export class SchedulingResolver {
 
   @Mutation(() => WeeklyPlan)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: publishWeeklyPlan is a management-level operation.
+  // Regular employees (MODULE_USER) can VIEW their schedules but cannot modify planning.
+  // BEFORE: any employee could create/modify/publish/delete shift plans for all colleagues.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async publishWeeklyPlan(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -314,7 +329,10 @@ export class SchedulingResolver {
 
   @Mutation(() => Boolean)
   @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // MODULE_USER removed: deleteWeeklyPlan is a management-level operation.
+  // Regular employees (MODULE_USER) can VIEW their schedules but cannot modify planning.
+  // BEFORE: any employee could create/modify/publish/delete shift plans for all colleagues.
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async deleteWeeklyPlan(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

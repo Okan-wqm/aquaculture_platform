@@ -1,8 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { ApprovePayrollCommand } from '../commands/approve-payroll.command';
 import { Payroll, PayrollStatus } from '../entities/payroll.entity';
+import { createBaseEvent } from '@platform/event-contracts';
+import type { PayrollProcessedEvent } from '@platform/event-contracts';
 
 @Injectable()
 @CommandHandler(ApprovePayrollCommand)
@@ -11,6 +13,7 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
 
   constructor(
     private readonly dataSource: DataSource,
+    private readonly eventBus: EventBus,
   ) {}
 
   async execute(command: ApprovePayrollCommand): Promise<Payroll> {
@@ -56,6 +59,30 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
       this.logger.log(
         `Payroll approved: ${savedPayroll.id} (${savedPayroll.payrollNumber}) by user ${userId}`,
       );
+
+      // Publish PayrollProcessedEvent AFTER commit.
+      // BEFORE this fix: no event was published — downstream services (notifications,
+      // accounting integrations) never learned that payroll was approved and ready for payment.
+      const event: PayrollProcessedEvent = {
+        ...createBaseEvent<PayrollProcessedEvent>('PayrollProcessed', savedPayroll.tenantId, {
+          userId,
+        }),
+        aggregateId: savedPayroll.id,
+        aggregateType: 'Payroll',
+        eventType: 'PayrollProcessed' as const,
+        payrollId: savedPayroll.id,
+        employeeId: savedPayroll.employeeId,
+        periodStart: savedPayroll.payPeriodStart,
+        periodEnd: savedPayroll.payPeriodEnd,
+        grossAmount: Number(savedPayroll.netPay),
+        netAmount: Number(savedPayroll.netPay),
+        status: savedPayroll.status,
+      };
+      this.eventBus.publish(event).catch((err: unknown) => {
+        this.logger.error(
+          `Failed to publish PayrollProcessedEvent for ${savedPayroll.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
 
       return savedPayroll;
     } catch (error) {

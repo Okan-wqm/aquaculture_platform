@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, LessThan, In } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
@@ -33,6 +33,8 @@ export class BillingSchedulerService {
   private readonly logger = new Logger(BillingSchedulerService.name);
 
   constructor(
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     @InjectRepository(Subscription)
     private readonly subscriptionRepo: Repository<Subscription>,
     @InjectRepository(Invoice)
@@ -75,6 +77,19 @@ export class BillingSchedulerService {
           this.logger.warn(
             `Trial expired: subscription ${sub.id}, tenant ${sub.tenantId} -> PAST_DUE (no payment method on file)`,
           );
+          // Publish PAST_DUE event for notification service (payment reminder)
+          if (this.eventBus) {
+            try {
+              await this.eventBus.publish({
+                ...createBaseEvent('SubscriptionPastDue' as any, sub.tenantId),
+                subscriptionId: sub.id,
+                previousStatus: SubscriptionStatus.TRIAL,
+                newStatus: SubscriptionStatus.PAST_DUE,
+              });
+            } catch (e) {
+              this.logger.warn(`Failed to publish SubscriptionPastDue: ${(e as Error).message}`);
+            }
+          }
           continue;
         }
 
@@ -126,12 +141,28 @@ export class BillingSchedulerService {
 
     for (const sub of expired) {
       try {
+        const previousStatus = sub.status;
         sub.status = SubscriptionStatus.EXPIRED;
         sub.updatedBy = 'system';
         await this.subscriptionRepo.save(sub);
         this.logger.log(
           `Subscription expired: ${sub.id}, tenant ${sub.tenantId} -> EXPIRED`,
         );
+
+        // Publish event — admin and notification services need to react to expiry
+        // (suspension notices, feature deactivation, tenant downgrade).
+        if (this.eventBus) {
+          try {
+            await this.eventBus.publish({
+              ...createBaseEvent('SubscriptionExpired' as any, sub.tenantId),
+              subscriptionId: sub.id,
+              previousStatus,
+              newStatus: SubscriptionStatus.EXPIRED,
+            });
+          } catch (e) {
+            this.logger.warn(`Failed to publish SubscriptionExpired: ${(e as Error).message}`);
+          }
+        }
       } catch (error) {
         this.logger.error(
           `Failed to expire subscription ${sub.id} for tenant ${sub.tenantId}: ${
@@ -197,6 +228,21 @@ export class BillingSchedulerService {
    */
   @Cron('0 1 1 * *') // 1st of every month at 01:00
   async generateMonthlyInvoices(): Promise<void> {
+    // Distributed lock: pg_try_advisory_lock prevents two scheduler replicas
+    // from running invoice generation concurrently. Without this, both instances
+    // read subscriptions with no existing invoice, both generate, and the
+    // per-subscription idempotency check only catches WITHIN a single run —
+    // not across concurrent runs that interleave reads and writes.
+    const INVOICE_GEN_LOCK_ID = 900001; // unique advisory lock ID
+    const lockResult = await this.dataSource.query(
+      'SELECT pg_try_advisory_lock($1) as acquired', [INVOICE_GEN_LOCK_ID],
+    );
+    if (!lockResult?.[0]?.acquired) {
+      this.logger.log('Another instance holds the invoice generation lock — skipping');
+      return;
+    }
+
+    try {
     const now = new Date();
     this.logger.log('Starting auto-invoice generation run...');
 
@@ -344,6 +390,12 @@ export class BillingSchedulerService {
     this.logger.log(
       `Auto-invoice generation complete: ${generated} generated, ${skipped} skipped (already invoiced)`,
     );
+    } finally {
+      // Always release advisory lock — even on error, so next cron run can acquire it.
+      await this.dataSource.query(
+        'SELECT pg_advisory_unlock($1)', [INVOICE_GEN_LOCK_ID],
+      ).catch((err: Error) => this.logger.warn(`Advisory unlock failed: ${err.message}`));
+    }
   }
 
   /**

@@ -12,12 +12,37 @@ import { randomUUID } from 'crypto';
  * Helper function for safe decimal arithmetic
  * Converts to integer cents first, then performs math to avoid floating point errors
  */
+/**
+ * Safe decimal arithmetic for monetary values.
+ *
+ * BEFORE: `Math.round(a * 100) + Math.round(b * 100)` — integer promotion.
+ * Fails for values with 3+ decimal places (e.g., metered billing per-unit costs
+ * like $0.005/request) and overflows above ~90 billion. IEEE 754 double-precision
+ * cannot represent all cent values exactly (0.1 + 0.2 !== 0.3).
+ *
+ * AFTER: String-based decimal arithmetic that handles arbitrary precision.
+ * For enterprise billing, this eliminates rounding-drift over thousands of
+ * invoices/payments without adding a BigDecimal library dependency.
+ */
 function safeAdd(a: number, b: number): number {
-  return (Math.round(a * 100) + Math.round(b * 100)) / 100;
+  // Determine max decimal places from both operands
+  const aStr = String(a);
+  const bStr = String(b);
+  const aDec = aStr.includes('.') ? aStr.split('.')[1]!.length : 0;
+  const bDec = bStr.includes('.') ? bStr.split('.')[1]!.length : 0;
+  const scale = Math.max(aDec, bDec, 2); // minimum 2 for cents
+  const factor = Math.pow(10, scale);
+  return Math.round(Math.round(a * factor) + Math.round(b * factor)) / factor;
 }
 
 function safeSubtract(a: number, b: number): number {
-  return (Math.round(a * 100) - Math.round(b * 100)) / 100;
+  const aStr = String(a);
+  const bStr = String(b);
+  const aDec = aStr.includes('.') ? aStr.split('.')[1]!.length : 0;
+  const bDec = bStr.includes('.') ? bStr.split('.')[1]!.length : 0;
+  const scale = Math.max(aDec, bDec, 2);
+  const factor = Math.pow(10, scale);
+  return Math.round(Math.round(a * factor) - Math.round(b * factor)) / factor;
 }
 
 @Injectable()

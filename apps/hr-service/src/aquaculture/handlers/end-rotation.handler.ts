@@ -58,7 +58,7 @@ export class EndRotationHandler implements ICommandHandler<EndRotationCommand, W
       // This corrupts muster lists and prevents new rotations from being assigned correctly.
       await queryRunner.manager.update(Employee,
         { id: rotation.employeeId, tenantId },
-        { currentRotationId: undefined as unknown as string },
+        { currentRotationId: null as unknown as string },
       );
 
       await queryRunner.commitTransaction();

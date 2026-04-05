@@ -53,6 +53,7 @@ export class RejectLeaveRequestHandler
 
       // Restore pending balance
       const currentYear = new Date(leaveRequest.startDate).getFullYear();
+      // Pessimistic lock prevents concurrent approve+reject from corrupting balance.
       const leaveBalance = await queryRunner.manager.findOne(LeaveBalance, {
         where: {
           tenantId,
@@ -61,6 +62,7 @@ export class RejectLeaveRequestHandler
           year: currentYear,
           isDeleted: false,
         },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (leaveBalance) {

@@ -80,6 +80,8 @@ export class CancelLeaveRequestHandler
 
       // Restore balance based on previous status
       const currentYear = new Date(leaveRequest.startDate).getFullYear();
+      // Pessimistic lock: concurrent cancel calls on the same leave request
+      // could both read the same balance snapshot and corrupt it.
       const leaveBalance = await leaveBalanceRepo.findOne({
         where: {
           tenantId,
@@ -88,6 +90,7 @@ export class CancelLeaveRequestHandler
           year: currentYear,
           isDeleted: false,
         },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (leaveBalance) {

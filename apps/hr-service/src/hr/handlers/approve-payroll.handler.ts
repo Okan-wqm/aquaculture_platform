@@ -26,8 +26,12 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
     try {
       const payrollRepo = queryRunner.manager.getRepository(Payroll);
 
+      // Pessimistic write lock — prevents concurrent double-approval of the same payroll.
+      // @VersionColumn provides optimistic concurrency control but the window between
+      // status check (validStatuses) and write is still exploitable without a row lock.
       const payroll = await payrollRepo.findOne({
         where: { id: payrollId, tenantId },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!payroll) {
@@ -74,7 +78,7 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
         employeeId: savedPayroll.employeeId,
         periodStart: savedPayroll.payPeriodStart,
         periodEnd: savedPayroll.payPeriodEnd,
-        grossAmount: Number(savedPayroll.netPay),
+        grossAmount: Number(savedPayroll.earnings?.grossPay ?? savedPayroll.netPay),
         netAmount: Number(savedPayroll.netPay),
         status: savedPayroll.status,
       };

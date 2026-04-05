@@ -449,6 +449,25 @@ export class WebAuthnService {
   }
 
   /**
+   * Remove ALL WebAuthn credentials for a user (GDPR erasure).
+   *
+   * Called by GdprComplianceService.executeErasure() to ensure passkey/security
+   * key records (credentialPublicKey linked to a physical device) are deleted
+   * as part of right-to-erasure. Without this, WebAuthn credentials persist
+   * after account anonymisation.
+   */
+  async removeAllCredentials(userId: string): Promise<number> {
+    const credentials = await this.credentialRepository.find({
+      where: { userId },
+    });
+    if (credentials.length === 0) return 0;
+
+    await this.credentialRepository.remove(credentials);
+    this.logger.log(`GDPR: removed ${credentials.length} WebAuthn credential(s) for user ${userId}`);
+    return credentials.length;
+  }
+
+  /**
    * Check if a user has any WebAuthn credentials registered.
    */
   async hasCredentials(userId: string): Promise<boolean> {

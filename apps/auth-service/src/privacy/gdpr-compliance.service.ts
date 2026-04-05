@@ -7,6 +7,7 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { User } from '../modules/authentication/entities/user.entity';
 import { RefreshToken } from '../modules/authentication/entities/refresh-token.entity';
 import { AuthenticationService } from '../modules/authentication/services/authentication.service';
+import { WebAuthnService } from '../modules/authentication/services/webauthn.service';
 
 /**
  * WHY THIS FILE EXISTS:
@@ -46,6 +47,7 @@ export class GdprComplianceService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
     private readonly authService: AuthenticationService,
+    private readonly webAuthnService: WebAuthnService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -75,6 +77,11 @@ export class GdprComplianceService {
     // Revoke all sessions and tokens first — prevents further authentication
     // with any existing credentials while erasure is in progress.
     await this.authService.logoutAllDevices(userId);
+
+    // M-GDPR-03: Delete WebAuthn credentials (passkeys/security keys).
+    // credentialPublicKey is linked to a physical device owned by the user —
+    // constitutes personal data under strict GDPR interpretation.
+    await this.webAuthnService.removeAllCredentials(userId);
 
     // Anonymize PII fields and lock account in one transaction.
     // Email is replaced with a non-reversible placeholder that preserves

@@ -127,8 +127,12 @@ function extractTenantId(context: GraphQLContext): string {
 }
 
 function extractUserId(context: GraphQLContext): string {
-  // Only trust user identity from validated JWT, never from headers
-  return context.req.user?.sub || 'system';
+  // Defense-in-depth: APP_GUARD already enforces auth globally, but sub may
+  // be absent in a malformed JWT that somehow passed. Never fall back to
+  // 'system' — a financial mutation attributed to 'system' is untraceable.
+  const sub = context.req.user?.sub;
+  if (!sub) throw new UnauthorizedException('Authenticated user identity (sub) is required');
+  return sub;
 }
 
 /**

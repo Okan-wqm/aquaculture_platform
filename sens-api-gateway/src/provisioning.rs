@@ -103,7 +103,12 @@ impl std::fmt::Debug for ActivationRequest {
 }
 
 /// Activation response from cloud API (snake_case per v1.1 spec)
-#[derive(Debug, Deserialize)]
+///
+/// # Security (C-EDGE-01)
+/// `#[derive(Debug)]` is intentionally NOT used — the derived impl would
+/// print `mqtt_password` in plain text to logs. Custom `Debug` impl below
+/// redacts the password field following the same pattern as `ActivationRequest`.
+#[derive(Deserialize)]
 #[allow(dead_code)]
 pub struct ActivationResponse {
     pub success: bool,
@@ -117,6 +122,21 @@ pub struct ActivationResponse {
     pub config: Option<serde_json::Value>,
     #[serde(default)]
     pub mqtt_tls_enabled: Option<bool>,
+}
+
+impl std::fmt::Debug for ActivationResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ActivationResponse")
+            .field("success", &self.success)
+            .field("mqtt_broker", &self.mqtt_broker)
+            .field("mqtt_port", &self.mqtt_port)
+            .field("mqtt_username", &self.mqtt_username)
+            .field("mqtt_password", &"[REDACTED]")
+            .field("tenant_id", &self.tenant_id)
+            .field("device_code", &self.device_code)
+            .field("mqtt_tls_enabled", &self.mqtt_tls_enabled)
+            .finish()
+    }
 }
 
 /// Error response from cloud API

@@ -415,16 +415,18 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   async executeFeedingSchedule(
     scheduleId: string,
+    tenantId: string,
     executedBy: string = 'system',
     actualAmount?: number,
     notes?: string,
   ): Promise<FeedingExecutionResult> {
-    this.logger.log(`Executing feeding schedule ${scheduleId}`);
+    this.logger.log(`Executing feeding schedule ${scheduleId} for tenant ${tenantId}`);
 
     try {
-      // Get the feeding table
+      // C-FARM-01: tenantId scoped query — prevents cross-tenant IDOR where
+      // a caller could execute another tenant's feeding schedule by ID alone.
       const feedingTable = await this.feedingTableRepository.findOne({
-        where: { id: scheduleId },
+        where: { id: scheduleId, tenantId },
         relations: ['batch', 'feed'],
       });
 

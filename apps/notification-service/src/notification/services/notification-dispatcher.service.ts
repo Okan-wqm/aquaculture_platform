@@ -1,4 +1,5 @@
-import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
@@ -90,18 +91,10 @@ function redactWebhookUrl(urlString: string): string {
 // ─── Webhook URL Encryption for Retry ──────────────────────────────────
 // The webhook URL is redacted in logs for security, but retries need the
 // original URL. We encrypt it with AES-256-GCM using a key derived from
-// WEBHOOK_ENCRYPTION_KEY env var (or a fallback for dev). The encrypted
-// blob is stored in metadata.encryptedWebhookUrl and decrypted only during
-// retry. This prevents plaintext URL leakage while enabling retries.
-
-const WEBHOOK_ENCRYPTION_KEY = (() => {
-  const envKey = process.env['WEBHOOK_ENCRYPTION_KEY'];
-  if (envKey && envKey.length >= 32) {
-    return createHash('sha256').update(envKey).digest();
-  }
-  // Deterministic fallback for dev/test — NOT suitable for production
-  return createHash('sha256').update('aquaculture-webhook-dev-key').digest();
-})();
+// WEBHOOK_ENCRYPTION_KEY env var. Key is validated at module init — the
+// service refuses to start in production without a ≥32-char key.
+// See: onModuleInit() below.
+let WEBHOOK_ENCRYPTION_KEY: Buffer;
 
 function encryptWebhookUrl(url: string): string {
   const iv = randomBytes(12);
@@ -188,7 +181,7 @@ export interface AlertNotificationData {
  * Orchestrates sending notifications across multiple channels
  */
 @Injectable()
-export class NotificationDispatcherService {
+export class NotificationDispatcherService implements OnModuleInit {
   private readonly logger = new Logger(NotificationDispatcherService.name);
 
   /**
@@ -204,8 +197,36 @@ export class NotificationDispatcherService {
     private readonly smsService: SmsService,
     private readonly pushService: PushService,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
     @Optional() private readonly redisService?: RedisService,
   ) {}
+
+  /**
+   * C-PS-02: Validate WEBHOOK_ENCRYPTION_KEY at startup.
+   * Fails fast in production if the key is absent or too short — prevents
+   * the service from silently using a hardcoded dev key in production.
+   */
+  onModuleInit(): void {
+    const envKey = this.configService.get<string>('WEBHOOK_ENCRYPTION_KEY');
+    if (envKey && envKey.length >= 32) {
+      WEBHOOK_ENCRYPTION_KEY = createHash('sha256').update(envKey).digest();
+      return;
+    }
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
+      throw new Error(
+        'WEBHOOK_ENCRYPTION_KEY must be set (≥32 chars) in production. ' +
+        'Service startup aborted to prevent use of insecure fallback key.',
+      );
+    }
+    // Dev/test only — deterministic fallback
+    WEBHOOK_ENCRYPTION_KEY = createHash('sha256')
+      .update('aquaculture-webhook-dev-key')
+      .digest();
+    this.logger.warn(
+      'WEBHOOK_ENCRYPTION_KEY not set — using insecure dev fallback. ' +
+      'This is NOT acceptable in production.',
+    );
+  }
 
   /**
    * Dispatch alert notifications to all specified channels and recipients

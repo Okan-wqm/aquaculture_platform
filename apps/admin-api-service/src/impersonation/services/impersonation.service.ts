@@ -26,7 +26,9 @@ import {
 
 export interface StartImpersonationRequest {
   superAdminId: string;
-  superAdminEmail: string;
+  /** Optional: email was removed from JWT in H-08 (PII reduction). Falls back
+   *  to ID-only audit trail when not present. */
+  superAdminEmail?: string;
   targetTenantId: string;
   targetTenantName?: string;
   targetUserId?: string;

@@ -159,6 +159,9 @@ impl Sx1302 {
         // 4. ARB (arbiter) firmware'ini yukler
         // 5. Her kanal icin PLL kalibrasyonu yapar
         // 6. RX'i baslatir
+        // SAFETY: lgw_start() is safe to call after SX1302 hardware init; the
+        // gateway event loop is single-threaded so lgw_start/stop are never called
+        // concurrently. SPI device is opened exclusively by lgw_start itself.
         let ret = unsafe { ffi::lgw_start() };
         if ret != 0 {
             anyhow::bail!(
@@ -193,8 +196,14 @@ impl Sx1302 {
         // lgw_receive(), FIFO'daki tum paketleri bu buffer'a yazar.
         // Her paket ~300 byte (payload + metadata).
         let mut pkt_buf: Vec<ffi::lgw_pkt_rx_s> =
+            // SAFETY: lgw_pkt_rx_s is a plain C struct; zero is a valid bit
+            // pattern for all its fields. lgw_receive() overwrites entries it
+            // fills before they are read, so no uninitialized field is observed.
             vec![unsafe { std::mem::zeroed() }; MAX_RX_PACKETS];
 
+        // SAFETY: pkt_buf is a valid mutable Vec of MAX_RX_PACKETS elements;
+        // lgw_receive() writes at most MAX_RX_PACKETS entries and the pointer
+        // remains valid for the duration of the call.
         let nb_pkt = unsafe {
             ffi::lgw_receive(MAX_RX_PACKETS as u8, pkt_buf.as_mut_ptr())
         };
@@ -263,6 +272,8 @@ impl Sx1302 {
         }
 
         // TxPacket'i C struct'ina donustur
+        // SAFETY: lgw_pkt_tx_s is a plain C struct; all fields used by lgw_send()
+        // are explicitly set below before the pointer is passed to the FFI call.
         let mut pkt: ffi::lgw_pkt_tx_s = unsafe { std::mem::zeroed() };
         pkt.freq_hz = packet.freq_hz;
         pkt.tx_mode = if packet.immediate { 0 } else { 1 }; // 0=IMMEDIATE, 1=TIMESTAMPED
@@ -290,6 +301,8 @@ impl Sx1302 {
         // C HAL ile gonder
         // lgw_send(), paketi TX FIFO'ya yazar.
         // SX1302 dahili zamanlayici ile dogru zamanda gonderir.
+        // SAFETY: pkt is a fully-initialised lgw_pkt_tx_s on the stack; lgw_send()
+        // reads from the pointer synchronously and does not retain it after return.
         let ret = unsafe { ffi::lgw_send(&pkt as *const ffi::lgw_pkt_tx_s) };
         if ret != 0 {
             anyhow::bail!(
@@ -319,6 +332,8 @@ impl Sx1302 {
         }
 
         let mut temperature: f32 = 0.0;
+        // SAFETY: temperature is a valid f32 stack variable; lgw_get_temperature()
+        // writes exactly one f32 via the pointer and does not retain it after return.
         let ret = unsafe { ffi::lgw_get_temperature(&mut temperature) };
         if ret != 0 {
             anyhow::bail!(
@@ -344,6 +359,8 @@ impl Drop for Sx1302 {
     fn drop(&mut self) {
         if self.initialized {
             info!("SX1302 kapatiliyor...");
+            // SAFETY: lgw_stop() is safe to call on an initialised concentrator;
+            // Drop is called single-threaded after all owners are released.
             let ret = unsafe { ffi::lgw_stop() };
             if ret != 0 {
                 warn!("SX1302 kapatma uyarisi: lgw_stop() = {}", ret);

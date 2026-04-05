@@ -342,12 +342,15 @@ export class ImpersonationController {
   ) {
     // SECURITY FIX: Get admin identity from verified JWT token, not client-supplied headers
     const user = (req as unknown as { user?: { id?: string; email?: string } }).user;
-    if (!user?.id || !user?.email) {
+    // H-08: email PII removed from JWT — only id (sub) is guaranteed present.
+    // superAdminEmail is optional in StartImpersonationRequest post H-08.
+    if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
     const request: StartImpersonationRequest = {
       superAdminId: user.id,
-      superAdminEmail: user.email,
+      superAdminEmail: user.email, // undefined when H-08 JWT in use — accepted by interface
+
       ...dto,
       ipAddress: (req.ip || req.socket.remoteAddress) ?? undefined,
       userAgent: req.headers['user-agent'],

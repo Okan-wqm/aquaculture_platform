@@ -236,3 +236,27 @@ self.addEventListener('sync', handleSyncEvent as EventListener);
 self.addEventListener('push', handlePushEvent as EventListener);
 self.addEventListener('notificationclick', handleNotificationClick as EventListener);
 self.addEventListener('fetch', handleFetchEvent as EventListener);
+
+// ============================================================================
+// C-FE-01: Logout cache clearing
+// On shared devices, authenticated GraphQL responses cached by the service
+// worker must be purged on logout so the next user cannot access prior user's
+// data. Main thread calls: navigator.serviceWorker.ready.then(r =>
+//   r.active?.postMessage({ type: 'LOGOUT' }))
+// This is wired in the auth store's logout action (authStore.logout()).
+// ============================================================================
+
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
+  if ((event.data as { type?: string })?.type === 'LOGOUT') {
+    event.waitUntil(clearMessagingCaches());
+  }
+});
+
+async function clearMessagingCaches(): Promise<void> {
+  const keys = await caches.keys();
+  await Promise.all(
+    keys
+      .filter((k) => k.startsWith('messaging-'))
+      .map((k) => caches.delete(k)),
+  );
+}

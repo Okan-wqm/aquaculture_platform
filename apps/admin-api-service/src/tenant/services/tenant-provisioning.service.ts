@@ -1066,6 +1066,13 @@ export class TenantProvisioningService {
   private async seedDefaultWaterQualityParams(tenantId: string): Promise<void> {
     this.logger.log(`Seeding default water quality parameters for tenant ${tenantId}`);
     const schemaName = `tenant_${tenantId.replace(/-/g, '_')}`;
+    // C-ADMIN-01: Validate schemaName as a safe SQL identifier before use.
+    // tenantId is a UUID so this always passes, but the guard prevents
+    // future callers from accidentally passing unsanitized input.
+    const safeIdentifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+    if (!safeIdentifierRegex.test(schemaName) || schemaName.length > 63) {
+      throw new Error(`SECURITY: Unsafe schema name derived from tenantId '${tenantId}'`);
+    }
 
     // Common aquaculture parameters — covers freshwater + seawater basics
     const params = [
@@ -1084,20 +1091,27 @@ export class TenantProvisioningService {
     ];
 
     try {
-      const values = params.map((p, i) =>
-        `(gen_random_uuid(), $1, '${p.code}', '${p.name}', '${p.unit}', 'number', ${p.precision}, '${p.group}', ${p.optMin}, ${p.optMax}, ${p.warnMin}, ${p.warnMax}, ${p.critMin}, ${p.critMax}, '${p.color}', ${p.order}, ${p.required}, ${p.required}, true, '${p.axis}', false, 'default_seed', NOW(), NOW())`
-      ).join(',\n        ');
-
-      await this.dataSource.query(`
-        INSERT INTO "${schemaName}".water_quality_parameter_configs
-          (id, "tenantId", code, name, unit, "dataType", precision, "group",
-           "optimalMin", "optimalMax", "warningMin", "warningMax", "criticalMin", "criticalMax",
-           "chartColor", "displayOrder", "isVisible", "isRequired", "isActive", "chartAxisGroup",
-           "isQuickAccess", "templateSource", "createdAt", "updatedAt")
-        VALUES
-        ${values}
-        ON CONFLICT ("tenantId", code) DO NOTHING
-      `, [tenantId]);
+      // C-ADMIN-01: Individual parameterized inserts — no string interpolation of
+      // param values. schemaName (SQL identifier) is validated above and used
+      // with double-quote quoting per PostgreSQL identifier rules.
+      for (const p of params) {
+        await this.dataSource.query(
+          `INSERT INTO "${schemaName}".water_quality_parameter_configs
+             (id, "tenantId", code, name, unit, "dataType", precision, "group",
+              "optimalMin", "optimalMax", "warningMin", "warningMax", "criticalMin", "criticalMax",
+              "chartColor", "displayOrder", "isVisible", "isRequired", "isActive", "chartAxisGroup",
+              "isQuickAccess", "templateSource", "createdAt", "updatedAt")
+           VALUES
+             (gen_random_uuid(), $1, $2, $3, $4, 'number', $5, $6,
+              $7, $8, $9, $10, $11, $12,
+              $13, $14, $15, $15, true, $16,
+              false, 'default_seed', NOW(), NOW())
+           ON CONFLICT ("tenantId", code) DO NOTHING`,
+          [tenantId, p.code, p.name, p.unit, p.precision, p.group,
+           p.optMin, p.optMax, p.warnMin, p.warnMax, p.critMin, p.critMax,
+           p.color, p.order, p.required, p.axis],
+        );
+      }
 
       this.logger.log(`Seeded ${params.length} default water quality parameters for tenant ${tenantId}`);
     } catch (error) {

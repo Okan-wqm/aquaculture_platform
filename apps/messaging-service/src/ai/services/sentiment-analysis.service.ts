@@ -17,6 +17,7 @@ import { Repository, DataSource } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 
 import { MessageAnalysis, AnalysisType } from '../entities/message-analysis.entity';
+import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { AiPrivacyService } from './ai-privacy.service';
 import type { SentimentResult } from '../entities/message-analysis.entity';
 
@@ -60,6 +61,12 @@ export class SentimentAnalysisService {
   constructor(
     @InjectRepository(MessageAnalysis)
     private readonly analysisRepo: Repository<MessageAnalysis>,
+    // outboxRepo injected for transactional-safe SentimentAlert outbox insert.
+    // BEFORE: used this.natsClient.emit() which is fire-and-forget with no durability.
+    // Using InjectRepository instead of dataSource.manager avoids coupling to the
+    // global entity manager and makes the dependency explicit and testable.
+    @InjectRepository(MessagingOutbox)
+    private readonly outboxRepo: Repository<MessagingOutbox>,
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
@@ -172,17 +179,30 @@ export class SentimentAnalysisService {
           recentAnalyses.reduce((sum, a) => sum + parseFloat(a.score), 0) /
           recentAnalyses.length;
 
-        // Publish alert event (fire-and-forget)
-        this.natsClient.emit('events.SentimentAlert', {
-          tenantId,
-          channelId,
-          userId: senderId,
-          avgScore,
-          messageCount: CONSECUTIVE_NEGATIVE_ALERT_COUNT,
-        });
+        // Store SentimentAlert in the outbox instead of direct NATS emit.
+        // BEFORE: this.natsClient.emit(...) — fire-and-forget with no durability guarantee.
+        // If NATS was down/restarting at this moment, the alert was silently dropped forever.
+        // SentimentAlert consumers (notification-service, hr-service) use this for staff
+        // welfare monitoring — a dropped alert could delay intervention.
+        // WHY: All other domain events in this service go through the outbox for exactly
+        // this reason (guaranteed at-least-once delivery via the outbox worker).
+        // SendMessageHandler, DeleteMessageHandler, CreateChannelHandler all use outbox.
+        await this.outboxRepo.save(
+          this.outboxRepo.create({
+            eventType: 'SentimentAlert',
+            payload: {
+              tenantId,
+              channelId,
+              userId: senderId,
+              avgScore,
+              messageCount: CONSECUTIVE_NEGATIVE_ALERT_COUNT,
+              detectedAt: new Date().toISOString(),
+            },
+          }),
+        );
 
         this.logger.warn(
-          `SentimentAlert: ${CONSECUTIVE_NEGATIVE_ALERT_COUNT}+ consecutive negative messages ` +
+          `SentimentAlert queued via outbox: ${CONSECUTIVE_NEGATIVE_ALERT_COUNT}+ consecutive negative messages ` +
             `from user ${senderId} in channel ${channelId} (avg score: ${avgScore.toFixed(2)})`,
         );
       }

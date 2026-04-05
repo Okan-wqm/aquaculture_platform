@@ -1,6 +1,6 @@
 import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, EntityManager } from 'typeorm';
 
 import { LegalHold } from '../entities/legal-hold.entity';
 
@@ -25,15 +25,28 @@ export class LegalHoldService {
 
   /**
    * Activate a legal hold on a tenant or specific channel.
+   *
+   * @param manager Optional EntityManager for transactional callers.
+   *   BEFORE: no manager parameter — activate() used its own injected repo,
+   *   so it was always outside the caller's transaction boundary.
+   *   WHY: ToggleLegalHoldHandler wraps activate() + audit + outbox in one
+   *   dataSource.transaction(). Without manager propagation, activate() committed
+   *   independently — if audit or outbox save failed, the hold was already committed
+   *   but had no audit trail (ghost legal hold).
+   *   With manager: all three writes share the same transaction context.
    */
   async activate(
     tenantId: string,
     channelId: string | null,
     reason: string,
     userId: string,
+    manager?: EntityManager,
   ): Promise<LegalHold> {
+    // Use caller's transaction manager if provided, fall back to injected repo
+    const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
+
     // Check for existing active hold on same scope
-    const existing = await this.holdRepo.findOne({
+    const existing = await repo.findOne({
       where: {
         tenantId,
         channelId: channelId ?? IsNull(),
@@ -47,14 +60,14 @@ export class LegalHoldService {
       );
     }
 
-    const hold = this.holdRepo.create({
+    const hold = repo.create({
       tenantId,
       channelId,
       reason,
       startedBy: userId,
       isActive: true,
     });
-    const saved = await this.holdRepo.save(hold);
+    const saved = await repo.save(hold);
 
     this.logger.log(
       `Legal hold activated: id=${saved.id}, tenant=${tenantId}, channel=${channelId ?? 'all'}, by=${userId}`,
@@ -64,9 +77,13 @@ export class LegalHoldService {
 
   /**
    * Release (deactivate) an existing legal hold.
+   *
+   * @param manager Optional EntityManager for transactional callers (same rationale as activate).
    */
-  async release(holdId: string, userId: string): Promise<LegalHold> {
-    const hold = await this.holdRepo.findOne({ where: { id: holdId } });
+  async release(holdId: string, userId: string, manager?: EntityManager): Promise<LegalHold> {
+    const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
+
+    const hold = await repo.findOne({ where: { id: holdId } });
     if (!hold) {
       throw new ForbiddenException(`Legal hold not found: ${holdId}`);
     }
@@ -77,7 +94,7 @@ export class LegalHoldService {
     hold.isActive = false;
     hold.releasedBy = userId;
     hold.releasedAt = new Date();
-    const saved = await this.holdRepo.save(hold);
+    const saved = await repo.save(hold);
 
     this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
     return saved;

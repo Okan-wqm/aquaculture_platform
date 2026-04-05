@@ -8,6 +8,7 @@ import { DeleteMessageCommand } from './delete-message.command';
 import { Message } from '../entities/message.entity';
 import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { ChannelMemberRole } from '../../channel/entities/channel-member.entity';
+import { LegalHoldService } from '../../compliance/services/legal-hold.service';
 
 /** Roles allowed to delete any message in a channel */
 const PRIVILEGED_ROLES: string[] = [ChannelMemberRole.OWNER, ChannelMemberRole.ADMIN];
@@ -27,6 +28,10 @@ export class DeleteMessageHandler implements ICommandHandler<DeleteMessageComman
     private readonly dataSource: DataSource,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    // LegalHoldService injected to enforce compliance hold checks before deletion.
+    // BEFORE this fix: handler had no LegalHoldService — messages in held channels
+    // could be soft-deleted by admins, bypassing litigation preservation obligations.
+    private readonly legalHoldService: LegalHoldService,
   ) {}
 
   async execute(command: DeleteMessageCommand): Promise<boolean> {
@@ -50,7 +55,20 @@ export class DeleteMessageHandler implements ICommandHandler<DeleteMessageComman
       );
     }
 
-    // 3. Transactional soft-delete + outbox
+    // 3. Legal hold check — must precede any state change.
+    // isUnderLegalHold() covers both tenant-wide and channel-specific holds.
+    // This is a read-only preflight check; the actual delete only proceeds if clear.
+    // BEFORE: no hold check — any admin could delete messages in a litigation hold,
+    // destroying evidence and exposing the platform to spoliation sanctions.
+    const isHeld = await this.legalHoldService.isUnderLegalHold(tenantId, message.channelId);
+    if (isHeld) {
+      throw new ForbiddenException(
+        `Message ${messageId} cannot be deleted: channel is under an active legal hold. ` +
+        `Contact your compliance administrator to release the hold before deleting messages.`,
+      );
+    }
+
+    // 4. Transactional soft-delete + outbox
     await this.dataSource.transaction(async (manager) => {
       message.isDeleted = true;
       await manager.save(Message, message);

@@ -16,6 +16,9 @@ import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { ChannelModule } from '../channel/channel.module';
 import { PresenceModule } from '../presence/presence.module';
 import { GdprModule } from '../gdpr/gdpr.module';
+// ComplianceModule imported: DeleteMessageHandler now calls LegalHoldService.isUnderLegalHold()
+// before soft-deleting messages. ComplianceModule exports LegalHoldService.
+import { ComplianceModule } from '../compliance/compliance.module';
 
 // Command handlers
 import { CommandHandlers } from './commands';
@@ -61,6 +64,7 @@ import { MessageResolver } from './resolvers/message.resolver';
     ChannelModule,
     PresenceModule,
     GdprModule,
+    ComplianceModule,
   ],
   providers: [
     // CQRS handlers

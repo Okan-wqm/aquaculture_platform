@@ -129,18 +129,41 @@ export class GdprService {
       this.logger.warn(`Redis rate-limit check failed, allowing export: ${(err as Error).message}`);
     }
 
-    // 1. Export messages using chunked pagination to avoid OOM
+    // 1. Export messages using keyset pagination (cursor-based) to avoid OOM.
+    // BEFORE: skip/take → SQL OFFSET N, which requires scanning N rows before each chunk.
+    // On the partitioned messages table (RANGE by createdAt), this becomes O(N²) total cost.
+    // A user with 100k messages would require ~50M row scans across all chunks.
+    // WHY: Keyset pagination uses (createdAt, id) as a composite cursor.
+    // The existing idx_messages_sender index on (senderId, createdAt DESC) supports this
+    // with O(1) cost per chunk regardless of total message count.
     const CHUNK_SIZE = 1000;
-    let exportOffset = 0;
     const exportedMessages: ExportedMessage[] = [];
+    let lastCursor: { createdAt: Date; id: string } | null = null;
+
     while (true) {
-      const chunk = await this.messageRepo.find({
-        where: { senderId: userId, isDeleted: false },
-        relations: ['attachments'],
-        order: { createdAt: 'ASC' },
-        take: CHUNK_SIZE,
-        skip: exportOffset,
-      });
+      let query = this.messageRepo
+        .createQueryBuilder('m')
+        .leftJoinAndSelect('m.attachments', 'a')
+        .where('m.senderId = :userId AND m.isDeleted = false', { userId })
+        .orderBy('m.createdAt', 'ASC')
+        .addOrderBy('m.id', 'ASC')
+        .take(CHUNK_SIZE);
+
+      if (lastCursor) {
+        // Keyset predicate: fetch only rows after the last seen cursor.
+        // Bug fix: PostgreSQL row-value syntax (col1, col2) > (val1, val2) is valid SQL
+        // but TypeORM QueryBuilder does not support this syntax reliably across versions.
+        // The equivalent explicit boolean expression is correctly parsed by TypeORM:
+        //   rows where createdAt > cursor, OR same createdAt but id > cursor id.
+        // This correctly handles timestamp ties within the same millisecond.
+        query = query.andWhere(
+          '(m."createdAt" > :createdAt OR (m."createdAt" = :createdAt AND m.id > :id))',
+          { createdAt: lastCursor.createdAt, id: lastCursor.id },
+        );
+      }
+
+      const chunk = await query.getMany();
+
       for (const msg of chunk) {
         exportedMessages.push({
           content: msg.content,
@@ -154,8 +177,11 @@ export class GdprService {
           })),
         });
       }
+
       if (chunk.length < CHUNK_SIZE) break;
-      exportOffset += CHUNK_SIZE;
+
+      const last = chunk[chunk.length - 1];
+      lastCursor = { createdAt: last.createdAt, id: last.id };
     }
 
     // 2. Export channel memberships
@@ -292,11 +318,18 @@ export class GdprService {
         );
       }
 
-      // 6. Delete knowledge_entries authored by the user
-      await queryRunner.query(
-        `DELETE FROM knowledge_entries WHERE "authorId" = $1`,
-        [userId],
-      );
+      // 6. Delete knowledge_entries whose source message belonged to the user.
+      // BEFORE: `DELETE FROM knowledge_entries WHERE "authorId" = $1` — "authorId"
+      // does not exist in the knowledge_entry schema. This query was a runtime error
+      // (or deleted 0 rows) — knowledge extracted from the user's messages was never cleaned.
+      // WHY: knowledge_entries.sourceMessageId uses ON DELETE SET NULL so entries survive
+      // message soft-delete. Must explicitly delete by sourceMessageId during GDPR erasure.
+      if (messageIds.length > 0) {
+        await queryRunner.query(
+          `DELETE FROM knowledge_entries WHERE "sourceMessageId" = ANY($1::uuid[])`,
+          [messageIds],
+        );
+      }
 
       // 7. Delete all message_receipts for user
       await queryRunner.query(

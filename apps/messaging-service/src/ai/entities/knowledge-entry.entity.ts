@@ -16,6 +16,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 import { Message } from '../../message/entities/message.entity';
 
@@ -67,7 +68,9 @@ export class KnowledgeEntry {
   entities: KnowledgeEntityRef[] | null;
 
   @Field(() => Float)
-  @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0 })
+  // DecimalTransformer: confidence score (0.00-1.00) is used in AI relevance ranking.
+  // String comparison of scores produces wrong ordering in knowledge retrieval.
+  @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0, transformer: new DecimalTransformer() })
   confidence: number;
 
   @Field(() => String, { nullable: true })

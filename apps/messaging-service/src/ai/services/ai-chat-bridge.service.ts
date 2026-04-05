@@ -11,16 +11,18 @@
  *
  * @see ADR-012 section 12.4 (AI Chat Bridge)
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, ForbiddenException } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 
 import { Message, MessageContentType } from '../../message/entities/message.entity';
 import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { Channel, ChannelType } from '../../channel/entities/channel.entity';
+import { ChannelMember } from '../../channel/entities/channel-member.entity';
+import { sanitizeContent } from '../../shared/sanitize';
 
 /** Virtual AI user UUID -- consistent across all tenants. */
 const AI_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -71,6 +73,11 @@ export class AiChatBridgeService {
     private readonly messageRepo: Repository<Message>,
     @InjectRepository(Channel)
     private readonly channelRepo: Repository<Channel>,
+    // ChannelMember repo injected for membership verification in confirmAiAction.
+    // BEFORE: confirmAiAction executed AI actions without verifying the requesting
+    // user is an active member of the channel containing the action message.
+    @InjectRepository(ChannelMember)
+    private readonly channelMemberRepo: Repository<ChannelMember>,
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
@@ -150,6 +157,25 @@ export class AiChatBridgeService {
     if (!actionMessage || !actionMessage.metadata) {
       this.logger.warn(`AI action message ${actionMessageId} not found`);
       return false;
+    }
+
+    // Verify requesting user is an active member of the channel containing the action.
+    // BEFORE: no membership check — any authenticated user who obtained the actionMessageId
+    // UUID could confirm AI actions in any channel, including ones they had left.
+    // Pattern follows channel.service.ts validateChannelAccess() and ForwardMessageHandler:
+    // query ChannelMember where channelId + userId + leftAt IS NULL.
+    const member = await this.channelMemberRepo.findOne({
+      where: {
+        channelId: actionMessage.channelId,
+        userId,
+        leftAt: IsNull(),
+      },
+    });
+
+    if (!member) {
+      throw new ForbiddenException(
+        `User ${userId} is not an active member of channel ${actionMessage.channelId}`,
+      );
     }
 
     const metadata = actionMessage.metadata as Record<string, unknown>;
@@ -243,11 +269,31 @@ export class AiChatBridgeService {
     const now = new Date();
 
     await this.dataSource.transaction(async (manager) => {
+      // Sanitize AI response content before storage.
+      // BEFORE: response.content stored raw — a prompt injection attack (user crafts
+      // a message that causes Claude to output <script>alert(1)</script>) would create
+      // stored XSS visible to all channel members.
+      // sanitizeContent() is already applied to all user messages (send-message.handler.ts:87,
+      // edit-message.handler.ts:46). AI responses must receive the same treatment.
+      // NOTE: sanitizeContent strips all HTML; legitimate AI responses are plain text
+      // and are not affected.
+      const sanitizedContent = sanitizeContent(response.content);
+
+      // Sanitize string values in metadata (tool call results may contain HTML).
+      const sanitizedMetadata = response.metadata
+        ? Object.fromEntries(
+            Object.entries(response.metadata).map(([k, v]) => [
+              k,
+              typeof v === 'string' ? sanitizeContent(v) : v,
+            ]),
+          )
+        : null;
+
       const message = manager.create(Message, {
         id: messageId,
         channelId,
         senderId: AI_USER_ID,
-        content: response.content,
+        content: sanitizedContent,
         contentType: MessageContentType.SYSTEM,
         parentId: null,
         forwardedFrom: null,
@@ -255,7 +301,7 @@ export class AiChatBridgeService {
         isDeleted: false,
         createdAt: now,
         editedAt: null,
-        metadata: response.metadata ?? null,
+        metadata: sanitizedMetadata,
       });
       await manager.save(Message, message);
 

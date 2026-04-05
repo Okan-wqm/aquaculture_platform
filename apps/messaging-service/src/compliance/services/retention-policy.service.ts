@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, LessThan, IsNull } from 'typeorm';
+import { Repository, DataSource, LessThan, IsNull, EntityManager } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { RetentionPolicy } from '../entities/retention-policy.entity';
@@ -35,32 +35,43 @@ export class RetentionPolicyService {
   /**
    * Create or update a retention policy for a tenant or channel.
    */
+  /**
+   * @param manager Optional EntityManager for transactional callers.
+   *   BEFORE: setPolicy() used its own injected repo — writes were outside the
+   *   caller's transaction. SetRetentionPolicyHandler wrapped policy+audit+outbox
+   *   in dataSource.transaction() but setPolicy() committed independently.
+   *   WHY: Retention policy change must be atomic with its audit log entry.
+   *   If the audit log save fails, the policy change must roll back with it.
+   */
   async setPolicy(
     tenantId: string,
     channelId: string | null,
     retentionDays: number,
     userId: string,
+    manager?: EntityManager,
   ): Promise<RetentionPolicy> {
-    const existing = await this.policyRepo.findOne({
+    const repo = manager ? manager.getRepository(RetentionPolicy) : this.policyRepo;
+
+    const existing = await repo.findOne({
       where: { tenantId, channelId: channelId ?? IsNull() },
     });
 
     if (existing) {
       existing.retentionDays = retentionDays;
-      const updated = await this.policyRepo.save(existing);
+      const updated = await repo.save(existing);
       this.logger.log(
         `Updated retention policy ${updated.id}: ${retentionDays} days (tenant=${tenantId}, channel=${channelId ?? 'all'})`,
       );
       return updated;
     }
 
-    const policy = this.policyRepo.create({
+    const policy = repo.create({
       tenantId,
       channelId,
       retentionDays,
       createdBy: userId,
     });
-    const saved = await this.policyRepo.save(policy);
+    const saved = await repo.save(policy);
     this.logger.log(
       `Created retention policy ${saved.id}: ${retentionDays} days (tenant=${tenantId}, channel=${channelId ?? 'all'})`,
     );

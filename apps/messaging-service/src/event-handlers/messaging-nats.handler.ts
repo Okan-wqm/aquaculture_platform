@@ -5,6 +5,7 @@ import { Repository, DataSource, In, IsNull } from 'typeorm';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { Message } from '../message/entities/message.entity';
 import { PartitionManagerService } from '../partition/partition-manager.service';
+import { LegalHoldService } from '../compliance/services/legal-hold.service';
 
 /** UUID representing an anonymised / deleted user. */
 const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -89,6 +90,10 @@ export class MessagingNatsHandler {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly partitionManager: PartitionManagerService,
+    // LegalHoldService injected for legal hold check in handleUserDeleted.
+    // BEFORE: handleUserDeleted anonymized all messages with no hold check —
+    // messages in litigation-held channels had their content wiped, destroying evidence.
+    private readonly legalHoldService: LegalHoldService,
   ) {}
 
   /**
@@ -215,14 +220,79 @@ export class MessagingNatsHandler {
     try {
       await this.setTenantSchema(queryRunner, data.tenantId);
 
-      // Anonymise messages
-      await queryRunner.query(
-        `UPDATE messages
-         SET "senderId" = $1,
-             content = '[message deleted by user]'
-         WHERE "senderId" = $2`,
-        [ANONYMOUS_USER_ID, data.userId],
+      // Collect ALL message IDs for this user BEFORE any anonymization.
+      // WHY: after we set senderId=ANONYMOUS_USER_ID, we can no longer identify
+      // which messages belonged to this specific user — ANONYMOUS_USER_ID is shared
+      // across all deleted users. We need the IDs up front to clean AI-derived tables.
+      const userMsgRows: Array<{ id: string; channelId: string }> = await queryRunner.query(
+        `SELECT id, "channelId" FROM messages WHERE "senderId" = $1`,
+        [data.userId],
       );
+      const userMessageIds = userMsgRows.map(r => r.id);
+
+      // Determine which channels the user has messages in
+      const channelRows = userMsgRows.reduce<Array<{ channelId: string }>>((acc, r) => {
+        if (!acc.some(x => x.channelId === r.channelId)) acc.push({ channelId: r.channelId });
+        return acc;
+      }, []);
+
+      // For each channel, check legal hold status and anonymize accordingly.
+      // BEFORE: all messages wiped unconditionally — messages in litigation-held
+      // channels had content destroyed, creating spoliation liability.
+      // WHY: Legal hold requires content preservation. We still anonymize the senderId
+      // (to protect the user's identity under GDPR) but preserve content in held channels.
+      const heldChannelIds = new Set<string>();
+      for (const { channelId } of channelRows) {
+        const isHeld = await this.legalHoldService.isUnderLegalHold(data.tenantId, channelId);
+        if (isHeld) {
+          heldChannelIds.add(channelId);
+          // Held channel: anonymize sender identity only, preserve content
+          await queryRunner.query(
+            `UPDATE messages SET "senderId" = $1 WHERE "senderId" = $2 AND "channelId" = $3`,
+            [ANONYMOUS_USER_ID, data.userId, channelId],
+          );
+        }
+      }
+
+      // Non-held channels: anonymize sender + wipe content + clear embedding.
+      // BEFORE: embedding column was NOT cleared — vector index retained the user's
+      // original message content even after anonymization, enabling re-identification
+      // via semantic similarity search. GdprService.anonymizeMyData() correctly
+      // sets embedding=NULL; this handler now aligns with that behavior.
+      if (heldChannelIds.size < channelRows.length) {
+        const heldIds = Array.from(heldChannelIds);
+        const whereClause = heldIds.length > 0
+          ? `"senderId" = $2 AND "channelId" != ALL($3::uuid[])`
+          : `"senderId" = $2`;
+        const params = heldIds.length > 0
+          ? [ANONYMOUS_USER_ID, data.userId, heldIds]
+          : [ANONYMOUS_USER_ID, data.userId];
+
+        await queryRunner.query(
+          `UPDATE messages
+           SET "senderId" = $1,
+               content = '[message deleted by user]',
+               embedding = NULL
+           WHERE ${whereClause}`,
+          params,
+        );
+      }
+
+      // Clean AI-derived PII using the message IDs collected before anonymization.
+      // BEFORE: message_entity_references and message_analysis rows were never cleaned.
+      // Also: there was a bug where IDs were collected AFTER anonymization by querying
+      // senderId=ANONYMOUS_USER_ID — which would return ALL anonymized users' messages.
+      // Using pre-collected userMessageIds is the correct approach.
+      if (userMessageIds.length > 0) {
+        await queryRunner.query(
+          `DELETE FROM message_entity_references WHERE "messageId" = ANY($1::uuid[])`,
+          [userMessageIds],
+        );
+        await queryRunner.query(
+          `DELETE FROM message_analysis WHERE "messageId" = ANY($1::uuid[])`,
+          [userMessageIds],
+        );
+      }
 
       // Remove reactions
       await queryRunner.query(

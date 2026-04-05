@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 
 import {
   ComplianceAuditLog,
@@ -62,12 +62,22 @@ export class ComplianceAuditService {
   ) {}
 
   /**
-   * Log a single audit entry. Fire-and-forget safe — errors are caught
-   * and logged but never propagated to the caller.
+   * Log a single audit entry.
+   *
+   * @param manager Optional EntityManager for transactional callers.
+   *   BEFORE: log() always used its own injected auditRepo — writes were outside
+   *   the caller's transaction. If ToggleLegalHoldHandler's transaction rolled back
+   *   after audit.log() succeeded, the audit entry remained but the hold was gone
+   *   (ghost audit entry for a non-existent hold).
+   *   WHY: Passing manager ensures audit entry and hold state are committed atomically.
+   *   When manager is provided, errors propagate to the transaction (no try/catch).
+   *   When no manager (fire-and-forget callers), errors are caught as before.
    */
-  async log(params: AuditLogParams): Promise<void> {
-    try {
-      const entry = this.auditRepo.create({
+  async log(params: AuditLogParams, manager?: EntityManager): Promise<void> {
+    const repo = manager ? manager.getRepository(ComplianceAuditLog) : this.auditRepo;
+
+    const doLog = async (): Promise<void> => {
+      const entry = repo.create({
         tenantId: params.tenantId,
         userId: params.userId,
         action: params.action,
@@ -77,10 +87,20 @@ export class ComplianceAuditService {
         ipAddress: params.ipAddress,
         userAgent: params.userAgent,
       });
-      await this.auditRepo.save(entry);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Failed to write audit log: ${message}`);
+      await repo.save(entry);
+    };
+
+    if (manager) {
+      // Transactional caller: propagate errors so the transaction can roll back
+      await doLog();
+    } else {
+      // Fire-and-forget caller: catch errors to avoid disrupting the caller
+      try {
+        await doLog();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Failed to write audit log: ${message}`);
+      }
     }
   }
 

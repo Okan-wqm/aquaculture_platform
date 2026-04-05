@@ -50,15 +50,18 @@ export class SetRetentionPolicyHandler
 
     // Wrap policy + audit + outbox in a single transaction
     return this.dataSource.transaction(async (manager) => {
-      // Create or update the policy
+      // Create or update the policy — pass manager for transactional atomicity.
+      // BEFORE: setPolicy() used its own injected repo, committing outside this transaction.
       const policy = await this.retentionService.setPolicy(
         tenantId,
         channelId,
         retentionDays,
         userId,
+        manager,
       );
 
-      // Log to compliance audit within the transaction
+      // Log to compliance audit — pass manager for atomicity.
+      // BEFORE: auditService.log() was fire-and-forget outside this transaction.
       await this.auditService.log({
         tenantId,
         userId,
@@ -68,7 +71,7 @@ export class SetRetentionPolicyHandler
         details: { retentionDays, policyId: policy.id },
         ipAddress: null,
         userAgent: null,
-      });
+      }, manager);
 
       // Publish outbox event within the transaction
       const outboxEvent = manager.create(MessagingOutbox, {

@@ -16,6 +16,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { Message } from '../../message/entities/message.entity';
 
 /**
@@ -59,7 +60,9 @@ export class MessageEntityReference {
   entityId: string;
 
   @Field(() => Float)
-  @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0 })
+  // DecimalTransformer: entity reference confidence score (0.00-1.00) used in AI relevance ranking.
+  // String comparison of scores produces wrong ordering in entity disambiguation.
+  @Column({ type: 'numeric', precision: 3, scale: 2, default: 1.0, transformer: new DecimalTransformer() })
   confidence: number;
 
   @Field()

@@ -50,23 +50,29 @@ export class ToggleLegalHoldHandler
       let hold: LegalHold;
 
       if (activate) {
+        // Pass manager so activate() uses the same transaction context.
+        // BEFORE: activate() used its own injected repo — it was outside this transaction.
+        // If outbox.save() failed below, the hold was already committed but had no audit log.
         hold = await this.legalHoldService.activate(
           tenantId,
           channelId,
           reason!,
           userId,
+          manager,
         );
 
         this.logger.log(
           `Legal hold activated: id=${hold.id}, tenant=${tenantId}, channel=${channelId ?? 'all'}`,
         );
       } else {
-        hold = await this.legalHoldService.release(holdId!, userId);
+        hold = await this.legalHoldService.release(holdId!, userId, manager);
 
         this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
       }
 
-      // Log to compliance audit within the transaction
+      // Log to compliance audit within the same transaction.
+      // BEFORE: auditService.log() used its own repo — outside this transaction.
+      // Passing manager makes the audit entry part of the atomic hold+audit+outbox unit.
       await this.auditService.log({
         tenantId,
         userId,
@@ -81,7 +87,7 @@ export class ToggleLegalHoldHandler
         },
         ipAddress: null,
         userAgent: null,
-      });
+      }, manager);
 
       // Publish outbox event within the transaction
       const outboxEvent = manager.create(MessagingOutbox, {

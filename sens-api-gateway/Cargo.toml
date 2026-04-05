@@ -24,7 +24,10 @@ serde_yaml = "0.9"
 
 # HTTP client for provisioning API
 # Use rustls for cross-compilation support (no OpenSSL dependency)
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# M-EDGE-03: rustls-tls-manual-roots avoids pulling h2 crate transitively.
+# The edge agent only makes outbound HTTPS/1.1 calls to the cloud API;
+# HTTP/2 is unnecessary attack surface (RST flood vectors via h2 crate).
+reqwest = { version = "0.12", features = ["json", "rustls-tls-manual-roots"], default-features = false }
 
 # MQTT client — uses rustls by default (no OpenSSL dependency)
 rumqttc = "0.25"

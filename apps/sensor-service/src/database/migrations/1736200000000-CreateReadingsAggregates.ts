@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Create Continuous Aggregates for Sensor Readings
@@ -18,25 +19,26 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - 30+ days:      Use readings_1day
  */
 export class CreateReadingsAggregates1736200000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateReadingsAggregates1736200000000');
   name = 'CreateReadingsAggregates1736200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const schemaResult: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
     const schema = schemaResult[0]?.current_schema || 'public';
-    console.log('Running CreateReadingsAggregates migration in schema:', schema);
+    this.logger.log('Running CreateReadingsAggregates migration in schema:', schema);
 
     // Check if TimescaleDB is available
     const isTimescaleAvailable = await this.checkTimescaleDB(queryRunner);
     if (!isTimescaleAvailable) {
-      console.warn('TimescaleDB not available, skipping continuous aggregates');
+      this.logger.warn('TimescaleDB not available, skipping continuous aggregates');
       return;
     }
 
     // Check if sensor_readings is a hypertable
     const isHypertable = await this.checkHypertable(queryRunner, schema, 'sensor_readings');
     if (!isHypertable) {
-      console.warn('sensor_readings is not a hypertable, skipping continuous aggregates');
+      this.logger.warn('sensor_readings is not a hypertable, skipping continuous aggregates');
       return;
     }
 
@@ -98,7 +100,7 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         GROUP BY bucket, tenant_id, sensor_id
         WITH NO DATA
       `);
-      console.log('Created readings_15min continuous aggregate');
+      this.logger.log('Created readings_15min continuous aggregate');
 
       // Refresh policy: every 15 minutes
       await queryRunner.query(`
@@ -121,9 +123,9 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         ON readings_15min (sensor_id, bucket DESC)
       `);
 
-      console.log('Added policies and index for readings_15min');
+      this.logger.log('Added policies and index for readings_15min');
     } catch (error) {
-      console.warn('Failed to create readings_15min:', (error as Error).message);
+      this.logger.warn('Failed to create readings_15min:', (error as Error).message);
     }
   }
 
@@ -172,7 +174,7 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id
         WITH NO DATA
       `);
-      console.log('Created readings_1hour continuous aggregate');
+      this.logger.log('Created readings_1hour continuous aggregate');
 
       // Refresh policy: every 1 hour
       await queryRunner.query(`
@@ -195,9 +197,9 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         ON readings_1hour (sensor_id, bucket DESC)
       `);
 
-      console.log('Added policies and index for readings_1hour');
+      this.logger.log('Added policies and index for readings_1hour');
     } catch (error) {
-      console.warn('Failed to create readings_1hour:', (error as Error).message);
+      this.logger.warn('Failed to create readings_1hour:', (error as Error).message);
     }
   }
 
@@ -242,7 +244,7 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id
         WITH NO DATA
       `);
-      console.log('Created readings_1day continuous aggregate');
+      this.logger.log('Created readings_1day continuous aggregate');
 
       // Refresh policy: every day
       await queryRunner.query(`
@@ -262,9 +264,9 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         ON readings_1day (sensor_id, bucket DESC)
       `);
 
-      console.log('Added policies and index for readings_1day');
+      this.logger.log('Added policies and index for readings_1day');
     } catch (error) {
-      console.warn('Failed to create readings_1day:', (error as Error).message);
+      this.logger.warn('Failed to create readings_1day:', (error as Error).message);
     }
   }
 
@@ -283,9 +285,9 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
         WHERE timestamp > NOW() - INTERVAL '30 minutes'
         ORDER BY sensor_id, timestamp DESC
       `);
-      console.log('Created current_sensor_readings view');
+      this.logger.log('Created current_sensor_readings view');
     } catch (error) {
-      console.warn('Failed to create current_sensor_readings view:', (error as Error).message);
+      this.logger.warn('Failed to create current_sensor_readings view:', (error as Error).message);
     }
   }
 
@@ -297,9 +299,9 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
     for (const view of views) {
       try {
         await queryRunner.query(`DROP VIEW IF EXISTS ${view}`);
-        console.log(`Dropped ${view}`);
+        this.logger.log(`Dropped ${view}`);
       } catch (error) {
-        console.warn(`Failed to drop ${view}:`, (error as Error).message);
+        this.logger.warn(`Failed to drop ${view}:`, (error as Error).message);
       }
     }
 
@@ -312,9 +314,9 @@ export class CreateReadingsAggregates1736200000000 implements MigrationInterface
           SELECT remove_retention_policy('${agg}', if_exists => TRUE)
         `);
         await queryRunner.query(`DROP MATERIALIZED VIEW IF EXISTS ${agg} CASCADE`);
-        console.log(`Dropped ${agg}`);
+        this.logger.log(`Dropped ${agg}`);
       } catch (error) {
-        console.warn(`Failed to drop ${agg}:`, (error as Error).message);
+        this.logger.warn(`Failed to drop ${agg}:`, (error as Error).message);
       }
     }
   }

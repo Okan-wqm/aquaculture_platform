@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Cleaner Fish Support
@@ -11,12 +12,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 5. Seed data for cleaner fish species (Lumpfish, Ballan/Corkwing/Goldsinny Wrasse)
  */
 export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddCleanerFishSupport1768500000000');
   name = 'AddCleanerFishSupport1768500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Check current schema
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running cleaner fish migration in schema:', schema);
+    this.logger.log('Running cleaner fish migration in schema:', schema);
 
     // =========================================================================
     // 1. SPECIES TABLE UPDATES
@@ -29,16 +31,16 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "species"
         ADD COLUMN "isCleanerFish" BOOLEAN NOT NULL DEFAULT false
       `);
-      console.log('Added isCleanerFish column to species');
+      this.logger.log('Added isCleanerFish column to species');
 
       // Create index
       await queryRunner.query(`
         CREATE INDEX "IDX_species_tenantId_isCleanerFish"
         ON "species" ("tenantId", "isCleanerFish")
       `);
-      console.log('Created index on species.isCleanerFish');
+      this.logger.log('Created index on species.isCleanerFish');
     } else {
-      console.log('isCleanerFish column already exists, skipping');
+      this.logger.log('isCleanerFish column already exists, skipping');
     }
 
     // Add cleanerFishType column
@@ -48,9 +50,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "species"
         ADD COLUMN "cleanerFishType" VARCHAR(50)
       `);
-      console.log('Added cleanerFishType column to species');
+      this.logger.log('Added cleanerFishType column to species');
     } else {
-      console.log('cleanerFishType column already exists, skipping');
+      this.logger.log('cleanerFishType column already exists, skipping');
     }
 
     // =========================================================================
@@ -63,9 +65,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
       await queryRunner.query(`
         CREATE TYPE "batch_type_enum" AS ENUM ('production', 'cleaner_fish')
       `);
-      console.log('Created batch_type_enum');
+      this.logger.log('Created batch_type_enum');
     } else {
-      console.log('batch_type_enum already exists, skipping');
+      this.logger.log('batch_type_enum already exists, skipping');
     }
 
     // Add batchType column
@@ -75,16 +77,16 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "batches_v2"
         ADD COLUMN "batchType" "batch_type_enum" NOT NULL DEFAULT 'production'
       `);
-      console.log('Added batchType column to batches_v2');
+      this.logger.log('Added batchType column to batches_v2');
 
       // Create index
       await queryRunner.query(`
         CREATE INDEX "IDX_batches_tenantId_batchType"
         ON "batches_v2" ("tenantId", "batchType")
       `);
-      console.log('Created index on batches_v2.batchType');
+      this.logger.log('Created index on batches_v2.batchType');
     } else {
-      console.log('batchType column already exists, skipping');
+      this.logger.log('batchType column already exists, skipping');
     }
 
     // Add sourceType column
@@ -94,9 +96,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "batches_v2"
         ADD COLUMN "sourceType" VARCHAR(50)
       `);
-      console.log('Added sourceType column to batches_v2');
+      this.logger.log('Added sourceType column to batches_v2');
     } else {
-      console.log('sourceType column already exists, skipping');
+      this.logger.log('sourceType column already exists, skipping');
     }
 
     // Add sourceLocation column
@@ -106,9 +108,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "batches_v2"
         ADD COLUMN "sourceLocation" TEXT
       `);
-      console.log('Added sourceLocation column to batches_v2');
+      this.logger.log('Added sourceLocation column to batches_v2');
     } else {
-      console.log('sourceLocation column already exists, skipping');
+      this.logger.log('sourceLocation column already exists, skipping');
     }
 
     // =========================================================================
@@ -122,9 +124,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "tank_batches"
         ADD COLUMN "cleanerFishQuantity" INTEGER NOT NULL DEFAULT 0
       `);
-      console.log('Added cleanerFishQuantity column to tank_batches');
+      this.logger.log('Added cleanerFishQuantity column to tank_batches');
     } else {
-      console.log('cleanerFishQuantity column already exists, skipping');
+      this.logger.log('cleanerFishQuantity column already exists, skipping');
     }
 
     // Add cleanerFishBiomassKg column
@@ -134,9 +136,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "tank_batches"
         ADD COLUMN "cleanerFishBiomassKg" DECIMAL(10,2) NOT NULL DEFAULT 0
       `);
-      console.log('Added cleanerFishBiomassKg column to tank_batches');
+      this.logger.log('Added cleanerFishBiomassKg column to tank_batches');
     } else {
-      console.log('cleanerFishBiomassKg column already exists, skipping');
+      this.logger.log('cleanerFishBiomassKg column already exists, skipping');
     }
 
     // Add cleanerFishDetails JSONB column
@@ -146,9 +148,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "tank_batches"
         ADD COLUMN "cleanerFishDetails" JSONB
       `);
-      console.log('Added cleanerFishDetails column to tank_batches');
+      this.logger.log('Added cleanerFishDetails column to tank_batches');
     } else {
-      console.log('cleanerFishDetails column already exists, skipping');
+      this.logger.log('cleanerFishDetails column already exists, skipping');
     }
 
     // =========================================================================
@@ -173,9 +175,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         await queryRunner.query(`
           ALTER TYPE "operation_type_enum" ADD VALUE '${opType}'
         `);
-        console.log(`Added ${opType} to operation_type_enum`);
+        this.logger.log(`Added ${opType} to operation_type_enum`);
       } else {
-        console.log(`${opType} already exists in operation_type_enum, skipping`);
+        this.logger.log(`${opType} already exists in operation_type_enum, skipping`);
       }
     }
 
@@ -186,9 +188,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "tank_operations"
         ADD COLUMN "isCleanerFishOperation" BOOLEAN NOT NULL DEFAULT false
       `);
-      console.log('Added isCleanerFishOperation column to tank_operations');
+      this.logger.log('Added isCleanerFishOperation column to tank_operations');
     } else {
-      console.log('isCleanerFishOperation column already exists, skipping');
+      this.logger.log('isCleanerFishOperation column already exists, skipping');
     }
 
     // Add cleanerSpeciesName column
@@ -198,9 +200,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "tank_operations"
         ADD COLUMN "cleanerSpeciesName" VARCHAR(100)
       `);
-      console.log('Added cleanerSpeciesName column to tank_operations');
+      this.logger.log('Added cleanerSpeciesName column to tank_operations');
     } else {
-      console.log('cleanerSpeciesName column already exists, skipping');
+      this.logger.log('cleanerSpeciesName column already exists, skipping');
     }
 
     // Add cleanerBatchId column
@@ -210,9 +212,9 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         ALTER TABLE "tank_operations"
         ADD COLUMN "cleanerBatchId" UUID
       `);
-      console.log('Added cleanerBatchId column to tank_operations');
+      this.logger.log('Added cleanerBatchId column to tank_operations');
     } else {
-      console.log('cleanerBatchId column already exists, skipping');
+      this.logger.log('cleanerBatchId column already exists, skipping');
     }
 
     // =========================================================================
@@ -259,12 +261,12 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
         )
         ON CONFLICT DO NOTHING
       `, [globalTenantId]);
-      console.log('Inserted cleaner fish species seed data');
+      this.logger.log('Inserted cleaner fish species seed data');
     } else {
-      console.log('Cleaner fish species already exist, skipping seed data');
+      this.logger.log('Cleaner fish species already exist, skipping seed data');
     }
 
-    console.log('Cleaner fish migration completed successfully');
+    this.logger.log('Cleaner fish migration completed successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -341,7 +343,7 @@ export class AddCleanerFishSupport1768500000000 implements MigrationInterface {
       await queryRunner.query(`DROP TYPE "batch_type_enum"`);
     }
 
-    console.log('Cleaner fish migration rollback completed');
+    this.logger.log('Cleaner fish migration rollback completed');
   }
 
   /**

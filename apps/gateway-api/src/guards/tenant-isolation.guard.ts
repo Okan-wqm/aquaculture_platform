@@ -89,9 +89,11 @@ export class TenantIsolationGuard implements CanActivate {
       throw new UnauthorizedException('Authentication required');
     }
 
-    // Admin users can access any tenant if it's an admin endpoint
-    // SECURITY: Check user.roles (array from JWT), not user.role (singular, may be undefined)
-    if (isAdminEndpoint && (user.roles?.includes('admin') || user.role === 'admin')) {
+    // Admin users can access any tenant if it's an admin endpoint.
+    // Normalise to array — JWT always issues roles as an array; user.role
+    // (singular) was a legacy field that no longer appears in new tokens.
+    const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+    if (isAdminEndpoint && userRoles.includes('admin')) {
       return true;
     }
 
@@ -235,12 +237,14 @@ export class TenantIsolationGuard implements CanActivate {
    * Check if user has cross-tenant access
    */
   private hasCrossTenantAccess(user: AuthenticatedUser, targetTenantId: string): boolean {
-    // Platform admins can access any tenant
-    // Check both user.roles (array from JWT) and user.role (singular fallback)
-    const roles = user.roles ?? [];
-    const singleRole = user.role;
-    if (roles.includes('platform_admin') || roles.includes('super_admin') ||
-        singleRole === 'platform_admin' || singleRole === 'super_admin') {
+    // Normalise to array — eliminates the dual user.roles/user.role check.
+    // All JWTs issued after hardening carry roles as an array. Legacy singular
+    // user.role is collapsed into the same array for the final check.
+    const roles = Array.isArray(user.roles)
+      ? user.roles
+      : (user.role ? [user.role as string] : []);
+
+    if (roles.includes('platform_admin') || roles.includes('super_admin')) {
       return true;
     }
 

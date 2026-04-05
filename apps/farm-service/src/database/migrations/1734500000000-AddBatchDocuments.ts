@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Batch Documents Support
@@ -11,12 +12,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Documents are stored in MinIO, this table stores metadata.
  */
 export class AddBatchDocuments1734500000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddBatchDocuments1734500000000');
   name = 'AddBatchDocuments1734500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Check if we're running in the correct schema
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running migration in schema:', schema);
+    this.logger.log('Running migration in schema:', schema);
 
     // 1. Create arrival_method enum if not exists
     const arrivalMethodEnumExists = await this.enumExists(queryRunner, 'arrival_method_enum');
@@ -31,9 +33,9 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
           'other'
         )
       `);
-      console.log('Created arrival_method_enum');
+      this.logger.log('Created arrival_method_enum');
     } else {
-      console.log('arrival_method_enum already exists, skipping');
+      this.logger.log('arrival_method_enum already exists, skipping');
     }
 
     // 2. Add arrivalMethod column to batches_v2 table
@@ -43,9 +45,9 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
         ALTER TABLE "batches_v2"
         ADD COLUMN "arrivalMethod" "arrival_method_enum"
       `);
-      console.log('Added arrivalMethod column to batches_v2');
+      this.logger.log('Added arrivalMethod column to batches_v2');
     } else {
-      console.log('arrivalMethod already exists in batches_v2, skipping');
+      this.logger.log('arrivalMethod already exists in batches_v2, skipping');
     }
 
     // 3. Create batch_document_type enum if not exists
@@ -63,9 +65,9 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
           'other'
         )
       `);
-      console.log('Created batch_document_type_enum');
+      this.logger.log('Created batch_document_type_enum');
     } else {
-      console.log('batch_document_type_enum already exists, skipping');
+      this.logger.log('batch_document_type_enum already exists, skipping');
     }
 
     // 4. Create batch_documents table if not exists
@@ -94,7 +96,7 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
           CONSTRAINT "PK_batch_documents" PRIMARY KEY ("id")
         )
       `);
-      console.log('Created batch_documents table');
+      this.logger.log('Created batch_documents table');
 
       // Add foreign key to batches_v2
       await queryRunner.query(`
@@ -104,7 +106,7 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
         REFERENCES "batches_v2"("id")
         ON DELETE CASCADE
       `);
-      console.log('Added foreign key FK_batch_documents_batch');
+      this.logger.log('Added foreign key FK_batch_documents_batch');
 
       // Create indexes
       await queryRunner.query(`
@@ -127,9 +129,9 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
         ON "batch_documents" ("batchId")
       `);
 
-      console.log('Created indexes for batch_documents');
+      this.logger.log('Created indexes for batch_documents');
     } else {
-      console.log('batch_documents table already exists, skipping');
+      this.logger.log('batch_documents table already exists, skipping');
     }
   }
 
@@ -143,28 +145,28 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
       await queryRunner.query(`DROP INDEX IF EXISTS "IDX_batch_documents_tenant_batch"`);
       await queryRunner.query(`ALTER TABLE "batch_documents" DROP CONSTRAINT IF EXISTS "FK_batch_documents_batch"`);
       await queryRunner.query(`DROP TABLE "batch_documents"`);
-      console.log('Dropped batch_documents table');
+      this.logger.log('Dropped batch_documents table');
     }
 
     // 2. Drop batch_document_type enum
     const batchDocTypeEnumExists = await this.enumExists(queryRunner, 'batch_document_type_enum');
     if (batchDocTypeEnumExists) {
       await queryRunner.query(`DROP TYPE "batch_document_type_enum"`);
-      console.log('Dropped batch_document_type_enum');
+      this.logger.log('Dropped batch_document_type_enum');
     }
 
     // 3. Drop arrivalMethod column from batches_v2
     const hasArrivalMethodCol = await this.columnExists(queryRunner, 'batches_v2', 'arrivalMethod');
     if (hasArrivalMethodCol) {
       await queryRunner.query(`ALTER TABLE "batches_v2" DROP COLUMN "arrivalMethod"`);
-      console.log('Dropped arrivalMethod column from batches_v2');
+      this.logger.log('Dropped arrivalMethod column from batches_v2');
     }
 
     // 4. Drop arrival_method enum
     const arrivalMethodEnumExists = await this.enumExists(queryRunner, 'arrival_method_enum');
     if (arrivalMethodEnumExists) {
       await queryRunner.query(`DROP TYPE "arrival_method_enum"`);
-      console.log('Dropped arrival_method_enum');
+      this.logger.log('Dropped arrival_method_enum');
     }
   }
 

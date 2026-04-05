@@ -16,7 +16,7 @@ import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
 } from '../guards/redis-token-blacklist.store';
-import { validateAccessTokenCompat } from '../guards/utils/token-validation.util';
+import { enforceAccessTokenType } from '@aquaculture/backend-common';
 
 @Injectable()
 export class JwtMiddleware implements NestMiddleware {
@@ -50,7 +50,7 @@ export class JwtMiddleware implements NestMiddleware {
       });
 
       // SEC-COMPAT: Centralized legacy token validation (type check + jti warning)
-      validateAccessTokenCompat(payload, this.logger, this.isProduction);
+      enforceAccessTokenType(payload, this.logger, this.isProduction);
 
       // SECURITY: Check blacklist BEFORE setting req.user
       // This prevents revoked token identity from being forwarded to subgraphs

@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Storage Management System
@@ -14,11 +15,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - chemicals: Add storage condition columns
  */
 export class AddStorageManagement1771000000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddStorageManagement1771000000000');
   name = 'AddStorageManagement1771000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running AddStorageManagement migration in schema:', schema);
+    this.logger.log('Running AddStorageManagement migration in schema:', schema);
 
     // =========================================================================
     // 1. storage_locations
@@ -57,9 +59,9 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
       await queryRunner.query(`CREATE INDEX "IDX_storage_locations_site" ON "storage_locations" ("site_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_storage_locations_type" ON "storage_locations" ("tenant_id", "type")`);
       await queryRunner.query(`CREATE INDEX "IDX_storage_locations_is_deleted" ON "storage_locations" ("is_deleted")`);
-      console.log('Created storage_locations table');
+      this.logger.log('Created storage_locations table');
     } else {
-      console.log('storage_locations table already exists, skipping');
+      this.logger.log('storage_locations table already exists, skipping');
     }
 
     // =========================================================================
@@ -106,9 +108,9 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
       await queryRunner.query(`CREATE INDEX "IDX_consumables_status" ON "consumables" ("tenant_id", "status")`);
       await queryRunner.query(`CREATE INDEX "IDX_consumables_supplier" ON "consumables" ("supplier_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_consumables_is_deleted" ON "consumables" ("is_deleted")`);
-      console.log('Created consumables table');
+      this.logger.log('Created consumables table');
     } else {
-      console.log('consumables table already exists, skipping');
+      this.logger.log('consumables table already exists, skipping');
     }
 
     // =========================================================================
@@ -138,9 +140,9 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
       await queryRunner.query(`CREATE INDEX "IDX_storage_inventory_location" ON "storage_inventory" ("storage_location_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_storage_inventory_item" ON "storage_inventory" ("item_type", "item_id")`);
       await queryRunner.query(`CREATE UNIQUE INDEX "IDX_storage_inventory_unique" ON "storage_inventory" ("tenant_id", "storage_location_id", "item_type", "item_id", COALESCE("lot_number", ''))`);
-      console.log('Created storage_inventory table');
+      this.logger.log('Created storage_inventory table');
     } else {
-      console.log('storage_inventory table already exists, skipping');
+      this.logger.log('storage_inventory table already exists, skipping');
     }
 
     // =========================================================================
@@ -173,9 +175,9 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
       await queryRunner.query(`CREATE INDEX "IDX_stock_movements_performed_at" ON "stock_movements" ("performed_at")`);
       await queryRunner.query(`CREATE INDEX "IDX_stock_movements_from_location" ON "stock_movements" ("from_location_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_stock_movements_to_location" ON "stock_movements" ("to_location_id")`);
-      console.log('Created stock_movements table');
+      this.logger.log('Created stock_movements table');
     } else {
-      console.log('stock_movements table already exists, skipping');
+      this.logger.log('stock_movements table already exists, skipping');
     }
 
     // =========================================================================
@@ -191,7 +193,7 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
       const exists = await this.columnExists(queryRunner, 'feeds', col.name);
       if (!exists) {
         await queryRunner.query(`ALTER TABLE "feeds" ADD COLUMN "${col.name}" ${col.type} DEFAULT NULL`);
-        console.log(`Added ${col.name} column to feeds`);
+        this.logger.log(`Added ${col.name} column to feeds`);
       }
     }
     // storageRequirements already exists on feeds, but let's ensure it allows TEXT length
@@ -199,7 +201,7 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
     const hasFeedSR = await this.columnExists(queryRunner, 'feeds', 'storageRequirements');
     if (hasFeedSR) {
       await queryRunner.query(`ALTER TABLE "feeds" ALTER COLUMN "storageRequirements" TYPE TEXT`);
-      console.log('Altered feeds.storageRequirements to TEXT');
+      this.logger.log('Altered feeds.storageRequirements to TEXT');
     }
 
     // =========================================================================
@@ -215,17 +217,17 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
       const exists = await this.columnExists(queryRunner, 'chemicals', col.name);
       if (!exists) {
         await queryRunner.query(`ALTER TABLE "chemicals" ADD COLUMN "${col.name}" ${col.type} DEFAULT NULL`);
-        console.log(`Added ${col.name} column to chemicals`);
+        this.logger.log(`Added ${col.name} column to chemicals`);
       }
     }
     // storageRequirements already exists on chemicals as VARCHAR(100), alter to TEXT
     const hasChemSR = await this.columnExists(queryRunner, 'chemicals', 'storageRequirements');
     if (hasChemSR) {
       await queryRunner.query(`ALTER TABLE "chemicals" ALTER COLUMN "storageRequirements" TYPE TEXT`);
-      console.log('Altered chemicals.storageRequirements to TEXT');
+      this.logger.log('Altered chemicals.storageRequirements to TEXT');
     }
 
-    console.log('AddStorageManagement migration completed successfully');
+    this.logger.log('AddStorageManagement migration completed successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -251,7 +253,7 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE IF EXISTS "consumables"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "storage_locations"`);
 
-    console.log('AddStorageManagement migration rollback completed');
+    this.logger.log('AddStorageManagement migration rollback completed');
   }
 
   private async tableExists(queryRunner: QueryRunner, tableName: string): Promise<boolean> {

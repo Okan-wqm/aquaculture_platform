@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add min_fish_weight_g column to feeds table
@@ -7,11 +8,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * This allows each feed to specify the minimum recommended fish weight.
  */
 export class AddFeedMinFishWeight1770000000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddFeedMinFishWeight1770000000000');
   name = 'AddFeedMinFishWeight1770000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running AddFeedMinFishWeight migration in schema:', schema);
+    this.logger.log('Running AddFeedMinFishWeight migration in schema:', schema);
 
     const hasColumn = await this.columnExists(queryRunner, 'feeds', 'min_fish_weight_g');
     if (!hasColumn) {
@@ -19,12 +21,12 @@ export class AddFeedMinFishWeight1770000000000 implements MigrationInterface {
         ALTER TABLE "feeds"
         ADD COLUMN "min_fish_weight_g" DECIMAL(10, 2) DEFAULT NULL
       `);
-      console.log('Added min_fish_weight_g column to feeds');
+      this.logger.log('Added min_fish_weight_g column to feeds');
     } else {
-      console.log('min_fish_weight_g column already exists, skipping');
+      this.logger.log('min_fish_weight_g column already exists, skipping');
     }
 
-    console.log('AddFeedMinFishWeight migration completed successfully');
+    this.logger.log('AddFeedMinFishWeight migration completed successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -32,7 +34,7 @@ export class AddFeedMinFishWeight1770000000000 implements MigrationInterface {
     if (hasColumn) {
       await queryRunner.query(`ALTER TABLE "feeds" DROP COLUMN "min_fish_weight_g"`);
     }
-    console.log('AddFeedMinFishWeight migration rollback completed');
+    this.logger.log('AddFeedMinFishWeight migration rollback completed');
   }
 
   private async columnExists(

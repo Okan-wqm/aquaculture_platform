@@ -16,6 +16,9 @@ export * from './schema-lru-cache';
 // Tenant Schema Utilities (pure functions, no DI required)
 export * from './tenant-schema.utils';
 
+// Migration Logger (structured logging for TypeORM migrations outside DI)
+export { MigrationLogger } from './migration-logger';
+
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';
 

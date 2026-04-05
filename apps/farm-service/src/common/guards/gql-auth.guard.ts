@@ -19,7 +19,7 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
-import { getJwtVerifyOptions } from '@aquaculture/backend-common';
+import { getJwtVerifyOptions, enforceAccessTokenType } from '@aquaculture/backend-common';
 
 /**
  * Metadata key for public routes
@@ -130,6 +130,12 @@ export class GqlAuthGuard implements CanActivate {
         token,
         getJwtVerifyOptions(this.configService),
       );
+
+      // Defense-in-depth: subgraph guard also enforces token type.
+      // Gateway's AuthGuard is the primary gate; this catches tokens that
+      // bypass the gateway (internal network, test environments).
+      const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+      enforceAccessTokenType(payload, this.logger, isProduction);
 
       // Attach user info to request
       request.user = payload;

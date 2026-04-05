@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Enterprise PLC Connection Fields
@@ -28,14 +29,14 @@ export class AddEnterprisePlcConnectionFields1741100000000
     const schema: Array<{ current_schema: string }> = await queryRunner.query(
       `SELECT current_schema()`,
     );
-    console.log(
+    this.logger.log(
       'Running AddEnterprisePlcConnectionFields migration in schema:',
       schema,
     );
 
     // Only proceed if plc_connections table exists in the current schema
     if (!(await this.tableExists(queryRunner, 'plc_connections'))) {
-      console.log(
+      this.logger.log(
         'plc_connections table does not exist in current schema, skipping migration',
       );
       return;
@@ -55,9 +56,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "clientCertificate" text
       `);
-      console.log('Added clientCertificate column');
+      this.logger.log('Added clientCertificate column');
     } else {
-      console.log('clientCertificate column already exists, skipping');
+      this.logger.log('clientCertificate column already exists, skipping');
     }
 
     if (
@@ -71,9 +72,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "clientPrivateKey" text
       `);
-      console.log('Added clientPrivateKey column');
+      this.logger.log('Added clientPrivateKey column');
     } else {
-      console.log('clientPrivateKey column already exists, skipping');
+      this.logger.log('clientPrivateKey column already exists, skipping');
     }
 
     if (
@@ -87,9 +88,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "serverCertificate" text
       `);
-      console.log('Added serverCertificate column');
+      this.logger.log('Added serverCertificate column');
     } else {
-      console.log('serverCertificate column already exists, skipping');
+      this.logger.log('serverCertificate column already exists, skipping');
     }
 
     // ──────────────────────────────────────────────
@@ -106,9 +107,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "connectTimeoutMs" integer NOT NULL DEFAULT 5000
       `);
-      console.log('Added connectTimeoutMs column');
+      this.logger.log('Added connectTimeoutMs column');
     } else {
-      console.log('connectTimeoutMs column already exists, skipping');
+      this.logger.log('connectTimeoutMs column already exists, skipping');
     }
 
     if (
@@ -122,9 +123,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "requestTimeoutMs" integer NOT NULL DEFAULT 60000
       `);
-      console.log('Added requestTimeoutMs column');
+      this.logger.log('Added requestTimeoutMs column');
     } else {
-      console.log('requestTimeoutMs column already exists, skipping');
+      this.logger.log('requestTimeoutMs column already exists, skipping');
     }
 
     // ──────────────────────────────────────────────
@@ -141,9 +142,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "autoReconnect" boolean NOT NULL DEFAULT true
       `);
-      console.log('Added autoReconnect column');
+      this.logger.log('Added autoReconnect column');
     } else {
-      console.log('autoReconnect column already exists, skipping');
+      this.logger.log('autoReconnect column already exists, skipping');
     }
 
     if (
@@ -157,9 +158,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "maxReconnectAttempts" integer NOT NULL DEFAULT -1
       `);
-      console.log('Added maxReconnectAttempts column');
+      this.logger.log('Added maxReconnectAttempts column');
     } else {
-      console.log('maxReconnectAttempts column already exists, skipping');
+      this.logger.log('maxReconnectAttempts column already exists, skipping');
     }
 
     if (
@@ -173,9 +174,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "reconnectDelayMs" integer NOT NULL DEFAULT 1000
       `);
-      console.log('Added reconnectDelayMs column');
+      this.logger.log('Added reconnectDelayMs column');
     } else {
-      console.log('reconnectDelayMs column already exists, skipping');
+      this.logger.log('reconnectDelayMs column already exists, skipping');
     }
 
     if (
@@ -189,9 +190,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "maxReconnectDelayMs" integer NOT NULL DEFAULT 30000
       `);
-      console.log('Added maxReconnectDelayMs column');
+      this.logger.log('Added maxReconnectDelayMs column');
     } else {
-      console.log('maxReconnectDelayMs column already exists, skipping');
+      this.logger.log('maxReconnectDelayMs column already exists, skipping');
     }
 
     if (
@@ -205,9 +206,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "keepAliveIntervalMs" integer NOT NULL DEFAULT 5000
       `);
-      console.log('Added keepAliveIntervalMs column');
+      this.logger.log('Added keepAliveIntervalMs column');
     } else {
-      console.log('keepAliveIntervalMs column already exists, skipping');
+      this.logger.log('keepAliveIntervalMs column already exists, skipping');
     }
 
     // ──────────────────────────────────────────────
@@ -224,9 +225,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         ADD COLUMN "failoverEndpointUrl" varchar
       `);
-      console.log('Added failoverEndpointUrl column');
+      this.logger.log('Added failoverEndpointUrl column');
     } else {
-      console.log('failoverEndpointUrl column already exists, skipping');
+      this.logger.log('failoverEndpointUrl column already exists, skipping');
     }
 
     // ──────────────────────────────────────────────
@@ -236,9 +237,9 @@ export class AddEnterprisePlcConnectionFields1741100000000
       ALTER TABLE "plc_connections"
       ALTER COLUMN "securityPolicy" SET DEFAULT 'None'
     `);
-    console.log('Updated securityPolicy default to None');
+    this.logger.log('Updated securityPolicy default to None');
 
-    console.log(
+    this.logger.log(
       'AddEnterprisePlcConnectionFields migration completed successfully',
     );
   }
@@ -248,13 +249,13 @@ export class AddEnterprisePlcConnectionFields1741100000000
     const schema: Array<{ current_schema: string }> = await queryRunner.query(
       `SELECT current_schema()`,
     );
-    console.log(
+    this.logger.log(
       'Reverting AddEnterprisePlcConnectionFields migration in schema:',
       schema,
     );
 
     if (!(await this.tableExists(queryRunner, 'plc_connections'))) {
-      console.log(
+      this.logger.log(
         'plc_connections table does not exist in current schema, skipping revert',
       );
       return;
@@ -277,7 +278,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "failoverEndpointUrl"
       `);
-      console.log('Dropped failoverEndpointUrl column');
+      this.logger.log('Dropped failoverEndpointUrl column');
     }
 
     // Drop reconnection columns (reverse order)
@@ -292,7 +293,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "keepAliveIntervalMs"
       `);
-      console.log('Dropped keepAliveIntervalMs column');
+      this.logger.log('Dropped keepAliveIntervalMs column');
     }
 
     if (
@@ -306,7 +307,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "maxReconnectDelayMs"
       `);
-      console.log('Dropped maxReconnectDelayMs column');
+      this.logger.log('Dropped maxReconnectDelayMs column');
     }
 
     if (
@@ -320,7 +321,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "reconnectDelayMs"
       `);
-      console.log('Dropped reconnectDelayMs column');
+      this.logger.log('Dropped reconnectDelayMs column');
     }
 
     if (
@@ -334,7 +335,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "maxReconnectAttempts"
       `);
-      console.log('Dropped maxReconnectAttempts column');
+      this.logger.log('Dropped maxReconnectAttempts column');
     }
 
     if (
@@ -348,7 +349,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "autoReconnect"
       `);
-      console.log('Dropped autoReconnect column');
+      this.logger.log('Dropped autoReconnect column');
     }
 
     // Drop connection timeout columns
@@ -363,7 +364,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "requestTimeoutMs"
       `);
-      console.log('Dropped requestTimeoutMs column');
+      this.logger.log('Dropped requestTimeoutMs column');
     }
 
     if (
@@ -377,7 +378,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "connectTimeoutMs"
       `);
-      console.log('Dropped connectTimeoutMs column');
+      this.logger.log('Dropped connectTimeoutMs column');
     }
 
     // Drop certificate columns
@@ -392,7 +393,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "serverCertificate"
       `);
-      console.log('Dropped serverCertificate column');
+      this.logger.log('Dropped serverCertificate column');
     }
 
     if (
@@ -406,7 +407,7 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "clientPrivateKey"
       `);
-      console.log('Dropped clientPrivateKey column');
+      this.logger.log('Dropped clientPrivateKey column');
     }
 
     if (
@@ -420,10 +421,10 @@ export class AddEnterprisePlcConnectionFields1741100000000
         ALTER TABLE "plc_connections"
         DROP COLUMN "clientCertificate"
       `);
-      console.log('Dropped clientCertificate column');
+      this.logger.log('Dropped clientCertificate column');
     }
 
-    console.log(
+    this.logger.log(
       'Reverted AddEnterprisePlcConnectionFields migration successfully',
     );
   }

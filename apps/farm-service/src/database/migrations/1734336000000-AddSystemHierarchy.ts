@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add System Hierarchy Support
@@ -14,12 +15,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - Equipment -> parentEquipment (equipment can contain sub-equipment)
  */
 export class AddSystemHierarchy1734336000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddSystemHierarchy1734336000000');
   name = 'AddSystemHierarchy1734336000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Check if we're in the farm schema
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running migration in schema:', schema);
+    this.logger.log('Running migration in schema:', schema);
 
     // 1. Add parent_system_id to systems table
     const systemsHasParentCol = await this.columnExists(queryRunner, 'systems', 'parent_system_id');
@@ -45,9 +47,9 @@ export class AddSystemHierarchy1734336000000 implements MigrationInterface {
         WHERE "parent_system_id" IS NOT NULL
       `);
 
-      console.log('Added parent_system_id to systems table');
+      this.logger.log('Added parent_system_id to systems table');
     } else {
-      console.log('parent_system_id already exists in systems table, skipping');
+      this.logger.log('parent_system_id already exists in systems table, skipping');
     }
 
     // 2. Add system_id to equipment table
@@ -74,9 +76,9 @@ export class AddSystemHierarchy1734336000000 implements MigrationInterface {
         WHERE "system_id" IS NOT NULL
       `);
 
-      console.log('Added system_id to equipment table');
+      this.logger.log('Added system_id to equipment table');
     } else {
-      console.log('system_id already exists in equipment table, skipping');
+      this.logger.log('system_id already exists in equipment table, skipping');
     }
 
     // 3. Add parent_equipment_id to equipment table
@@ -103,9 +105,9 @@ export class AddSystemHierarchy1734336000000 implements MigrationInterface {
         WHERE "parent_equipment_id" IS NOT NULL
       `);
 
-      console.log('Added parent_equipment_id to equipment table');
+      this.logger.log('Added parent_equipment_id to equipment table');
     } else {
-      console.log('parent_equipment_id already exists in equipment table, skipping');
+      this.logger.log('parent_equipment_id already exists in equipment table, skipping');
     }
   }
 

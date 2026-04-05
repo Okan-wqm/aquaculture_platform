@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Create Edge Devices Source Table
@@ -10,17 +11,18 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * with full IEC 62443 security compliance and zero-touch provisioning support.
  */
 export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateEdgeDevicesTable1736800000000');
   name = 'CreateEdgeDevicesTable1736800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const schema: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running CreateEdgeDevicesTable migration in schema:', schema);
+    this.logger.log('Running CreateEdgeDevicesTable migration in schema:', schema);
 
     // Check if table already exists
     const tableExists = await this.tableExists(queryRunner, 'edge_devices');
     if (tableExists) {
-      console.log('edge_devices table already exists, skipping creation');
+      this.logger.log('edge_devices table already exists, skipping creation');
       return;
     }
 
@@ -41,7 +43,7 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$
     `);
-    console.log('Created device_lifecycle_state enum');
+    this.logger.log('Created device_lifecycle_state enum');
 
     // 2. Create DeviceModel enum if not exists
     await queryRunner.query(`
@@ -57,7 +59,7 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$
     `);
-    console.log('Created device_model enum');
+    this.logger.log('Created device_model enum');
 
     // 3. Create edge_devices table matching entity EXACTLY
     await queryRunner.query(`
@@ -122,7 +124,7 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
         "created_by" UUID
       )
     `);
-    console.log('Created edge_devices table');
+    this.logger.log('Created edge_devices table');
 
     // 4. Create indexes matching entity @Index decorators
     await queryRunner.query(`
@@ -169,7 +171,7 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
       WHERE "is_online" = true
     `);
 
-    console.log('Created indexes for edge_devices');
+    this.logger.log('Created indexes for edge_devices');
 
     // 5. Create trigger for updated_at
     await queryRunner.query(`
@@ -190,8 +192,8 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
       EXECUTE FUNCTION update_edge_devices_updated_at()
     `);
 
-    console.log('Created updated_at trigger for edge_devices');
-    console.log('CreateEdgeDevicesTable migration completed successfully');
+    this.logger.log('Created updated_at trigger for edge_devices');
+    this.logger.log('CreateEdgeDevicesTable migration completed successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -216,7 +218,7 @@ export class CreateEdgeDevicesTable1736800000000 implements MigrationInterface {
     await queryRunner.query(`DROP TYPE IF EXISTS device_lifecycle_state`);
     await queryRunner.query(`DROP TYPE IF EXISTS device_model`);
 
-    console.log('Rolled back CreateEdgeDevicesTable migration');
+    this.logger.log('Rolled back CreateEdgeDevicesTable migration');
   }
 
   private async tableExists(queryRunner: QueryRunner, tableName: string): Promise<boolean> {

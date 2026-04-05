@@ -1,7 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { assertSafeSchemaName } from '@aquaculture/backend-common';
+
+import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common';
 
 export class AddPurchaseOrders1772000000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddPurchaseOrders1772000000000');
   name = 'AddPurchaseOrders1772000000000';
 
   private readonly createPurchaseOrdersSQL = `
@@ -83,9 +85,9 @@ export class AddPurchaseOrders1772000000000 implements MigrationInterface {
         await queryRunner.query(this.createPurchaseOrderItemsSQL);
         await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_poi_tenant_po" ON "purchase_order_items" ("tenant_id", "purchase_order_id")`);
 
-        console.log(`Created purchase order tables in ${schema}`);
+        this.logger.log(`Created purchase order tables in ${schema}`);
       } catch (err) {
-        console.warn(`Failed to create tables in ${schema}: ${(err as Error).message}`);
+        this.logger.warn(`Failed to create tables in ${schema}: ${(err as Error).message}`);
       }
     }
 
@@ -114,7 +116,7 @@ export class AddPurchaseOrders1772000000000 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE IF EXISTS "purchase_order_items"`);
         await queryRunner.query(`DROP TABLE IF EXISTS "purchase_orders"`);
       } catch (err) {
-        console.warn(`Failed to drop tables in ${schema}: ${(err as Error).message}`);
+        this.logger.warn(`Failed to drop tables in ${schema}: ${(err as Error).message}`);
       }
     }
 

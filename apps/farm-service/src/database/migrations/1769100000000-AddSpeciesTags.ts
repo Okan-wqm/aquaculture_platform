@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Species Tags
@@ -12,12 +13,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Custom tags are also supported.
  */
 export class AddSpeciesTags1769100000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddSpeciesTags1769100000000');
   name = 'AddSpeciesTags1769100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Check current schema
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running species tags migration in schema:', schema);
+    this.logger.log('Running species tags migration in schema:', schema);
 
     // =========================================================================
     // 1. ADD TAGS COLUMN TO SPECIES TABLE
@@ -29,16 +31,16 @@ export class AddSpeciesTags1769100000000 implements MigrationInterface {
         ALTER TABLE "species"
         ADD COLUMN "tags" JSONB DEFAULT '[]'
       `);
-      console.log('Added tags column to species');
+      this.logger.log('Added tags column to species');
 
       // Create GIN index for efficient tag queries
       await queryRunner.query(`
         CREATE INDEX IF NOT EXISTS "IDX_species_tags"
         ON "species" USING GIN ("tags")
       `);
-      console.log('Created GIN index on species.tags');
+      this.logger.log('Created GIN index on species.tags');
     } else {
-      console.log('tags column already exists, skipping');
+      this.logger.log('tags column already exists, skipping');
     }
 
     // =========================================================================
@@ -58,12 +60,12 @@ export class AddSpeciesTags1769100000000 implements MigrationInterface {
     `);
 
     if (result && result.length > 0) {
-      console.log(`Updated ${result.length} cleaner fish species with 'cleaner-fish' tag`);
+      this.logger.log(`Updated ${result.length} cleaner fish species with 'cleaner-fish' tag`);
     } else {
-      console.log('No cleaner fish species to update');
+      this.logger.log('No cleaner fish species to update');
     }
 
-    console.log('Species tags migration completed successfully');
+    this.logger.log('Species tags migration completed successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -76,7 +78,7 @@ export class AddSpeciesTags1769100000000 implements MigrationInterface {
       await queryRunner.query(`ALTER TABLE "species" DROP COLUMN "tags"`);
     }
 
-    console.log('Species tags migration rollback completed');
+    this.logger.log('Species tags migration rollback completed');
   }
 
   /**

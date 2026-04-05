@@ -1,3 +1,4 @@
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { JwtVerifyOptions } from '@nestjs/jwt';
 
@@ -37,6 +38,50 @@ import type { JwtVerifyOptions } from '@nestjs/jwt';
 
 /** Type returned by getJwtVerifyOptions — includes `secret` so callers don't omit it. */
 export type JwtVerifyConfig = JwtVerifyOptions & { secret: string };
+
+/** Minimal interface for token type validation — avoids pulling full JwtPayload into backend-common */
+interface TokenTypePayload {
+  type?: string;
+  sub: string;
+  jti?: string;
+}
+
+/**
+ * Enforce strict access token type — SEC-COMPAT SUNSET (2026-04-12).
+ *
+ * All guards (gateway AuthGuard, farm/hr GqlAuthGuard, subgraph guards)
+ * MUST call this after verifyAsync() to prevent refresh or MFA-challenge
+ * tokens from being used as access tokens.
+ *
+ * The SEC-COMPAT backward-compatibility window for pre-hardening tokens
+ * (which lacked `type`) has closed. `type === 'access'` is now required.
+ *
+ * @throws UnauthorizedException if payload.type is absent or not 'access'
+ */
+export function enforceAccessTokenType(
+  payload: TokenTypePayload,
+  logger: Logger,
+  isProduction: boolean,
+): void {
+  if (payload.type !== 'access') {
+    throw new UnauthorizedException({
+      code: 'INVALID_TOKEN_TYPE',
+      message: 'Access token required',
+    });
+  }
+
+  if (!payload.jti) {
+    if (isProduction) {
+      throw new UnauthorizedException({
+        code: 'MISSING_TOKEN_ID',
+        message: 'Token identifier (jti) required',
+      });
+    }
+    logger.warn(
+      `Token without jti for user ${payload.sub} — only permitted outside production.`,
+    );
+  }
+}
 
 /**
  * Build the standardised JWT verification options.

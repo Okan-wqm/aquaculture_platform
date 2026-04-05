@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Create Sensor Metrics Table with TimescaleDB Optimizations
@@ -13,12 +14,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * and protocol configuration.
  */
 export class CreateSensorMetrics1735900000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateSensorMetrics1735900000000');
   name = 'CreateSensorMetrics1735900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const schema: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running CreateSensorMetrics migration in schema:', schema);
+    this.logger.log('Running CreateSensorMetrics migration in schema:', schema);
 
     // 1. Create sensor_metrics table
     const tableExists = await this.tableExists(queryRunner, 'sensor_metrics');
@@ -47,7 +49,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
           PRIMARY KEY ("time", "sensor_id", "channel_id")
         )
       `);
-      console.log('Created sensor_metrics table');
+      this.logger.log('Created sensor_metrics table');
 
       // 2. Convert to TimescaleDB hypertable
       try {
@@ -59,9 +61,9 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
             if_not_exists => TRUE
           )
         `);
-        console.log('Converted sensor_metrics to TimescaleDB hypertable');
+        this.logger.log('Converted sensor_metrics to TimescaleDB hypertable');
       } catch (error) {
-        console.warn('TimescaleDB not available or hypertable creation failed:', error);
+        this.logger.warn('TimescaleDB not available or hypertable creation failed:', error);
       }
 
       // 3. Create indexes for common query patterns
@@ -118,7 +120,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
         WHERE "tank_id" IS NOT NULL
       `);
 
-      console.log('Created indexes for sensor_metrics');
+      this.logger.log('Created indexes for sensor_metrics');
 
       // 4. Enable TimescaleDB compression
       try {
@@ -134,9 +136,9 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
         await queryRunner.query(`
           SELECT add_compression_policy('sensor_metrics', INTERVAL '7 days', if_not_exists => TRUE)
         `);
-        console.log('Enabled compression policy for sensor_metrics (7 days)');
+        this.logger.log('Enabled compression policy for sensor_metrics (7 days)');
       } catch (error) {
-        console.warn('Compression policy creation failed (TimescaleDB feature):', error);
+        this.logger.warn('Compression policy creation failed (TimescaleDB feature):', error);
       }
 
       // 5. Add retention policy (90 days)
@@ -144,12 +146,12 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
         await queryRunner.query(`
           SELECT add_retention_policy('sensor_metrics', INTERVAL '90 days', if_not_exists => TRUE)
         `);
-        console.log('Added retention policy for sensor_metrics (90 days)');
+        this.logger.log('Added retention policy for sensor_metrics (90 days)');
       } catch (error) {
-        console.warn('Retention policy creation failed (TimescaleDB feature):', error);
+        this.logger.warn('Retention policy creation failed (TimescaleDB feature):', error);
       }
     } else {
-      console.log('sensor_metrics table already exists, skipping creation');
+      this.logger.log('sensor_metrics table already exists, skipping creation');
     }
 
     // 6. Update sensor_data_channels with new columns
@@ -162,7 +164,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
     await this.addColumnIfNotExists(queryRunner, 'sensor_data_channels', 'calibration_polynomial', 'JSONB');
     await this.addColumnIfNotExists(queryRunner, 'sensor_data_channels', 'protocol_config', 'JSONB');
 
-    console.log('Updated sensor_data_channels with new columns');
+    this.logger.log('Updated sensor_data_channels with new columns');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -171,7 +173,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
       await queryRunner.query(`SELECT remove_retention_policy('sensor_metrics', if_exists => TRUE)`);
       await queryRunner.query(`SELECT remove_compression_policy('sensor_metrics', if_exists => TRUE)`);
     } catch (error) {
-      console.warn('Policy removal failed:', error);
+      this.logger.warn('Policy removal failed:', error);
     }
 
     // Drop indexes
@@ -196,7 +198,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
     await this.dropColumnIfExists(queryRunner, 'sensor_data_channels', 'calibration_polynomial');
     await this.dropColumnIfExists(queryRunner, 'sensor_data_channels', 'protocol_config');
 
-    console.log('Rolled back CreateSensorMetrics migration');
+    this.logger.log('Rolled back CreateSensorMetrics migration');
   }
 
   private async tableExists(queryRunner: QueryRunner, tableName: string): Promise<boolean> {
@@ -242,7 +244,7 @@ export class CreateSensorMetrics1735900000000 implements MigrationInterface {
         ALTER TABLE "${tableName}"
         ADD COLUMN "${columnName}" ${columnType}
       `);
-      console.log(`Added column ${columnName} to ${tableName}`);
+      this.logger.log(`Added column ${columnName} to ${tableName}`);
     }
   }
 

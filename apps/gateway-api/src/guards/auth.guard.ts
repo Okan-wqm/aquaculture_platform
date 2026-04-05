@@ -37,7 +37,7 @@ import {
 } from './redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from './strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './strategies/basic-auth.strategy';
-import { validateAccessTokenCompat } from './utils/token-validation.util';
+import { enforceAccessTokenType } from '@aquaculture/backend-common';
 
 /**
  * Public route decorator — marks a route as publicly accessible without authentication
@@ -141,7 +141,7 @@ export class AuthGuard implements CanActivate {
     if (request.user) {
       const payload = request.user;
 
-      validateAccessTokenCompat(payload, this.logger, this.isProduction);
+      enforceAccessTokenType(payload, this.logger, this.isProduction);
 
       // Blacklist check already done in JwtMiddleware, but verify again for safety
       if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
@@ -188,7 +188,7 @@ export class AuthGuard implements CanActivate {
         getJwtVerifyOptions(this.configService),
       );
 
-      validateAccessTokenCompat(payload, this.logger, this.isProduction);
+      enforceAccessTokenType(payload, this.logger, this.isProduction);
 
       // Check blacklist
       if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {

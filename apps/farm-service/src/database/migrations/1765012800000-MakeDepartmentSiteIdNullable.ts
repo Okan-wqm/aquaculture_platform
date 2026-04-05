@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Make Department siteId Nullable
@@ -13,11 +14,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 4. Update foreign key constraint to SET NULL on delete
  */
 export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('MakeDepartmentSiteIdNullable1765012800000');
   name = 'MakeDepartmentSiteIdNullable1765012800000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running migration in schema:', schema);
+    this.logger.log('Running migration in schema:', schema);
 
     // 1. Drop the existing foreign key constraint (if exists)
     const fkExists = await this.constraintExists(queryRunner, 'departments', 'FK_departments_site');
@@ -26,7 +28,7 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
         ALTER TABLE "departments"
         DROP CONSTRAINT "FK_departments_site"
       `);
-      console.log('Dropped FK_departments_site constraint');
+      this.logger.log('Dropped FK_departments_site constraint');
     }
 
     // Also check for auto-generated constraint name
@@ -36,7 +38,7 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
         ALTER TABLE "departments"
         DROP CONSTRAINT "departments_site_id_fkey"
       `);
-      console.log('Dropped departments_site_id_fkey constraint');
+      this.logger.log('Dropped departments_site_id_fkey constraint');
     }
 
     // 2. Make site_id column nullable
@@ -44,20 +46,20 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
       ALTER TABLE "departments"
       ALTER COLUMN "site_id" DROP NOT NULL
     `);
-    console.log('Made site_id column nullable');
+    this.logger.log('Made site_id column nullable');
 
     // 3. Drop old unique index on (tenant_id, site_id, code)
     const oldIndexExists = await this.indexExists(queryRunner, 'IDX_departments_tenant_site_code');
     if (oldIndexExists) {
       await queryRunner.query(`DROP INDEX "IDX_departments_tenant_site_code"`);
-      console.log('Dropped old unique index IDX_departments_tenant_site_code');
+      this.logger.log('Dropped old unique index IDX_departments_tenant_site_code');
     }
 
     // Also check TypeORM auto-generated index name
     const oldIndex2Exists = await this.indexExists(queryRunner, 'departments_tenant_id_site_id_code_idx');
     if (oldIndex2Exists) {
       await queryRunner.query(`DROP INDEX "departments_tenant_id_site_id_code_idx"`);
-      console.log('Dropped old unique index departments_tenant_id_site_id_code_idx');
+      this.logger.log('Dropped old unique index departments_tenant_id_site_id_code_idx');
     }
 
     // 4. Create new unique index on (tenant_id, code) for non-deleted records
@@ -68,7 +70,7 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
         ON "departments" ("tenant_id", "code")
         WHERE "is_deleted" = false
       `);
-      console.log('Created new unique index IDX_departments_tenant_code_unique');
+      this.logger.log('Created new unique index IDX_departments_tenant_code_unique');
     }
 
     // 5. Add new foreign key constraint with ON DELETE SET NULL
@@ -79,7 +81,7 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
       REFERENCES "sites"("id")
       ON DELETE SET NULL
     `);
-    console.log('Added FK_departments_site constraint with ON DELETE SET NULL');
+    this.logger.log('Added FK_departments_site constraint with ON DELETE SET NULL');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -107,7 +109,7 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
       DELETE FROM "departments"
       WHERE "site_id" IS NULL
     `);
-    console.log('Deleted orphaned departments (site_id IS NULL)');
+    this.logger.log('Deleted orphaned departments (site_id IS NULL)');
 
     // 4. Make site_id NOT NULL again
     await queryRunner.query(`

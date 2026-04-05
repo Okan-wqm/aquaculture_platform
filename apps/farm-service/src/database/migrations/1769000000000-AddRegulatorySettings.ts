@@ -1,5 +1,4 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { assertSafeSchemaName } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Regulatory Settings Table
@@ -16,7 +15,10 @@ import { assertSafeSchemaName } from '@aquaculture/backend-common';
  * 2. Copies to all existing tenant schemas using CREATE TABLE LIKE
  * 3. New tenants get the table automatically via MODULE_SCHEMAS
  */
+import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common';
+
 export class AddRegulatorySettings1769000000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddRegulatorySettings1769000000000');
   name = 'AddRegulatorySettings1769000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -24,7 +26,7 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
     // 1. ENSURE WE'RE IN FARM SCHEMA (SOURCE SCHEMA)
     // =========================================================================
     await queryRunner.query(`SET search_path TO farm, public`);
-    console.log('Set search_path to farm schema');
+    this.logger.log('Set search_path to farm schema');
 
     // =========================================================================
     // 2. CREATE SOURCE TABLE IN FARM SCHEMA
@@ -68,16 +70,16 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
           CONSTRAINT "UQ_regulatory_settings_tenant_id" UNIQUE ("tenant_id")
         )
       `);
-      console.log('Created regulatory_settings table in farm schema');
+      this.logger.log('Created regulatory_settings table in farm schema');
 
       // Create index
       await queryRunner.query(`
         CREATE INDEX "IDX_regulatory_settings_tenant_id"
         ON "regulatory_settings" ("tenant_id")
       `);
-      console.log('Created index on regulatory_settings.tenant_id');
+      this.logger.log('Created index on regulatory_settings.tenant_id');
     } else {
-      console.log('regulatory_settings table already exists in farm schema, skipping');
+      this.logger.log('regulatory_settings table already exists in farm schema, skipping');
     }
 
     // =========================================================================
@@ -90,7 +92,7 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
       ORDER BY schema_name
     `);
 
-    console.log(`Found ${tenantSchemas.length} tenant schemas to update`);
+    this.logger.log(`Found ${tenantSchemas.length} tenant schemas to update`);
 
     for (const { schema_name } of tenantSchemas) {
       assertSafeSchemaName(schema_name); // defense-in-depth before SQL interpolation
@@ -106,13 +108,13 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
           CREATE TABLE "${schema_name}"."regulatory_settings"
           (LIKE "farm"."regulatory_settings" INCLUDING ALL)
         `);
-        console.log(`Created regulatory_settings in ${schema_name}`);
+        this.logger.log(`Created regulatory_settings in ${schema_name}`);
       } else {
-        console.log(`regulatory_settings already exists in ${schema_name}, skipping`);
+        this.logger.log(`regulatory_settings already exists in ${schema_name}, skipping`);
       }
     }
 
-    console.log('AddRegulatorySettings migration completed successfully');
+    this.logger.log('AddRegulatorySettings migration completed successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -126,14 +128,14 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
       ORDER BY schema_name
     `);
 
-    console.log(`Found ${tenantSchemas.length} tenant schemas to rollback`);
+    this.logger.log(`Found ${tenantSchemas.length} tenant schemas to rollback`);
 
     for (const { schema_name } of tenantSchemas) {
       assertSafeSchemaName(schema_name); // defense-in-depth before SQL interpolation
       await queryRunner.query(`
         DROP TABLE IF EXISTS "${schema_name}"."regulatory_settings"
       `);
-      console.log(`Dropped regulatory_settings from ${schema_name}`);
+      this.logger.log(`Dropped regulatory_settings from ${schema_name}`);
     }
 
     // =========================================================================
@@ -142,9 +144,9 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
     await queryRunner.query(`SET search_path TO farm, public`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_regulatory_settings_tenant_id"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "regulatory_settings"`);
-    console.log('Dropped regulatory_settings from farm schema');
+    this.logger.log('Dropped regulatory_settings from farm schema');
 
-    console.log('AddRegulatorySettings migration rollback completed');
+    this.logger.log('AddRegulatorySettings migration rollback completed');
   }
 
   /**

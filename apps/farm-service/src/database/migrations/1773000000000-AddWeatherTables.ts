@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Weather & Marine Observation Tables
@@ -13,11 +14,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 2. Copy tables to all existing tenant schemas
  */
 export class AddWeatherTables1773000000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddWeatherTables1773000000000');
   name = 'AddWeatherTables1773000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     const schema = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running AddWeatherTables migration in schema:', schema);
+    this.logger.log('Running AddWeatherTables migration in schema:', schema);
 
     // =========================================================================
     // 1. weather_observations
@@ -47,9 +49,9 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
       `);
       await queryRunner.query(`CREATE INDEX "idx_weather_obs_tenant" ON "weather_observations" ("tenant_id")`);
       await queryRunner.query(`CREATE INDEX "idx_weather_obs_site_time" ON "weather_observations" ("tenant_id", "site_id", "observed_at")`);
-      console.log('Created weather_observations table');
+      this.logger.log('Created weather_observations table');
     } else {
-      console.log('weather_observations table already exists, skipping');
+      this.logger.log('weather_observations table already exists, skipping');
     }
 
     // =========================================================================
@@ -81,9 +83,9 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
       `);
       await queryRunner.query(`CREATE INDEX "idx_marine_obs_tenant" ON "marine_observations" ("tenant_id")`);
       await queryRunner.query(`CREATE INDEX "idx_marine_obs_site_time" ON "marine_observations" ("tenant_id", "site_id", "observed_at")`);
-      console.log('Created marine_observations table');
+      this.logger.log('Created marine_observations table');
     } else {
-      console.log('marine_observations table already exists, skipping');
+      this.logger.log('marine_observations table already exists, skipping');
     }
 
     // =========================================================================
@@ -103,9 +105,9 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
           "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `);
-      console.log('Created weather_settings table');
+      this.logger.log('Created weather_settings table');
     } else {
-      console.log('weather_settings table already exists, skipping');
+      this.logger.log('weather_settings table already exists, skipping');
     }
 
     // =========================================================================
@@ -131,13 +133,13 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
             CREATE TABLE IF NOT EXISTS "${schema_name}"."weather_settings"
             (LIKE "weather_settings" INCLUDING ALL)
           `);
-          console.log(`Created weather tables in ${schema_name}`);
+          this.logger.log(`Created weather tables in ${schema_name}`);
         } catch (err) {
-          console.warn(`Warning: Could not create tables in ${schema_name}:`, err);
+          this.logger.warn(`Warning: Could not create tables in ${schema_name}:`, err);
         }
       }
     } catch (err) {
-      console.warn('Warning: Could not propagate to tenant schemas:', err);
+      this.logger.warn('Warning: Could not propagate to tenant schemas:', err);
     }
   }
 
@@ -154,7 +156,7 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE IF EXISTS "${schema_name}"."weather_observations" CASCADE`);
       }
     } catch (err) {
-      console.warn('Warning: Could not drop from tenant schemas:', err);
+      this.logger.warn('Warning: Could not drop from tenant schemas:', err);
     }
 
     await queryRunner.query(`DROP TABLE IF EXISTS "weather_settings" CASCADE`);

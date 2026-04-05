@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Create Dynamic Sensor Types Infrastructure
@@ -11,6 +12,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Also adds type_definition_id FK to sensors table and seeds system data.
  */
 export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateDynamicSensorTypes1740200000000');
   name = 'CreateDynamicSensorTypes1740200000000';
 
   /** System tenant ID for built-in sensor type definitions */
@@ -19,7 +21,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
   public async up(queryRunner: QueryRunner): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const schema: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running CreateDynamicSensorTypes migration in schema:', schema);
+    this.logger.log('Running CreateDynamicSensorTypes migration in schema:', schema);
 
     // ──────────────────────────────────────────────
     // 1. Create sensor_type_definitions table
@@ -43,7 +45,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
           CONSTRAINT "UQ_sensor_type_definitions_tenant_key" UNIQUE ("tenant_id", "type_key")
         )
       `);
-      console.log('Created sensor_type_definitions table');
+      this.logger.log('Created sensor_type_definitions table');
 
       // Indexes
       await queryRunner.query(`
@@ -69,7 +71,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         ON "sensor_type_definitions" ("is_system")
         WHERE "is_system" = true
       `);
-      console.log('Created indexes for sensor_type_definitions');
+      this.logger.log('Created indexes for sensor_type_definitions');
 
       // Updated_at trigger
       await queryRunner.query(`
@@ -88,9 +90,9 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         FOR EACH ROW
         EXECUTE FUNCTION update_sensor_type_definitions_updated_at()
       `);
-      console.log('Created updated_at trigger for sensor_type_definitions');
+      this.logger.log('Created updated_at trigger for sensor_type_definitions');
     } else {
-      console.log('sensor_type_definitions table already exists, skipping creation');
+      this.logger.log('sensor_type_definitions table already exists, skipping creation');
     }
 
     // ──────────────────────────────────────────────
@@ -112,7 +114,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
           CONSTRAINT "UQ_industry_templates_key" UNIQUE ("template_key")
         )
       `);
-      console.log('Created industry_templates table');
+      this.logger.log('Created industry_templates table');
 
       // Indexes
       await queryRunner.query(`
@@ -124,9 +126,9 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         CREATE INDEX "IDX_industry_templates_key"
         ON "industry_templates" ("template_key")
       `);
-      console.log('Created indexes for industry_templates');
+      this.logger.log('Created indexes for industry_templates');
     } else {
-      console.log('industry_templates table already exists, skipping creation');
+      this.logger.log('industry_templates table already exists, skipping creation');
     }
 
     // ──────────────────────────────────────────────
@@ -159,9 +161,9 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
             ON DELETE CASCADE
         `);
       } else {
-        console.log('sensors table not found in current schema, skipping FK constraint for channel_detection_log');
+        this.logger.log('sensors table not found in current schema, skipping FK constraint for channel_detection_log');
       }
-      console.log('Created channel_detection_log table');
+      this.logger.log('Created channel_detection_log table');
 
       // Indexes
       await queryRunner.query(`
@@ -181,9 +183,9 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         ON "channel_detection_log" ("sensor_id", "tenant_id")
         WHERE "user_action" IS NULL
       `);
-      console.log('Created indexes for channel_detection_log');
+      this.logger.log('Created indexes for channel_detection_log');
     } else {
-      console.log('channel_detection_log table already exists, skipping creation');
+      this.logger.log('channel_detection_log table already exists, skipping creation');
     }
 
     // ──────────────────────────────────────────────
@@ -207,12 +209,12 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
           ON "sensors" ("type_definition_id")
           WHERE "type_definition_id" IS NOT NULL
         `);
-        console.log('Added type_definition_id column to sensors table');
+        this.logger.log('Added type_definition_id column to sensors table');
       } else {
-        console.log('type_definition_id column already exists on sensors, skipping');
+        this.logger.log('type_definition_id column already exists on sensors, skipping');
       }
     } else {
-      console.log('sensors table not found in current schema, skipping type_definition_id column addition');
+      this.logger.log('sensors table not found in current schema, skipping type_definition_id column addition');
     }
 
     // ──────────────────────────────────────────────
@@ -231,10 +233,10 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     if (await this.tableExists(queryRunner, 'sensors')) {
       await this.backfillSensorTypeDefinitions(queryRunner);
     } else {
-      console.log('sensors table not found in current schema, skipping backfill');
+      this.logger.log('sensors table not found in current schema, skipping backfill');
     }
 
-    console.log('CreateDynamicSensorTypes migration completed successfully');
+    this.logger.log('CreateDynamicSensorTypes migration completed successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -243,7 +245,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
       await queryRunner.query(`DROP INDEX IF EXISTS "IDX_sensors_type_definition"`);
       await queryRunner.query(`ALTER TABLE "sensors" DROP CONSTRAINT IF EXISTS "FK_sensors_type_definition"`);
       await queryRunner.query(`ALTER TABLE "sensors" DROP COLUMN "type_definition_id"`);
-      console.log('Dropped type_definition_id column from sensors');
+      this.logger.log('Dropped type_definition_id column from sensors');
     }
 
     // Drop channel_detection_log (reverse of step 3)
@@ -252,13 +254,13 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_channel_detection_log_sensor"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_channel_detection_log_tenant"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "channel_detection_log"`);
-    console.log('Dropped channel_detection_log table');
+    this.logger.log('Dropped channel_detection_log table');
 
     // Drop industry_templates (reverse of step 2)
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_industry_templates_key"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_industry_templates_active"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "industry_templates"`);
-    console.log('Dropped industry_templates table');
+    this.logger.log('Dropped industry_templates table');
 
     // Drop sensor_type_definitions (reverse of step 1)
     await queryRunner.query(`DROP TRIGGER IF EXISTS trigger_sensor_type_definitions_updated_at ON "sensor_type_definitions"`);
@@ -269,9 +271,9 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_sensor_type_defs_type_key"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_sensor_type_defs_tenant"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "sensor_type_definitions"`);
-    console.log('Dropped sensor_type_definitions table');
+    this.logger.log('Dropped sensor_type_definitions table');
 
-    console.log('Rolled back CreateDynamicSensorTypes migration');
+    this.logger.log('Rolled back CreateDynamicSensorTypes migration');
   }
 
   // ──────────────────────────────────────────────
@@ -373,7 +375,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         [tpl.template_key],
       );
       if (parseInt(exists[0]?.count || '0', 10) > 0) {
-        console.log(`Industry template '${tpl.template_key}' already exists, skipping`);
+        this.logger.log(`Industry template '${tpl.template_key}' already exists, skipping`);
         continue;
       }
 
@@ -391,7 +393,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
           tpl.alert_presets,
         ],
       );
-      console.log(`Seeded industry template: ${tpl.template_key}`);
+      this.logger.log(`Seeded industry template: ${tpl.template_key}`);
     }
   }
 
@@ -583,7 +585,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
         [this.SYSTEM_TENANT_ID, sensorType.type_key],
       );
       if (parseInt(exists[0]?.count || '0', 10) > 0) {
-        console.log(`System sensor type '${sensorType.type_key}' already exists, skipping`);
+        this.logger.log(`System sensor type '${sensorType.type_key}' already exists, skipping`);
         continue;
       }
 
@@ -602,7 +604,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
           sensorType.default_channels,
         ],
       );
-      console.log(`Seeded system sensor type: ${sensorType.type_key}`);
+      this.logger.log(`Seeded system sensor type: ${sensorType.type_key}`);
     }
   }
 
@@ -628,7 +630,7 @@ export class CreateDynamicSensorTypes1740200000000 implements MigrationInterface
     `, [this.SYSTEM_TENANT_ID]);
 
     const count = parseInt(result[0]?.updated || '0', 10);
-    console.log(`Backfilled type_definition_id for ${count} existing sensors`);
+    this.logger.log(`Backfilled type_definition_id for ${count} existing sensors`);
   }
 
   // ──────────────────────────────────────────────

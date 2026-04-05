@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add composite covering index on sensor_metrics
@@ -18,6 +19,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * automatically propagated to each chunk.
  */
 export class AddSensorMetricsCompositeIndex1740000000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('AddSensorMetricsCompositeIndex1740000000000');
   name = 'AddSensorMetricsCompositeIndex1740000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -26,14 +28,14 @@ export class AddSensorMetricsCompositeIndex1740000000000 implements MigrationInt
       CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_sensor_metrics_sensor_channel_time"
       ON sensor_metrics (sensor_id, channel_id, time DESC)
     `);
-    console.log('Created IDX_sensor_metrics_sensor_channel_time');
+    this.logger.log('Created IDX_sensor_metrics_sensor_channel_time');
 
     // Composite index for tenant + sensor + channel queries (multi-tenant dashboards)
     await queryRunner.query(`
       CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_sensor_metrics_tenant_sensor_channel_time"
       ON sensor_metrics (tenant_id, sensor_id, channel_id, time DESC)
     `);
-    console.log('Created IDX_sensor_metrics_tenant_sensor_channel_time');
+    this.logger.log('Created IDX_sensor_metrics_tenant_sensor_channel_time');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

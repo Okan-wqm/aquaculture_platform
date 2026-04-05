@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Create Continuous Aggregates for Sensor Metrics
@@ -18,17 +19,18 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - 30+ days: Use metrics_1day
  */
 export class CreateContinuousAggregates1735900001000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateContinuousAggregates1735900001000');
   name = 'CreateContinuousAggregates1735900001000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const schema: Array<{ current_schema: string }> = await queryRunner.query(`SELECT current_schema()`);
-    console.log('Running CreateContinuousAggregates migration in schema:', schema);
+    this.logger.log('Running CreateContinuousAggregates migration in schema:', schema);
 
     // Check if TimescaleDB is available
     const isTimescaleAvailable = await this.checkTimescaleDB(queryRunner);
     if (!isTimescaleAvailable) {
-      console.warn('TimescaleDB not available, skipping continuous aggregates');
+      this.logger.warn('TimescaleDB not available, skipping continuous aggregates');
       return;
     }
 
@@ -67,7 +69,7 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         GROUP BY bucket, tenant_id, sensor_id, channel_id, tank_id
         WITH NO DATA
       `);
-      console.log('Created metrics_1min continuous aggregate');
+      this.logger.log('Created metrics_1min continuous aggregate');
 
       // Enable real-time query pass-through so the open (un-materialized) bucket is
       // included in results without waiting for the next aggregate refresh (MEDIUM-007)
@@ -76,7 +78,7 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
           ALTER MATERIALIZED VIEW metrics_1min SET (timescaledb.materialized_only = false)
         `);
       } catch (error) {
-        console.warn('Could not set materialized_only=false on metrics_1min:', error);
+        this.logger.warn('Could not set materialized_only=false on metrics_1min:', error);
       }
 
       // Refresh policy: every 1 minute, starting from 3 minutes ago
@@ -93,10 +95,10 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
       await queryRunner.query(`
         SELECT add_retention_policy('metrics_1min', INTERVAL '1 year', if_not_exists => TRUE)
       `);
-      console.log('Added policies for metrics_1min');
+      this.logger.log('Added policies for metrics_1min');
 
     } catch (error) {
-      console.warn('Failed to create metrics_1min:', error);
+      this.logger.warn('Failed to create metrics_1min:', error);
     }
 
     // 2. Create 1-hour aggregate (cascading from 1-min)
@@ -150,7 +152,7 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id, channel_id, tank_id
         WITH NO DATA
       `);
-      console.log('Created metrics_1hour continuous aggregate');
+      this.logger.log('Created metrics_1hour continuous aggregate');
 
       // Enable real-time query pass-through (MEDIUM-007)
       try {
@@ -158,7 +160,7 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
           ALTER MATERIALIZED VIEW metrics_1hour SET (timescaledb.materialized_only = false)
         `);
       } catch (error) {
-        console.warn('Could not set materialized_only=false on metrics_1hour:', error);
+        this.logger.warn('Could not set materialized_only=false on metrics_1hour:', error);
       }
 
       // Refresh policy: every 1 hour
@@ -175,10 +177,10 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
       await queryRunner.query(`
         SELECT add_retention_policy('metrics_1hour', INTERVAL '5 years', if_not_exists => TRUE)
       `);
-      console.log('Added policies for metrics_1hour');
+      this.logger.log('Added policies for metrics_1hour');
 
     } catch (error) {
-      console.warn('Failed to create metrics_1hour:', error);
+      this.logger.warn('Failed to create metrics_1hour:', error);
     }
 
     // 3. Create daily aggregate (cascading from 1-hour)
@@ -226,7 +228,7 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id, channel_id, tank_id
         WITH NO DATA
       `);
-      console.log('Created metrics_1day continuous aggregate');
+      this.logger.log('Created metrics_1day continuous aggregate');
 
       // Enable real-time query pass-through (MEDIUM-007)
       try {
@@ -234,7 +236,7 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
           ALTER MATERIALIZED VIEW metrics_1day SET (timescaledb.materialized_only = false)
         `);
       } catch (error) {
-        console.warn('Could not set materialized_only=false on metrics_1day:', error);
+        this.logger.warn('Could not set materialized_only=false on metrics_1day:', error);
       }
 
       // Refresh policy: every 1 day
@@ -248,10 +250,10 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
       `);
 
       // No retention for daily - keep forever
-      console.log('Added policies for metrics_1day (no retention - kept forever)');
+      this.logger.log('Added policies for metrics_1day (no retention - kept forever)');
 
     } catch (error) {
-      console.warn('Failed to create metrics_1day:', error);
+      this.logger.warn('Failed to create metrics_1day:', error);
     }
 
     // 4. Create indexes for faster lookups on aggregates
@@ -272,9 +274,9 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         CREATE INDEX IF NOT EXISTS "IDX_metrics_1day_sensor_bucket"
         ON metrics_1day (sensor_id, bucket DESC)
       `);
-      console.log('Created indexes for continuous aggregates');
+      this.logger.log('Created indexes for continuous aggregates');
     } catch (error) {
-      console.warn('Failed to create aggregate indexes:', error);
+      this.logger.warn('Failed to create aggregate indexes:', error);
     }
 
     // 5. Create real-time view for current readings (optional)
@@ -294,9 +296,9 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         FROM sensor_metrics
         ORDER BY sensor_id, channel_id, time DESC
       `);
-      console.log('Created current_readings view');
+      this.logger.log('Created current_readings view');
     } catch (error) {
-      console.warn('Failed to create current_readings view:', error);
+      this.logger.warn('Failed to create current_readings view:', error);
     }
   }
 
@@ -305,7 +307,7 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
     try {
       await queryRunner.query(`DROP VIEW IF EXISTS current_readings`);
     } catch (error) {
-      console.warn('Failed to drop current_readings view:', error);
+      this.logger.warn('Failed to drop current_readings view:', error);
     }
 
     // Remove continuous aggregate policies and views
@@ -322,13 +324,13 @@ export class CreateContinuousAggregates1735900001000 implements MigrationInterfa
         `);
         // Drop the materialized view
         await queryRunner.query(`DROP MATERIALIZED VIEW IF EXISTS ${agg} CASCADE`);
-        console.log(`Dropped ${agg} and its policies`);
+        this.logger.log(`Dropped ${agg} and its policies`);
       } catch (error) {
-        console.warn(`Failed to drop ${agg}:`, error);
+        this.logger.warn(`Failed to drop ${agg}:`, error);
       }
     }
 
-    console.log('Rolled back CreateContinuousAggregates migration');
+    this.logger.log('Rolled back CreateContinuousAggregates migration');
   }
 
   private async checkTimescaleDB(queryRunner: QueryRunner): Promise<boolean> {

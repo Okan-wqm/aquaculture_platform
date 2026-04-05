@@ -117,6 +117,16 @@ export class TenantKeyService {
       throw new NotFoundException('Invalid installer token');
     }
 
+    // Constant-time comparison to prevent timing oracle on token value
+    const storedBuf = Buffer.from(key.keyToken);
+    const inboundBuf = Buffer.from(token);
+    const safeLen = Math.max(storedBuf.length, inboundBuf.length);
+    const a = Buffer.concat([storedBuf, Buffer.alloc(safeLen - storedBuf.length)]);
+    const b = Buffer.concat([inboundBuf, Buffer.alloc(safeLen - inboundBuf.length)]);
+    if (!crypto.timingSafeEqual(a, b)) {
+      throw new NotFoundException('Invalid installer token');
+    }
+
     if (!key.isActive) {
       throw new BadRequestException('This installer key has been revoked');
     }

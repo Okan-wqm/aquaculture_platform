@@ -98,7 +98,7 @@ export class VfdChangeSetService {
     items: ChangeSetItemInput[],
     tenantId: string,
   ): Promise<VfdChangeSet> {
-    const changeSet = await this.findByIdOrFail(changeSetId);
+    const changeSet = await this.findByIdOrFail(changeSetId, tenantId);
     this.assertStatus(changeSet, VfdChangeSetStatus.DRAFT, 'add items');
 
     // Resolve device brand for parameter lookups
@@ -142,14 +142,14 @@ export class VfdChangeSetService {
 
     await this.changeSetItemRepository.save(newItems);
 
-    return this.findByIdOrFail(changeSetId);
+    return this.findByIdOrFail(changeSetId, tenantId);
   }
 
   /**
    * Remove an item from a DRAFT change set.
    */
-  async removeItem(changeSetId: string, itemId: string): Promise<VfdChangeSet> {
-    const changeSet = await this.findByIdOrFail(changeSetId);
+  async removeItem(changeSetId: string, itemId: string, tenantId: string): Promise<VfdChangeSet> {
+    const changeSet = await this.findByIdOrFail(changeSetId, tenantId);
     this.assertStatus(changeSet, VfdChangeSetStatus.DRAFT, 'remove items');
 
     const item = await this.changeSetItemRepository.findOne({
@@ -164,7 +164,7 @@ export class VfdChangeSetService {
 
     await this.changeSetItemRepository.remove(item);
 
-    return this.findByIdOrFail(changeSetId);
+    return this.findByIdOrFail(changeSetId, tenantId);
   }
 
   // ─── SUBMIT FOR APPROVAL ────────────────────────────────────────────
@@ -176,8 +176,9 @@ export class VfdChangeSetService {
   async submitForApproval(
     changeSetId: string,
     submittedBy: string,
+    tenantId: string,
   ): Promise<VfdChangeSet> {
-    const changeSet = await this.findByIdOrFail(changeSetId);
+    const changeSet = await this.findByIdOrFail(changeSetId, tenantId);
     this.assertStatus(changeSet, VfdChangeSetStatus.DRAFT, 'submit');
 
     if (!changeSet.items || changeSet.items.length === 0) {
@@ -267,8 +268,9 @@ export class VfdChangeSetService {
   async approveChangeSet(
     changeSetId: string,
     approvedBy: string,
+    tenantId: string,
   ): Promise<VfdChangeSet> {
-    const changeSet = await this.findByIdOrFail(changeSetId);
+    const changeSet = await this.findByIdOrFail(changeSetId, tenantId);
     this.assertStatus(changeSet, VfdChangeSetStatus.PENDING_APPROVAL, 'approve');
 
     // Maker-Checker enforcement
@@ -316,8 +318,9 @@ export class VfdChangeSetService {
     changeSetId: string,
     rejectedBy: string,
     reason: string,
+    tenantId: string,
   ): Promise<VfdChangeSet> {
-    const changeSet = await this.findByIdOrFail(changeSetId);
+    const changeSet = await this.findByIdOrFail(changeSetId, tenantId);
     this.assertStatus(changeSet, VfdChangeSetStatus.PENDING_APPROVAL, 'reject');
 
     changeSet.status = VfdChangeSetStatus.REJECTED;
@@ -351,8 +354,9 @@ export class VfdChangeSetService {
     changeSetId: string,
     reason: string,
     performedBy: string,
+    tenantId: string,
   ): Promise<VfdChangeSet> {
-    const original = await this.findByIdOrFail(changeSetId);
+    const original = await this.findByIdOrFail(changeSetId, tenantId);
 
     if (
       original.status !== VfdChangeSetStatus.APPLIED &&
@@ -430,14 +434,14 @@ export class VfdChangeSetService {
       );
     } else {
       // Normal rollback: submit for approval
-      await this.submitForApproval(savedRollback.id, performedBy);
+      await this.submitForApproval(savedRollback.id, performedBy, tenantId);
 
       this.logger.log(
         `Rollback change set ${savedRollback.id} created for ${changeSetId}`,
       );
     }
 
-    return this.findByIdOrFail(savedRollback.id);
+    return this.findByIdOrFail(savedRollback.id, tenantId);
   }
 
   // ─── QUERIES ─────────────────────────────────────────────────────────
@@ -445,9 +449,9 @@ export class VfdChangeSetService {
   /**
    * Find a change set by ID with items relation.
    */
-  async findById(changeSetId: string): Promise<VfdChangeSet | null> {
+  async findById(changeSetId: string, tenantId: string): Promise<VfdChangeSet | null> {
     return this.changeSetRepository.findOne({
-      where: { id: changeSetId },
+      where: { id: changeSetId, tenantId },
       relations: ['items'],
     });
   }
@@ -492,9 +496,9 @@ export class VfdChangeSetService {
   /**
    * Load a change set or throw NotFoundException.
    */
-  private async findByIdOrFail(changeSetId: string): Promise<VfdChangeSet> {
+  private async findByIdOrFail(changeSetId: string, tenantId: string): Promise<VfdChangeSet> {
     const changeSet = await this.changeSetRepository.findOne({
-      where: { id: changeSetId },
+      where: { id: changeSetId, tenantId },
       relations: ['items'],
     });
 

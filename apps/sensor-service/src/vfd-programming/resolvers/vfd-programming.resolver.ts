@@ -86,8 +86,9 @@ export class VfdProgrammingResolver {
   @Query(() => VfdChangeSet, { name: 'vfdChangeSet', nullable: true })
   async getChangeSet(
     @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
   ): Promise<VfdChangeSet | null> {
-    return this.changeSetService.findById(id);
+    return this.changeSetService.findById(id, tenantId);
   }
 
   // ─── AUDIT LOG QUERY ──────────────────────────────────────────────
@@ -187,8 +188,9 @@ export class VfdProgrammingResolver {
   async submitForApproval(
     @Args('changeSetId', { type: () => ID }) changeSetId: string,
     @CurrentUser('sub') userId: string,
+    @Tenant() tenantId: string,
   ): Promise<VfdChangeSet> {
-    return this.changeSetService.submitForApproval(changeSetId, userId);
+    return this.changeSetService.submitForApproval(changeSetId, userId, tenantId);
   }
 
   /**
@@ -200,8 +202,9 @@ export class VfdProgrammingResolver {
   async approveChangeSet(
     @Args('changeSetId', { type: () => ID }) changeSetId: string,
     @CurrentUser('sub') userId: string,
+    @Tenant() tenantId: string,
   ): Promise<VfdChangeSet> {
-    return this.changeSetService.approveChangeSet(changeSetId, userId);
+    return this.changeSetService.approveChangeSet(changeSetId, userId, tenantId);
   }
 
   /**
@@ -213,11 +216,13 @@ export class VfdProgrammingResolver {
   async rejectChangeSet(
     @Args('input') input: RejectChangeSetInput,
     @CurrentUser('sub') userId: string,
+    @Tenant() tenantId: string,
   ): Promise<VfdChangeSet> {
     return this.changeSetService.rejectChangeSet(
       input.changeSetId,
       userId,
       input.reason,
+      tenantId,
     );
   }
 
@@ -230,11 +235,13 @@ export class VfdProgrammingResolver {
   async rollbackChangeSet(
     @Args('input') input: RollbackChangeSetInput,
     @CurrentUser('sub') userId: string,
+    @Tenant() tenantId: string,
   ): Promise<VfdChangeSet> {
     return this.changeSetService.rollbackChangeSet(
       input.changeSetId,
       input.reason,
       userId,
+      tenantId,
     );
   }
 
@@ -259,7 +266,8 @@ export class VfdProgrammingResolver {
   async removeChangeSetItem(
     @Args('changeSetId', { type: () => ID }) changeSetId: string,
     @Args('itemId', { type: () => ID }) itemId: string,
+    @Tenant() tenantId: string,
   ): Promise<VfdChangeSet> {
-    return this.changeSetService.removeItem(changeSetId, itemId);
+    return this.changeSetService.removeItem(changeSetId, itemId, tenantId);
   }
 }

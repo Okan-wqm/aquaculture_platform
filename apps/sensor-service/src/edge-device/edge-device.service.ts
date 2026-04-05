@@ -10,6 +10,7 @@ import {
   Optional,
   OnModuleDestroy,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
@@ -278,6 +279,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     @Inject(MqttClientService)
     private readonly mqttClient: MqttClientService | null,
     private readonly installerScriptService: InstallerScriptService,
+    private readonly configService: ConfigService,
   ) {
     // Start periodic cleanup of stale pending pings
     this.startPendingPingsCleanup();
@@ -2181,13 +2183,17 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return this.firmwareVersionsCache.data;
     }
 
-    const repo = process.env.GITHUB_REPO || 'Okan-wqm/aquaculture_platform';
+    const repo = this.configService.get<string>('GITHUB_REPO', '');
+    if (!repo) {
+      this.logger.warn('GITHUB_REPO not configured — firmware version list unavailable');
+      return [];
+    }
     const url = `https://api.github.com/repos/${repo}/releases`;
 
     try {
       // Use Node.js https module for better compatibility across environments
       const https = await import('https');
-      const githubToken = process.env.GITHUB_TOKEN;
+      const githubToken = this.configService.get<string>('GITHUB_TOKEN');
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github.v3+json',
         'User-Agent': 'aquaculture-platform-sensor-service',
@@ -2277,7 +2283,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // the command was successfully published.  This prevents the DB from
     // recording a pending update that was never actually sent.
     const mqtt = this.ensureMqttAvailable();
-    const repo = process.env.GITHUB_REPO || 'Okan-wqm/aquaculture_platform';
+    const repo = this.configService.get<string>('GITHUB_REPO', '');
     const resolvedVersion = targetVersion || 'latest';
 
     await mqtt.publish(

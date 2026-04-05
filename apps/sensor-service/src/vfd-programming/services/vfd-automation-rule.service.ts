@@ -121,8 +121,9 @@ export class VfdAutomationRuleService {
   async updateRule(
     id: string,
     input: UpdateAutomationRuleInput,
+    tenantId: string,
   ): Promise<VfdAutomationRule> {
-    const rule = await this.findByIdOrFail(id);
+    const rule = await this.findByIdOrFail(id, tenantId);
 
     if (input.name !== undefined) rule.name = input.name;
     if (input.description !== undefined) rule.description = input.description;
@@ -139,15 +140,15 @@ export class VfdAutomationRuleService {
     return saved;
   }
 
-  async deleteRule(id: string): Promise<void> {
-    const rule = await this.findByIdOrFail(id);
+  async deleteRule(id: string, tenantId: string): Promise<void> {
+    const rule = await this.findByIdOrFail(id, tenantId);
     rule.isActive = false;
     await this.ruleRepository.save(rule);
     this.logger.log(`Automation rule ${id} soft-deleted (deactivated)`);
   }
 
-  async toggleRule(id: string, isActive: boolean): Promise<VfdAutomationRule> {
-    const rule = await this.findByIdOrFail(id);
+  async toggleRule(id: string, isActive: boolean, tenantId: string): Promise<VfdAutomationRule> {
+    const rule = await this.findByIdOrFail(id, tenantId);
     rule.isActive = isActive;
     const saved = await this.ruleRepository.save(rule);
     this.logger.log(`Automation rule ${id} toggled to isActive=${isActive}`);
@@ -178,16 +179,21 @@ export class VfdAutomationRuleService {
     );
   }
 
-  async findById(id: string): Promise<VfdAutomationRule | null> {
-    return this.ruleRepository.findOne({ where: { id } });
+  async findById(id: string, tenantId: string): Promise<VfdAutomationRule | null> {
+    return this.ruleRepository.findOne({ where: { id, tenantId } });
   }
 
   async getRuleExecutionHistory(
     ruleId: string,
     limit = 50,
+    tenantId?: string,
   ): Promise<VfdParameterAuditLog[]> {
+    // If tenantId provided, scope to tenant to prevent cross-tenant history leak
+    const where = tenantId
+      ? { automationRuleId: ruleId, tenantId }
+      : { automationRuleId: ruleId };
     return this.auditLogRepository.find({
-      where: { automationRuleId: ruleId },
+      where,
       order: { timestamp: 'DESC' },
       take: limit,
     });
@@ -195,8 +201,8 @@ export class VfdAutomationRuleService {
 
   // ─── PRIVATE ──────────────────────────────────────────────────────────
 
-  private async findByIdOrFail(id: string): Promise<VfdAutomationRule> {
-    const rule = await this.ruleRepository.findOne({ where: { id } });
+  private async findByIdOrFail(id: string, tenantId: string): Promise<VfdAutomationRule> {
+    const rule = await this.ruleRepository.findOne({ where: { id, tenantId } });
 
     if (!rule) {
       throw new NotFoundException(`Automation rule ${id} not found`);

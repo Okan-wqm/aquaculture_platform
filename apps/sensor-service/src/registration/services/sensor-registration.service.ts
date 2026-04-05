@@ -501,6 +501,7 @@ export class SensorRegistrationService {
     return this.sensorRepository.find({
       where: { protocolId: protocol.id, tenantId },
       order: { name: 'ASC' },
+      take: 500,
     });
   }
 

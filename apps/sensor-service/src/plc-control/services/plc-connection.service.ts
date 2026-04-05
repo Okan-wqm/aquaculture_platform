@@ -1,8 +1,11 @@
+import * as net from 'net';
+
 import {
   Injectable,
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -449,7 +452,10 @@ export class PlcConnectionService {
   }
 
   /**
-   * Validate OPC UA endpoint URL
+   * Validate OPC UA endpoint URL.
+   * Blocks private/loopback IP addresses to prevent SSRF.
+   * Note: only numeric IPs are blocked here; hostname-to-IP resolution
+   * would require async DNS lookup and is deferred to network policy.
    */
   private validateEndpointUrl(url: string): void {
     if (!url.startsWith('opc.tcp://')) {
@@ -457,6 +463,34 @@ export class PlcConnectionService {
         'Invalid OPC UA endpoint URL. Must start with opc.tcp://',
       );
     }
+    const withoutScheme = url.slice('opc.tcp://'.length);
+    const hostname = withoutScheme.split('/')[0].split(':')[0];
+    if (this.isPrivateAddress(hostname)) {
+      throw new ForbiddenException('Private network endpoints are not allowed');
+    }
+  }
+
+  /**
+   * Returns true if the host is a private/loopback/link-local address.
+   * Covers: 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, ::1, fc00::/7.
+   */
+  private isPrivateAddress(host: string): boolean {
+    if (host === 'localhost') return true;
+    if (net.isIPv4(host)) {
+      const parts = host.split('.').map(Number);
+      return (
+        parts[0] === 10 ||
+        parts[0] === 127 ||
+        (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+        (parts[0] === 192 && parts[1] === 168) ||
+        (parts[0] === 169 && parts[1] === 254)
+      );
+    }
+    if (net.isIPv6(host)) {
+      const lower = host.toLowerCase();
+      return lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd');
+    }
+    return false;
   }
 
   /**

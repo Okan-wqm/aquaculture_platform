@@ -344,7 +344,7 @@ describe('VfdChangeSetService', () => {
       itemRepo.findOne!.mockResolvedValue(item);
       itemRepo.remove!.mockResolvedValue(item);
 
-      const result = await service.removeItem('cs-001', 'item-001');
+      const result = await service.removeItem('cs-001', 'item-001', TENANT_ID);
       expect(result.items.length).toBe(0);
       expect(itemRepo.remove).toHaveBeenCalledWith(item);
     });
@@ -356,7 +356,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(applied);
 
       await expect(
-        service.removeItem('cs-001', 'item-001'),
+        service.removeItem('cs-001', 'item-001', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -379,7 +379,7 @@ describe('VfdChangeSetService', () => {
         .mockResolvedValueOnce(null);  // ensureNoActiveChangeSet
       changeSetRepo.save!.mockResolvedValue(pending);
 
-      const result = await service.submitForApproval('cs-001', USER_MAKER);
+      const result = await service.submitForApproval('cs-001', USER_MAKER, TENANT_ID);
 
       expect(result.status).toBe(VfdChangeSetStatus.PENDING_APPROVAL);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
@@ -396,7 +396,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(emptyDraft);
 
       await expect(
-        service.submitForApproval('cs-001', USER_MAKER),
+        service.submitForApproval('cs-001', USER_MAKER, TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -408,7 +408,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(approved);
 
       await expect(
-        service.submitForApproval('cs-001', USER_MAKER),
+        service.submitForApproval('cs-001', USER_MAKER, TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -436,7 +436,7 @@ describe('VfdChangeSetService', () => {
         },
       );
 
-      await service.submitForApproval('cs-001', USER_MAKER);
+      await service.submitForApproval('cs-001', USER_MAKER, TENANT_ID);
 
       expect(savedMetadata).toHaveProperty('riskSummary');
       const summary = (savedMetadata as Record<string, Record<string, unknown>>)['riskSummary']!;
@@ -462,7 +462,7 @@ describe('VfdChangeSetService', () => {
         (cs: VfdChangeSet) => Promise.resolve(cs),
       );
 
-      const result = await service.approveChangeSet('cs-001', USER_CHECKER);
+      const result = await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
 
       expect(result.status).toBe(VfdChangeSetStatus.APPROVED);
       expect(result.approvedBy).toBe(USER_CHECKER);
@@ -476,7 +476,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(pending);
 
       await expect(
-        service.approveChangeSet('cs-001', USER_MAKER),
+        service.approveChangeSet('cs-001', USER_MAKER, TENANT_ID),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -494,7 +494,7 @@ describe('VfdChangeSetService', () => {
         (cs: VfdChangeSet) => Promise.resolve(cs),
       );
 
-      await service.approveChangeSet('cs-001', USER_CHECKER);
+      await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
 
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         'vfd.changeset.approved',
@@ -519,7 +519,7 @@ describe('VfdChangeSetService', () => {
         (cs: VfdChangeSet) => Promise.resolve(cs),
       );
 
-      await service.approveChangeSet('cs-001', USER_CHECKER);
+      await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
 
       expect(eventEmitter.emit).not.toHaveBeenCalledWith(
         'vfd.changeset.approved',
@@ -534,7 +534,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(draft);
 
       await expect(
-        service.approveChangeSet('cs-001', USER_CHECKER),
+        service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -560,7 +560,7 @@ describe('VfdChangeSetService', () => {
         .mockResolvedValueOnce(existingActive); // ensureNoActiveChangeSet
 
       await expect(
-        service.approveChangeSet('cs-001', USER_CHECKER),
+        service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -577,7 +577,7 @@ describe('VfdChangeSetService', () => {
         (cs: VfdChangeSet) => Promise.resolve(cs),
       );
 
-      const result = await service.approveChangeSet('cs-001', USER_CHECKER);
+      const result = await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
       expect(result.status).toBe(VfdChangeSetStatus.APPROVED);
     });
   });
@@ -599,6 +599,7 @@ describe('VfdChangeSetService', () => {
         'cs-001',
         USER_CHECKER,
         'Values too aggressive',
+        TENANT_ID,
       );
 
       expect(result.status).toBe(VfdChangeSetStatus.REJECTED);
@@ -621,7 +622,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(draft);
 
       await expect(
-        service.rejectChangeSet('cs-001', USER_CHECKER, 'reason'),
+        service.rejectChangeSet('cs-001', USER_CHECKER, 'reason', TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -696,6 +697,7 @@ describe('VfdChangeSetService', () => {
         'cs-001',
         'parameter drift detected',
         USER_MAKER,
+        TENANT_ID,
       );
 
       // Verify inverse item values
@@ -745,6 +747,7 @@ describe('VfdChangeSetService', () => {
         'cs-001',
         'emergency',
         USER_MAKER,
+        TENANT_ID,
       );
 
       expect(result.status).toBe(VfdChangeSetStatus.APPROVED);
@@ -764,7 +767,7 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.findOne!.mockResolvedValue(draft);
 
       await expect(
-        service.rollbackChangeSet('cs-001', 'reason', USER_MAKER),
+        service.rollbackChangeSet('cs-001', 'reason', USER_MAKER, TENANT_ID),
       ).rejects.toThrow(BadRequestException);
     });
 

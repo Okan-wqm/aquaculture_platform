@@ -1,4 +1,5 @@
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   Column,
@@ -107,7 +108,9 @@ export class Module {
    * Base price for this module (pricing details in module_pricing table)
    */
   @Field(() => Number, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, nullable: true })
+  // DecimalTransformer: module price is used in subscription plan composition.
+  // Billing resolver sums module prices to compute total plan cost; string sum produces concatenation.
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, nullable: true, transformer: new DecimalTransformer() })
   price?: number | null;
 
   /**

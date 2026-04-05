@@ -3,6 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserConsent } from '@aquaculture/backend-common';
 
 import { User } from '../authentication/entities/user.entity';
+import { RefreshToken } from '../authentication/entities/refresh-token.entity';
+// AuthenticationModule imported to provide AuthenticationService for GdprComplianceService.
+// GdprComplianceService (erasure + data export) lives in privacy/ but is registered here
+// because it's semantically GDPR and depends on AuthenticationService.
+import { AuthenticationModule } from '../authentication/authentication.module';
+import { GdprComplianceService } from '../../privacy/gdpr-compliance.service';
 
 import { UserConsentResolver } from './resolvers/user-consent.resolver';
 import { UserConsentService } from './services/user-consent.service';
@@ -35,10 +41,13 @@ import { UserConsentService } from './services/user-consent.service';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserConsent, User]),
+    TypeOrmModule.forFeature([UserConsent, User, RefreshToken]),
+    // AuthenticationModule exports AuthenticationService (for logoutAllDevices)
+    // and TypeOrmModule (User + RefreshToken repos available via forFeature above).
+    AuthenticationModule,
   ],
-  providers: [UserConsentService, UserConsentResolver],
-  exports: [UserConsentService],
+  providers: [UserConsentService, UserConsentResolver, GdprComplianceService],
+  exports: [UserConsentService, GdprComplianceService],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class GdprModule {}

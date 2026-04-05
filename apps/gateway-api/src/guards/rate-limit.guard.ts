@@ -352,8 +352,13 @@ export class RateLimitGuard implements CanActivate {
   private generateKey(request: RateLimitRequest): string {
     // Priority: user > tenant > IP
     const userId = request.user?.sub ?? request.userId;
-    // SECURITY: Only use verified JWT tenantId for key generation
-    const tenantId = request.user?.tenantId ?? request.tenantId;
+    // SECURITY: Use ONLY JWT-verified tenantId for rate limit key namespace.
+    // BEFORE: request.user?.tenantId ?? request.tenantId — the fallback could come from
+    // TenantContextMiddleware which accepts X-Tenant-ID headers for unauthenticated requests.
+    // An unauthenticated attacker could claim any tenant's key namespace by setting the header.
+    // AFTER: only request.user?.tenantId (set by JWT verification) is used.
+    // Unauthenticated requests fall through to IP-based key — no tenant key namespace.
+    const tenantId = request.user?.tenantId;
 
     // IP extraction with trust proxy support
     // When trust proxy is enabled, Express populates req.ip from X-Forwarded-For

@@ -29,6 +29,7 @@ import {
   AuthenticatedRequest,
   GqlContext,
 } from '../types/index';
+import { getJwtVerifyOptions } from '@aquaculture/backend-common';
 import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
@@ -68,8 +69,9 @@ export { getUserFromRequest, getTenantIdFromRequest } from '../types/index';
 @Injectable()
 export class AuthGuard implements CanActivate {
   private readonly logger = new Logger(AuthGuard.name);
-  private readonly jwtIssuer: string;
-  private readonly jwtAudience: string[];
+  // jwtIssuer/jwtAudience removed: previously used for manual conditional if-checks
+  // (if payload.iss && ... / if payload.aud). These checks silently accepted tokens
+  // without iss/aud claims. Now enforced at library level via getJwtVerifyOptions().
   private readonly isProduction: boolean;
   private readonly tokenBlacklist: TokenBlacklistStore;
 
@@ -85,16 +87,6 @@ export class AuthGuard implements CanActivate {
   ) {
     // Use injected store or fallback to in-memory
     this.tokenBlacklist = tokenBlacklistStore ?? new InMemoryTokenBlacklistStore();
-
-    /**
-     * SECURITY (H-04): JWT audience must match the canonical value used by auth-service.
-     * Auth-service signs tokens with audience 'aquaculture-platform'. Both services must
-     * agree on the same audience string to ensure issued tokens are accepted at the gate.
-     */
-    this.jwtIssuer = this.configService.get<string>('JWT_ISSUER', 'aquaculture-platform');
-    this.jwtAudience = this.configService
-      .get<string>('JWT_AUDIENCE', 'aquaculture-platform')
-      .split(',');
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
   }
 
@@ -185,32 +177,18 @@ export class AuthGuard implements CanActivate {
     const token = parts[1] as string;
 
     try {
-      // SECURITY: Use JwtService with explicit algorithm to prevent confusion attacks
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
-        algorithms: ['HS256'],
-      });
+      // Use centralised getJwtVerifyOptions() for mandatory algorithm, issuer, audience.
+      // BEFORE: verifyAsync() only passed algorithms:['HS256']; iss/aud were checked
+      // via application-layer conditionals (if payload.iss && ...) which silently
+      // accepted tokens WITHOUT those claims — the conditional skipped the check entirely.
+      // AFTER: issuer and audience are passed to jsonwebtoken which enforces them at
+      // library level — a token missing iss OR aud throws JsonWebTokenError immediately.
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
 
       validateAccessTokenCompat(payload, this.logger, this.isProduction);
-
-      // Validate issuer
-      if (payload.iss && payload.iss !== this.jwtIssuer) {
-        throw new UnauthorizedException({
-          code: 'INVALID_ISSUER',
-          message: 'Invalid token issuer',
-        });
-      }
-
-      // Validate audience
-      if (payload.aud) {
-        const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-        const hasValidAudience = audiences.some((aud) => this.jwtAudience.includes(aud));
-        if (!hasValidAudience) {
-          throw new UnauthorizedException({
-            code: 'INVALID_AUDIENCE',
-            message: 'Invalid token audience',
-          });
-        }
-      }
 
       // Check blacklist
       if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {

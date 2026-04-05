@@ -109,6 +109,14 @@ export class TokenService {
   private readonly maxSessionsPerUser: number;
 
   // PERF: In-memory cache for user module assignments (CRIT-03)
+  // SECURITY (AUTH-M2): Bounded to MAX_MODULE_CACHE_SIZE using Map insertion-order LRU.
+  // BEFORE: raw Map with no size bound — mass account creation / enumeration attacks
+  // could grow this map to hundreds of thousands of entries, exhausting process memory.
+  // AFTER: when the cache reaches capacity, the oldest (least-recently-inserted) entry
+  // is evicted before the new one is added. Map preserves insertion order in JS/TS,
+  // so keys().next().value is always the oldest entry — O(1) eviction.
+  // Combined with 5-minute TTL (lazy eviction on access), memory is always bounded.
+  private static readonly MAX_MODULE_CACHE_SIZE = 5_000;
   private readonly moduleCache = new Map<string, {
     modules: Array<{ code: string; name: string; defaultRoute: string }>;
     cachedAt: number;
@@ -288,6 +296,14 @@ export class TokenService {
         }));
     }
 
+    // LRU eviction: if at capacity, remove the oldest entry before inserting.
+    // Map.keys() returns keys in insertion order — first key is the oldest entry.
+    if (this.moduleCache.size >= TokenService.MAX_MODULE_CACHE_SIZE) {
+      const oldestKey = this.moduleCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.moduleCache.delete(oldestKey);
+      }
+    }
     this.moduleCache.set(user.id, { modules, cachedAt: Date.now() });
     return modules;
   }

@@ -64,7 +64,7 @@ regex = "1.10"
 # If rodbus changes this behavior in a future minor version, Modbus TLS connections
 # without client certs will silently fail or panic.
 # Do NOT bump this dependency without re-testing server-only TLS (no mTLS) connections.
-rodbus = "1.4"
+rodbus = "=1.4.0"
 # Keep tokio-serial for RTU serial port support
 tokio-serial = "5.4"
 

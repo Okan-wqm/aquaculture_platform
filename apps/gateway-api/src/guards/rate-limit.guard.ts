@@ -369,9 +369,9 @@ export class RateLimitGuard implements CanActivate {
     // This prevents dashboard polling from exhausting the same bucket as login
     const url = request.url || '';
     let endpointPrefix = 'default';
-    if (url.includes('/login') || url.includes('/auth/login')) {
+    if (url === '/api/auth/login' || url.endsWith('/auth/login')) {
       endpointPrefix = 'login';
-    } else if (url.includes('/register') || url.includes('/auth/register')) {
+    } else if (url === '/api/auth/register' || url.endsWith('/auth/register')) {
       endpointPrefix = 'register';
     } else if (url.includes('/upload')) {
       endpointPrefix = 'upload';
@@ -467,10 +467,10 @@ export class RateLimitGuard implements CanActivate {
     // SECURITY: Apply per-endpoint rate limits for sensitive operations
     // These limits are stricter than defaults to prevent brute-force attacks
     const url = request.url || '';
-    if (url.includes('/login') || url.includes('/auth/login')) {
+    if (url === '/api/auth/login' || url.endsWith('/auth/login')) {
       return { limit: this.loginLimit, windowMs: this.loginWindowMs };
     }
-    if (url.includes('/register') || url.includes('/auth/register')) {
+    if (url === '/api/auth/register' || url.endsWith('/auth/register')) {
       return { limit: this.registerLimit, windowMs: this.registerWindowMs };
     }
     if (url.includes('/upload')) {

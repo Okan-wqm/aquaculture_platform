@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Migration: Create Scheduling Tables
@@ -9,6 +10,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - weekly_plan_entries: Individual day entries within a weekly plan
  */
 export class CreateSchedulingTables1769500000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateSchedulingTables1769500000000');
+  private readonly logger = new MigrationLogger('CreateSchedulingTables1769500000000');
   name = 'CreateSchedulingTables1769500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -23,7 +26,7 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
     // 3. Add totalMinutes column to shifts table if not exists
     await this.updateShiftsTable(queryRunner);
 
-    console.log('Scheduling tables created successfully');
+    this.logger.log('Scheduling tables created successfully');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -63,7 +66,7 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
       END $$
     `);
 
-    console.log('Scheduling ENUMs created');
+    this.logger.log('Scheduling ENUMs created');
   }
 
   private async dropEnums(queryRunner: QueryRunner): Promise<void> {
@@ -105,7 +108,7 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
       ON "hr"."scheduling_settings"("tenant_id")
     `);
 
-    console.log('scheduling_settings table created');
+    this.logger.log('scheduling_settings table created');
   }
 
   private async createWeeklyPlansTable(queryRunner: QueryRunner): Promise<void> {
@@ -155,7 +158,7 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
       ON "hr"."weekly_plans"("tenant_id", "employee_id")
     `);
 
-    console.log('weekly_plans table created');
+    this.logger.log('weekly_plans table created');
   }
 
   private async createWeeklyPlanEntriesTable(queryRunner: QueryRunner): Promise<void> {
@@ -206,7 +209,7 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
       ON "hr"."weekly_plan_entries"("tenant_id", "employee_id", "date")
     `);
 
-    console.log('weekly_plan_entries table created');
+    this.logger.log('weekly_plan_entries table created');
   }
 
   private async updateShiftsTable(queryRunner: QueryRunner): Promise<void> {
@@ -224,7 +227,7 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
         WHERE "total_minutes" IS NULL OR "total_minutes" = 480
       `);
 
-      console.log('Added total_minutes column to shifts table');
+      this.logger.log('Added total_minutes column to shifts table');
     }
   }
 

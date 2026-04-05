@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Creates compliance-related tables for the messaging service:
@@ -14,6 +15,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * @see ADR-012 Phase 3 (Compliance & Governance)
  */
 export class CreateComplianceTables1711800000003 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateComplianceTables1711800000003');
   name = 'CreateComplianceTables1711800000003';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

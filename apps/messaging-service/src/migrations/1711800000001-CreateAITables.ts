@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Phase 2 AI integration tables for the messaging service.
@@ -17,6 +18,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * See ADR-012 sections 12.1-12.3 for full design rationale.
  */
 export class CreateAITables1711800000001 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateAITables1711800000001');
   name = 'CreateAITables1711800000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

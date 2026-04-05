@@ -54,7 +54,8 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
           "version" INTEGER NOT NULL DEFAULT 1
         )
       `);
-      await queryRunner.query(`CREATE INDEX "IDX_storage_locations_tenant" ON "storage_locations" ("tenant_id")`);
+      // REMOVED: redundant — covered by composite index with tenant_id as leading column
+      // await queryRunner.query(`CREATE INDEX "IDX_storage_locations_tenant" ON "storage_locations" ("tenant_id")`);
       await queryRunner.query(`CREATE UNIQUE INDEX "IDX_storage_locations_tenant_code" ON "storage_locations" ("tenant_id", "code")`);
       await queryRunner.query(`CREATE INDEX "IDX_storage_locations_site" ON "storage_locations" ("site_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_storage_locations_type" ON "storage_locations" ("tenant_id", "type")`);
@@ -102,7 +103,8 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
           "version" INTEGER NOT NULL DEFAULT 1
         )
       `);
-      await queryRunner.query(`CREATE INDEX "IDX_consumables_tenant" ON "consumables" ("tenant_id")`);
+      // REMOVED: redundant — covered by composite index with tenant_id as leading column
+      // await queryRunner.query(`CREATE INDEX "IDX_consumables_tenant" ON "consumables" ("tenant_id")`);
       await queryRunner.query(`CREATE UNIQUE INDEX "IDX_consumables_tenant_code" ON "consumables" ("tenant_id", "code")`);
       await queryRunner.query(`CREATE INDEX "IDX_consumables_category" ON "consumables" ("tenant_id", "category")`);
       await queryRunner.query(`CREATE INDEX "IDX_consumables_status" ON "consumables" ("tenant_id", "status")`);
@@ -136,7 +138,8 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
           "updated_by" UUID
         )
       `);
-      await queryRunner.query(`CREATE INDEX "IDX_storage_inventory_tenant" ON "storage_inventory" ("tenant_id")`);
+      // REMOVED: redundant — covered by composite index with tenant_id as leading column
+      // await queryRunner.query(`CREATE INDEX "IDX_storage_inventory_tenant" ON "storage_inventory" ("tenant_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_storage_inventory_location" ON "storage_inventory" ("storage_location_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_storage_inventory_item" ON "storage_inventory" ("item_type", "item_id")`);
       await queryRunner.query(`CREATE UNIQUE INDEX "IDX_storage_inventory_unique" ON "storage_inventory" ("tenant_id", "storage_location_id", "item_type", "item_id", COALESCE("lot_number", ''))`);
@@ -169,7 +172,8 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `);
-      await queryRunner.query(`CREATE INDEX "IDX_stock_movements_tenant" ON "stock_movements" ("tenant_id")`);
+      // REMOVED: redundant — covered by composite index with tenant_id as leading column
+      // await queryRunner.query(`CREATE INDEX "IDX_stock_movements_tenant" ON "stock_movements" ("tenant_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_stock_movements_item" ON "stock_movements" ("item_type", "item_id")`);
       await queryRunner.query(`CREATE INDEX "IDX_stock_movements_type" ON "stock_movements" ("tenant_id", "movement_type")`);
       await queryRunner.query(`CREATE INDEX "IDX_stock_movements_performed_at" ON "stock_movements" ("performed_at")`);

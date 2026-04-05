@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationLogger } from '@aquaculture/backend-common';
 
 /**
  * Creates all messaging tables in the current schema context.
@@ -16,6 +17,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * go through migrations. See ADR-012 section 4.2.
  */
 export class CreateMessagingTables1711800000000 implements MigrationInterface {
+  private readonly logger = new MigrationLogger('CreateMessagingTables1711800000000');
   name = 'CreateMessagingTables1711800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

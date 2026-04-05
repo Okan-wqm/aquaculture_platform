@@ -84,12 +84,12 @@ export class SchemaController {
   }
 
   @Get(':tenantId')
-  async getSchema(@Param('tenantId') tenantId: string) {
+  async getSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.getSchemaByTenantId(tenantId);
   }
 
   @Get(':tenantId/info')
-  async getSchemaInfo(@Param('tenantId') tenantId: string) {
+  async getSchemaInfo(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.getSchemaInfo(tenantId);
   }
 
@@ -108,12 +108,12 @@ export class SchemaController {
   }
 
   @Post(':tenantId/suspend')
-  async suspendSchema(@Param('tenantId') tenantId: string) {
+  async suspendSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.suspendSchema(tenantId);
   }
 
   @Post(':tenantId/activate')
-  async activateSchema(@Param('tenantId') tenantId: string) {
+  async activateSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.activateSchema(tenantId);
   }
 
@@ -134,12 +134,12 @@ export class SchemaController {
   // ============================================================================
 
   @Get(':tenantId/validate')
-  async validateSchemaIsolation(@Param('tenantId') tenantId: string) {
+  async validateSchemaIsolation(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.validateSchemaIsolation(tenantId);
   }
 
   @Post(':tenantId/refresh-stats')
-  async refreshSchemaStats(@Param('tenantId') tenantId: string) {
+  async refreshSchemaStats(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.updateSchemaStats(tenantId);
   }
 

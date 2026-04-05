@@ -9,7 +9,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
@@ -198,6 +198,17 @@ import { TenantModule } from './modules/tenant/tenant.module';
           },
         };
       },
+    }),
+
+    // Redis — WebAuthn challenge store, session management, token blacklist.
+    // @Optional() in consumers: graceful in-memory fallback when Redis unavailable.
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
+        keyPrefix: 'auth:',
+      }),
     }),
 
     // Event Bus

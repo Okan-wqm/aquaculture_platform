@@ -2,10 +2,12 @@ import * as crypto from 'crypto';
 
 import {
   Injectable,
+  Optional,
   UnauthorizedException,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { RedisService } from '@aquaculture/backend-common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -48,7 +50,9 @@ export class WebAuthnService {
   private readonly logger = new Logger(WebAuthnService.name);
   private readonly rpId: string;
   private readonly rpName: string;
-  private readonly challenges = new Map<string, StoredChallenge>();
+  /** In-memory fallback when Redis unavailable */
+  private readonly localChallenges = new Map<string, StoredChallenge>();
+  private readonly useRedis: boolean;
 
   constructor(
     @InjectRepository(WebAuthnCredential)
@@ -58,13 +62,16 @@ export class WebAuthnService {
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
+    @Optional() private readonly redisService?: RedisService,
   ) {
     // RP ID is the domain without protocol or port
     this.rpId = this.configService.get<string>('WEBAUTHN_RP_ID', 'localhost');
     this.rpName = this.configService.get<string>('WEBAUTHN_RP_NAME', 'AquaCulture Platform');
-
-    // Periodically clean expired challenges (every 60s)
-    setInterval(() => this.cleanExpiredChallenges(), 60_000);
+    this.useRedis = !!this.redisService;
+    if (!this.useRedis) {
+      this.logger.warn('WebAuthn challenge store: in-memory only (no Redis). Not distributed.');
+      setInterval(() => this.cleanExpiredChallenges(), 60_000);
+    }
   }
 
   // ==========================================================================
@@ -97,7 +104,7 @@ export class WebAuthnService {
     const challenge = crypto.randomBytes(32).toString('base64url');
 
     // Store challenge for verification
-    this.challenges.set(challenge, {
+    await this.storeChallenge(challenge, {
       challenge,
       userId,
       type: 'registration',
@@ -130,7 +137,7 @@ export class WebAuthnService {
     input: WebAuthnRegisterCredentialInput,
   ): Promise<WebAuthnRegisterResponse> {
     // Verify challenge
-    const storedChallenge = this.challenges.get(input.challenge);
+    const storedChallenge = await this.getChallenge(input.challenge);
     if (!storedChallenge) {
       throw new BadRequestException('Invalid or expired challenge');
     }
@@ -144,12 +151,12 @@ export class WebAuthnService {
     }
 
     if (Date.now() - storedChallenge.createdAt > CHALLENGE_TTL_MS) {
-      this.challenges.delete(input.challenge);
+      await this.deleteChallenge(input.challenge);
       throw new BadRequestException('Challenge expired');
     }
 
     // Single-use: delete challenge immediately
-    this.challenges.delete(input.challenge);
+    await this.deleteChallenge(input.challenge);
 
     // Validate clientDataJSON
     try {
@@ -251,7 +258,7 @@ export class WebAuthnService {
     const challenge = crypto.randomBytes(32).toString('base64url');
 
     // Store challenge
-    this.challenges.set(challenge, {
+    await this.storeChallenge(challenge, {
       challenge,
       userId: user.id,
       type: 'authentication',
@@ -280,7 +287,7 @@ export class WebAuthnService {
     userAgent?: string,
   ): Promise<AuthPayload> {
     // Verify challenge
-    const storedChallenge = this.challenges.get(input.challenge);
+    const storedChallenge = await this.getChallenge(input.challenge);
     if (!storedChallenge) {
       throw new UnauthorizedException('Invalid or expired challenge');
     }
@@ -290,12 +297,12 @@ export class WebAuthnService {
     }
 
     if (Date.now() - storedChallenge.createdAt > CHALLENGE_TTL_MS) {
-      this.challenges.delete(input.challenge);
+      await this.deleteChallenge(input.challenge);
       throw new UnauthorizedException('Challenge expired');
     }
 
     // Single-use
-    this.challenges.delete(input.challenge);
+    await this.deleteChallenge(input.challenge);
 
     // Find credential
     const credential = await this.credentialRepository.findOne({
@@ -559,12 +566,40 @@ export class WebAuthnService {
   /**
    * Remove expired challenges from memory.
    */
+
+  // ── Challenge store (Redis-backed with in-memory fallback) ──────────
+  private challengeKey(c: string): string { return `webauthn:challenge:${c}`; }
+
+  private async storeChallenge(challenge: string, data: StoredChallenge): Promise<void> {
+    if (this.useRedis) {
+      await this.redisService!.set(this.challengeKey(challenge), JSON.stringify(data), 300);
+    } else {
+      this.localChallenges.set(challenge, data);
+    }
+  }
+
+  private async getChallenge(challenge: string): Promise<StoredChallenge | null> {
+    if (this.useRedis) {
+      const raw = await this.redisService!.get(this.challengeKey(challenge));
+      return raw ? JSON.parse(raw) as StoredChallenge : null;
+    }
+    return this.localChallenges.get(challenge) ?? null;
+  }
+
+  private async deleteChallenge(challenge: string): Promise<void> {
+    if (this.useRedis) {
+      await this.redisService!.del(this.challengeKey(challenge));
+    } else {
+      this.localChallenges.delete(challenge);
+    }
+  }
+
   private cleanExpiredChallenges(): void {
     const now = Date.now();
     let cleaned = 0;
-    for (const [key, value] of this.challenges.entries()) {
+    for (const [key, value] of this.localChallenges.entries()) {
       if (now - value.createdAt > CHALLENGE_TTL_MS) {
-        this.challenges.delete(key);
+        this.localChallenges.delete(key);
         cleaned++;
       }
     }

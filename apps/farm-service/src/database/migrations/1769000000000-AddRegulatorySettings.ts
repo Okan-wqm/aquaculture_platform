@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { assertSafeSchemaName } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Regulatory Settings Table
@@ -92,6 +93,7 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
     console.log(`Found ${tenantSchemas.length} tenant schemas to update`);
 
     for (const { schema_name } of tenantSchemas) {
+      assertSafeSchemaName(schema_name); // defense-in-depth before SQL interpolation
       const tenantTableExists = await this.tableExistsInSchema(
         queryRunner,
         schema_name,
@@ -127,6 +129,7 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
     console.log(`Found ${tenantSchemas.length} tenant schemas to rollback`);
 
     for (const { schema_name } of tenantSchemas) {
+      assertSafeSchemaName(schema_name); // defense-in-depth before SQL interpolation
       await queryRunner.query(`
         DROP TABLE IF EXISTS "${schema_name}"."regulatory_settings"
       `);

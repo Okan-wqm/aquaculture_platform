@@ -13,6 +13,11 @@ on:
   pull_request:
     branches: [main, develop]
 
+# SEC-CI-021: Minimum token permissions — prevents compromised actions from
+# pushing commits, creating releases, or modifying repository settings.
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '22'
 

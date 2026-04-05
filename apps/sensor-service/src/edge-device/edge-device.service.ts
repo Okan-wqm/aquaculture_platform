@@ -14,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { createStandardPaginatedResult, IStandardPaginatedResult, getTenantSchemaName } from '@aquaculture/backend-common';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
@@ -2376,10 +2376,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
   }
 
   // ==================== Tenant Schema Helpers ====================
+  // getTenantSchemaFromId() consolidated into backend-common getTenantSchemaName().
+  // Using the shared util eliminates drift between edge-device.service.ts,
+  // provisioning.service.ts, and SchemaManagerService.
 
   private getTenantSchemaFromId(tenantId: string): string {
-    const hex = tenantId.replace(/-/g, '').toLowerCase().substring(0, 16);
-    return `tenant_${hex}`;
+    return getTenantSchemaName(tenantId);
   }
 
   private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {

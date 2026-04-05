@@ -27,6 +27,24 @@ export function isValidSchemaName(name: string): boolean {
 }
 
 /**
+ * Assert that a schema name is safe for SQL interpolation — throws on failure.
+ *
+ * Use this in migrations that interpolate schema names from information_schema
+ * into SQL templates. Although information_schema.schemata is a trusted source,
+ * defense-in-depth requires validation before any SQL identifier interpolation.
+ *
+ * @throws Error if the schema name contains unsafe characters or is too long.
+ */
+export function assertSafeSchemaName(name: string): void {
+  if (!SCHEMA_NAME_REGEX.test(name) || name.length > 63) {
+    throw new Error(
+      `SECURITY: Unsafe schema name '${name}' rejected before SQL interpolation. ` +
+      'Schema names must match ^[a-z0-9_]+$ and be ≤63 chars.',
+    );
+  }
+}
+
+/**
  * Derive the PostgreSQL schema name from a tenant UUID.
  *
  * Format: tenant_{first16_hex_chars_of_uuid_without_dashes}

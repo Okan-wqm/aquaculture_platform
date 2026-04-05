@@ -1,5 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { assertSafeSchemaName } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add feeder_calibrations table
@@ -53,6 +54,7 @@ export class AddFeederCalibrations1774000000000 implements MigrationInterface {
       `);
 
       for (const { schema_name } of tenantSchemas) {
+        assertSafeSchemaName(schema_name); // defense-in-depth before SQL interpolation
         try {
           await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "${schema_name}"."feeder_calibrations"
@@ -76,6 +78,7 @@ export class AddFeederCalibrations1774000000000 implements MigrationInterface {
         WHERE schema_name LIKE 'tenant_%'
       `);
       for (const { schema_name } of tenantSchemas) {
+        assertSafeSchemaName(schema_name); // defense-in-depth before SQL interpolation
         await queryRunner.query(`DROP TABLE IF EXISTS "${schema_name}"."feeder_calibrations" CASCADE`);
       }
     } catch (err) {

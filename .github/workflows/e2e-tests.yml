@@ -1,5 +1,9 @@
 name: E2E Tests
 
+# SEC-CI-021: Minimum token permissions
+permissions:
+  contents: read
+
 on:
   workflow_run:
     workflows: ["CD - Production", "CD - Staging", "Deploy to DigitalOcean"]

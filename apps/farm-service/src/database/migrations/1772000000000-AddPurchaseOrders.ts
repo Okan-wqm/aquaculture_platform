@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { assertSafeSchemaName } from '@aquaculture/backend-common';
 
 export class AddPurchaseOrders1772000000000 implements MigrationInterface {
   name = 'AddPurchaseOrders1772000000000';
@@ -106,7 +107,8 @@ export class AddPurchaseOrders1772000000000 implements MigrationInterface {
     `);
 
     for (const row of tenantSchemas) {
-      const schema = row.schema_name;
+      const schema = row.schema_name as string;
+      assertSafeSchemaName(schema); // defense-in-depth before SQL interpolation
       try {
         await queryRunner.query(`SET search_path TO "${schema}", public`);
         await queryRunner.query(`DROP TABLE IF EXISTS "purchase_order_items"`);

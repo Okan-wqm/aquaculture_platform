@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { getTenantSchemaName } from '@aquaculture/backend-common';
 
 import {
   Injectable,
@@ -717,13 +718,11 @@ export class ProvisioningService {
   // ============================================
 
   /**
-   * Derive tenant schema name from tenantId UUID.
-   * Formula: 'tenant_' + first 16 hex chars of UUID (dashes removed).
-   * Matches SchemaManagerService.getTenantSchemaName().
+   * Delegate to the canonical backend-common implementation.
+   * Duplicate removed — single source of truth in getTenantSchemaName().
    */
   private getTenantSchemaFromId(tenantId: string): string {
-    const hex = tenantId.replace(/-/g, '').toLowerCase().substring(0, 16);
-    return `tenant_${hex}`;
+    return getTenantSchemaName(tenantId);
   }
 
   // ============================================

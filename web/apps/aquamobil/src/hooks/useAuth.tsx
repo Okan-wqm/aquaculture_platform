@@ -281,6 +281,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Fire-and-forget — UI resets immediately, cleanup runs async.
     clearAllUserData(currentUserId).catch(() => {});
 
+    // C-FE-01: Notify service worker to clear messaging caches (messaging-graphql-v1,
+    // messaging-media-v1). Without this, authenticated GraphQL responses remain in
+    // Cache Storage and are visible to the next user on shared devices.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.active?.postMessage({ type: 'LOGOUT' }))
+        .catch(() => {});
+    }
+
     setState({
       user: null,
       accessToken: null,

@@ -6,7 +6,9 @@ import {
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { createBaseEvent } from '@platform/event-contracts';
+import type { EmployeeRotationStartedEvent } from '@platform/event-contracts';
 import { DataSource, QueryRunner } from 'typeorm';
 import { StartRotationCommand } from '../commands/start-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
@@ -17,7 +19,10 @@ import { Employee, PersonnelCategory } from '../../hr/entities/employee.entity';
 export class StartRotationHandler implements ICommandHandler<StartRotationCommand, WorkRotation> {
   private readonly logger = new Logger(StartRotationHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly eventBus: EventBus,
+  ) {}
 
   async execute(command: StartRotationCommand): Promise<WorkRotation> {
     const { tenantId, rotationId, userId, actualStartDate } = command;
@@ -89,6 +94,22 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
       this.logger.log(
         `Rotation started: ${saved.id} for tenant ${tenantId} by user ${userId}`,
       );
+
+      // Publish after commit — downstream consumers (notifications, vessel staffing)
+      try {
+        const event: EmployeeRotationStartedEvent = {
+          ...createBaseEvent<EmployeeRotationStartedEvent>('EmployeeRotationStarted', tenantId, { userId }),
+          aggregateId: saved.id,
+          aggregateType: 'WorkRotation',
+          eventType: 'EmployeeRotationStarted' as const,
+          rotationId: saved.id,
+          employeeId: saved.employeeId,
+          rotationType: saved.rotationType ?? 'STANDARD',
+        };
+        this.eventBus.publish(event);
+      } catch (eventError) {
+        this.logger.error(`Failed to publish EmployeeRotationStartedEvent for ${saved.id}: ${(eventError as Error).message}`);
+      }
 
       return saved;
     } catch (error) {

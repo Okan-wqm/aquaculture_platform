@@ -4,6 +4,8 @@ import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { WorkArea, WorkAreaType } from './entities/work-area.entity';
 import { WorkRotation, RotationStatus } from './entities/work-rotation.entity';
 import { SafetyTrainingRecord } from './entities/safety-training-record.entity';
@@ -62,6 +64,8 @@ export class AquacultureResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Employee)
+    private readonly employeeRepository: Repository<Employee>,
   ) {}
 
   private getTenantId(context: GraphQLContext): string {
@@ -146,8 +150,20 @@ export class AquacultureResolver {
   ): Promise<WorkRotation[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+
+    // IDOR fix: JWT sub is the auth-service UUID namespace, not the HR employeeId.
+    // Passing auth userId directly as employeeId cross-namespaces the lookup —
+    // always returns empty (auth UUIDs never match HR UUIDs). Resolve to HR employee.id.
+    const employee = await this.employeeRepository.findOne({
+      where: { userId, tenantId },
+      select: ['id'],
+    });
+    if (!employee) {
+      return [];
+    }
+
     const result = await this.queryBus.execute(
-      new GetWorkRotationsQuery(tenantId, userId, undefined, status, undefined, undefined, limit, page),
+      new GetWorkRotationsQuery(tenantId, employee.id, undefined, status, undefined, undefined, limit, page),
     );
     return result.data;
   }

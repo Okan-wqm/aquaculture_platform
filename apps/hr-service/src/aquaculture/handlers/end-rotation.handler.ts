@@ -5,7 +5,9 @@ import {
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { createBaseEvent } from '@platform/event-contracts';
+import type { EmployeeRotationEndedEvent } from '@platform/event-contracts';
 import { DataSource, QueryRunner } from 'typeorm';
 import { EndRotationCommand } from '../commands/end-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
@@ -16,7 +18,10 @@ import { Employee } from '../../hr/entities/employee.entity';
 export class EndRotationHandler implements ICommandHandler<EndRotationCommand, WorkRotation> {
   private readonly logger = new Logger(EndRotationHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly eventBus: EventBus,
+  ) {}
 
   async execute(command: EndRotationCommand): Promise<WorkRotation> {
     const { tenantId, rotationId, userId, actualEndDate, notes } = command;
@@ -66,6 +71,20 @@ export class EndRotationHandler implements ICommandHandler<EndRotationCommand, W
       this.logger.log(
         `Rotation ended: ${saved.id} for tenant ${tenantId} by user ${userId}`,
       );
+
+      try {
+        const event: EmployeeRotationEndedEvent = {
+          ...createBaseEvent<EmployeeRotationEndedEvent>('EmployeeRotationEnded', tenantId, { userId }),
+          aggregateId: saved.id,
+          aggregateType: 'WorkRotation',
+          eventType: 'EmployeeRotationEnded' as const,
+          rotationId: saved.id,
+          employeeId: saved.employeeId,
+        };
+        this.eventBus.publish(event);
+      } catch (eventError) {
+        this.logger.error(`Failed to publish EmployeeRotationEndedEvent for ${saved.id}: ${(eventError as Error).message}`);
+      }
 
       return saved;
     } catch (error) {

@@ -7,6 +7,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   Column,
@@ -245,7 +246,9 @@ export class EdgeDevice {
   storageUsage?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'temperature_celsius', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  // DecimalTransformer: device temperature reported by the edge device for health monitoring.
+  // Temperature thresholds (overheating alerts) use numeric comparison; string comparison breaks them.
+  @Column({ name: 'temperature_celsius', type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   temperatureCelsius?: number;
 
   @Field(() => Int, { nullable: true })

@@ -6,6 +6,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   Column,
@@ -134,11 +135,11 @@ export class ProgramVariable {
 
   // Value constraints
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'min_value', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'min_value', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   minValue?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'max_value', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'max_value', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   maxValue?: number;
 
   @Field({ nullable: true })
@@ -147,19 +148,19 @@ export class ProgramVariable {
 
   // Alarm thresholds
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_hh', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_hh', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmHH?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_h', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_h', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmH?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_l', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_l', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmL?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_ll', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_ll', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmLL?: number;
 
   // Metadata

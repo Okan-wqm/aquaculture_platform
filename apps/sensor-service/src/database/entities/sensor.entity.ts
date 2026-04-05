@@ -5,6 +5,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   Column,
@@ -319,11 +320,11 @@ export class Sensor {
   calibrationEnabled?: boolean;
 
   @Field({ nullable: true })
-  @Column({ name: 'calibration_multiplier', type: 'decimal', precision: 10, scale: 6, nullable: true })
+  @Column({ name: 'calibration_multiplier', type: 'decimal', precision: 10, scale: 6, nullable: true , transformer: new DecimalTransformer() })
   calibrationMultiplier?: number;
 
   @Field({ nullable: true })
-  @Column({ name: 'calibration_offset', type: 'decimal', precision: 10, scale: 6, nullable: true })
+  @Column({ name: 'calibration_offset', type: 'decimal', precision: 10, scale: 6, nullable: true , transformer: new DecimalTransformer() })
   calibrationOffset?: number;
 
   @Field(() => GraphQLJSON, { nullable: true })

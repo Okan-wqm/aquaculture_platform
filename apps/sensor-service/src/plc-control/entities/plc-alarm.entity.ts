@@ -1,5 +1,6 @@
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -84,11 +85,11 @@ export class PlcAlarm {
   message!: string;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 4, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   value?: number; // Current value that triggered the alarm
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 4, nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   threshold?: number; // Threshold that was exceeded
 
   @Field({ nullable: true })

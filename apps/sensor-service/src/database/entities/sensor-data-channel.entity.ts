@@ -7,6 +7,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   Column,
@@ -173,7 +174,10 @@ export class DisplaySettings {
 @Entity('sensor_data_channels')
 @Index(['sensorId', 'isEnabled'])
 @Index(['tenantId', 'channelKey'])
-@Unique(['sensorId', 'channelKey'])
+// Unique constraint must include tenantId: without it, two tenants cannot have sensors
+// with the same channelKey (e.g., 'temperature'), causing false constraint violations in
+// multi-tenant deployments. tenantId scopes the uniqueness to each tenant's keyspace.
+@Unique(['tenantId', 'sensorId', 'channelKey'])
 export class SensorDataChannel {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -247,11 +251,14 @@ export class SensorDataChannel {
   // === Validation Range ===
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 6, nullable: true })
+  // DecimalTransformer: minValue is compared against live sensor readings to detect out-of-range values.
+  // String comparison ("1.5" < "10.0") uses lexicographic order and produces wrong results.
+  @Column({ type: 'decimal', precision: 15, scale: 6, nullable: true, transformer: new DecimalTransformer() })
   minValue?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 6, nullable: true })
+  // DecimalTransformer: maxValue upper bound for sensor alarm evaluation. Same issue as minValue.
+  @Column({ type: 'decimal', precision: 15, scale: 6, nullable: true, transformer: new DecimalTransformer() })
   maxValue?: number;
 
   // === Calibration Settings ===
@@ -261,11 +268,16 @@ export class SensorDataChannel {
   calibrationEnabled!: boolean;
 
   @Field(() => Float)
-  @Column({ name: 'calibration_multiplier', type: 'decimal', precision: 15, scale: 6, default: 1.0 })
+  // DecimalTransformer: calibrationMultiplier applied to every sensor reading as:
+  // correctedValue = rawValue * calibrationMultiplier + calibrationOffset
+  // String multiplication ("1.5" * rawValue) produces NaN, silently corrupting all calibrated data.
+  @Column({ name: 'calibration_multiplier', type: 'decimal', precision: 15, scale: 6, default: 1.0, transformer: new DecimalTransformer() })
   calibrationMultiplier!: number;
 
   @Field(() => Float)
-  @Column({ name: 'calibration_offset', type: 'decimal', precision: 15, scale: 6, default: 0.0 })
+  // DecimalTransformer: calibrationOffset is the additive correction in the calibration formula.
+  // Default 0.0 means no offset; arithmetic with string "0.0" still produces NaN.
+  @Column({ name: 'calibration_offset', type: 'decimal', precision: 15, scale: 6, default: 0.0, transformer: new DecimalTransformer() })
   calibrationOffset!: number;
 
   @Field({ nullable: true })

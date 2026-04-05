@@ -6,6 +6,7 @@ import {
   Float,
   registerEnumType,
 } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   Column,
@@ -102,19 +103,19 @@ export class DeviceIoConfig {
 
   // Scaling (for analog I/O)
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'raw_min', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'raw_min', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   rawMin?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'raw_max', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'raw_max', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   rawMax?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'eng_min', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'eng_min', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   engMin?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'eng_max', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'eng_max', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   engMax?: number;
 
   @Field({ nullable: true })
@@ -179,23 +180,23 @@ export class DeviceIoConfig {
 
   // Alarm Thresholds (for analog)
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_hh', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_hh', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmHH?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_h', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_h', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmH?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_l', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_l', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmL?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_ll', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ name: 'alarm_ll', type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   alarmLL?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 4, nullable: true })
+  @Column({ type: 'decimal', precision: 15, scale: 4, nullable: true , transformer: new DecimalTransformer() })
   deadband?: number;
 
   // Status

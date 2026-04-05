@@ -1,5 +1,6 @@
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -133,15 +134,21 @@ export class FeedingParameter {
 
   // Core feeding parameters
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  // DecimalTransformer: biomassKg is used to compute targetDailyFeedKg = biomassKg * feedingRate.
+  // String multiplication produces NaN, disabling automated feeding dosage calculation.
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   biomassKg!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 3 })
+  // DecimalTransformer: FCR (Feed Conversion Ratio) = totalFeedConsumed / weightGain.
+  // Stored as a 3-decimal-place ratio (e.g., 1.250). String division produces NaN.
+  @Column({ type: 'decimal', precision: 5, scale: 3, transformer: new DecimalTransformer() })
   fcr!: number; // Feed Conversion Ratio
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  // DecimalTransformer: targetDailyFeedKg drives PLC feeding commands.
+  // If this reads as string, the PLC controller receives "NaN" instead of a kg amount.
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   targetDailyFeedKg!: number;
 
   // Feeding schedule - stored as JSON

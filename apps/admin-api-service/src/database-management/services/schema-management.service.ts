@@ -180,15 +180,18 @@ export class SchemaManagementService {
         )
       `);
 
-      // Insert initial metadata
-      await queryRunner.query(`
-        INSERT INTO "${schemaName}"."_metadata" (key, value)
-        VALUES
-          ('schema_version', '"1.0.0"'),
-          ('created_at', '"${new Date().toISOString()}"'),
-          ('last_migration', 'null')
-        ON CONFLICT (key) DO NOTHING
-      `);
+      // Insert initial metadata — parameterized to prevent interpolation pattern drift.
+      // new Date().toISOString() is safe today, but this pattern invites future
+      // tenant-supplied data to be interpolated the same way.
+      await queryRunner.query(
+        `INSERT INTO "${schemaName}"."_metadata" (key, value)
+         VALUES
+           ('schema_version', $1),
+           ('created_at', $2),
+           ('last_migration', $3)
+         ON CONFLICT (key) DO NOTHING`,
+        ['"1.0.0"', `"${new Date().toISOString()}"`, 'null'],
+      );
     } finally {
       await queryRunner.release();
     }

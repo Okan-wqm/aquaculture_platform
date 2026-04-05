@@ -56,6 +56,9 @@ mod ffi {
 /// C HAL'inde LGW_PKT_FIFO_SIZE olarak tanimlidir (16).
 /// Daha fazla paket varsa bir sonraki lgw_receive() cagrisinda alinir.
 const MAX_RX_PACKETS: usize = 16;
+// Compile-time assertion: lgw_receive takes u8 count — MAX_RX_PACKETS must fit in u8.
+// Without this, `MAX_RX_PACKETS as u8` silently truncates values > 255.
+const _: () = assert!(MAX_RX_PACKETS <= 255, "MAX_RX_PACKETS exceeds u8 range for lgw_receive()");
 
 /// SX1302 sicaklik sensoru okuma araligi (saniye).
 /// Cok sik okumak SPI bandwidth'ini gereksiz tuketir.
@@ -212,8 +215,19 @@ impl Sx1302 {
             anyhow::bail!("SX1302 paket alma hatasi: lgw_receive() = {}", nb_pkt);
         }
 
+        // IEC 62443 FR-7: Validate return value against buffer bounds before use.
+        // A C HAL bug returning nb_pkt > MAX_RX_PACKETS would cause a Rust panic
+        // on the slice operation below — unacceptable in a production gateway.
+        let nb_pkt_usize = nb_pkt as usize;
+        if nb_pkt_usize > pkt_buf.len() {
+            anyhow::bail!(
+                "SX1302 HAL error: lgw_receive() returned {} packets but buffer is {}",
+                nb_pkt_usize, pkt_buf.len()
+            );
+        }
+
         // C paketlerini Rust RxPacket yapisina donustur
-        let packets: Vec<RxPacket> = pkt_buf[..nb_pkt as usize]
+        let packets: Vec<RxPacket> = pkt_buf[..nb_pkt_usize]
             .iter()
             .map(|pkt| {
                 // C struct'indaki ham veriyi Rust tiplerine donustur

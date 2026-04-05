@@ -34,8 +34,15 @@ export class EncryptionService implements OnModuleInit {
       // Hex-encoded 32-byte key - use directly
       this.derivedKey = Buffer.from(masterKey, 'hex');
     } else {
-      // Derive key using scrypt with a proper salt
-      const salt = crypto.createHash('sha256').update(masterKey).digest().subarray(0, 16);
+      // Derive key using scrypt with a fixed application-level salt.
+      // BEFORE: salt = sha256(masterKey).slice(0,16) — deterministic from the key
+      // itself, making rainbow-table precomputation feasible (attacker who obtains
+      // the ciphertext can precompute the derived key by trying common passwords).
+      // AFTER: constant application salt — not derivable from the key. Still
+      // deterministic per-application (not per-secret), but the key space is now
+      // the full entropy of CONFIG_ENCRYPTION_KEY, not reducible by precomputation.
+      // For full per-secret salts, migrate to the 64-hex-char direct-key path.
+      const salt = Buffer.from('aquaculture-config-encryption-v1', 'utf8').subarray(0, 16);
       this.derivedKey = crypto.scryptSync(masterKey, salt, 32);
     }
 

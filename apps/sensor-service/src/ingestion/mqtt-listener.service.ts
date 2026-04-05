@@ -16,6 +16,7 @@ import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from '../edge-device/entities/device-event.entity';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
+import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
@@ -131,7 +132,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
 
   // Cache for device lookups (tenantId:deviceCode -> device entity)
-  private readonly deviceCache = new Map<string, { device: any; expiry: number }>();
+  private readonly deviceCache = new Map<string, { device: EdgeDevice; expiry: number }>();
   // Cache for io configs (deviceId -> ioConfigs[])
   private readonly ioConfigCache = new Map<string, { configs: DeviceIoConfig[]; expiry: number }>();
   private readonly DEVICE_CACHE_TTL_MS = 30_000; // 30 seconds
@@ -1044,7 +1045,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     await this.persistIoDataToMetrics(
       tenantId,
       deviceCode,
-      tags as Record<string, { value: any; quality: string }>,
+      tags as Record<string, { value: number | string | boolean; quality: string }>,
     );
   }
 
@@ -1057,7 +1058,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private async persistIoDataToMetrics(
     tenantId: string,
     deviceCode: string,
-    tags: Record<string, { value: any; quality: string }>,
+    tags: Record<string, { value: number | string | boolean; quality: string }>,
   ): Promise<void> {
     try {
       // Lookup device (cached)
@@ -1096,7 +1097,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           ? (tagData.value ? 1.0 : 0.0)
           : Number(tagData.value);
 
-        if (isNaN(numericValue)) continue;
+        // Reject NaN AND Infinity — Number("Infinity") passes isNaN() but
+        // corrupts TimescaleDB AVG/SUM continuous aggregates with Infinity values.
+        if (!Number.isFinite(numericValue)) continue;
 
         const qualityCode = qualityMap[tagData.quality] ?? 0;
 
@@ -1146,7 +1149,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get device from cache or fetch from DB.
    */
-  private async getCachedDevice(tenantId: string, deviceCode: string): Promise<any | null> {
+  private async getCachedDevice(tenantId: string, deviceCode: string): Promise<EdgeDevice | null> {
     const cacheKey = `${tenantId}:${deviceCode}`;
     const cached = this.deviceCache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
@@ -1720,7 +1723,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       // Convert to number
       const numericRawValue = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
-      if (isNaN(numericRawValue)) {
+      if (!Number.isFinite(numericRawValue)) {
         continue;
       }
 

@@ -1420,7 +1420,11 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
         if should_init {
             let lora_handle = {
                 let state_guard = state.read().await;
-                let lora_cfg = state_guard.config.lorawan.as_ref().unwrap();
+                let lora_cfg = state_guard.config.lorawan.as_ref()
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "LoRaWAN config was Some when should_init was computed but is now None — \
+                         concurrent config update between lock acquisitions"
+                    ))?;
                 crate::lora::LoRaHandle::new(lora_cfg, state.clone())
             };
 

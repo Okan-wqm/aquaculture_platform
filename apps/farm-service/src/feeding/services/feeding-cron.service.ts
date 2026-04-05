@@ -719,6 +719,14 @@ export class FeedingCronService {
       let totalDeleted = 0;
       const deletedByTenant: Record<string, number> = {};
 
+      // SEC: Use catalog-validated schema names from information_schema instead of
+      // constructing them from application-controlled tenantId strings.
+      // A tampered tenantId in the DB could redirect search_path to another tenant's
+      // schema, causing the DELETE to wipe their data. listTenantSchemas() queries
+      // information_schema.schemata which cannot be poisoned via application inputs.
+      const validatedSchemas = await listTenantSchemas(this.dataSource);
+      const validSchemaSet = new Set(validatedSchemas);
+
       // Process each tenant separately with proper schema context
       for (const row of tenantsWithOldData) {
         const tenantId = row.tenantId;
@@ -727,8 +735,13 @@ export class FeedingCronService {
         let iterations = 0;
         const maxIterations = 100;
 
-        // Use a dedicated queryRunner with proper search_path for tenant isolation
-        const schemaName = `tenant_${tenantId.replace(/-/g, '').substring(0, 16).toLowerCase()}`;
+        // Derive schema name and verify it against the catalog-validated set
+        const schemaName = `tenant_${(tenantId as string).replace(/-/g, '').substring(0, 16).toLowerCase()}`;
+        if (!validSchemaSet.has(schemaName)) {
+          this.logger.warn(`Skipping unknown schema '${schemaName}' for tenantId ${tenantId}`);
+          continue;
+        }
+
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
 

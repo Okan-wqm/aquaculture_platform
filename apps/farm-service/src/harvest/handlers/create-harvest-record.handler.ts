@@ -13,6 +13,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { createBaseEvent } from '@platform/event-contracts';
+import type { BatchHarvestedEvent } from '@platform/event-contracts';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { CreateHarvestRecordCommand, CreateHarvestRecordInput } from '../commands/create-harvest-record.command';
 import { HarvestRecord, HarvestRecordStatus, QualityGrade, HarvestOperation, LotInfo } from '../entities/harvest-record.entity';
@@ -28,6 +31,7 @@ import { Tank } from '../../tank/entities/tank.entity';
 export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvestRecordCommand, HarvestRecord> {
   constructor(
     private readonly dataSource: DataSource,
+    private readonly eventPublisher: DomainEventPublisher,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
     @InjectRepository(Batch)
@@ -98,9 +102,11 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       // Biomass hesapla
       const biomassKg = input.totalBiomass || (input.quantityHarvested * input.averageWeight) / 1000;
 
-      // Record code ve lot number oluştur (inside transaction to prevent duplicate codes)
-      const recordCode = await this.generateCode(tenantId, 'HR');
-      const lotNumber = await this.generateCode(tenantId, 'LOT');
+      // Record code ve lot number oluştur — pass queryRunner.manager so the
+      // pessimistic_read lock runs inside this transaction, preventing concurrent
+      // inserts from allocating the same sequence (duplicate lot number = regulatory violation).
+      const recordCode = await this.generateCode(tenantId, 'HR', queryRunner.manager);
+      const lotNumber = await this.generateCode(tenantId, 'LOT', queryRunner.manager);
 
       // Operation detaylarını oluştur
       const operation: HarvestOperation = {
@@ -235,6 +241,23 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       // Commit transaction
       await queryRunner.commitTransaction();
 
+      // Publish BatchHarvestedEvent after commit (farm-events.ts line 61)
+      await this.eventPublisher.publish(
+        {
+          ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', tenantId, {}),
+          aggregateId: harvestRecord.batchId,
+          aggregateType: 'Batch',
+          eventType: 'BatchHarvested' as const,
+          batchId: harvestRecord.batchId,
+          harvestRecordId: harvestRecord.id,
+          lotNumber: harvestRecord.lotNumber,
+          totalQuantity: harvestRecord.quantityHarvested,
+          totalBiomassKg: harvestRecord.totalBiomass,
+          version: 1,
+        },
+        { handler: CreateHarvestRecordHandler.name, tenantId, aggregateId: harvestRecord.batchId },
+      );
+
       // Return the created harvest record so clients get harvest-specific fields
       return harvestRecord;
     } catch (error) {
@@ -250,17 +273,31 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
   /**
    * Code oluşturma (HR-2024-00001 veya LOT-2024-00001 formatında)
    */
-  private async generateCode(tenantId: string, prefix: string): Promise<string> {
+  /**
+   * Generate unique sequential code inside an existing transaction.
+   *
+   * @param manager - QueryRunner's EntityManager (must be inside an open TX with
+   *   pessimistic_read or pessimistic_write lock on the table to prevent duplicate
+   *   sequence allocation under concurrent inserts).
+   */
+  private async generateCode(
+    tenantId: string,
+    prefix: string,
+    manager: import('typeorm').EntityManager,
+  ): Promise<string> {
     const year = new Date().getFullYear();
 
-    // En son kaydı bul
-    const lastRecord = await this.harvestRepository
-      .createQueryBuilder('hr')
+    // Use the transaction-scoped manager + setLock to prevent concurrent requests
+    // from reading the same last-sequence value and producing duplicate lot/record codes.
+    // Regulatory compliance: duplicate lot numbers break product recall traceability.
+    const lastRecord = await manager
+      .createQueryBuilder(HarvestRecord, 'hr')
       .where('hr.tenantId = :tenantId', { tenantId })
       .andWhere(prefix === 'HR' ? 'hr.recordCode LIKE :pattern' : 'hr.lotNumber LIKE :pattern', {
         pattern: `${prefix}-${year}-%`
       })
       .orderBy(prefix === 'HR' ? 'hr.recordCode' : 'hr.lotNumber', 'DESC')
+      .setLock('pessimistic_read')
       .getOne();
 
     let sequence = 1;

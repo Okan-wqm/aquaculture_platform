@@ -3,6 +3,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
+// JwtModule added: PlatformAdminGuard now uses JwtService.verifyAsync() with
+// centralised getJwtVerifyOptions() instead of raw jwt.verify() (sync, no algorithm restriction).
+import { JwtModule } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
@@ -135,6 +138,18 @@ import { UsersModule } from './users/users.module';
     // SECURITY (NEW-03): forRoot() returns empty module when ENABLE_DEBUG_TOOLS != 'true'.
     // No controllers, providers, or entities are registered in the disabled state.
     DebugToolsModule.forRoot(),
+    // JwtModule: provides JwtService for PlatformAdminGuard async verification.
+    // BEFORE: guard used synchronous jwt.verify() without algorithm restriction.
+    // AFTER: guard uses JwtService.verifyAsync() via getJwtVerifyOptions() — async,
+    // non-blocking, and enforces HS256 algorithm + issuer + audience.
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow<string>('JWT_SECRET'),
+        signOptions: { algorithm: 'HS256' },
+      }),
+    }),
   ],
   providers: [
     {

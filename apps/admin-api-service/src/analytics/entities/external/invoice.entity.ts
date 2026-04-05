@@ -7,6 +7,7 @@
  */
 
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 export enum InvoiceStatus {
   DRAFT = 'draft',
@@ -38,16 +39,20 @@ export class InvoiceReadOnly {
   @Column({ type: 'enum', enum: InvoiceStatus, default: InvoiceStatus.DRAFT })
   status!: InvoiceStatus;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  // DecimalTransformer: read-only cross-service view of billing-service invoices.
+  // Even though this entity is never written via this service, TypeORM still returns
+  // decimal columns as strings on read. Analytics aggregation (SUM, AVG) done in
+  // application code must operate on numbers, not strings.
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   subtotal!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   total!: number;
 
-  @Column({ name: 'amount_paid', type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ name: 'amount_paid', type: 'decimal', precision: 12, scale: 2, default: 0, transformer: new DecimalTransformer() })
   amountPaid!: number;
 
-  @Column({ name: 'amount_due', type: 'decimal', precision: 12, scale: 2 })
+  @Column({ name: 'amount_due', type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   amountDue!: number;
 
   @Column({ default: 'USD' })

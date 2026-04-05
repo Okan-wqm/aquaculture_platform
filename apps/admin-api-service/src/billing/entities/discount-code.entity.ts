@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 /**
  * Discount type
@@ -60,7 +61,10 @@ export class DiscountCode {
   @Column({ type: 'enum', enum: DiscountType })
   discountType!: DiscountType;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  // DecimalTransformer: discountValue is either a percentage (10.5) or fixed amount (50.00).
+  // Applied as: discountAmount = price * (discountValue / 100) or price - discountValue.
+  // String division / multiplication produces NaN, breaking all discount calculations.
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   discountValue!: number; // percent or fixed amount
 
   @Column({ type: 'enum', enum: DiscountAppliesTo, default: DiscountAppliesTo.ALL_PLANS })
@@ -93,7 +97,9 @@ export class DiscountCode {
   @Column({ type: 'int', nullable: true })
   maxRedemptionsPerTenant?: number; // max uses per tenant
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  // DecimalTransformer: minimumOrderAmount is compared against subscription price to gate eligibility.
+  // String comparison ("100.00" >= price) uses lexicographic order — "9.00" > "100.00" is true as string.
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   minimumOrderAmount?: number; // minimum subscription value to apply
 
   @Column({ nullable: true })
@@ -153,7 +159,9 @@ export class DiscountRedemption {
   @Column({ nullable: true })
   invoiceId?: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  // DecimalTransformer: discountAmount records the actual monetary discount applied per redemption.
+  // Used in analytics (total savings per campaign). String sum produces concatenation.
+  @Column({ type: 'decimal', precision: 10, scale: 2, transformer: new DecimalTransformer() })
   discountAmount!: number;
 
   @Column()

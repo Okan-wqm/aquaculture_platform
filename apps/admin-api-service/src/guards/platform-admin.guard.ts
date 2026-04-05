@@ -1,5 +1,3 @@
-import { randomBytes } from 'crypto';
-
 import {
   Injectable,
   CanActivate,
@@ -10,9 +8,16 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import * as jwt from 'jsonwebtoken';
+import { JwtService } from '@nestjs/jwt';
 
-import { JWT_SECURITY_CONSTANTS } from '@aquaculture/backend-common';
+// getJwtVerifyOptions: centralised JWT verification options (HS256, issuer, audience).
+// BEFORE: guard used `import * as jwt from 'jsonwebtoken'` with jwt.verify() —
+// synchronous (blocks event loop), no algorithm restriction, no issuer/audience check.
+// AFTER: guard uses JwtService.verifyAsync() with getJwtVerifyOptions() — async,
+// algorithm-restricted to HS256, issuer + audience enforced at library level.
+// jsonwebtoken still imported for error type-checking in the catch block.
+import * as jwt from 'jsonwebtoken';
+import { JWT_SECURITY_CONSTANTS, getJwtVerifyOptions } from '@aquaculture/backend-common';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**
@@ -41,49 +46,23 @@ const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'PLATFORM_ADMIN', 'super_admin', 'pl
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
   private readonly logger = new Logger(PlatformAdminGuard.name);
-  private readonly jwtSecret: string;
 
   constructor(
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
+    // JwtService injected for async, algorithm-restricted JWT verification.
+    // BEFORE: guard stored this.jwtSecret and called synchronous jwt.verify() directly.
+    // Synchronous verification blocks the Node.js event loop during crypto operations.
+    // The raw jsonwebtoken library also accepted any algorithm unless restricted.
+    private readonly jwtService: JwtService,
   ) {
-    // SECURITY: JWT_SECRET MUST be provided via environment variable
+    // Validate JWT_SECRET length at startup (SEC-L05).
+    // getOrThrow() inside getJwtVerifyOptions() handles the missing-secret case.
     const secret = this.configService.get<string>('JWT_SECRET');
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-    const isProduction = nodeEnv === 'production';
-
-    // CRITICAL: Always require JWT_SECRET in production
-    if (!secret && isProduction) {
+    if (secret && secret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
       throw new Error(
-        'CRITICAL SECURITY ERROR: JWT_SECRET environment variable MUST be set in production. ' +
-        'Application startup aborted to prevent security vulnerability.',
+        `JWT_SECRET must be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
       );
-    }
-
-    // In non-production, require explicit acknowledgment of dev mode
-    if (!secret) {
-      const allowDevSecret = this.configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false');
-      if (allowDevSecret !== 'true') {
-        throw new Error(
-          'JWT_SECRET is not configured. For development, set ALLOW_DEV_JWT_SECRET=true ' +
-          'to use auto-generated development secret. NEVER use this in production!',
-        );
-      }
-      // SECURITY: Generate cryptographically secure dev secret (not predictable)
-      // Using crypto.randomBytes instead of Math.random for better security
-      this.jwtSecret = `dev-${randomBytes(32).toString('hex')}`;
-      this.logger.warn(
-        'Using auto-generated development JWT secret. This is NOT secure for production use.',
-      );
-    } else {
-      /** SEC-L05: Use shared JWT_SECRET_MIN_LENGTH from backend-common to prevent
-       *  divergence between auth-service, gateway-api, and admin-api-service. */
-      if (secret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
-        throw new Error(
-          `JWT_SECRET must be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
-        );
-      }
-      this.jwtSecret = secret;
     }
   }
 
@@ -118,7 +97,13 @@ export class PlatformAdminGuard implements CanActivate {
     }
 
     try {
-      const payload = jwt.verify(token, this.jwtSecret) as JwtPayload;
+      // BEFORE: jwt.verify() — synchronous, no algorithm restriction, no iss/aud validation.
+      // AFTER: JwtService.verifyAsync() with getJwtVerifyOptions() — async (non-blocking),
+      // HS256 algorithm enforced, issuer and audience validated at jsonwebtoken library level.
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
 
       // Normalize user roles - tekil role varsa array'e çevir
       const userRoles = payload.roles || (payload.role ? [payload.role] : []);

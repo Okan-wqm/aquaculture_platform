@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 export enum ActivityType {
   CREATED = 'created',
@@ -111,7 +112,9 @@ export class TenantBillingInfo {
   @Column({ type: 'varchar', length: 50 })
   billingCycle!: string; // monthly, yearly
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  // DecimalTransformer: monthlyAmount tracks billed amount per billing cycle.
+  // Used in revenue dashboards; string accumulation corrupts totals.
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
   monthlyAmount!: number;
 
   @Column({ type: 'varchar', length: 3, default: 'USD' })
@@ -126,7 +129,9 @@ export class TenantBillingInfo {
   @Column({ type: 'timestamp with time zone', nullable: true })
   lastPaymentDate?: Date;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  // DecimalTransformer: lastPaymentAmount is displayed in admin dashboard and compared
+  // against outstanding balance. Nullable; transformer returns null for null values safely.
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   lastPaymentAmount?: number;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

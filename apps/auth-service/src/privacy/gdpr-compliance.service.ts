@@ -34,6 +34,10 @@ export interface GdprAuthExport {
   lastLoginAt: Date | null;
   activeRefreshTokenCount: number;
   role: string;
+  /** M-GDPR-02: MFA registration status (not the secrets, just that it's registered) */
+  webAuthnCredentialCount: number;
+  /** M-GDPR-02: Account status */
+  isActive: boolean;
 }
 
 @Injectable()
@@ -147,6 +151,17 @@ export class GdprComplianceService {
       where: { userId, isRevoked: false },
     });
 
+    // M-GDPR-02: Include MFA status in export (GDPR Article 15 completeness)
+    const webAuthnCredentialCount = await this.webAuthnService
+      .hasCredentials?.((user as unknown as { id: string }).id)
+      .catch(() => false) ? 1 : 0;
+
+    // Count actual credentials for the export
+    const credCount = await this.webAuthnService.credentialRepository
+      ? await (this.webAuthnService as unknown as { credentialRepository: { count: (opts: unknown) => Promise<number> } })
+          .credentialRepository.count({ where: { userId } }).catch(() => 0)
+      : 0;
+
     return {
       userId: user.id,
       email: user.email,
@@ -154,6 +169,8 @@ export class GdprComplianceService {
       lastLoginAt: (user as unknown as { lastLoginAt?: Date }).lastLoginAt ?? null,
       activeRefreshTokenCount,
       role: user.role,
+      webAuthnCredentialCount: credCount,
+      isActive: (user as unknown as { isActive?: boolean }).isActive ?? true,
     };
   }
 }

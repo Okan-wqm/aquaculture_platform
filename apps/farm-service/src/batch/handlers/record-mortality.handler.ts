@@ -10,12 +10,12 @@
  *
  * @module Batch/Handlers
  */
-import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
 import { RecordMortalityCommand } from '../commands/record-mortality.command';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 import { Batch } from '../entities/batch.entity';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
@@ -28,6 +28,8 @@ import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
 export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCommand, Batch> {
+  private readonly logger = new Logger(RecordMortalityHandler.name);
+
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Batch)
@@ -44,8 +46,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly tankRepository: Repository<Tank>,
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly eventPublisher: DomainEventPublisher,
   ) {}
 
   async execute(command: RecordMortalityCommand): Promise<Batch> {
@@ -202,28 +203,25 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       await queryRunner.release();
     }
 
-    // Publish domain event (after commit, outside transaction)
-    if (this.eventBus) {
-      try {
-        await this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          eventType: 'MortalityRecorded',
-          timestamp: new Date(),
-          tenantId,
-          batchId,
-          tankId: payload.tankId,
-          quantity: payload.quantity,
-          reason: payload.reason,
-          mortalityDate: payload.observedAt,
-          newTotalMortality: batch.totalMortality,
-          newMortalityRate: batch.getMortalityRate(),
-          userId: recordedBy,
-          version: 1,
-        });
-      } catch (eventError) {
-        // Log but don't fail for event publishing errors
-      }
-    }
+    // Publish domain event via DomainEventPublisher (after commit, outside transaction)
+    await this.eventPublisher.publish(
+      {
+        eventId: crypto.randomUUID(),
+        eventType: 'MortalityRecorded',
+        timestamp: new Date(),
+        tenantId,
+        batchId,
+        tankId: payload.tankId,
+        quantity: payload.quantity,
+        reason: payload.reason,
+        mortalityDate: payload.observedAt,
+        newTotalMortality: batch.totalMortality,
+        newMortalityRate: batch.getMortalityRate(),
+        userId: recordedBy,
+        version: 1,
+      },
+      { handler: RecordMortalityHandler.name, tenantId, aggregateId: batchId },
+    );
 
     // Return the updated batch (GraphQL expects Batch, not MortalityRecord)
     return batch;

@@ -6,22 +6,23 @@
  *
  * @module Batch/Handlers
  */
-import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 
 @Injectable()
 @CommandHandler(UpdateBatchStatusCommand)
 export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStatusCommand, Batch> {
+  private readonly logger = new Logger(UpdateBatchStatusHandler.name);
+
   constructor(
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly eventPublisher: DomainEventPublisher,
   ) {}
 
   async execute(command: UpdateBatchStatusCommand): Promise<Batch> {
@@ -76,25 +77,24 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
 
     const savedBatch = await this.batchRepository.save(batch);
 
-    // Publish domain event
-    if (this.eventBus) {
-      try {
-        await this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          eventType: 'BatchStatusChanged',
-          timestamp: new Date(),
-          tenantId,
-          batchId: savedBatch.id,
-          previousStatus,
-          newStatus,
-          reason,
-          userId: updatedBy,
-          version: 1,
-        });
-      } catch (eventError) {
-        // Log but don't fail for event publishing errors
-      }
-    }
+    this.logger.log(`Batch ${batchId} status: ${previousStatus} → ${newStatus}, tenant: ${tenantId}`);
+
+    // Publish domain event via DomainEventPublisher (handles errors with structured logging)
+    await this.eventPublisher.publish(
+      {
+        eventId: crypto.randomUUID(),
+        eventType: 'BatchStatusChanged',
+        timestamp: new Date(),
+        tenantId,
+        batchId: savedBatch.id,
+        previousStatus,
+        newStatus,
+        reason,
+        userId: updatedBy,
+        version: 1,
+      },
+      { handler: UpdateBatchStatusHandler.name, tenantId, aggregateId: batchId },
+    );
 
     return savedBatch;
   }

@@ -17,6 +17,7 @@ import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment, TankSpecifications, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 
 @Injectable()
 @CommandHandler(AllocateToTankCommand)
@@ -34,6 +35,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly eventPublisher: DomainEventPublisher,
   ) {}
 
   /**
@@ -219,6 +221,31 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       }
 
       await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Batch ${batchId} allocated to tank ${payload.tankId} — ` +
+        `qty=${payload.quantity}, type=${payload.allocationType}, tenant=${tenantId}`,
+      );
+
+      // Publish BatchAllocatedToTank event AFTER transaction commit
+      const biomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
+      await this.eventPublisher.publish(
+        {
+          eventId: crypto.randomUUID(),
+          eventType: 'BatchAllocatedToTank',
+          timestamp: new Date(),
+          tenantId,
+          batchId,
+          tankId: payload.tankId,
+          quantity: payload.quantity,
+          biomassKg,
+          allocationType: payload.allocationType,
+          userId: allocatedBy,
+          version: 1,
+        },
+        { handler: AllocateToTankHandler.name, tenantId, aggregateId: batchId },
+      );
+
       return savedAllocation;
     } catch (error) {
       await queryRunner.rollbackTransaction();

@@ -37,6 +37,8 @@ import { Feed } from '../feed/entities/feed.entity';
 import { BatchService } from './services/batch.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { DomainEventPublisher } from '../common/services/domain-event-publisher.service';
+import { BatchDocumentDataLoader } from './dataloaders/batch-document.dataloader';
 
 // Growth entities for calculators
 import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
@@ -80,6 +82,8 @@ import { BatchResolvers } from './resolvers';
     BatchService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    DomainEventPublisher,
+    BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,
@@ -89,6 +93,7 @@ import { BatchResolvers } from './resolvers';
     BatchService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    DomainEventPublisher,
   ],
 })
 export class BatchModule {}

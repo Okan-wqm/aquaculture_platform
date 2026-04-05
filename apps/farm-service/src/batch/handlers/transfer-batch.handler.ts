@@ -10,11 +10,11 @@
  *
  * @module Batch/Handlers
  */
-import { Injectable, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 import { TransferBatchCommand } from '../commands/transfer-batch.command';
 import { Batch } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
@@ -36,6 +36,8 @@ export interface TransferResult {
 @Injectable()
 @CommandHandler(TransferBatchCommand)
 export class TransferBatchHandler implements ICommandHandler<TransferBatchCommand, Batch> {
+  private readonly logger = new Logger(TransferBatchHandler.name);
+
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Batch)
@@ -52,8 +54,7 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly tankRepository: Repository<Tank>,
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly eventPublisher: DomainEventPublisher,
   ) {}
 
   async execute(command: TransferBatchCommand): Promise<Batch> {
@@ -312,6 +313,34 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
 
       // Commit transaction
       await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Batch ${batchId} transferred: tank ${payload.sourceTankId} → ${payload.destinationTankId}, ` +
+        `quantity=${payload.quantity}, tenant=${tenantId}`,
+      );
+
+      // Publish BatchTransferred event AFTER transaction commit
+      const biomassKgForEvent = batch.getCurrentBiomass
+        ? batch.getCurrentBiomass()
+        : (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
+
+      await this.eventPublisher.publish(
+        {
+          eventId: crypto.randomUUID(),
+          eventType: 'BatchTransferred',
+          timestamp: new Date(),
+          tenantId,
+          batchId,
+          sourceTankId: payload.sourceTankId,
+          destinationTankId: payload.destinationTankId,
+          quantity: payload.quantity,
+          biomassKg: biomassKgForEvent,
+          transferReason: payload.transferReason,
+          userId: transferredBy,
+          version: 1,
+        },
+        { handler: TransferBatchHandler.name, tenantId, aggregateId: batchId },
+      );
 
       return batch;
     } catch (error) {

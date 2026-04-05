@@ -69,6 +69,7 @@ import {
 import { ArrivalMethod } from '../entities/batch.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
 
 // Register enums
 registerEnumType(MortalityReason, { name: 'MortalityReason' });
@@ -652,6 +653,7 @@ export class BatchResolver {
     private readonly queryBus: QueryBus,
     @InjectRepository(BatchDocument)
     private readonly documentRepository: Repository<BatchDocument>,
+    private readonly batchDocumentDataLoader: BatchDocumentDataLoader,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -915,38 +917,23 @@ export class BatchResolver {
     return batch.getDaysInProduction();
   }
 
+  // ── Document field resolvers — DataLoader pattern (eliminates N+1) ─────────
+  // Previously 3 × N individual queries per batch in a list. BatchDocumentDataLoader
+  // batches all batchIds in a GraphQL execution tick into ONE query, then filters
+  // by type in memory. For a page of 20 batches: 1 query instead of 60.
+
   @ResolveField(() => [BatchDocumentResponse], { name: 'documents' })
   async getDocuments(@Parent() batch: Batch): Promise<BatchDocumentResponse[]> {
-    const documents = await this.documentRepository.find({
-      where: { batchId: batch.id, isActive: true },
-      order: { createdAt: 'DESC' },
-    });
-    return documents;
+    return this.batchDocumentDataLoader.loadAll(batch.id);
   }
 
   @ResolveField(() => [BatchDocumentResponse], { name: 'healthCertificates' })
   async getHealthCertificates(@Parent() batch: Batch): Promise<BatchDocumentResponse[]> {
-    const documents = await this.documentRepository.find({
-      where: {
-        batchId: batch.id,
-        documentType: BatchDocumentType.HEALTH_CERTIFICATE,
-        isActive: true,
-      },
-      order: { createdAt: 'DESC' },
-    });
-    return documents;
+    return this.batchDocumentDataLoader.loadByType(batch.id, BatchDocumentType.HEALTH_CERTIFICATE);
   }
 
   @ResolveField(() => [BatchDocumentResponse], { name: 'importDocuments' })
   async getImportDocuments(@Parent() batch: Batch): Promise<BatchDocumentResponse[]> {
-    const documents = await this.documentRepository.find({
-      where: {
-        batchId: batch.id,
-        documentType: BatchDocumentType.IMPORT_DOCUMENT,
-        isActive: true,
-      },
-      order: { createdAt: 'DESC' },
-    });
-    return documents;
+    return this.batchDocumentDataLoader.loadByType(batch.id, BatchDocumentType.IMPORT_DOCUMENT);
   }
 }

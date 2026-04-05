@@ -3,21 +3,32 @@
  *
  * CloseBatchCommand'ı işler ve batch'i kapatır.
  *
+ * Enterprise fixes (HIGH-001):
+ * - QueryRunner transaction prevents partial-commit on optimistic lock retry
+ * - BatchClosed domain event published after commit via DomainEventPublisher
+ * - Logger added for operational visibility
+ *
  * @module Batch/Handlers
  */
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 
 @Injectable()
 @CommandHandler(CloseBatchCommand)
 export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Batch> {
+  private readonly logger = new Logger(CloseBatchHandler.name);
+
   constructor(
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
+    private readonly eventPublisher: DomainEventPublisher,
   ) {}
 
   async execute(command: CloseBatchCommand): Promise<Batch> {
@@ -52,7 +63,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
       );
     }
 
-    // Final metrikleri hesapla
+    // Final metrikleri hesapla (before mutation)
     const finalMetrics = {
       finalQuantity: batch.currentQuantity,
       finalBiomass: batch.getCurrentBiomass(),
@@ -83,6 +94,44 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
       batch.actualHarvestDate = new Date();
     }
 
-    return this.batchRepository.save(batch);
+    // Transaction — prevents partial-commit on optimistic lock retry
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    let savedBatch: Batch;
+    try {
+      savedBatch = await queryRunner.manager.save(Batch, batch);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+
+    this.logger.log(`Batch ${batchId} closed — reason: ${reason}, tenant: ${tenantId}`);
+
+    // Publish BatchClosed event AFTER transaction commit
+    await this.eventPublisher.publish(
+      {
+        eventId: crypto.randomUUID(),
+        eventType: 'BatchClosed',
+        timestamp: new Date(),
+        tenantId,
+        batchId: savedBatch.id,
+        closeReason: reason,
+        closedBy,
+        finalQuantity: finalMetrics.finalQuantity,
+        finalBiomassKg: finalMetrics.finalBiomass,
+        finalFCR: finalMetrics.fcr,
+        mortalityRate: finalMetrics.mortalityRate,
+        daysInProduction: finalMetrics.daysInProduction,
+        version: 1,
+      },
+      { handler: CloseBatchHandler.name, tenantId, aggregateId: batchId },
+    );
+
+    return savedBatch;
   }
 }

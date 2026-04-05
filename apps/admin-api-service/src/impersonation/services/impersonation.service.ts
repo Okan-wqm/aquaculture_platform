@@ -9,6 +9,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common';
+import { AuditLogService } from '../../audit/audit.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In } from 'typeorm';
@@ -86,6 +87,7 @@ export class ImpersonationService {
     private readonly sessionRepo: Repository<ImpersonationSession>,
     @InjectRepository(ImpersonationPermission)
     private readonly permissionRepo: Repository<ImpersonationPermission>,
+    private readonly auditLogService: AuditLogService,
     @Optional() private readonly redisService?: RedisService,
   ) {
     this.useRedis = !!this.redisService;
@@ -447,6 +449,21 @@ export class ImpersonationService {
     this.logger.log(
       `Started impersonation: ${request.superAdminEmail} -> ${request.targetTenantName || request.targetTenantId}`,
     );
+
+    // H-S2-04: Write to central audit log — security dashboard visibility
+    await this.auditLogService.log({
+      action: 'USER_IMPERSONATED',
+      performedBy: request.superAdminId,
+      targetTenantId: request.targetTenantId,
+      targetUserId: request.targetUserId,
+      details: {
+        sessionId: saved.id,
+        reason: request.reason,
+        reasonDetails: request.reasonDetails,
+        ticketReference: request.ticketReference,
+        ipAddress: request.ipAddress,
+      },
+    }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
 
     // C-5 fix: Return raw token to caller (only time it's available in plaintext).
     // The DB stores the hash. Override the hashed value on the returned object only.

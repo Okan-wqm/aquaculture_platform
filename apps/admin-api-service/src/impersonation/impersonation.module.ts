@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../audit/audit.module';
 
 // Entities -- only impersonation-related
 import { ImpersonationController } from './controllers';
@@ -24,6 +25,8 @@ import { ImpersonationService } from './services';
       ImpersonationSession,
       ImpersonationPermission,
     ]),
+    // H-S2-04: AuditModule enables USER_IMPERSONATED events in central audit log.
+    AuditModule,
   ],
   controllers: [ImpersonationController],
   providers: [

@@ -25,7 +25,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsIn, IsObject } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsIn, IsObject } Matches } from 'class-validator';
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
 
@@ -132,15 +132,16 @@ class TableQueryDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'orderBy must be a valid SQL identifier' })
   orderBy?: string;
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
   orderDirection?: 'ASC' | 'DESC';
 
-  @IsOptional()
-  @IsString()
-  filter?: string;
+  // H-S2-01: Dead `filter` field removed. It was declared in the DTO but never
+  // used in the query builder, creating a latent SQL injection vector if a future
+  // developer adds WHERE interpolation following the DTO field name convention.
 
   // Fix: C12 -- includeSensitive kaldırıldı, sensitive data her zaman maskelenir
 }
@@ -157,6 +158,7 @@ class ExportQueryDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'orderBy must be a valid SQL identifier' })
   orderBy?: string;
 
   @IsOptional()

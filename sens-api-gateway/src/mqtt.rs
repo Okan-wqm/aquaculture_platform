@@ -658,6 +658,18 @@ impl MqttClient {
     fn configure_tls(tls_config: &crate::config::MqttTlsConfig) -> Result<Transport> {
         use rumqttc::TlsConfiguration;
 
+        // LOW/H-01: validate verify_hostname config is not set to false.
+        // This field was parsed from YAML but never enforced — an operator who
+        // sets verify_hostname: false gets no effect (rustls always verifies),
+        // creating a false sense of control. Fail-fast with a clear error.
+        if !tls_config.verify_hostname {
+            return Err(anyhow::anyhow!(
+                "SECURITY: verify_hostname=false is not supported. rustls always \
+                 verifies the broker hostname against the TLS certificate. To connect \
+                 to a broker with a self-signed cert, add the CA to ca_cert_path instead."
+            ));
+        }
+
         // rustls 0.23+ requires explicit CryptoProvider when both ring and aws-lc-rs
         // are compiled in. Install ring (portable, good ARM cross-compilation support).
         // install_default() returns Err if already installed — ignore that.

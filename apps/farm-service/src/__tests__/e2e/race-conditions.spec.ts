@@ -11,6 +11,7 @@
  */
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 
 // Handlers
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
@@ -62,6 +63,13 @@ function createMockDataSource(queryRunner: ReturnType<typeof createMockQueryRunn
   return {
     createQueryRunner: jest.fn().mockReturnValue(queryRunner),
   } as unknown as DataSource;
+}
+
+/** Create a no-op DomainEventPublisher mock for unit tests. */
+function createMockEventPublisher(): DomainEventPublisher {
+  return {
+    publish: jest.fn().mockResolvedValue(undefined),
+  } as unknown as DomainEventPublisher;
 }
 
 function createDefaultMockManager(): MockManagerType {
@@ -159,7 +167,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       {} as Repository<Equipment>,
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
-      undefined, // no event bus
+      createMockEventPublisher(),
     );
   });
 
@@ -346,7 +354,7 @@ describe('Race Condition Protection: ConsumeFeedInventoryHandler', () => {
     handler = new ConsumeFeedInventoryHandler(
       {} as Repository<FeedInventory>,
       mockDataSource,
-      undefined, // no event bus
+      createMockEventPublisher(),
     );
   });
 
@@ -547,7 +555,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       {} as Repository<Equipment>,
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
-      undefined,
+      createMockEventPublisher(),
     );
 
     const command = new RecordMortalityCommand('tenant-exact', 'batch-exact', {

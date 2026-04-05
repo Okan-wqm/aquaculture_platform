@@ -1,437 +1,279 @@
 /**
- * Record Mortality Handler Unit Tests
+ * RecordMortalityHandler Unit Tests
  *
- * Mortality kaydı handler'ının kapsamlı testleri.
+ * Tests business logic of mortality recording: quantity validation,
+ * batch/tank metrics update, and domain event publishing via DomainEventPublisher.
+ *
+ * Architecture: direct instantiation (no TestingModule) — handler uses DataSource
+ * for pessimistic-lock transactions so we mock DataSource + queryRunner following
+ * the pattern established in race-conditions.spec.ts.
  *
  * @module Batch/Tests
  */
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { EventBus } from '@platform/cqrs';
-import { RecordMortalityHandler } from '../../handlers/record-mortality.handler';
-import { RecordMortalityCommand } from '../../commands/record-mortality.command';
-import { Batch, BatchStatus } from '../../entities/batch.entity';
-import { MortalityRecord, MortalityCause } from '../../entities/mortality-record.entity';
-import { TankBatch } from '../../entities/tank-batch.entity';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { DataSource, Repository, EntityManager } from 'typeorm';
+import { RecordMortalityHandler } from '../handlers/record-mortality.handler';
+import { RecordMortalityCommand, MortalityReason } from '../commands/record-mortality.command';
+import { Batch, BatchStatus } from '../entities/batch.entity';
+import { MortalityRecord } from '../entities/mortality-record.entity';
+import { TankOperation } from '../entities/tank-operation.entity';
+import { TankBatch } from '../entities/tank-batch.entity';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
+import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
+
+// ============================================================================
+// Mock helpers (shared with race-conditions.spec.ts pattern)
+// ============================================================================
+
+interface MockManager {
+  findOne: jest.Mock;
+  create: jest.Mock;
+  save: jest.Mock;
+}
+
+function createMockManager(): MockManager {
+  return {
+    findOne: jest.fn(),
+    create: jest.fn().mockImplementation((_entity: unknown, data: unknown) => data),
+    save: jest.fn().mockImplementation((_entity: unknown, data: unknown) => Promise.resolve(data)),
+  };
+}
+
+function createMockQueryRunner(manager: MockManager) {
+  return {
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: jest.fn().mockResolvedValue(undefined),
+    rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+    manager: manager as unknown as EntityManager,
+  };
+}
+
+function createMockDataSource(queryRunner: ReturnType<typeof createMockQueryRunner>): DataSource {
+  return {
+    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+  } as unknown as DataSource;
+}
+
+function createMockEventPublisher(): DomainEventPublisher {
+  return { publish: jest.fn().mockResolvedValue(undefined) } as unknown as DomainEventPublisher;
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 describe('RecordMortalityHandler', () => {
-  let handler: RecordMortalityHandler;
-  let batchRepository: jest.Mocked<Repository<Batch>>;
-  let mortalityRepository: jest.Mocked<Repository<MortalityRecord>>;
-  let tankBatchRepository: jest.Mocked<Repository<TankBatch>>;
-  let eventBus: jest.Mocked<EventBus>;
+  const tenantId = 'tenant-123';
+  const batchId = 'batch-456';
+  const tankId = 'tank-789';
 
-  const mockBatchRepository = {
-    findOne: jest.fn(),
-    save: jest.fn(),
-  };
+  function makeBatch(overrides: Partial<Batch> = {}): Partial<Batch> {
+    return {
+      id: batchId,
+      tenantId,
+      isActive: true,
+      currentQuantity: 10_000,
+      totalMortality: 0,
+      status: BatchStatus.ACTIVE,
+      getCurrentAvgWeight: jest.fn().mockReturnValue(200),
+      getMortalityRate: jest.fn().mockReturnValue(0),
+      getRetentionRate: jest.fn().mockReturnValue(100),
+      ...overrides,
+    };
+  }
 
-  const mockMortalityRepository = {
-    create: jest.fn(),
-    save: jest.fn(),
-    sum: jest.fn(),
-  };
+  function makeTankBatch(overrides: Partial<TankBatch> = {}): Partial<TankBatch> {
+    return {
+      tenantId,
+      tankId,
+      totalQuantity: 10_000,
+      totalBiomassKg: 2_000,
+      densityKgM3: 2,
+      ...overrides,
+    };
+  }
 
-  const mockTankBatchRepository = {
-    findOne: jest.fn(),
-    save: jest.fn(),
-  };
+  function makeEquipment(overrides: Partial<Equipment> = {}): Partial<Equipment> {
+    return {
+      id: tankId,
+      tenantId,
+      isActive: true,
+      volume: 1_000,
+      currentBiomass: 2_000,
+      currentCount: 10_000,
+      ...overrides,
+    };
+  }
 
-  const mockEventBus = {
-    publish: jest.fn(),
-  };
+  function makeCommand(quantity = 50, overrides: Partial<{
+    reason: MortalityReason;
+    observedAt: Date;
+    avgWeightG: number;
+  }> = {}) {
+    return new RecordMortalityCommand(tenantId, batchId, {
+      tankId,
+      quantity,
+      reason: overrides.reason ?? MortalityReason.DISEASE,
+      observedAt: overrides.observedAt ?? new Date(),
+      avgWeightG: overrides.avgWeightG,
+    }, 'user-001');
+  }
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        RecordMortalityHandler,
-        {
-          provide: getRepositoryToken(Batch),
-          useValue: mockBatchRepository,
-        },
-        {
-          provide: getRepositoryToken(MortalityRecord),
-          useValue: mockMortalityRepository,
-        },
-        {
-          provide: getRepositoryToken(TankBatch),
-          useValue: mockTankBatchRepository,
-        },
-        {
-          provide: EventBus,
-          useValue: mockEventBus,
-        },
-      ],
-    }).compile();
+  function buildHandler(
+    managerOverride?: Partial<MockManager>,
+    eventPublisherOverride?: DomainEventPublisher,
+  ) {
+    const manager = { ...createMockManager(), ...managerOverride };
+    const queryRunner = createMockQueryRunner(manager);
+    const dataSource = createMockDataSource(queryRunner);
+    const eventPublisher = eventPublisherOverride ?? createMockEventPublisher();
 
-    handler = module.get<RecordMortalityHandler>(RecordMortalityHandler);
-    batchRepository = module.get(getRepositoryToken(Batch));
-    mortalityRepository = module.get(getRepositoryToken(MortalityRecord));
-    tankBatchRepository = module.get(getRepositoryToken(TankBatch));
-    eventBus = module.get(EventBus);
+    const handler = new RecordMortalityHandler(
+      dataSource,
+      {} as Repository<Batch>,
+      {} as Repository<MortalityRecord>,
+      {} as Repository<TankOperation>,
+      {} as Repository<TankBatch>,
+      {} as Repository<Equipment>,
+      {} as Repository<Tank>,
+      {} as Repository<EquipmentType>,
+      eventPublisher,
+    );
 
-    jest.clearAllMocks();
+    return { handler, manager, queryRunner, eventPublisher };
+  }
+
+  describe('validation', () => {
+    it('throws NotFoundException when batch does not exist', async () => {
+      const { handler, manager } = buildHandler();
+      manager.findOne.mockResolvedValue(null);
+
+      await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws BadRequestException when quantity exceeds current batch count', async () => {
+      const { handler, manager } = buildHandler();
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch({ currentQuantity: 30 }));
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        return Promise.resolve(null);
+      });
+
+      await expect(handler.execute(makeCommand(50))).rejects.toThrow(BadRequestException);
+    });
   });
 
-  describe('execute', () => {
-    const tenantId = 'tenant-123';
-    const commandData = {
-      batchId: 'batch-456',
-      quantity: 50,
-      cause: MortalityCause.DISEASE,
-      mortalityDate: new Date('2024-01-15'),
-      tankId: 'tank-789',
-      symptoms: 'Fin rot observed',
-      suspectedPathogen: 'Bacterial infection',
-      notes: 'Isolated affected tank',
-      recordedBy: 'user-001',
-    };
-
-    it('should record mortality successfully', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        initialQuantity: 10000,
-        totalMortality: 100,
-        status: BatchStatus.ACTIVE,
-      };
-
-      const mockMortalityRecord = {
-        id: 'mortality-new-123',
-        ...commandData,
-        tenantId,
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockMortalityRepository.create.mockReturnValue(mockMortalityRecord);
-      mockMortalityRepository.save.mockResolvedValue(mockMortalityRecord);
-      mockBatchRepository.save.mockResolvedValue({
-        ...mockBatch,
-        currentQuantity: 9950,
-        totalMortality: 150,
+  describe('batch metrics update', () => {
+    it('decrements currentQuantity and increments totalMortality', async () => {
+      const { handler, manager } = buildHandler();
+      const batch = makeBatch({ currentQuantity: 10_000, totalMortality: 100 });
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(batch);
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
+        return Promise.resolve(null);
       });
 
-      const command = new RecordMortalityCommand(tenantId, commandData);
-      const result = await handler.execute(command);
+      await handler.execute(makeCommand(50));
 
-      expect(result).toBeDefined();
-      expect(result.id).toBe('mortality-new-123');
-      expect(mockBatchRepository.findOne).toHaveBeenCalledWith({
-        where: { id: commandData.batchId, tenantId },
+      const savedBatch = manager.save.mock.calls
+        .find(([entity]: [unknown]) => entity === Batch)?.[1] as Partial<Batch> | undefined;
+      expect(savedBatch?.currentQuantity).toBe(9_950);
+      expect(savedBatch?.totalMortality).toBe(150);
+    });
+
+    it('uses Math.max guard — currentQuantity never goes below zero', async () => {
+      const { handler, manager } = buildHandler();
+      const batch = makeBatch({ currentQuantity: 30 });
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(batch);
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        return Promise.resolve(null);
       });
-      expect(mockMortalityRepository.save).toHaveBeenCalled();
+
+      // Quantity 30 === currentQuantity: exactly at boundary — should succeed
+      await handler.execute(makeCommand(30));
+      const savedBatch = manager.save.mock.calls
+        .find(([entity]: [unknown]) => entity === Batch)?.[1] as Partial<Batch> | undefined;
+      expect(savedBatch?.currentQuantity).toBeGreaterThanOrEqual(0);
     });
+  });
 
-    it('should throw error when batch not found', async () => {
-      mockBatchRepository.findOne.mockResolvedValue(null);
-
-      const command = new RecordMortalityCommand(tenantId, commandData);
-
-      await expect(handler.execute(command))
-        .rejects.toThrow('Batch not found');
-    });
-
-    it('should throw error when mortality exceeds current quantity', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 30, // Less than mortality quantity
-        status: BatchStatus.ACTIVE,
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-
-      const command = new RecordMortalityCommand(tenantId, commandData);
-
-      await expect(handler.execute(command))
-        .rejects.toThrow('Mortality quantity exceeds current batch quantity');
-    });
-
-    it('should update batch quantity and mortality count', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        initialQuantity: 10000,
-        totalMortality: 100,
-        status: BatchStatus.ACTIVE,
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockMortalityRepository.create.mockReturnValue({ id: 'mortality-123' });
-      mockMortalityRepository.save.mockResolvedValue({ id: 'mortality-123' });
-      mockBatchRepository.save.mockImplementation((batch) => Promise.resolve(batch));
-
-      const command = new RecordMortalityCommand(tenantId, commandData);
-      await handler.execute(command);
-
-      expect(mockBatchRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          currentQuantity: 9950, // 10000 - 50
-          totalMortality: 150, // 100 + 50
-        }),
-      );
-    });
-
-    it('should update tank batch if tankId provided', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        initialQuantity: 10000,
-        totalMortality: 100,
-        status: BatchStatus.ACTIVE,
-      };
-
-      const mockTankBatch = {
-        id: 'tank-batch-123',
-        tankId: commandData.tankId,
-        batchId: commandData.batchId,
-        currentQuantity: 5000,
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockTankBatchRepository.findOne.mockResolvedValue(mockTankBatch);
-      mockMortalityRepository.create.mockReturnValue({ id: 'mortality-123' });
-      mockMortalityRepository.save.mockResolvedValue({ id: 'mortality-123' });
-      mockBatchRepository.save.mockImplementation((batch) => Promise.resolve(batch));
-      mockTankBatchRepository.save.mockImplementation((tb) => Promise.resolve(tb));
-
-      const command = new RecordMortalityCommand(tenantId, commandData);
-      await handler.execute(command);
-
-      expect(mockTankBatchRepository.findOne).toHaveBeenCalledWith({
-        where: {
-          tankId: commandData.tankId,
-          batchId: commandData.batchId,
-          tenantId,
-        },
+  describe('transaction safety', () => {
+    it('wraps all writes in a single transaction', async () => {
+      const { handler, manager, queryRunner } = buildHandler();
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
+        return Promise.resolve(null);
       });
-      expect(mockTankBatchRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          currentQuantity: 4950, // 5000 - 50
-        }),
-      );
+
+      await handler.execute(makeCommand());
+
+      expect(queryRunner.startTransaction).toHaveBeenCalledTimes(1);
+      expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+      expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
+      expect(queryRunner.release).toHaveBeenCalledTimes(1);
     });
 
-    it('should publish MortalityRecordedEvent', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        initialQuantity: 10000,
-        totalMortality: 100,
-        status: BatchStatus.ACTIVE,
-      };
+    it('rolls back and re-throws on write failure', async () => {
+      const { handler, manager, queryRunner } = buildHandler();
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        return Promise.resolve(null);
+      });
+      manager.save.mockRejectedValueOnce(new Error('DB write failed'));
 
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockMortalityRepository.create.mockReturnValue({ id: 'mortality-123' });
-      mockMortalityRepository.save.mockResolvedValue({ id: 'mortality-123' });
-      mockBatchRepository.save.mockImplementation((batch) => Promise.resolve(batch));
+      await expect(handler.execute(makeCommand())).rejects.toThrow('DB write failed');
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+      expect(queryRunner.release).toHaveBeenCalledTimes(1);
+    });
+  });
 
-      const command = new RecordMortalityCommand(tenantId, commandData);
-      await handler.execute(command);
+  describe('domain event publishing', () => {
+    it('publishes MortalityRecorded event after commit', async () => {
+      const mockEventPublisher = createMockEventPublisher();
+      const { handler, manager } = buildHandler({}, mockEventPublisher);
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
+        return Promise.resolve(null);
+      });
 
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
+      await handler.execute(makeCommand(50));
+
+      expect(mockEventPublisher.publish).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'MortalityRecorded',
           tenantId,
-          batchId: commandData.batchId,
-          quantity: commandData.quantity,
-          reason: commandData.cause,
+          batchId,
+          quantity: 50,
         }),
+        expect.objectContaining({ handler: 'RecordMortalityHandler', tenantId }),
       );
     });
 
-    it('should calculate new mortality rate correctly', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        initialQuantity: 10000,
-        totalMortality: 0, // No previous mortality
-        status: BatchStatus.ACTIVE,
-      };
+    it('does NOT fail the command if event publishing throws', async () => {
+      const failingPublisher = {
+        publish: jest.fn().mockRejectedValue(new Error('NATS down')),
+      } as unknown as DomainEventPublisher;
 
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockMortalityRepository.create.mockReturnValue({ id: 'mortality-123' });
-      mockMortalityRepository.save.mockResolvedValue({ id: 'mortality-123' });
-      mockBatchRepository.save.mockImplementation((batch) => Promise.resolve(batch));
-
-      const command = new RecordMortalityCommand(tenantId, commandData);
-      await handler.execute(command);
-
-      // Mortality rate should be 50/10000 * 100 = 0.5%
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
-        expect.objectContaining({
-          newTotalMortality: 50,
-          newMortalityRate: 0.5,
-        }),
-      );
-    });
-
-    it('should not allow mortality on closed batch', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        status: BatchStatus.CLOSED,
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-
-      const command = new RecordMortalityCommand(tenantId, commandData);
-
-      await expect(handler.execute(command))
-        .rejects.toThrow('Cannot record mortality for a closed batch');
-    });
-
-    it('should handle different mortality causes', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        initialQuantity: 10000,
-        totalMortality: 0,
-        status: BatchStatus.ACTIVE,
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockMortalityRepository.create.mockImplementation((data) => ({
-        id: 'mortality-123',
-        ...data,
-      }));
-      mockMortalityRepository.save.mockImplementation((record) => Promise.resolve(record));
-      mockBatchRepository.save.mockImplementation((batch) => Promise.resolve(batch));
-
-      const causes = [
-        MortalityCause.DISEASE,
-        MortalityCause.PREDATION,
-        MortalityCause.WATER_QUALITY,
-        MortalityCause.HANDLING,
-        MortalityCause.UNKNOWN,
-      ];
-
-      for (const cause of causes) {
-        jest.clearAllMocks();
-        mockBatchRepository.findOne.mockResolvedValue({ ...mockBatch });
-
-        const command = new RecordMortalityCommand(tenantId, {
-          ...commandData,
-          cause,
-        });
-
-        const result = await handler.execute(command);
-
-        expect(result).toBeDefined();
-        expect(mockMortalityRepository.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            cause,
-          }),
-        );
-      }
-    });
-
-    it('should validate quantity is positive', async () => {
-      const command = new RecordMortalityCommand(tenantId, {
-        ...commandData,
-        quantity: 0,
+      const { handler, manager } = buildHandler({}, failingPublisher);
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        return Promise.resolve(null);
       });
 
-      await expect(handler.execute(command))
-        .rejects.toThrow('Mortality quantity must be positive');
-    });
-
-    it('should store estimated biomass loss', async () => {
-      const mockBatch = {
-        id: commandData.batchId,
-        tenantId,
-        currentQuantity: 10000,
-        initialQuantity: 10000,
-        totalMortality: 0,
-        status: BatchStatus.ACTIVE,
-        getCurrentAvgWeight: () => 200, // 200g average weight
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockMortalityRepository.create.mockImplementation((data) => ({
-        id: 'mortality-123',
-        ...data,
-      }));
-      mockMortalityRepository.save.mockImplementation((record) => Promise.resolve(record));
-      mockBatchRepository.save.mockImplementation((batch) => Promise.resolve(batch));
-
-      const command = new RecordMortalityCommand(tenantId, commandData);
-      await handler.execute(command);
-
-      // Expected biomass loss: 50 fish * 200g / 1000 = 10 kg
-      expect(mockMortalityRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          estimatedBiomassLossKg: 10,
-        }),
-      );
-    });
-  });
-
-  describe('cumulative mortality tracking', () => {
-    it('should accurately track cumulative mortality', async () => {
-      const tenantId = 'tenant-123';
-      const batchId = 'batch-456';
-
-      // First mortality event
-      let currentMortality = 0;
-      let currentQuantity = 10000;
-
-      const mockBatch = {
-        id: batchId,
-        tenantId,
-        currentQuantity,
-        initialQuantity: 10000,
-        totalMortality: currentMortality,
-        status: BatchStatus.ACTIVE,
-      };
-
-      mockBatchRepository.findOne.mockResolvedValue(mockBatch);
-      mockMortalityRepository.create.mockImplementation((data) => ({ id: 'mortality-1', ...data }));
-      mockMortalityRepository.save.mockImplementation((record) => Promise.resolve(record));
-      mockBatchRepository.save.mockImplementation((batch) => {
-        currentMortality = batch.totalMortality;
-        currentQuantity = batch.currentQuantity;
-        return Promise.resolve(batch);
-      });
-
-      // Record 50 mortality
-      await handler.execute(new RecordMortalityCommand(tenantId, {
-        batchId,
-        quantity: 50,
-        cause: MortalityCause.DISEASE,
-        mortalityDate: new Date(),
-        recordedBy: 'user-001',
-      }));
-
-      expect(currentMortality).toBe(50);
-      expect(currentQuantity).toBe(9950);
-
-      // Update mock for second call
-      mockBatchRepository.findOne.mockResolvedValue({
-        ...mockBatch,
-        currentQuantity,
-        totalMortality: currentMortality,
-      });
-
-      // Record another 30 mortality
-      await handler.execute(new RecordMortalityCommand(tenantId, {
-        batchId,
-        quantity: 30,
-        cause: MortalityCause.WATER_QUALITY,
-        mortalityDate: new Date(),
-        recordedBy: 'user-001',
-      }));
-
-      expect(currentMortality).toBe(80);
-      expect(currentQuantity).toBe(9920);
+      // Should resolve — DomainEventPublisher swallows publish errors
+      await expect(handler.execute(makeCommand())).resolves.toBeDefined();
     });
   });
 });

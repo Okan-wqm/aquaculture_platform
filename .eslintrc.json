@@ -85,6 +85,13 @@
           {
             "allow": ["warn", "error"]
           }
+        ],
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.property.name='getRepository']",
+            "message": "Direct getRepository() bypasses TenantAwareRepository and skips tenantId injection on all find operations, creating IDOR vulnerabilities. Use getScopedRepository() instead. For cross-tenant admin operations, use getUnfilteredRepository() with explicit justification."
+          }
         ]
       }
     },

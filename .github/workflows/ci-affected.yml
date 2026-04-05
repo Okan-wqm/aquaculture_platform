@@ -94,7 +94,9 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    continue-on-error: true
+    # continue-on-error removed: lint failures must block PR merge.
+    # BEFORE: lint errors showed green in GitHub — no signal to reviewers or authors.
+    # WHY: A CI gate that never fails provides false confidence and is worse than no gate.
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -135,7 +137,8 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    continue-on-error: true
+    # continue-on-error removed: TypeScript errors must block PR merge.
+    # BEFORE: type errors merged silently — caught only at runtime or in production.
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -177,7 +180,8 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    continue-on-error: true
+    # continue-on-error removed: failing tests must block PR merge.
+    # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:

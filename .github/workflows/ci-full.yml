@@ -117,7 +117,10 @@ jobs:
         uses: codecov/codecov-action@1e68e06f1dbfde0e4cefc87efeba9e4643565303 # v5.1.2
         with:
           directory: ./coverage
-          fail_ci_if_error: false
+          # fail_ci_if_error changed from false to true.
+          # BEFORE: Codecov upload failure was silently ignored — coverage could drop to 0%
+          # with no CI signal. WHY: Coverage enforcement only works if upload failures surface.
+          fail_ci_if_error: true
 
   build:
     runs-on: ubuntu-latest

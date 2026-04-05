@@ -129,10 +129,11 @@ export class ChannelManagementService {
    */
   async updateChannel(
     channelId: string,
+    tenantId: string,
     input: UpdateChannelInput,
   ): Promise<SensorDataChannel> {
     const channel = await this.channelRepository.findOne({
-      where: { id: channelId },
+      where: { id: channelId, tenantId },
     });
 
     if (!channel) {
@@ -163,7 +164,7 @@ export class ChannelManagementService {
   /**
    * Delete a data channel
    */
-  async deleteChannel(channelId: string): Promise<void> {
+  async deleteChannel(channelId: string, tenantId: string): Promise<void> {
     const channel = await this.channelRepository.findOne({
       where: { id: channelId },
     });

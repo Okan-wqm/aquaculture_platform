@@ -11,11 +11,13 @@ import {
   Param,
   Body,
   Query,
+  Req,
   HttpStatus,
   HttpCode,
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsOptional, IsBoolean, MaxLength, Matches } from 'class-validator';
 
@@ -117,15 +119,19 @@ export class MigrationController {
   async runMigration(
     @Param('tenantId') tenantId: string,
     @Body() dto: RunMigrationDto,
+    @Req() req: Request,
   ) {
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
+    // Use JWT sub for executedBy — prevents audit trail manipulation via client body
+    const executedBy = (req as unknown as { user?: { sub?: string } }).user?.sub
+      ?? 'unknown-admin';
     return this.migrationService.runMigration(
       tenantId,
       dto.version,
       dto.isDryRun,
-      dto.executedBy,
+      executedBy,
     );
   }
 

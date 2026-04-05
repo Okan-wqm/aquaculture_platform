@@ -215,6 +215,20 @@ export class StripeWebhookService {
     }
 
     await this.dataSource.transaction(async (manager) => {
+      // Idempotency guard: Stripe retries webhooks on failure; Redis may be unavailable
+      // (@Optional injection). Without this check, each retry inserts a duplicate FAILED
+      // payment row, inflating metrics and confusing reconciliation.
+      const existingFailed = await manager.findOne(Payment, {
+        where: { stripePaymentIntentId, status: PaymentStatus.FAILED },
+        select: ['id'],
+      });
+      if (existingFailed) {
+        this.logger.debug(
+          `payment_intent.payment_failed already recorded for ${stripePaymentIntentId} — skipping duplicate`,
+        );
+        return;
+      }
+
       const transactionId = `TXN-STRIPE-FAIL-${Date.now()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
       const payment = manager.create(Payment, {

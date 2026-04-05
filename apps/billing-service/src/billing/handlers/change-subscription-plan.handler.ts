@@ -103,6 +103,9 @@ export class ChangeSubscriptionPlanHandler
       }
 
       // 4. Determine if this is an upgrade or downgrade
+      // Capture BEFORE mutation — all three branches overwrite subscription.planTier,
+      // so reading it after mutation always gives the new tier (wrong in the event).
+      const previousPlanTier = subscription.planTier;
       const currentTierOrder = TIER_ORDER[subscription.planTier] || 0;
       const newTierOrder = TIER_ORDER[newPlan.tier] || 0;
       const isUpgrade = newTierOrder > currentTierOrder;
@@ -192,7 +195,7 @@ export class ChangeSubscriptionPlanHandler
             proRataCredit,
             isUpgrade,
             isDowngrade,
-            previousPlanTier: subscription.planTier,
+            previousPlanTier,
           },
         };
         await this.eventBus?.publish(event);

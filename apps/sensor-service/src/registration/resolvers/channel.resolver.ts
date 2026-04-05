@@ -42,22 +42,25 @@ export class ChannelResolver {
   @Query(() => [DataChannelType], { name: 'dataChannelsBySensor' })
   async getChannelsBySensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel[]> {
-    return this.managementService.getChannelsBySensor(sensorId);
+    return this.managementService.getChannelsBySensor(sensorId, tenantId);
   }
 
   @Query(() => [DataChannelType], { name: 'enabledChannelsBySensor' })
   async getEnabledChannels(
     @Args('sensorId', { type: () => ID }) sensorId: string,
+    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel[]> {
-    return this.managementService.getEnabledChannels(sensorId);
+    return this.managementService.getEnabledChannels(sensorId, tenantId);
   }
 
   @Query(() => DataChannelType, { name: 'dataChannel', nullable: true })
   async getChannel(
     @Args('channelId', { type: () => ID }) channelId: string,
+    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel | null> {
-    return this.managementService.getChannel(channelId);
+    return this.managementService.getChannel(channelId, tenantId);
   }
 
   // === Mutations ===
@@ -137,9 +140,9 @@ export class ChannelResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async updateChannel(
     @Args('input') input: UpdateDataChannelInput,
-    @Tenant() _tenantId: string,
+    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel> {
-    return this.managementService.updateChannel(input.channelId, {
+    return this.managementService.updateChannel(input.channelId, tenantId, {
       displayLabel: input.displayLabel,
       description: input.description,
       unit: input.unit,
@@ -187,9 +190,9 @@ export class ChannelResolver {
   @Roles(Role.TENANT_ADMIN)
   async deleteChannel(
     @Args('channelId', { type: () => ID }) channelId: string,
-    @Tenant() _tenantId: string,
+    @Tenant() tenantId: string,
   ): Promise<boolean> {
-    await this.managementService.deleteChannel(channelId);
+    await this.managementService.deleteChannel(channelId, tenantId);
     return true;
   }
 

@@ -16,6 +16,7 @@ import {
   HttpCode,
   BadRequestException,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class-validator';
@@ -119,7 +120,10 @@ export class SchemaController {
   @Delete(':tenantId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteSchema(
-    @Param('tenantId') tenantId: string,
+    // ParseUUIDPipe: rejects non-UUID tenantId before it reaches the service layer.
+    // Prevents DB-level errors from leaking schema details and enforces the contract
+    // that DROP SCHEMA only ever targets a valid tenant UUID.
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Query('hardDelete') hardDelete?: string,
   ) {
     await this.schemaService.deleteSchema(tenantId, hardDelete === 'true');

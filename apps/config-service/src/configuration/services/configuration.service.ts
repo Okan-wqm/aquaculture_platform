@@ -115,18 +115,20 @@ export class ConfigurationService implements OnModuleInit {
 
     const result: Record<string, unknown> = {};
 
-    // First add global configs
+    // First add global configs — secrets masked to prevent bulk plaintext exposure.
+    // Single-key get() decrypts for authorized callers; getAll() is a bulk operation
+    // used for config bootstrapping where plaintext secrets must not appear.
     configs
       .filter((c) => c.tenantId === 'global')
       .forEach((c) => {
-        result[c.key] = this.getDecryptedTypedValue(c);
+        result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
       });
 
     // Then override with tenant-specific
     configs
       .filter((c) => c.tenantId !== 'global')
       .forEach((c) => {
-        result[c.key] = this.getDecryptedTypedValue(c);
+        result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
       });
 
     return result;

@@ -255,6 +255,8 @@ services:
       NODE_ENV: production
       GATEWAY_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
+      # M-RL-01: Redis-backed rate limiting — prevents multi-replica bypass
+      RATE_LIMIT_USE_REDIS: "true"
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}

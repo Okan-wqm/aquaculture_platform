@@ -13,7 +13,10 @@ targets = [
 
 [advisories]
 # Vulnerability database check
-db-path = "~/.cargo/advisory-db"
+# db-path removed: ~/.cargo resolves to user home which may not have a
+# pre-populated advisory DB in CI. cargo-deny auto-fetches from db-urls
+# when no local path is configured.
+# db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
 # Deny known vulnerabilities

@@ -9,6 +9,7 @@
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { assertSafeSchemaName } from '@aquaculture/backend-common';
 
 export class AddAiPersonaColumns1711800000002 implements MigrationInterface {
   name = 'AddAiPersonaColumns1711800000002';
@@ -19,6 +20,7 @@ export class AddAiPersonaColumns1711800000002 implements MigrationInterface {
       `SELECT current_schema()`,
     ) as Array<{ current_schema: string }>;
     const schema = rows[0]!.current_schema;
+    assertSafeSchemaName(schema); // defense-in-depth before SQL interpolation
 
     // Add aiPersona column: nullable varchar(50) for persona IDs like 'expert-v1'
     await queryRunner.query(`
@@ -45,6 +47,7 @@ export class AddAiPersonaColumns1711800000002 implements MigrationInterface {
       `SELECT current_schema()`,
     ) as Array<{ current_schema: string }>;
     const schema = downRows[0]!.current_schema;
+    assertSafeSchemaName(schema);
 
     await queryRunner.query(`
       DROP INDEX IF EXISTS "${schema}"."idx_channels_ai_persona"

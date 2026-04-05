@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Weather & Marine Observation Tables
@@ -120,6 +120,7 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
       `);
 
       for (const { schema_name } of tenantSchemas) {
+        assertSafeSchemaName(schema_name);
         try {
           await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS "${schema_name}"."weather_observations"

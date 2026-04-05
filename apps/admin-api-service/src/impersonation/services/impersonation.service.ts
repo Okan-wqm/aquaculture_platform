@@ -3,10 +3,12 @@ import * as crypto from 'crypto';
 import {
   Injectable,
   Logger,
+  Optional,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { RedisService } from '@aquaculture/backend-common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In } from 'typeorm';
@@ -68,20 +70,31 @@ export interface ImpersonationAuditSummary {
 @Injectable()
 export class ImpersonationService {
   private readonly logger = new Logger(ImpersonationService.name);
-  private activeSessions: Map<string, ImpersonationSession> = new Map();
+  /** In-memory fallback — single-instance only */
+  private localActiveSessions: Map<string, ImpersonationSession> = new Map();
   private readonly TOKEN_EXPIRY_BUFFER_MS = 60000; // 1 minute
 
   // SECURITY: Rate limiting for impersonation attempts
-  private readonly rateLimitMap: Map<string, { count: number; resetAt: number }> = new Map();
+  /** In-memory fallback — multi-instance bypass risk without Redis */
+  private readonly localRateLimitMap: Map<string, { count: number; resetAt: number }> = new Map();
   private readonly RATE_LIMIT_MAX_ATTEMPTS = 5; // Max attempts per window
   private readonly RATE_LIMIT_WINDOW_MS = 300000; // 5 minutes window
+  private readonly useRedis: boolean;
 
   constructor(
     @InjectRepository(ImpersonationSession)
     private readonly sessionRepo: Repository<ImpersonationSession>,
     @InjectRepository(ImpersonationPermission)
     private readonly permissionRepo: Repository<ImpersonationPermission>,
+    @Optional() private readonly redisService?: RedisService,
   ) {
+    this.useRedis = !!this.redisService;
+    if (!this.useRedis) {
+      this.logger.warn(
+        'Impersonation rate limiting using in-memory Map — NOT distributed. ' +
+        'Multi-instance deployments bypass rate limits.',
+      );
+    }
     this.loadActiveSessions();
     // Clean up rate limit map periodically
     setInterval(() => this.cleanupRateLimitMap(), 60000);
@@ -93,11 +106,11 @@ export class ImpersonationService {
    */
   private checkRateLimit(key: string): { allowed: boolean; retryAfterMs?: number } {
     const now = Date.now();
-    const entry = this.rateLimitMap.get(key);
+    const entry = this.localRateLimitMap.get(key);
 
     if (!entry || now > entry.resetAt) {
       // Reset or create new entry
-      this.rateLimitMap.set(key, { count: 1, resetAt: now + this.RATE_LIMIT_WINDOW_MS });
+      this.localRateLimitMap.set(key, { count: 1, resetAt: now + this.RATE_LIMIT_WINDOW_MS });
       return { allowed: true };
     }
 
@@ -114,9 +127,9 @@ export class ImpersonationService {
    */
   private cleanupRateLimitMap(): void {
     const now = Date.now();
-    for (const [key, entry] of this.rateLimitMap.entries()) {
+    for (const [key, entry] of this.localRateLimitMap.entries()) {
       if (now > entry.resetAt) {
-        this.rateLimitMap.delete(key);
+        this.localRateLimitMap.delete(key);
       }
     }
   }
@@ -126,7 +139,7 @@ export class ImpersonationService {
       where: { status: ImpersonationStatus.ACTIVE },
     });
     for (const session of active) {
-      this.activeSessions.set(session.id, session);
+      this.localActiveSessions.set(session.id, session);
     }
     this.logger.log(`Loaded ${active.length} active impersonation sessions`);
   }
@@ -424,7 +437,7 @@ export class ImpersonationService {
     });
 
     const saved = await this.sessionRepo.save(session);
-    this.activeSessions.set(saved.id, saved);
+    this.localActiveSessions.set(saved.id, saved);
 
     // Notify tenant admin if configured
     if (permission?.notifyTenantAdmin) {
@@ -465,7 +478,7 @@ export class ImpersonationService {
     session.endReason = endReason || (endedBy ? 'Ended by user' : 'Manual termination');
 
     const saved = await this.sessionRepo.save(session);
-    this.activeSessions.delete(sessionId);
+    this.localActiveSessions.delete(sessionId);
 
     this.logger.log(`Ended impersonation session: ${sessionId}`);
 
@@ -487,7 +500,7 @@ export class ImpersonationService {
     session.endReason = `Terminated by ${terminatedBy}: ${reason}`;
 
     const saved = await this.sessionRepo.save(session);
-    this.activeSessions.delete(sessionId);
+    this.localActiveSessions.delete(sessionId);
 
     this.logger.warn(`Terminated impersonation session: ${sessionId} - ${reason}`);
 
@@ -555,7 +568,7 @@ export class ImpersonationService {
     const saved = await this.sessionRepo.save(session);
 
     // Update in-memory cache
-    this.activeSessions.set(sessionId, saved);
+    this.localActiveSessions.set(sessionId, saved);
 
     this.logger.log(
       `Extended impersonation session ${sessionId} by ${additionalMinutes} minutes`,
@@ -614,7 +627,7 @@ export class ImpersonationService {
   }
 
   async getActiveSession(sessionId: string): Promise<ImpersonationSession | null> {
-    return this.activeSessions.get(sessionId) || null;
+    return this.localActiveSessions.get(sessionId) || null;
   }
 
   async getSessionByToken(token: string): Promise<ImpersonationSession | null> {
@@ -663,7 +676,7 @@ export class ImpersonationService {
     await this.sessionRepo.save(session);
 
     // Update cache
-    this.activeSessions.set(sessionId, session);
+    this.localActiveSessions.set(sessionId, session);
   }
 
   async logResourceAccess(
@@ -858,7 +871,7 @@ export class ImpersonationService {
     session.endReason = 'Session expired';
 
     await this.sessionRepo.save(session);
-    this.activeSessions.delete(session.id);
+    this.localActiveSessions.delete(session.id);
   }
 
   // ============================================================================
@@ -890,10 +903,10 @@ export class ImpersonationService {
     // so callers are not misled by stale session entries after restart or clock drift.
     const now = new Date();
     const active: ImpersonationSession[] = [];
-    for (const [sessionId, session] of this.activeSessions.entries()) {
+    for (const [sessionId, session] of this.localActiveSessions.entries()) {
       if (new Date(session.expiresAt) <= now) {
         // Evict expired sessions from cache on access to prevent stale reads
-        this.activeSessions.delete(sessionId);
+        this.localActiveSessions.delete(sessionId);
       } else {
         active.push(session);
       }

@@ -18,6 +18,11 @@ export * from './guards/token-revocation.service';
 // Utils - Inter-service authentication
 export * from './utils/service-identity.util';
 
+// Auth - Centralised JWT verification options (algorithm restriction, issuer, audience)
+// All guards MUST use getJwtVerifyOptions() instead of inline verifyAsync() options.
+export { getJwtVerifyOptions } from './auth/jwt-verification.utils';
+export type { JwtVerifyConfig } from './auth/jwt-verification.utils';
+
 // Utils - PII masking for GDPR-compliant logging
 export { maskEmail, logSafeUserId } from './utils/pii-mask.util';
 

@@ -29,6 +29,25 @@ export interface BaseEvent {
   tenantId: string;
 
   /**
+   * ID of the domain aggregate root this event belongs to.
+   * Required for event sourcing: enables replaying all events for a specific entity
+   * (e.g., all events for subscriptionId='abc-123') and building audit trails per entity.
+   *
+   * BEFORE this field: events could not be filtered by business entity — only by tenantId.
+   * This made event replay and per-aggregate audit trails impossible.
+   *
+   * Examples: subscriptionId, batchId, sensorId, employeeId, paymentId
+   */
+  aggregateId?: string;
+
+  /**
+   * Type name of the domain aggregate (e.g., 'Subscription', 'Batch', 'Sensor', 'Employee').
+   * Paired with aggregateId to enable aggregate-type-aware event routing and replay.
+   * Optional for backwards compatibility with existing event publishers.
+   */
+  aggregateType?: string;
+
+  /**
    * Correlation ID for distributed tracing
    */
   correlationId?: string;

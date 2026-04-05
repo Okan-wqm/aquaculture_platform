@@ -200,7 +200,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: gateway_service
-      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
@@ -304,7 +304,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: auth_service
-      DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:?AUTH_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false"
       DATABASE_LOGGING: "true"
@@ -354,7 +354,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: farm_service
-      DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:?FARM_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -401,7 +401,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: sensor_service
-      DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:?SENSOR_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -461,7 +461,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: admin_service
-      DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:?ADMIN_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_HOST: redis
@@ -510,7 +510,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: alert_service
-      DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:?ALERT_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -552,7 +552,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: billing_service
-      DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:?BILLING_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -594,7 +594,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: hr_service
-      DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:?HR_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -636,7 +636,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: hydroponics_service
-      DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:?HYDROPONICS_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -678,7 +678,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: notification_service
-      DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:?NOTIFICATION_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -805,7 +805,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: messaging_service
-      DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:?MESSAGING_SERVICE_DB_PASS is required}
+      DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: 'false'
       DATABASE_MIGRATIONS_RUN: 'true'

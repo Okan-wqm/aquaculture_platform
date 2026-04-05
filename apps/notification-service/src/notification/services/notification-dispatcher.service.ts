@@ -203,8 +203,15 @@ export class NotificationDispatcherService implements OnModuleInit {
 
   /**
    * C-PS-02: Validate WEBHOOK_ENCRYPTION_KEY at startup.
-   * Fails fast in production if the key is absent or too short — prevents
-   * the service from silently using a hardcoded dev key in production.
+   *
+   * When WEBHOOK_ENCRYPTION_KEY is set (≥32 chars), it is used as-is.
+   * When absent, the service logs a CRITICAL warning and uses a deterministic
+   * fallback. Set REQUIRE_WEBHOOK_ENCRYPTION_KEY=true to opt-in to hard crash
+   * behavior (recommended for production once the key is provisioned).
+   *
+   * MIGRATION NOTE: Throwing unconditionally in production broke existing
+   * deployments that don't yet have WEBHOOK_ENCRYPTION_KEY in their .env.
+   * Use REQUIRE_WEBHOOK_ENCRYPTION_KEY=true to enforce the strict check.
    */
   onModuleInit(): void {
     const envKey = this.configService.get<string>('WEBHOOK_ENCRYPTION_KEY');
@@ -212,19 +219,21 @@ export class NotificationDispatcherService implements OnModuleInit {
       WEBHOOK_ENCRYPTION_KEY = createHash('sha256').update(envKey).digest();
       return;
     }
-    if (this.configService.get<string>('NODE_ENV') === 'production') {
+    const strictMode = this.configService.get<string>('REQUIRE_WEBHOOK_ENCRYPTION_KEY') === 'true';
+    if (strictMode) {
       throw new Error(
-        'WEBHOOK_ENCRYPTION_KEY must be set (≥32 chars) in production. ' +
-        'Service startup aborted to prevent use of insecure fallback key.',
+        'WEBHOOK_ENCRYPTION_KEY must be set (≥32 chars). ' +
+        'Service startup aborted (REQUIRE_WEBHOOK_ENCRYPTION_KEY=true).',
       );
     }
-    // Dev/test only — deterministic fallback
+    // Fallback — logs CRITICAL to alert ops to provision the key
     WEBHOOK_ENCRYPTION_KEY = createHash('sha256')
       .update('aquaculture-webhook-dev-key')
       .digest();
-    this.logger.warn(
-      'WEBHOOK_ENCRYPTION_KEY not set — using insecure dev fallback. ' +
-      'This is NOT acceptable in production.',
+    this.logger.error(
+      'WEBHOOK_ENCRYPTION_KEY is not set or too short (<32 chars). ' +
+      'Using insecure dev fallback — webhook retry URLs are NOT securely encrypted. ' +
+      'Set WEBHOOK_ENCRYPTION_KEY (≥32 chars) and REQUIRE_WEBHOOK_ENCRYPTION_KEY=true in production.',
     );
   }
 

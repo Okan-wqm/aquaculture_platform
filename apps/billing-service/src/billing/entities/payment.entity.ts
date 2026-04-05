@@ -10,6 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 export enum PaymentStatus {
   PENDING = 'pending',
@@ -106,7 +107,9 @@ export class Payment {
   invoice?: any;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  // DecimalTransformer: PostgreSQL returns decimal as string; transformer converts to number on read.
+  // Without this, monetary arithmetic like amount + refundedAmount concatenates strings instead of adding.
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   amount!: number;
 
   @Field()
@@ -151,7 +154,9 @@ export class Payment {
   refunds?: RefundInfo[];
 
   @Field(() => Float, { defaultValue: 0 })
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, name: 'refunded_amount' })
+  // DecimalTransformer: refundedAmount participates in remaining balance calculation (amount - refundedAmount).
+  // String subtraction would produce NaN, breaking partial refund tracking.
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, name: 'refunded_amount', transformer: new DecimalTransformer() })
   refundedAmount!: number;
 
   @Field({ nullable: true })
@@ -177,4 +182,26 @@ export class Payment {
   @Field(() => Int)
   @VersionColumn()
   version!: number;
+
+  // Soft-delete: financial records must never be physically deleted.
+  // Hard-delete of payment records violates financial audit trail requirements (SOX, PCI-DSS).
+  // isDeleted=true logically removes the record while preserving it for reconciliation and audit.
+  // BEFORE: no soft-delete — DELETE queries removed rows permanently with no recovery path.
+  @Field()
+  @Column({ default: false, name: 'is_deleted' })
+  @Index()
+  isDeleted: boolean = false;
+
+  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
+  deletedAt?: Date;
+
+  @Column({ nullable: true, name: 'deleted_by' })
+  deletedBy?: string;
+
+  softDelete(deletedBy?: string): void {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.deletedBy = deletedBy;
+  }
 }

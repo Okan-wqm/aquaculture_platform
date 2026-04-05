@@ -201,6 +201,27 @@ export class Subscription {
   @VersionColumn()
   version!: number;
 
+  // Soft-delete: subscription history must be preserved for billing reconciliation and customer disputes.
+  // Physical deletion of a subscription record removes the audit trail for all associated invoices and payments.
+  // BEFORE: no soft-delete — subscription records could be permanently removed.
+  @Field()
+  @Column({ default: false, name: 'is_deleted' })
+  @Index()
+  isDeleted: boolean = false;
+
+  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
+  deletedAt?: Date;
+
+  @Column({ nullable: true, name: 'deleted_by' })
+  deletedBy?: string;
+
+  softDelete(deletedBy?: string): void {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.deletedBy = deletedBy;
+  }
+
   /**
    * Normalize plan name before save
    */

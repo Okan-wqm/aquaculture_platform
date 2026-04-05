@@ -13,6 +13,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 // forwardRef removed - not needed with string-based lazy loading
 
 export enum InvoiceStatus {
@@ -129,7 +130,9 @@ export class Invoice {
   lineItems!: InvoiceLineItem[];
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  // DecimalTransformer: subtotal is the base for invoice total calculation (subtotal + tax - discount).
+  // String arithmetic would concatenate values instead of summing them.
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   subtotal!: number;
 
   @Field(() => TaxInfo, { nullable: true })
@@ -137,7 +140,9 @@ export class Invoice {
   tax?: TaxInfo;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true })
+  // DecimalTransformer: discount is subtracted from subtotal. Nullable=true is safe;
+  // transformer returns null for null values (no arithmetic on null discount).
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   discount?: number;
 
   @Field({ nullable: true })
@@ -145,15 +150,21 @@ export class Invoice {
   discountCode?: string;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  // DecimalTransformer: total is the authoritative invoice amount. Used in payment matching
+  // and due-amount calculation (total - amountPaid = amountDue).
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   total!: number;
 
   @Field(() => Float, { defaultValue: 0 })
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, name: 'amount_paid' })
+  // DecimalTransformer: amountPaid accumulates across multiple partial payments.
+  // Each payment increments this value; string addition would corrupt the running total.
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, name: 'amount_paid', transformer: new DecimalTransformer() })
   amountPaid!: number;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2, name: 'amount_due' })
+  // DecimalTransformer: amountDue = total - amountPaid. Both operands must be numbers;
+  // without transformer this comparison always fails (string vs string).
+  @Column({ type: 'decimal', precision: 12, scale: 2, name: 'amount_due', transformer: new DecimalTransformer() })
   amountDue!: number;
 
   @Field()
@@ -218,6 +229,28 @@ export class Invoice {
   @Field(() => Int)
   @VersionColumn()
   version!: number;
+
+  // Soft-delete: invoices are legal financial documents and must never be physically deleted.
+  // Voiding an invoice sets status=VOID; soft-delete marks it logically removed for cleanup
+  // while preserving the record for eDiscovery and tax audit purposes.
+  // BEFORE: no soft-delete — DELETE queries removed invoices permanently.
+  @Field()
+  @Column({ default: false, name: 'is_deleted' })
+  @Index()
+  isDeleted: boolean = false;
+
+  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
+  deletedAt?: Date;
+
+  @Column({ nullable: true, name: 'deleted_by' })
+  deletedBy?: string;
+
+  softDelete(deletedBy?: string): void {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.deletedBy = deletedBy;
+  }
 
   /**
    * MED-03: Validate pdfUrl against a trusted URL prefix allowlist before persisting.

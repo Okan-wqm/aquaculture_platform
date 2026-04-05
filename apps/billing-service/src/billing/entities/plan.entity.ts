@@ -10,6 +10,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType, Float, Int } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { BillingCycle, PlanTier, PlanLimits, PlanPricing } from './subscription.entity';
 
 /**
@@ -41,7 +42,9 @@ export class Plan {
   tier!: PlanTier;
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 12, scale: 2, name: 'base_price' })
+  // DecimalTransformer: basePrice is used in subscription pricing calculations.
+  // When billing resolvers compute prorated amounts or upgrade diffs, numeric math is required.
+  @Column({ type: 'decimal', precision: 12, scale: 2, name: 'base_price', transformer: new DecimalTransformer() })
   basePrice!: number;
 
   @Field()
@@ -95,6 +98,27 @@ export class Plan {
   @Field(() => Int)
   @VersionColumn()
   version!: number;
+
+  // Soft-delete: plan templates must not be physically deleted because existing subscriptions
+  // reference them. Hard-deleting a plan would orphan all active subscriptions on that plan.
+  // BEFORE: no soft-delete — plan records could be permanently removed, breaking subscription references.
+  @Field()
+  @Column({ default: false, name: 'is_deleted' })
+  @Index()
+  isDeleted: boolean = false;
+
+  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
+  deletedAt?: Date;
+
+  @Column({ nullable: true, name: 'deleted_by' })
+  deletedBy?: string;
+
+  softDelete(deletedBy?: string): void {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    this.deletedBy = deletedBy;
+  }
 
   /**
    * Normalize plan name before save

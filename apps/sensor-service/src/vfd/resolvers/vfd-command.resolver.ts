@@ -1,6 +1,6 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Float, ObjectType, Field } from '@nestjs/graphql';
-import { Roles, Role, TenantGuard, Tenant } from '@aquaculture/backend-common';
+import { Roles, Role, TenantGuard, Tenant, ThrottleSensitive } from '@aquaculture/backend-common';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VFD_BRAND_COMMANDS } from '../brand-configs';
@@ -41,7 +41,10 @@ export class VfdCommandResolver {
    * Send a command to a VFD device
    * SECURITY: Requires elevated permissions for industrial equipment control
    */
+  // ICS safety: rate limiting on all VFD write mutations prevents rapid
+  // START/STOP cycling (capacitor stress) and frequency oscillation (motor hunting).
   @Mutation(() => VfdCommandResultDto, { name: 'sendVfdCommand' })
+  @ThrottleSensitive() // 3 req / 5 min per user
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async sendCommand(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
@@ -55,6 +58,7 @@ export class VfdCommandResolver {
    * Start VFD (shorthand)
    * SECURITY: Requires elevated permissions - can start industrial motors
    */
+  @ThrottleSensitive()
   @Mutation(() => VfdCommandResultDto, { name: 'startVfd' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async startVfd(
@@ -70,6 +74,7 @@ export class VfdCommandResolver {
    * Stop VFD (shorthand)
    * SECURITY: Requires elevated permissions - can stop industrial motors
    */
+  @ThrottleSensitive()
   @Mutation(() => VfdCommandResultDto, { name: 'stopVfd' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async stopVfd(
@@ -85,6 +90,7 @@ export class VfdCommandResolver {
    * Set VFD frequency (shorthand)
    * SECURITY: Requires elevated permissions - controls motor speed
    */
+  @ThrottleSensitive()
   @Mutation(() => VfdCommandResultDto, { name: 'setVfdFrequency' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async setFrequency(
@@ -102,6 +108,7 @@ export class VfdCommandResolver {
    * Set VFD speed percentage (shorthand)
    * SECURITY: Requires elevated permissions - controls motor speed
    */
+  @ThrottleSensitive()
   @Mutation(() => VfdCommandResultDto, { name: 'setVfdSpeed' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async setSpeed(
@@ -119,6 +126,7 @@ export class VfdCommandResolver {
    * Reset VFD fault (shorthand)
    * SECURITY: Requires elevated permissions - clears equipment fault states
    */
+  @ThrottleSensitive()
   @Mutation(() => VfdCommandResultDto, { name: 'resetVfdFault' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async resetFault(
@@ -135,6 +143,7 @@ export class VfdCommandResolver {
    * SECURITY: Emergency stop is allowed for ALL authenticated users for safety
    * Any user should be able to perform an emergency stop
    */
+  @ThrottleSensitive()
   @Mutation(() => VfdCommandResultDto, { name: 'emergencyStopVfd' })
   async emergencyStop(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,

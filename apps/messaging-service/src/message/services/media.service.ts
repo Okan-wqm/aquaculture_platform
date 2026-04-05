@@ -26,7 +26,9 @@ const ALLOWED_MIME_TYPES = new Set<string>([
   'image/png',
   'image/gif',
   'image/webp',
-  'image/svg+xml',
+  // 'image/svg+xml' is intentionally excluded: SVG files contain executable XML
+  // (<script> tags, event handlers) and browsers render them as active HTML when
+  // served with Content-Type: image/svg+xml — stored XSS vector for all channel viewers.
   // Documents
   'application/pdf',
   'application/msword',

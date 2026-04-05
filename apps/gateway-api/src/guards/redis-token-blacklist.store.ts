@@ -20,6 +20,26 @@ export interface TokenBlacklistStore {
   isBlacklisted(jti: string): Promise<boolean>;
 
   /**
+   * Composite token validity check: per-token blacklist + user-level invalidation.
+   * Returns false (token is invalid) when:
+   *   - the token JTI is explicitly blacklisted, OR
+   *   - the user's entire token family was invalidated after this token was issued.
+   * Fails closed — returns false on any store error.
+   * @param jti   JWT ID
+   * @param userId  Subject (user ID) from the JWT payload
+   * @param issuedAt  iat claim value (Unix seconds)
+   */
+  isValidToken(jti: string, userId: string, issuedAt: number): Promise<boolean>;
+
+  /**
+   * Invalidate all tokens issued to a user before the given timestamp.
+   * Stores invalidatedAt in user_blacklist:{userId} with a 24-hour TTL.
+   * @param userId       Subject (user ID)
+   * @param invalidatedAt Unix seconds — tokens with iat < this value are invalid
+   */
+  blacklistUserTokens(userId: string, invalidatedAt: number): Promise<void>;
+
+  /**
    * Remove expired entries (for in-memory fallback)
    */
   cleanup?(): void;
@@ -71,6 +91,42 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
       // For security-critical applications, this is the correct approach
       return true;
     }
+  }
+
+  async isValidToken(jti: string, userId: string, issuedAt: number): Promise<boolean> {
+    try {
+      // (1) Per-token blacklist check
+      const jtiBlacklisted = await this.redisService.get(this.keyPrefix + jti);
+      if (jtiBlacklisted !== null) {
+        return false;
+      }
+
+      // (2) User-level invalidation check
+      const userInvalidatedAt = await this.redisService.get(`user_blacklist:${userId}`);
+      if (userInvalidatedAt !== null) {
+        const invalidatedAt = parseInt(userInvalidatedAt, 10);
+        if (!isNaN(invalidatedAt) && issuedAt < invalidatedAt) {
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to validate token (fail-closed): ${error}`);
+      // SECURITY: Fail closed — Redis error means we cannot confirm validity
+      return false;
+    }
+  }
+
+  async blacklistUserTokens(userId: string, invalidatedAt: number): Promise<void> {
+    // JWT max lifetime: 24 hours
+    const ttlSeconds = 24 * 60 * 60;
+    await this.redisService.set(
+      `user_blacklist:${userId}`,
+      String(invalidatedAt),
+      ttlSeconds,
+    );
+    this.logger.log(`User tokens blacklisted: userId=${userId}, invalidatedAt=${invalidatedAt}`);
   }
 }
 

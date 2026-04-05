@@ -16,7 +16,7 @@ import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
 } from '../guards/redis-token-blacklist.store';
-import { enforceAccessTokenType } from '@aquaculture/backend-common';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common';
 
 @Injectable()
 export class JwtMiddleware implements NestMiddleware {
@@ -43,21 +43,27 @@ export class JwtMiddleware implements NestMiddleware {
     const token = authHeader.substring(7);
 
     try {
-      // SECURITY: Use JwtService.verifyAsync() with explicit algorithm restriction
-      // instead of custom HMAC verification to prevent algorithm confusion attacks
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
-        algorithms: ['HS256'],
-      });
+      // SECURITY: Use getJwtVerifyOptions() to enforce algorithm, issuer, and audience
+      // at library level — prevents algorithm confusion attacks and accepts tokens
+      // without iss/aud claims.
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
 
       // SEC-COMPAT: Centralized legacy token validation (type check + jti warning)
       enforceAccessTokenType(payload, this.logger, this.isProduction);
 
-      // SECURITY: Check blacklist BEFORE setting req.user
-      // This prevents revoked token identity from being forwarded to subgraphs
-      if (payload.jti && this.tokenBlacklist) {
-        const isBlacklisted = await this.tokenBlacklist.isBlacklisted(payload.jti);
-        if (isBlacklisted) {
-          this.logger.warn(`Blacklisted token used: ${payload.jti.substring(0, 8)}...`);
+      // SECURITY: Composite validity check BEFORE setting req.user — covers both
+      // per-token blacklist and user-level invalidation (e.g. logout-all / password reset).
+      if (this.tokenBlacklist) {
+        const valid = await this.tokenBlacklist.isValidToken(
+          payload.jti!,
+          payload.sub,
+          payload.iat,
+        );
+        if (!valid) {
+          this.logger.warn(`Invalid/revoked token used: ${payload.jti?.substring(0, 8)}...`);
           return next();
         }
       }

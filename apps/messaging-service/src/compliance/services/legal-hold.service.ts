@@ -127,6 +127,22 @@ export class LegalHoldService {
   }
 
   /**
+   * Return IDs of all channels with an active channel-scoped legal hold.
+   *
+   * Used by tenant-wide retention cleanup to exclude held channels from DELETE.
+   * O(1) query — returns only the channelId column, not full hold records.
+   */
+  async getHeldChannelIds(tenantId: string): Promise<string[]> {
+    const holds = await this.holdRepo.find({
+      where: { tenantId, isActive: true },
+      select: ['channelId'],
+    });
+    return holds
+      .filter((h) => h.channelId !== null)
+      .map((h) => h.channelId as string);
+  }
+
+  /**
    * Get all legal holds for a tenant (active and released).
    */
   async getHolds(tenantId: string): Promise<LegalHold[]> {

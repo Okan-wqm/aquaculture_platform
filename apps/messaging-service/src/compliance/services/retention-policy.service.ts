@@ -165,10 +165,10 @@ export class RetentionPolicyService {
   ): Promise<number> {
     const { tenantId, channelId } = policy;
 
-    // Check if entire tenant or specific channel is under legal hold
+    // Check if entire tenant is under legal hold — skip everything
     const tenantHeld = await this.legalHoldService.isUnderLegalHold(tenantId, null);
-    if (tenantHeld && !channelId) {
-      this.logger.debug(`Skipping retention for tenant ${tenantId}: under legal hold`);
+    if (tenantHeld) {
+      this.logger.debug(`Skipping retention for tenant ${tenantId}: under tenant-wide legal hold`);
       return 0;
     }
 
@@ -177,6 +177,19 @@ export class RetentionPolicyService {
       if (channelHeld) {
         this.logger.debug(`Skipping retention for channel ${channelId}: under legal hold`);
         return 0;
+      }
+    }
+
+    // For tenant-wide cleanup (no channelId): fetch all channels under hold so the
+    // DELETE queries exclude them. Without this, channels under channel-scoped holds
+    // would be silently wiped by the tenant-wide policy.
+    let heldChannelIds: string[] = [];
+    if (!channelId) {
+      heldChannelIds = await this.legalHoldService.getHeldChannelIds(tenantId);
+      if (heldChannelIds.length > 0) {
+        this.logger.debug(
+          `Tenant-wide retention for ${tenantId}: excluding ${heldChannelIds.length} held channel(s)`,
+        );
       }
     }
 
@@ -190,6 +203,16 @@ export class RetentionPolicyService {
         `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
       );
 
+      // Build exclusion clause for held channels (tenant-wide cleanup only)
+      const heldExclusion =
+        heldChannelIds.length > 0
+          ? ` AND m."channelId" NOT IN (${heldChannelIds.map((_, i) => `$${i + 2}`).join(',')})`
+          : '';
+      const heldExclusionMsg =
+        heldChannelIds.length > 0
+          ? ` AND "channelId" NOT IN (${heldChannelIds.map((_, i) => `$${i + 2}`).join(',')})`
+          : '';
+
       // Delete attachments for expired messages first
       const deleteAttachmentsQuery = channelId
         ? `DELETE FROM message_attachments att
@@ -202,21 +225,21 @@ export class RetentionPolicyService {
            USING messages m
            WHERE att."messageId" = m.id
              AND att."messageCreatedAt" = m."createdAt"
-             AND m."createdAt" < $1`;
+             AND m."createdAt" < $1${heldExclusion}`;
 
       const attachParams = channelId
         ? [channelId, cutoffDate.toISOString()]
-        : [cutoffDate.toISOString()];
+        : [cutoffDate.toISOString(), ...heldChannelIds];
       await qr.query(deleteAttachmentsQuery, attachParams);
 
       // Hard-delete expired messages
       const deleteMessagesQuery = channelId
         ? `DELETE FROM messages WHERE "channelId" = $1 AND "createdAt" < $2`
-        : `DELETE FROM messages WHERE "createdAt" < $1`;
+        : `DELETE FROM messages WHERE "createdAt" < $1${heldExclusionMsg}`;
 
       const msgParams = channelId
         ? [channelId, cutoffDate.toISOString()]
-        : [cutoffDate.toISOString()];
+        : [cutoffDate.toISOString(), ...heldChannelIds];
       const result = await qr.query(deleteMessagesQuery, msgParams);
 
       await qr.commitTransaction();

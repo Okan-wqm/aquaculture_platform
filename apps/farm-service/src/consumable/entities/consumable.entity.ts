@@ -93,7 +93,9 @@ export class Consumable {
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
   quantity: number;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'min_stock' })
+  // DecimalTransformer: minStock threshold compared against current quantity to trigger reorder alerts.
+  // String comparison produces wrong results — e.g., "5.0" > "10.0" lexicographically.
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, name: 'min_stock', transformer: new DecimalTransformer() })
   minStock: number;
 
   @Column({

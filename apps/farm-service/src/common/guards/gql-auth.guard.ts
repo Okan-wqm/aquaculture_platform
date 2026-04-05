@@ -19,6 +19,7 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
+import { getJwtVerifyOptions } from '@aquaculture/backend-common';
 
 /**
  * Metadata key for public routes
@@ -119,9 +120,16 @@ export class GqlAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
+      // Use centralised JWT verification options from backend-common.
+      // BEFORE: verifyAsync() called with only { secret } — no algorithm restriction,
+      // no issuer/audience enforcement. Algorithm confusion attacks (RS256 downgrade)
+      // were possible; tokens without iss/aud claims were silently accepted.
+      // AFTER: getJwtVerifyOptions() enforces algorithms:['HS256'], issuer, audience
+      // at the jsonwebtoken library level — not via conditional application-layer checks.
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
 
       // Attach user info to request
       request.user = payload;

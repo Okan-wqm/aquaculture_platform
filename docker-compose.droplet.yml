@@ -35,8 +35,11 @@ services:
   # ===========================================================================
 
   postgres:
-    # Pinned 2026-04-05. To update: verify changelog at https://github.com/timescale/timescaledb/releases, test in staging first.
-    image: timescale/timescaledb:latest-pg16
+    # Pinned to the exact version running on this droplet's data volume.
+    # NEVER change this to a lower version — PostgreSQL will refuse to start
+    # if the data was created with a newer TimescaleDB version.
+    # To upgrade: pg_dump → destroy volume → start with new image → restore.
+    image: timescale/timescaledb:2.25.1-pg16
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
@@ -79,6 +82,61 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # ---------------------------------------------------------------------------
+  # db-init: Idempotent role password sync (initContainer pattern)
+  #
+  # Runs ONCE after postgres is healthy, then exits.
+  # Ensures per-service DB roles have the passwords from the current .env,
+  # even when postgres was initialized with randomly-generated passwords.
+  # restart: no — intentional, this is a one-shot init container.
+  # ---------------------------------------------------------------------------
+  db-init:
+    image: timescale/timescaledb:2.25.1-pg16
+    container_name: aqua-db-init
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-aquaculture}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGDATABASE: ${POSTGRES_DB:-aquaculture}
+      AUTH_SERVICE_DB_PASS: ${AUTH_SERVICE_DB_PASS:-}
+      FARM_SERVICE_DB_PASS: ${FARM_SERVICE_DB_PASS:-}
+      SENSOR_SERVICE_DB_PASS: ${SENSOR_SERVICE_DB_PASS:-}
+      BILLING_SERVICE_DB_PASS: ${BILLING_SERVICE_DB_PASS:-}
+      HR_SERVICE_DB_PASS: ${HR_SERVICE_DB_PASS:-}
+      ALERT_SERVICE_DB_PASS: ${ALERT_SERVICE_DB_PASS:-}
+      ADMIN_SERVICE_DB_PASS: ${ADMIN_SERVICE_DB_PASS:-}
+      GATEWAY_SERVICE_DB_PASS: ${GATEWAY_SERVICE_DB_PASS:-}
+      NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
+      HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
+      MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
+    command: >
+      bash -c "
+        update_role() {
+          local role=$$1 pass=$$2
+          if [ -n \"$$pass\" ]; then
+            psql -c \"ALTER ROLE $$role WITH PASSWORD '$$pass'\" 2>/dev/null && echo \"[db-init] $$role password updated\" || echo \"[db-init] $$role role not found, skipping\"
+          fi
+        }
+        update_role auth_service      \"$$AUTH_SERVICE_DB_PASS\"
+        update_role farm_service      \"$$FARM_SERVICE_DB_PASS\"
+        update_role sensor_service    \"$$SENSOR_SERVICE_DB_PASS\"
+        update_role billing_service   \"$$BILLING_SERVICE_DB_PASS\"
+        update_role hr_service        \"$$HR_SERVICE_DB_PASS\"
+        update_role alert_service     \"$$ALERT_SERVICE_DB_PASS\"
+        update_role admin_service     \"$$ADMIN_SERVICE_DB_PASS\"
+        update_role gateway_service   \"$$GATEWAY_SERVICE_DB_PASS\"
+        update_role notification_service \"$$NOTIFICATION_SERVICE_DB_PASS\"
+        update_role hydroponics_service  \"$$HYDROPONICS_SERVICE_DB_PASS\"
+        update_role messaging_service    \"$$MESSAGING_SERVICE_DB_PASS\"
+        echo '[db-init] Done'
+      "
+    networks:
+      - aqua-internal
 
   redis:
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/redis/redis/releases, test in staging first.

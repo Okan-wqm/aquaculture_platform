@@ -211,6 +211,10 @@ pub struct CommandHandler {
     program_state_path: PathBuf,
     /// Concurrency lock to prevent overlapping deploy operations
     deploy_lock: Mutex<()>,
+    /// Command replay dedup set (bounded VecDeque, max 1000 entries).
+    /// Tracks recently executed command_ids to prevent MQTT QoS 1 re-delivery
+    /// from triggering safety-critical commands twice (pump toggle, VFD start/stop).
+    executed_command_ids: VecDeque<String>,
 }
 
 impl CommandHandler {
@@ -240,6 +244,7 @@ impl CommandHandler {
             ),
             program_state_path,
             deploy_lock: Mutex::new(()),
+            executed_command_ids: VecDeque::with_capacity(1000),
         }
     }
 
@@ -308,8 +313,39 @@ impl CommandHandler {
                 command.command, command.command_id
             );
 
+            // IEC 62443 SL-2 FR-7: Command replay protection.
+            // MQTT QoS 1 can re-deliver the same message. Reject:
+            //   (1) Commands already seen (dedup by command_id)
+            //   (2) Commands with stale timestamps (> MAX_COMMAND_AGE_SECS)
+            //   (3) Retained messages on the command topic
+            const MAX_COMMAND_AGE_SECS: i64 = 300; // 5 minutes
+            if message.retain {
+                warn!("Rejecting retained command message: {} (id: {})",
+                    command.command, command.command_id);
+                return Ok(());
+            }
+            if let Ok(cmd_time) = chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
+                let age = chrono::Utc::now().signed_duration_since(cmd_time);
+                if age.num_seconds() > MAX_COMMAND_AGE_SECS || age.num_seconds() < -60 {
+                    warn!("Rejecting stale/future command: {} age={}s (id: {})",
+                        command.command, age.num_seconds(), command.command_id);
+                    return Ok(());
+                }
+            }
+            if self.executed_command_ids.contains(&command.command_id) {
+                warn!("Rejecting duplicate command: {} (id: {})",
+                    command.command, command.command_id);
+                return Ok(());
+            }
+
             // Execute command
             let response = self.execute_command(&command).await;
+
+            // Track executed command ID for dedup (bounded set, evicts oldest)
+            if self.executed_command_ids.len() >= 1000 {
+                self.executed_command_ids.pop_front();
+            }
+            self.executed_command_ids.push_back(command.command_id.clone());
 
             // Publish response
             let state = self.state.read().await;

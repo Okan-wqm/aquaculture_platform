@@ -62,6 +62,9 @@ pub struct MqttClient {
 pub struct IncomingMessage {
     pub topic: String,
     pub payload: Vec<u8>,
+    /// MQTT retain flag — command handler rejects retained command messages
+    /// to prevent replay attacks from broker-persisted messages.
+    pub retain: bool,
 }
 
 /// Device status message
@@ -349,6 +352,7 @@ impl MqttClient {
                     let mut msg = IncomingMessage {
                         topic: publish.topic,
                         payload: publish.payload.to_vec(),
+                        retain: publish.retain,
                     };
 
                     // v1.2.3: Retry logic with backpressure handling

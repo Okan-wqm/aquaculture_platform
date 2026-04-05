@@ -977,6 +977,15 @@ pub struct ModbusSecurityConfig {
     /// Allow write operations (coils and registers)
     #[serde(default)]
     pub allow_writes: bool,
+
+    /// Whitelist of register address ranges allowed for write operations.
+    /// When non-empty, write_register/write_coil must target an address within
+    /// one of these ranges. Prevents a compromised cloud credential from writing
+    /// to arbitrary holding registers (pump relays, dosing actuators, VFD frequency).
+    /// Format: [(start, end)] inclusive ranges. Empty = all addresses allowed when
+    /// allow_writes=true (backward compat).
+    #[serde(default)]
+    pub allowed_write_ranges: Vec<(u16, u16)>,
 }
 
 impl Default for ModbusSecurityConfig {
@@ -988,6 +997,7 @@ impl Default for ModbusSecurityConfig {
             rate_limit_burst: default_modbus_burst_capacity(),
             max_register_count: default_max_register_count(),
             allow_writes: false,
+            allowed_write_ranges: Vec::new(),
         }
     }
 }

@@ -460,6 +460,34 @@ impl ModbusClient {
         }
     }
 
+    /// Validate the target register address is within the allowed write ranges.
+    /// IEC 62443 SL-2: address-granularity write authorization prevents a compromised
+    /// cloud credential from targeting arbitrary holding registers (pump relays,
+    /// dosing actuators, VFD frequency setpoints).
+    fn validate_write_address(&self, address: u16) -> Result<()> {
+        if !self.security.enabled || self.security.allowed_write_ranges.is_empty() {
+            return Ok(()); // backward compat: empty ranges = all addresses allowed
+        }
+
+        let allowed = self
+            .security
+            .allowed_write_ranges
+            .iter()
+            .any(|&(start, end)| address >= start && address <= end);
+
+        if allowed {
+            Ok(())
+        } else {
+            warn!(
+                "Write to register {} denied for device '{}' (not in allowed_write_ranges)",
+                address, self.config.name
+            );
+            Err(anyhow::anyhow!(
+                "Register address {} is not in the allowed write range", address
+            ))
+        }
+    }
+
     /// Try to acquire read rate limiter token (FC1–FC4)
     ///
     /// # Security
@@ -977,6 +1005,7 @@ impl ModbusClient {
     pub async fn write_register(&mut self, address: u16, value: u16) -> Result<()> {
         // Security checks
         self.validate_write_allowed()?;
+        self.validate_write_address(address)?;
         self.validate_function_code(FC_WRITE_SINGLE_REGISTER)?;
         self.acquire_write_rate_limit()?;
 
@@ -1012,6 +1041,7 @@ impl ModbusClient {
     pub async fn write_coil(&mut self, address: u16, value: bool) -> Result<()> {
         // Security checks
         self.validate_write_allowed()?;
+        self.validate_write_address(address)?;
         self.validate_function_code(FC_WRITE_SINGLE_COIL)?;
         self.acquire_write_rate_limit()?;
 

@@ -536,15 +536,17 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   async updateFeedingStatus(
     id: string,
+    tenantId: string,
     status: FeedingStatus,
     reason?: string,
     updatedBy?: string,
   ): Promise<FeedingRecord> {
-    this.logger.debug(`Updating feeding record ${id} status to ${status}`);
+    this.logger.debug(`Updating feeding record ${id} status to ${status} for tenant ${tenantId}`);
 
     try {
+      // C-FARM-01: Include tenantId in WHERE clause to prevent cross-tenant IDOR
       const feedingRecord = await this.feedingRecordRepository.findOne({
-        where: { id },
+        where: { id, tenantId },
       });
 
       if (!feedingRecord) {
@@ -606,14 +608,15 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   async calculateFeedAmount(
     batchId: string,
+    tenantId: string,
     waterTemperature?: number,
   ): Promise<FeedAmountCalculation> {
-    this.logger.debug(`Calculating feed amount for batch ${batchId}`);
+    this.logger.debug(`Calculating feed amount for batch ${batchId} tenant ${tenantId}`);
 
     try {
-      // Get batch with current biomass data
+      // C-FARM-01: Include tenantId in WHERE clause to prevent cross-tenant IDOR
       const batch = await this.batchRepository.findOne({
-        where: { id: batchId },
+        where: { id: batchId, tenantId },
       });
 
       if (!batch) {

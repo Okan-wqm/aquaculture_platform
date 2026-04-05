@@ -168,7 +168,12 @@ impl std::fmt::Debug for SelfRegisterRequest {
 }
 
 /// Self-register response from cloud API
-#[derive(Debug, Deserialize)]
+///
+/// # Security (C-EDGE-01 twin)
+/// `#[derive(Debug)]` intentionally absent — derived impl would print
+/// `mqtt_password` in plaintext. Manual impl below redacts the field,
+/// consistent with `ActivationResponse` and `ActivationRequest`.
+#[derive(Deserialize)]
 pub struct SelfRegisterResponse {
     pub success: bool,
     pub device_id: String,
@@ -182,6 +187,22 @@ pub struct SelfRegisterResponse {
     pub config: Option<serde_json::Value>,
     #[serde(default)]
     pub mqtt_tls_enabled: Option<bool>,
+}
+
+impl std::fmt::Debug for SelfRegisterResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SelfRegisterResponse")
+            .field("success", &self.success)
+            .field("device_id", &self.device_id)
+            .field("device_code", &self.device_code)
+            .field("mqtt_broker", &self.mqtt_broker)
+            .field("mqtt_port", &self.mqtt_port)
+            .field("mqtt_username", &self.mqtt_username)
+            .field("mqtt_password", &"[REDACTED]")
+            .field("tenant_id", &self.tenant_id)
+            .field("mqtt_tls_enabled", &self.mqtt_tls_enabled)
+            .finish()
+    }
 }
 
 impl ProvisioningClient {

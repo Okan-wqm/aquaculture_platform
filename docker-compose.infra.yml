@@ -8,7 +8,7 @@ services:
   # Database
   # ===========================================================================
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.17.2-pg16
     container_name: aqua-postgres
     environment:
       POSTGRES_USER: aquaculture

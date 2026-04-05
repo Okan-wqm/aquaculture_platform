@@ -269,11 +269,32 @@ export class NatsEventBus
     };
   }
 
+  /**
+   * Derive the tenant-scoped NATS subject for an event.
+   *
+   * Subject format:
+   *   With tenantId:    events.{tenantId}.{eventType}   (tenant-isolated routing)
+   *   Without tenantId: events.system.{eventType}       (platform-level events)
+   *
+   * Consumers that handle all tenants subscribe with wildcard:
+   *   events.*.{eventType}   — receives events from every tenant
+   *
+   * Consumers that handle a single tenant subscribe with:
+   *   events.{tenantId}.{eventType}
+   *
+   * The JetStream stream already has subjects: ['events.>'] so both formats
+   * are captured without stream reconfiguration.
+   */
+  private deriveSubject(event: IEvent): string {
+    const segment = event.tenantId ?? 'system';
+    return `events.${segment}.${event.eventType}`;
+  }
+
   async publish<TEvent extends IEvent>(
     event: TEvent,
     options?: PublishOptions,
   ): Promise<void> {
-    await this.publishTo(`events.${event.eventType}`, event, options);
+    await this.publishTo(this.deriveSubject(event), event, options);
   }
 
   async publishBatch<TEvent extends IEvent>(events: TEvent[]): Promise<void> {
@@ -308,11 +329,22 @@ export class NatsEventBus
     }
   }
 
+  /**
+   * Subscribe to an event type across ALL tenants.
+   *
+   * Uses the NATS wildcard `events.*.{eventType}` so this consumer receives
+   * events published to `events.{anyTenantId}.{eventType}` and
+   * `events.system.{eventType}`.
+   *
+   * Handlers that need only a single tenant's events should call
+   * `subscribeTo('events.{tenantId}.{eventType}', handler)` directly.
+   */
   async subscribe<TEvent extends IEvent>(
     eventType: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void> {
-    const topic = `events.${eventType}`;
+    // Wildcard '*' matches any single segment — all tenants and 'system'
+    const topic = `events.*.${eventType}`;
     await this.subscribeTo(topic, handler);
   }
 
@@ -349,7 +381,8 @@ export class NatsEventBus
   }
 
   async unsubscribe(eventType: string): Promise<void> {
-    const topic = `events.${eventType}`;
+    // Match the wildcard subject used by subscribe()
+    const topic = `events.*.${eventType}`;
     await this.unsubscribeFrom(topic);
   }
 

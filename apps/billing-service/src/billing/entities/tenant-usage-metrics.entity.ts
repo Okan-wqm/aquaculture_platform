@@ -8,6 +8,7 @@ import {
   Unique,
 } from 'typeorm';
 import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 /**
  * Usage tracking period type
@@ -157,7 +158,7 @@ export class TenantUsageMetrics {
    * Calculated cost based on usage
    */
   @Field(() => Float, { nullable: true })
-  @Column('decimal', { precision: 12, scale: 2, nullable: true })
+  @Column('decimal', { precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   calculatedCost!: number | null;
 
   /**

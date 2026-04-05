@@ -9,6 +9,7 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 // forwardRef removed - not needed with string-based lazy loading
 
@@ -165,21 +166,21 @@ export class SubscriptionModuleItem {
    * Subtotal before discounts
    */
   @Field(() => Float)
-  @Column('decimal', { precision: 12, scale: 2 })
+  @Column('decimal', { precision: 12, scale: 2, transformer: new DecimalTransformer() })
   subtotal!: number;
 
   /**
    * Module-specific discount
    */
   @Field(() => Float)
-  @Column('decimal', { precision: 12, scale: 2, default: 0, name: 'discount_amount' })
+  @Column('decimal', { precision: 12, scale: 2, default: 0, name: 'discount_amount', transformer: new DecimalTransformer() })
   discountAmount!: number;
 
   /**
    * Final total for this module
    */
   @Field(() => Float)
-  @Column('decimal', { precision: 12, scale: 2 })
+  @Column('decimal', { precision: 12, scale: 2, transformer: new DecimalTransformer() })
   total!: number;
 
   /**

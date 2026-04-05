@@ -6,6 +6,7 @@ import {
   Index,
   CreateDateColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 /**
  * Sensor readings JSONB structure

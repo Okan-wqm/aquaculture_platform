@@ -13,6 +13,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 import { AggregationPeriod, AggregationDimension } from '../usage-aggregator.service';
 import { MeterType } from '../usage-metering.service';
 
@@ -47,19 +48,19 @@ export class UsageAggregation {
   @Column({ type: 'varchar', length: 255, nullable: true })
   dimensionValue?: string;
 
-  @Column('decimal', { precision: 20, scale: 6, default: 0 })
+  @Column('decimal', { precision: 20, scale: 6, default: 0, transformer: new DecimalTransformer() })
   totalUsage!: number;
 
-  @Column('decimal', { precision: 20, scale: 6, default: 0 })
+  @Column('decimal', { precision: 20, scale: 6, default: 0, transformer: new DecimalTransformer() })
   peakUsage!: number;
 
-  @Column('decimal', { precision: 20, scale: 6, default: 0 })
+  @Column('decimal', { precision: 20, scale: 6, default: 0, transformer: new DecimalTransformer() })
   averageUsage!: number;
 
-  @Column('decimal', { precision: 20, scale: 6, nullable: true })
+  @Column('decimal', { precision: 20, scale: 6, nullable: true, transformer: new DecimalTransformer() })
   minUsage!: number | null;
 
-  @Column('decimal', { precision: 20, scale: 6, default: 0 })
+  @Column('decimal', { precision: 20, scale: 6, default: 0, transformer: new DecimalTransformer() })
   maxUsage!: number;
 
   @Column('int', { default: 0 })

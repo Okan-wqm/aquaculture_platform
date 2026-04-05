@@ -8,6 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 
 import { PlanDefinition, PlanTier, BillingCycle } from './plan-definition.entity';
 
@@ -127,19 +128,19 @@ export class CustomPlan {
   /**
    * Calculated monthly subtotal (before discounts)
    */
-  @Column('decimal', { precision: 12, scale: 2, default: 0 })
+  @Column('decimal', { precision: 12, scale: 2, default: 0, transformer: new DecimalTransformer() })
   monthlySubtotal!: number;
 
   /**
    * Discount percentage (0-100)
    */
-  @Column('decimal', { precision: 5, scale: 2, default: 0 })
+  @Column('decimal', { precision: 5, scale: 2, default: 0, transformer: new DecimalTransformer() })
   discountPercent!: number;
 
   /**
    * Fixed discount amount
    */
-  @Column('decimal', { precision: 12, scale: 2, default: 0 })
+  @Column('decimal', { precision: 12, scale: 2, default: 0, transformer: new DecimalTransformer() })
   discountAmount!: number;
 
   /**

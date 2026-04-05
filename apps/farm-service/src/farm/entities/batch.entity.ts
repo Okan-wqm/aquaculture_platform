@@ -16,6 +16,7 @@ import {
   Float,
   registerEnumType,
 } from '@nestjs/graphql';
+import { DecimalTransformer } from '@aquaculture/backend-common';
 // Note: Pond is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Pond } from './pond.entity';

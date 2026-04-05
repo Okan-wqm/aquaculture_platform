@@ -48,7 +48,7 @@ jobs:
 
             echo "=== Installing E2E dependencies ==="
             cd e2e
-            npm ci --prefer-offline 2>/dev/null || npm install
+            npm ci --prefer-offline --ignore-scripts 2>/dev/null || npm install --ignore-scripts
             npx playwright install --with-deps chromium 2>/dev/null || true
 
             echo "=== Setting environment ==="

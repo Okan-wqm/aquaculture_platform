@@ -49,35 +49,21 @@ const REMOTE_SCRIPT_ALLOWLIST: RegExp[] = [
 // ---------------------------------------------------------------------------
 // D14-SC-01: SRI hash-pinning map for remote entry files
 //
-// CI/CD pipeline should generate this map after each build:
-//   1. Build all microfrontend modules
-//   2. Compute SHA-256 hash: sha256sum dist/assets/remoteEntry.js
-//   3. Inject hashes into this map (or import from a generated hashes.json)
+// Populated at build time by the generate-sri-hashes CI job, which writes
+// web/shell/src/generated/remoteHashes.json after each frontend build.
+// That file is gitignored; on local dev the catch below returns an empty map
+// and hash verification is skipped (allowlist guard still applies).
 //
-// Format: { '<path-to-remoteEntry.js>': 'sha256-<base64-hash>' }
-//
-// When populated, the createElement patch in installRemoteIntegrityGuard()
-// will set the `integrity` attribute on injected <script> elements, enabling
-// browser-native SRI verification before execution.
-//
-// TODO(CI/CD): Add a post-build step that:
-//   - Runs: for module in dashboard farm-module hr-module sensor-module hydroponics-module admin-panel tenant-admin; do
-//       HASH=$(cat web/modules/$module/dist/assets/remoteEntry.js | openssl dgst -sha256 -binary | openssl base64 -A)
-//       echo "  '/remotes/$module/assets/remoteEntry.js': 'sha256-$HASH',"
-//     done
-//   - Writes the output to web/shell/src/generated/remoteHashes.json
-//   - This file imports and re-exports the generated map
+// Format: { '/remotes/<module>/assets/remoteEntry.js': 'sha256-<base64>' }
 // ---------------------------------------------------------------------------
-const REMOTE_HASH_PINS: Record<string, string> = {
-  // Populated by CI/CD pipeline — do not edit manually
-  // '/remotes/dashboard/assets/remoteEntry.js': 'sha256-...',
-  // '/remotes/farm-module/assets/remoteEntry.js': 'sha256-...',
-  // '/remotes/hr-module/assets/remoteEntry.js': 'sha256-...',
-  // '/remotes/sensor-module/assets/remoteEntry.js': 'sha256-...',
-  // '/remotes/hydroponics-module/assets/remoteEntry.js': 'sha256-...',
-  // '/remotes/admin-panel/assets/remoteEntry.js': 'sha256-...',
-  // '/remotes/tenant-admin/assets/remoteEntry.js': 'sha256-...',
-};
+let REMOTE_HASH_PINS: Record<string, string> = {};
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const generated = require('./generated/remoteHashes.json') as Record<string, string>;
+  REMOTE_HASH_PINS = generated;
+} catch {
+  // File absent in local dev or when CI hasn't run yet — hash verification skipped.
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers

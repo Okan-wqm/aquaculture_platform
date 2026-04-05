@@ -36,7 +36,8 @@ services:
 
   # PostgreSQL with TimescaleDB
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    # Pinned 2026-04-05. To update: verify changelog at https://github.com/timescale/timescaledb/releases, test in staging first.
+    image: timescale/timescaledb:2.17.2-pg16
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
@@ -55,7 +56,8 @@ services:
 
   # Redis Cache
   redis:
-    image: redis:7-alpine
+    # Pinned 2026-04-05. To update: verify changelog at https://github.com/redis/redis/releases, test in staging first.
+    image: redis:7.2.7-alpine
     container_name: aqua-redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
@@ -72,12 +74,18 @@ services:
 
   # NATS Message Broker
   nats:
-    image: nats:2.10-alpine
+    # Pinned 2026-04-05. To update: verify changelog at https://github.com/nats-io/nats-server/releases, test in staging first.
+    image: nats:2.10.24-alpine
     container_name: aqua-nats
     restart: unless-stopped
     # ARCH-010/ARCH-018: Use config file for explicit JetStream limits + http_port
     # The config file enables http_port 8222 (required for /healthz endpoint below)
     command: ["--config", "/etc/nats/nats.conf"]
+    environment:
+      # SEC-006: NATS credentials substituted into nats.conf authorization{} block.
+      # Without these vars NATS would substitute empty strings, accepting any connection.
+      NATS_USER: ${NATS_USER:-nats_internal}
+      NATS_PASS: "${NATS_PASS:?NATS_PASS is required}"
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
@@ -101,9 +109,11 @@ services:
       SERVICE_NAME: gateway-api
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://gateway_service:${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       # Service URLs for federation
@@ -140,9 +150,11 @@ services:
       SERVICE_NAME: auth-service
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://auth_service:${AUTH_SERVICE_DB_PASS:?AUTH_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
     depends_on:
@@ -164,9 +176,11 @@ services:
       SERVICE_NAME: farm-service
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://farm_service:${FARM_SERVICE_DB_PASS:?FARM_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     depends_on:
@@ -188,9 +202,11 @@ services:
       SERVICE_NAME: sensor-service
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://sensor_service:${SENSOR_SERVICE_DB_PASS:?SENSOR_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
@@ -211,9 +227,11 @@ services:
       SERVICE_NAME: hr-service
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://hr_service:${HR_SERVICE_DB_PASS:?HR_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
@@ -234,9 +252,11 @@ services:
       SERVICE_NAME: billing-service
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://billing_service:${BILLING_SERVICE_DB_PASS:?BILLING_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
@@ -259,9 +279,11 @@ services:
       PORT: 3000
       # ARCH-V11-011: CORS_ORIGINS required — alert-engine throws if wildcard in production
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://alert_service:${ALERT_SERVICE_DB_PASS:?ALERT_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - postgres
@@ -285,9 +307,11 @@ services:
       PORT: 3000
       # ARCH-V11-012: CORS_ORIGINS required — notification-service throws if wildcard in production
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://notification_service:${NOTIFICATION_SERVICE_DB_PASS:?NOTIFICATION_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       # Email config (optional)
       SMTP_HOST: ${SMTP_HOST:-}
@@ -314,14 +338,16 @@ services:
       SERVICE_NAME: admin-api-service
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgres://${POSTGRES_USER:-aquaculture}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-aquaculture}
+      DATABASE_URL: postgres://admin_service:${ADMIN_SERVICE_DB_PASS:?ADMIN_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_USER: admin_service
+      DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:?ADMIN_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: nats://nats:4222
+      NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
+      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     volumes:
       - backup_data:/backups
@@ -437,7 +463,8 @@ services:
   # Reverse Proxy (Nginx)
   # ===========================================================================
   nginx:
-    image: nginx:alpine
+    # Pinned 2026-04-05. To update: verify changelog at https://nginx.org/en/CHANGES, test in staging first.
+    image: nginx:1.27.5-alpine
     container_name: aqua-nginx
     restart: unless-stopped
     ports:

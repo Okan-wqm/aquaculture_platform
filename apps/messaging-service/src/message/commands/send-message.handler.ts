@@ -129,17 +129,18 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     }
 
     // ── 3. Attachment validation ───────────────────────────────────────
+    // Validate each key: tenant prefix isolation + HeadObject existence check.
+    // Returns actual ContentLength and ContentType from MinIO metadata to replace
+    // the 'application/octet-stream' / fileSize:0 placeholders.
+    const attachmentMeta: Map<string, { contentLength: number; contentType: string }> = new Map();
     if (attachmentKeys.length > 0) {
-      // TODO: Validate each storageKey exists in MinIO/S3 bucket.
-      //       For each key, call S3 HeadObject to confirm upload completed.
-      //       This prevents referencing non-existent files.
-      this.logger.debug(`Attachment keys to validate: ${attachmentKeys.length}`);
+      await Promise.all(
+        attachmentKeys.map(async (key) => {
+          const meta = await this.mediaService.validateAttachmentKey(tenantId, key);
+          attachmentMeta.set(key, meta);
+        }),
+      );
     }
-
-    // TODO: Magic byte verification for attachments via file-type package.
-    //       After confirming storageKey exists, download first ~4KB of each file,
-    //       use fileTypeFromBuffer() to verify the actual MIME matches declared MIME.
-    //       Reject if mismatch to prevent disguised uploads (e.g., .exe as .jpg).
 
     // ── 4. Transactional insert: message + outbox ──────────────────────
     const messageId = uuidv4();
@@ -175,13 +176,14 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       // 4b. INSERT attachment records (if any)
       if (attachmentKeys.length > 0) {
         const attachments = attachmentKeys.map((storageKey) => {
+          const meta = attachmentMeta.get(storageKey);
           return manager.create(MessageAttachment, {
             messageId: savedMessage.id,
             messageCreatedAt: savedMessage.createdAt,
             storageKey,
             originalFilename: storageKey.split('/').pop() ?? 'unknown',
-            mimeType: 'application/octet-stream', // TODO: resolve from upload metadata
-            fileSize: 0, // TODO: resolve from upload metadata
+            mimeType: meta?.contentType ?? 'application/octet-stream',
+            fileSize: meta?.contentLength ?? 0,
           });
         });
         await manager.save(MessageAttachment, attachments);

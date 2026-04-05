@@ -174,6 +174,49 @@ export class MediaService {
   }
 
   /**
+   * Validate an attachment storage key before persisting it in a message.
+   *
+   * Checks two things:
+   * 1. Tenant isolation: the key must start with `messaging/{tenantId}/` —
+   *    rejects cross-tenant references where tenant A supplies tenant B's key.
+   * 2. Upload completion: HeadObject confirms the file exists in MinIO/S3 and
+   *    returns actual ContentLength and ContentType to replace the placeholders
+   *    ('application/octet-stream', fileSize: 0) currently stored at send time.
+   *
+   * @throws BadRequestException if the key is invalid, cross-tenant, or missing.
+   */
+  async validateAttachmentKey(
+    tenantId: string,
+    storageKey: string,
+  ): Promise<{ contentLength: number; contentType: string }> {
+    const expectedPrefix = `messaging/${tenantId}/`;
+    if (!storageKey.startsWith(expectedPrefix)) {
+      throw new BadRequestException(
+        `Attachment key does not belong to this tenant: ${storageKey}`,
+      );
+    }
+
+    try {
+      const head = await this.s3Client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: storageKey }),
+      );
+      return {
+        contentLength: head.ContentLength ?? 0,
+        contentType: head.ContentType ?? 'application/octet-stream',
+      };
+    } catch (err) {
+      const code = (err as { Code?: string; name?: string }).Code ?? (err as Error).name;
+      if (code === 'NotFound' || code === 'NoSuchKey') {
+        throw new BadRequestException(
+          `Attachment not found or upload incomplete: ${storageKey}`,
+        );
+      }
+      this.logger.error(`HeadObject failed for ${storageKey}: ${(err as Error).message}`);
+      throw new BadRequestException(`Could not verify attachment: ${storageKey}`);
+    }
+  }
+
+  /**
    * Build a storage key following the convention:
    * messaging/{tenantId}/{channelId}/{year}/{month}/{uuid}.{ext}
    */

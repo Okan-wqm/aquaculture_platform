@@ -82,6 +82,7 @@ import { DeviceGroupModule } from './device-group/device-group.module';
 import { DeviceGroup } from './device-group/entities/device-group.entity';
 import { DeviceGroupMember } from './device-group/entities/device-group-member.entity';
 import { PlcControlModule } from './plc-control/plc-control.module';
+import { StreamProcessingModule } from './stream-processing/stream-processing.module';
 import { PlcConnection } from './plc-control/entities/plc-connection.entity';
 import { FeedingParameter } from './plc-control/entities/feeding-parameter.entity';
 import { PlcAlarm } from './plc-control/entities/plc-alarm.entity';
@@ -383,6 +384,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Device group management and batch operations
     DeviceGroupModule,
+
+    // Real-time stream processing (anomaly detection, rate-of-change, Kafka)
+    StreamProcessingModule,
   ],
   providers: [
     // Global exception filter

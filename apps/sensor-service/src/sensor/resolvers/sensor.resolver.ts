@@ -125,10 +125,11 @@ export class SensorResolver {
     if (pondId) where['pondId'] = pondId;
     if (status) where['status'] = status;
 
+    const safeTake = Math.min(limit, 200);
     return await this.sensorRepository.find({
       where,
       skip,
-      take: limit,
+      take: safeTake,
       order: { createdAt: 'DESC' },
     });
   }

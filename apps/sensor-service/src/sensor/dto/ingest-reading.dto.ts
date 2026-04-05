@@ -8,6 +8,7 @@ import {
   ValidateNested,
   Min,
   Max,
+  ArrayMaxSize,
 } from 'class-validator';
 
 /**
@@ -112,6 +113,7 @@ export class IngestReadingInput {
 export class BatchIngestInput {
   @Field(() => [IngestReadingInput])
   @ValidateNested({ each: true })
+  @ArrayMaxSize(100)
   @Type(() => IngestReadingInput)
   readings!: IngestReadingInput[];
 }

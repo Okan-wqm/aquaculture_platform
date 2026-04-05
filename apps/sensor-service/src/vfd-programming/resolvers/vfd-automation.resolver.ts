@@ -106,8 +106,9 @@ export class VfdAutomationResolver {
   @Query(() => VfdAutomationRule, { name: 'vfdAutomationRule', nullable: true })
   async getAutomationRule(
     @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
   ): Promise<VfdAutomationRule | null> {
-    return this.automationRuleService.findById(id);
+    return this.automationRuleService.findById(id, tenantId);
   }
 
   @Query(() => [VfdAutomationRule], { name: 'vfdAutomationRulesByDevice' })
@@ -122,8 +123,9 @@ export class VfdAutomationResolver {
   async getAutomationRuleHistory(
     @Args('ruleId', { type: () => ID }) ruleId: string,
     @Args('limit', { type: () => Int, defaultValue: 50 }) limit: number,
+    @Tenant() tenantId: string,
   ): Promise<VfdParameterAuditLog[]> {
-    return this.automationRuleService.getRuleExecutionHistory(ruleId, limit);
+    return this.automationRuleService.getRuleExecutionHistory(ruleId, limit, tenantId);
   }
 
   // ─── MUTATIONS ────────────────────────────────────────────────────
@@ -163,6 +165,7 @@ export class VfdAutomationResolver {
   async updateAutomationRule(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateAutomationRuleInput,
+    @Tenant() tenantId: string,
   ): Promise<VfdAutomationRule> {
     return this.automationRuleService.updateRule(id, {
       name: input.name,
@@ -172,7 +175,7 @@ export class VfdAutomationResolver {
       parameterChanges: input.parameterChanges as unknown as VfdAutomationRule['parameterChanges'] | undefined,
       requiresApproval: input.requiresApproval,
       priority: input.priority,
-    });
+    }, tenantId);
   }
 
   /**
@@ -183,8 +186,9 @@ export class VfdAutomationResolver {
   @Roles(Role.TENANT_ADMIN)
   async deleteAutomationRule(
     @Args('id', { type: () => ID }) id: string,
+    @Tenant() tenantId: string,
   ): Promise<boolean> {
-    await this.automationRuleService.deleteRule(id);
+    await this.automationRuleService.deleteRule(id, tenantId);
     return true;
   }
 
@@ -197,7 +201,8 @@ export class VfdAutomationResolver {
   async toggleAutomationRule(
     @Args('id', { type: () => ID }) id: string,
     @Args('isActive') isActive: boolean,
+    @Tenant() tenantId: string,
   ): Promise<VfdAutomationRule> {
-    return this.automationRuleService.toggleRule(id, isActive);
+    return this.automationRuleService.toggleRule(id, isActive, tenantId);
   }
 }

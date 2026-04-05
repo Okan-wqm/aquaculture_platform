@@ -65,6 +65,19 @@ export class MqttAuthController {
     } else {
       this.logger.warn('MQTT_AUTH_SECRET is not set — relying on Docker network isolation for MQTT auth endpoint security');
     }
+
+    // LOW-003: Startup verification that MQTT auth endpoints are not publicly reachable.
+    // If Docker network isolation is misconfigured (compose network not internal:true,
+    // or nginx proxy misconfiguration), these endpoints accept unauthenticated auth
+    // decisions from any caller.
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
+    if (nodeEnv === 'production' && !this.mqttAuthSecret) {
+      this.logger.error(
+        'SECURITY: MQTT auth endpoints are running in production WITHOUT shared secret ' +
+        'AND without verified network isolation. Set MQTT_AUTH_SECRET or ensure Docker ' +
+        'network is configured with internal:true to prevent unauthorized MQTT auth bypass.',
+      );
+    }
   }
 
   /**

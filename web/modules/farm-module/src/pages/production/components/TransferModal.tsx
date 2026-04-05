@@ -154,7 +154,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       onSuccess();
       onClose();
     } catch (error) {
-      if (import.meta.env.DEV) console.error('Failed to transfer batch:', error);
+      // LOW-004: Log errors in all environments, not just DEV. Production transfer
+      // failures were invisible beyond the toast. Sanitize before logging to prevent
+      // internal error detail exposure via browser devtools in production.
+      console.error('[TransferModal] Transfer failed:', error instanceof Error ? error.message : 'Unknown error');
       toast({ title: 'Error', description: 'Failed to transfer batch. Please try again.', variant: 'error' });
     }
   };

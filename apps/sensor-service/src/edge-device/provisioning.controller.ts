@@ -271,7 +271,7 @@ export class ProvisioningController {
    * Can be used by the installer to verify device state.
    */
   @Get('api/devices/:deviceCode/status')
-  @RateLimit({ limit: 5, windowMs: 60000 })
+  @RateLimit({ limit: 3, windowMs: 60000 }) // Tightened from 5 to 3/min to slow enumeration
   async getDeviceStatus(
     @Param('deviceCode') deviceCode: string,
   ): Promise<{
@@ -279,8 +279,19 @@ export class ProvisioningController {
     ready: boolean;
     status: string;
   }> {
+    // LOW-002: Constant-time response to prevent device code enumeration via timing.
+    // Valid device codes hit the DB (slow); invalid ones return immediately (fast).
+    // An attacker can distinguish valid vs invalid by measuring response time.
+    // Fix: enforce a minimum response time for all paths.
+    const startTime = Date.now();
+    const MIN_RESPONSE_MS = 100; // minimum 100ms for all responses
+
     // Validate device code format to prevent injection/enumeration
     if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_RESPONSE_MS) {
+        await new Promise((r) => setTimeout(r, MIN_RESPONSE_MS - elapsed));
+      }
       return {
         deviceCode: '',
         ready: false,
@@ -293,6 +304,10 @@ export class ProvisioningController {
     const device = await this.provisioningService.getDeviceByCode(deviceCode);
 
     if (!device) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_RESPONSE_MS) {
+        await new Promise((r) => setTimeout(r, MIN_RESPONSE_MS - elapsed));
+      }
       return {
         deviceCode,
         ready: false,
@@ -301,6 +316,11 @@ export class ProvisioningController {
     }
 
     const readyCheck = await this.provisioningService.isDeviceReadyForActivation(deviceCode);
+
+    const elapsed = Date.now() - startTime;
+    if (elapsed < MIN_RESPONSE_MS) {
+      await new Promise((r) => setTimeout(r, MIN_RESPONSE_MS - elapsed));
+    }
 
     return {
       deviceCode,

@@ -32,27 +32,27 @@ export default defineConfig(({ command }) => {
         shared: {
           react: {
             singleton: true,
-            requiredVersion: '^18.2.0',
+            requiredVersion: '18.3.1',
           },
           'react-dom': {
             singleton: true,
-            requiredVersion: '^18.2.0',
+            requiredVersion: '18.3.1',
           },
           'react-router-dom': {
             singleton: true,
-            requiredVersion: '^6.21.0',
+            requiredVersion: '6.30.3',
           },
           '@tanstack/react-query': {
             singleton: true,
-            requiredVersion: '^5.17.0',
+            requiredVersion: '5.90.10',
           },
           '@aquaculture/shared-ui': {
             singleton: true,
-            requiredVersion: '^1.0.0',
+            requiredVersion: '1.0.0',
           },
           zustand: {
             singleton: true,
-            requiredVersion: '^4.4.0',
+            requiredVersion: '4.5.7',
           },
           /**
            * SCADA-FIX: reactflow MUST be shared by the host so the remote
@@ -68,7 +68,7 @@ export default defineConfig(({ command }) => {
            */
           reactflow: {
             singleton: true,
-            requiredVersion: '^11.10.0',
+            requiredVersion: '11.11.4',
             version: '11.11.4',
           },
         },

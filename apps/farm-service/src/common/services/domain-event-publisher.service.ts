@@ -18,7 +18,7 @@
  * @module Common/Services
  */
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
+import { NatsEventBus, IEvent } from '@platform/event-bus';
 
 export interface DomainEventContext {
   /** Name of the calling handler — for log correlation */
@@ -45,7 +45,7 @@ export class DomainEventPublisher {
    * swallowed so the caller's HTTP/GraphQL response is not affected.
    */
   async publish(
-    event: Record<string, unknown>,
+    event: IEvent & Record<string, unknown>,
     context: DomainEventContext,
   ): Promise<void> {
     if (!this.eventBus) return;

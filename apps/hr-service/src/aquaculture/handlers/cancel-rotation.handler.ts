@@ -62,7 +62,7 @@ export class CancelRotationHandler implements ICommandHandler<CancelRotationComm
       if (wasInProgress) {
         await queryRunner.manager.update(Employee,
           { id: rotation.employeeId, tenantId },
-          { currentRotationId: null },
+          { currentRotationId: undefined as unknown as string },
         );
       }
 

@@ -228,7 +228,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       );
 
       // Publish BatchAllocatedToTank event AFTER transaction commit
-      const biomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
+      const eventBiomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
       await this.eventPublisher.publish(
         {
           eventId: crypto.randomUUID(),
@@ -238,7 +238,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
           batchId,
           tankId: payload.tankId,
           quantity: payload.quantity,
-          biomassKg,
+          biomassKg: eventBiomassKg,
           allocationType: payload.allocationType,
           userId: allocatedBy,
           version: 1,

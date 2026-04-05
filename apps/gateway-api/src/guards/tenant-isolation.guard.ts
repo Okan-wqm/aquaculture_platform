@@ -254,7 +254,7 @@ export class TenantIsolationGuard implements CanActivate {
     }
 
     // Check partner/reseller access
-    if ((roles.includes('partner') || singleRole === 'partner') && user.managedTenants) {
+    if (roles.includes('partner') && user.managedTenants) {
       return user.managedTenants.includes(targetTenantId);
     }
 

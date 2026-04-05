@@ -1733,12 +1733,13 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   async skipFeeding(
     feedingId: string,
+    tenantId: string,
     reason: string,
     skippedBy: string,
   ): Promise<void> {
     this.logger.log(`Skipping feeding ${feedingId}: ${reason}`);
 
-    await this.updateFeedingStatus(feedingId, 'skipped', reason, skippedBy);
+    await this.updateFeedingStatus(feedingId, tenantId, 'skipped', reason, skippedBy);
   }
 
   /**

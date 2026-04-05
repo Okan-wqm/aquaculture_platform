@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { ContinuousAggregateService } from './continuous-aggregate.service';
 import { HypertableService } from './hypertable.service';
 import { RetentionPolicyService } from './retention-policy.service';
-import { TimeBucketService } from './time-bucket.service';
+import { TimeBucketService } from '../aggregation/time-bucket.service';
 
 /**
  * TimescaleDB Module

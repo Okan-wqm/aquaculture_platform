@@ -181,7 +181,9 @@ export class GdprService {
       if (chunk.length < CHUNK_SIZE) break;
 
       const last = chunk[chunk.length - 1];
-      lastCursor = { createdAt: last.createdAt, id: last.id };
+      if (last) {
+        lastCursor = { createdAt: last.createdAt, id: last.id };
+      }
     }
 
     // 2. Export channel memberships

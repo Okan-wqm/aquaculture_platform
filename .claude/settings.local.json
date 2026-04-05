@@ -525,7 +525,18 @@
       "Bash(sed -n '130,190p' /var/aqua-saas/apps/messaging-service/src/gdpr/gdpr.service.ts)",
       "Bash(sed -n '310,340p' /var/aqua-saas/apps/messaging-service/src/gdpr/gdpr.service.ts)",
       "Bash(sed -n '108,120p' /var/aqua-saas/apps/auth-service/src/modules/authentication/services/token.service.ts)",
-      "Bash(sed -n '285,295p' /var/aqua-saas/apps/auth-service/src/modules/authentication/services/token.service.ts)"
+      "Bash(sed -n '285,295p' /var/aqua-saas/apps/auth-service/src/modules/authentication/services/token.service.ts)",
+      "Skill(update-config)",
+      "Bash(sed -i \"s|import { validateAccessTokenCompat } from './utils/token-validation.util';|import { enforceAccessTokenType } from '@aquaculture/backend-common';|g\" /var/aqua-saas/apps/gateway-api/src/guards/auth.guard.ts)",
+      "Bash(sed -i \"s|validateAccessTokenCompat\\(|enforceAccessTokenType\\(|g\" /var/aqua-saas/apps/gateway-api/src/guards/auth.guard.ts)",
+      "Bash(sed -i \"s|import { validateAccessTokenCompat } from '../guards/utils/token-validation.util';|import { enforceAccessTokenType } from '@aquaculture/backend-common';|g\" /var/aqua-saas/apps/gateway-api/src/middleware/jwt.middleware.ts)",
+      "Bash(sed -i \"s|validateAccessTokenCompat\\(|enforceAccessTokenType\\(|g\" /var/aqua-saas/apps/gateway-api/src/middleware/jwt.middleware.ts)",
+      "Bash(sed -n '540,560p' /var/aqua-saas/apps/farm-service/src/scheduler/feeding-scheduler.service.ts)",
+      "Bash(sed -n '610,630p' /var/aqua-saas/apps/farm-service/src/scheduler/feeding-scheduler.service.ts)",
+      "Bash(sed -n '400,415p' /var/aqua-saas/.github/workflows/cd-production.yml)",
+      "Bash(sed -n '655,670p' /var/aqua-saas/.github/workflows/deploy-digitalocean.yml)",
+      "Bash(sed -n '460,490p' /var/aqua-saas/apps/sensor-service/src/plc-control/services/plc-connection.service.ts)",
+      "Bash(sed -n '180,190p' /var/aqua-saas/apps/messaging-service/src/gdpr/gdpr.service.ts)"
     ],
     "deny": [],
     "ask": []

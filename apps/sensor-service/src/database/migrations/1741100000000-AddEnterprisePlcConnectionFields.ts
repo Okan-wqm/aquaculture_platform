@@ -21,6 +21,7 @@ import { MigrationLogger } from '@aquaculture/backend-common';
 export class AddEnterprisePlcConnectionFields1741100000000
   implements MigrationInterface
 {
+  private readonly logger = new MigrationLogger('AddEnterprisePlcConnectionFields1741100000000');
   name = 'AddEnterprisePlcConnectionFields1741100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

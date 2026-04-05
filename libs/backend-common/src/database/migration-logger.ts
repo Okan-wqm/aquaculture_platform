@@ -36,19 +36,25 @@ export class MigrationLogger {
     this.logger = new Logger(`Migration:${migrationName}`);
   }
 
-  log(message: string): void {
-    this.logger.log(message);
+  /** Log an informational message. Extra args are stringified and appended. */
+  log(message: string, ...args: unknown[]): void {
+    this.logger.log(args.length ? `${message} ${args.map(String).join(' ')}` : message);
   }
 
-  warn(message: string): void {
-    this.logger.warn(message);
+  /** Log a warning. Extra args are stringified and appended. */
+  warn(message: string, ...args: unknown[]): void {
+    this.logger.warn(args.length ? `${message} ${args.map(String).join(' ')}` : message);
   }
 
-  error(message: string, error?: unknown): void {
-    if (error instanceof Error) {
-      this.logger.error(message, error.stack);
+  /** Log an error. Pass an Error object as the second argument for stack traces. */
+  error(message: string, errorOrArg?: unknown, ...rest: unknown[]): void {
+    if (errorOrArg instanceof Error) {
+      this.logger.error(message, errorOrArg.stack);
     } else {
-      this.logger.error(message);
+      const extra = errorOrArg !== undefined
+        ? `${String(errorOrArg)} ${rest.map(String).join(' ')}`.trim()
+        : '';
+      this.logger.error(extra ? `${message} ${extra}` : message);
     }
   }
 }

@@ -42,16 +42,20 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    // Declared outside try so the saved batch is accessible for return
+    let batch: Batch;
+
     try {
       // Batch bul — pessimistic write lock prevents concurrent races
-      const batch = await queryRunner.manager.findOne(Batch, {
+      const foundBatch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
         lock: { mode: 'pessimistic_write' },
       });
 
-      if (!batch) {
+      if (!foundBatch) {
         throw new NotFoundException(`Batch ${batchId} bulunamadı`);
       }
+      batch = foundBatch;
 
       // Tank bul (Equipment entity kullanılıyor) — also locked
       const tank = await queryRunner.manager.findOne(Equipment, {

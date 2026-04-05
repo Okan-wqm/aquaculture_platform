@@ -464,7 +464,7 @@ export class PlcConnectionService {
       );
     }
     const withoutScheme = url.slice('opc.tcp://'.length);
-    const hostname = withoutScheme.split('/')[0].split(':')[0];
+    const hostname = (withoutScheme.split('/')[0] ?? '').split(':')[0] ?? '';
     if (this.isPrivateAddress(hostname)) {
       throw new ForbiddenException('Private network endpoints are not allowed');
     }
@@ -478,12 +478,13 @@ export class PlcConnectionService {
     if (host === 'localhost') return true;
     if (net.isIPv4(host)) {
       const parts = host.split('.').map(Number);
+      const [p0 = 0, p1 = 0] = parts;
       return (
-        parts[0] === 10 ||
-        parts[0] === 127 ||
-        (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
-        (parts[0] === 192 && parts[1] === 168) ||
-        (parts[0] === 169 && parts[1] === 254)
+        p0 === 10 ||
+        p0 === 127 ||
+        (p0 === 172 && p1 >= 16 && p1 <= 31) ||
+        (p0 === 192 && p1 === 168) ||
+        (p0 === 169 && p1 === 254)
       );
     }
     if (net.isIPv6(host)) {

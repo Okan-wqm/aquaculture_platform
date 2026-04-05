@@ -18,7 +18,7 @@
  *
  * @module Batch/DataLoaders
  */
-import * as DataLoader from 'dataloader';
+import DataLoader from 'dataloader';
 import { Injectable, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -59,7 +59,7 @@ export class BatchDocumentDataLoader {
         // Cache is per-request (Scope.REQUEST) — no cross-request leakage
         cache: true,
         // Batch all loads within the same tick
-        batchScheduleFn: (cb) => setTimeout(cb, 0),
+        batchScheduleFn: (cb: () => void): ReturnType<typeof setTimeout> => setTimeout(cb, 0),
       },
     );
   }
@@ -72,6 +72,6 @@ export class BatchDocumentDataLoader {
   /** Load documents filtered by type, from the already-batched result */
   async loadByType(batchId: string, documentType: BatchDocumentType): Promise<BatchDocument[]> {
     const all = await this.allDocsLoader.load(batchId);
-    return all.filter((d) => d.documentType === documentType);
+    return all.filter((d: BatchDocument) => d.documentType === documentType);
   }
 }

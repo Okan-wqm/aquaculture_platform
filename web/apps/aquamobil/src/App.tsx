@@ -129,7 +129,7 @@ function PageLoader() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isMobileDisabled, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -140,6 +140,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // SEC: Block PANEL_ONLY users and users with mobile disabled from accessing
+  // any protected route. isMobileDisabled is set on login; accessType is a
+  // hard server-side restriction for accounts without mobile entitlement.
+  if (isMobileDisabled || user?.accessType === 'PANEL_ONLY') {
     return <Navigate to="/login" replace />;
   }
 

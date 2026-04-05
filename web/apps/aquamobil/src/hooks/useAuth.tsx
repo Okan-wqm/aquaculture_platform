@@ -3,6 +3,7 @@ import { del } from 'idb-keyval';
 import type { AuthState } from '@/types';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
 import { syncAuthStore } from '@/services/authenticated-fetch';
+import { clearBiometricData } from '@/hooks/useWebAuthn';
 
 interface AuthContextValue extends AuthState {
   isLoading: boolean;
@@ -96,8 +97,13 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
 
 // BUG-03 / SEC-02 / SEC-04: Coordinated teardown of all user data stores on logout.
 // Clears offline queue (IndexedDB), data cache (IndexedDB), permissions cache (IndexedDB),
-// and service worker Cache Storage to prevent data leakage on shared devices.
+// biometric localStorage PII, and service worker Cache Storage to prevent data leakage
+// on shared devices.
 async function clearAllUserData(userId?: string): Promise<void> {
+  // H-FE-01: Clear biometric PII (webauthn_email, webauthn_credential_ids) on logout
+  // so the next user on a shared device cannot use or see prior user's biometric data.
+  clearBiometricData();
+
   await Promise.all([
     clearAllOperations(),
     clearCache(),

@@ -259,7 +259,7 @@ const TENANT_STATS_QUERY = `
 
 const FARMS_COUNT_QUERY = `
   query FarmsCount {
-    farms(limit: 1000) {
+    farms(limit: 200) {
       id
       name
       isActive
@@ -473,9 +473,10 @@ export function useDashboardStats() {
           HARVEST_STATISTICS_QUERY,
           { dateRange: prevDateRange },
         ).catch(() => null),
+        // TODO: Consider server-side pagination if >200 sensors is a real use-case
         graphqlClient.request<{ sensors: SensorSummary[] }>(
           SENSORS_LIST_QUERY,
-          { limit: 1000 },
+          { limit: 200 },
         ).catch(() => null),
       ]);
 
@@ -782,9 +783,10 @@ export function useBatchesSummary() {
     queryKey: dashboardKeys.batches(),
     staleTime: 120_000,
     queryFn: async (): Promise<BatchSummary[]> => {
+      // TODO: Consider server-side pagination if >200 batches is a real use-case
       const result = await graphqlClient.request<{
         batches: { items: BatchSummary[]; total: number };
-      }>(BATCHES_QUERY, { limit: 500 });
+      }>(BATCHES_QUERY, { limit: 200 });
 
       return result.batches.items;
     },

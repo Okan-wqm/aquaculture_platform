@@ -102,6 +102,9 @@ function handlePushEvent(event: PushEvent): void {
 // Notification Click Handler
 // ============================================================================
 
+/** UUID v4 pattern for validating channelId from push notification data. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Navigate to the messaging channel when a notification is clicked.
  */
@@ -110,7 +113,11 @@ function handleNotificationClick(event: NotificationEvent): void {
 
   if (event.action === 'dismiss') return;
 
-  const channelId = (event.notification.data as { channelId?: string })?.channelId;
+  const rawChannelId = (event.notification.data as { channelId?: string })?.channelId;
+  // SEC: Validate channelId against UUID pattern before constructing the URL.
+  // An attacker-controlled push payload could inject arbitrary path segments
+  // without this guard. Fall back to /messages if the value is not a valid UUID.
+  const channelId = rawChannelId && UUID_PATTERN.test(rawChannelId) ? rawChannelId : undefined;
   const targetUrl = channelId
     ? `/messages/${channelId}`
     : '/messages';
@@ -168,15 +175,17 @@ const MEDIA_PATTERN = /\/(messaging|media)\//;
 
 /**
  * Fetch event handler with messaging-specific cache strategies:
- * - NetworkFirst for GraphQL (messaging queries/mutations)
+ * - Pass-through for GraphQL (authenticated responses must NEVER be cached)
  * - StaleWhileRevalidate for media files (images, documents)
  */
 function handleFetchEvent(event: FetchEvent): void {
   const url = new URL(event.request.url);
 
-  // NetworkFirst for messaging GraphQL
+  // SEC: Never cache authenticated GraphQL POST responses — pass through directly.
+  // Caching GraphQL responses risks leaking authenticated data to the next user
+  // on shared devices. All GraphQL requests go straight to the network.
   if (GRAPHQL_PATTERN.test(url.pathname) && event.request.method === 'POST') {
-    event.respondWith(networkFirstStrategy(event.request));
+    event.respondWith(fetch(event.request));
     return;
   }
 
@@ -184,24 +193,6 @@ function handleFetchEvent(event: FetchEvent): void {
   if (MEDIA_PATTERN.test(url.pathname) && event.request.method === 'GET') {
     event.respondWith(staleWhileRevalidateStrategy(event.request));
     return;
-  }
-}
-
-async function networkFirstStrategy(request: Request): Promise<Response> {
-  const cacheName = 'messaging-graphql-v1';
-  try {
-    const networkResponse = await fetch(request.clone());
-    if (networkResponse.ok) {
-      const cache = await caches.open(cacheName);
-      await cache.put(request, networkResponse.clone());
-    }
-    return networkResponse;
-  } catch {
-    const cached = await caches.match(request);
-    return cached ?? new Response(JSON.stringify({ errors: [{ message: 'Offline' }] }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' },
-    });
   }
 }
 

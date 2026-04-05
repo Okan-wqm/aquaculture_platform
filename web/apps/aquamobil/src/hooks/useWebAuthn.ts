@@ -148,6 +148,44 @@ export interface WebAuthnCredentialInfo {
 }
 
 // ============================================================================
+// Error Sanitization
+// ============================================================================
+
+/**
+ * Map raw WebAuthn / DOMException errors to user-friendly strings.
+ * Known error names are mapped explicitly; anything else falls back to a
+ * generic message so internal implementation details are never leaked to the UI.
+ *
+ * @param err - The caught error (unknown type — could be Error, string, etc.)
+ * @returns A safe, user-facing error message string.
+ */
+export function sanitizeWebAuthnError(err: unknown): string {
+  const name = err instanceof Error ? err.name : '';
+  const message = err instanceof Error ? err.message : '';
+
+  if (name === 'NotAllowedError' || message.includes('NotAllowedError')) {
+    return 'Biometric authentication was denied or timed out. Please try again.';
+  }
+  if (name === 'AbortError' || message.includes('AbortError') || message.includes('cancelled')) {
+    return 'Biometric operation was cancelled.';
+  }
+  if (name === 'NotSupportedError' || message.includes('NotSupportedError')) {
+    return 'This authenticator type is not supported on your device.';
+  }
+  if (name === 'SecurityError' || message.includes('SecurityError')) {
+    return 'A security error occurred. Ensure you are on a secure (HTTPS) connection.';
+  }
+  if (name === 'InvalidStateError' || message.includes('InvalidStateError')) {
+    return 'A credential already exists for this account on this device.';
+  }
+  if (name === 'ConstraintError' || message.includes('ConstraintError')) {
+    return 'The authenticator does not meet the required constraints.';
+  }
+  // Generic fallback — never expose raw error messages to the user
+  return 'Biometric authentication failed. Please try again or use your password.';
+}
+
+// ============================================================================
 // Hook: useWebAuthn
 // ============================================================================
 
@@ -320,13 +358,7 @@ export function useWebAuthn() {
           return false;
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Biometric registration failed';
-        // Don't show error for user cancellation
-        if (message.includes('AbortError') || message.includes('cancelled') || message.includes('NotAllowedError')) {
-          setError('Biometric registration was cancelled');
-        } else {
-          setError(message);
-        }
+        setError(sanitizeWebAuthnError(err));
         return false;
       } finally {
         setIsRegistering(false);

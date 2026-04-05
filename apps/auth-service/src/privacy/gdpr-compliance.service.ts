@@ -1,6 +1,8 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 
 import { User } from '../modules/authentication/entities/user.entity';
 import { RefreshToken } from '../modules/authentication/entities/refresh-token.entity';
@@ -44,6 +46,8 @@ export class GdprComplianceService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
     private readonly authService: AuthenticationService,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   /**
@@ -96,6 +100,25 @@ export class GdprComplianceService {
     });
 
     this.logger.log(`GDPR erasure completed: userId=${userId}`);
+
+    // M-GDPR-01: Publish UserDeleted event so downstream services (messaging, hr,
+    // farm, sensor) can run their own GDPR cleanup. Without this event, cross-service
+    // anonymisation never triggers — only auth-layer PII is erased.
+    if (this.eventBus) {
+      try {
+        await this.eventBus.publish({
+          ...createBaseEvent('UserDeleted' as any, tenantId, { userId: requestedBy }),
+          deletedUserId: userId,
+          tenantId,
+          erasureType: 'gdpr_right_to_erasure',
+        });
+        this.logger.log(`UserDeleted event published for userId=${userId}`);
+      } catch (eventError) {
+        this.logger.error(
+          `Failed to publish UserDeleted event for ${userId}: ${(eventError as Error).message}`,
+        );
+      }
+    }
   }
 
   /**

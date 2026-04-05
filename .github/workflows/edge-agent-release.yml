@@ -83,9 +83,13 @@ jobs:
 
       - name: Audit dependencies
         working-directory: sens-api-gateway
+        # SEC-EDGE-01: cargo audit MUST block release — a known-vulnerable crate
+        # in a production edge agent binary is a supply chain attack vector.
+        # BEFORE: `|| echo "::warning::"` swallowed the exit code, allowing
+        # releases with RUSTSEC advisories to reach production devices.
         run: |
           cargo install cargo-audit --locked 2>/dev/null || true
-          cargo audit || echo "::warning::Dependency audit found vulnerabilities"
+          cargo audit
 
       - name: Build release binary
         working-directory: sens-api-gateway

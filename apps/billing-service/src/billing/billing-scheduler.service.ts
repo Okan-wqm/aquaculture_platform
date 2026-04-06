@@ -5,6 +5,7 @@ import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
+import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { randomBytes } from 'crypto';
 
@@ -454,5 +455,123 @@ export class BillingSchedulerService {
     const result = new Date(date);
     result.setFullYear(targetYear, targetMonth, clampedDay);
     return result;
+  }
+
+  // ─── IP-2: Apply Scheduled Plan Changes ─────────────────────────────
+
+  /**
+   * Every hour, find PENDING scheduled plan changes whose effectiveDate
+   * has passed and apply them to the subscription.
+   *
+   * WHY: Downgrades are deferred to billing period end so tenants keep
+   * access to features they've already paid for. This cron job is the
+   * mechanism that actually applies the deferred change.
+   *
+   * SECURITY: Uses pg_try_advisory_lock to prevent concurrent execution
+   * across multiple billing-service instances.
+   *
+   * Idempotent: only processes PENDING changes, marks them APPLIED on success.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async applyScheduledPlanChanges(): Promise<void> {
+    const now = new Date();
+
+    // ── Distributed lock ────────────────────────────────────────────────
+    const lockId = 900002; // Unique advisory lock ID for scheduled plan changes
+    const lockResult = await this.dataSource.query(
+      'SELECT pg_try_advisory_lock($1) as acquired',
+      [lockId],
+    );
+    if (!lockResult?.[0]?.acquired) {
+      this.logger.debug('Another instance is processing scheduled plan changes — skipping');
+      return;
+    }
+
+    try {
+      const changeRepo = this.dataSource.getRepository(ScheduledPlanChange);
+
+      const pendingChanges = await changeRepo.find({
+        where: {
+          status: ScheduledChangeStatus.PENDING,
+          effectiveDate: LessThanOrEqual(now),
+        },
+      });
+
+      if (pendingChanges.length === 0) {
+        return;
+      }
+
+      this.logger.log(`Applying ${pendingChanges.length} scheduled plan change(s)`);
+
+      for (const change of pendingChanges) {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+          // ── Load subscription with lock ─────────────────────────────────
+          const subscription = await queryRunner.manager.findOne(Subscription, {
+            where: { id: change.subscriptionId },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (!subscription) {
+            this.logger.warn(`Subscription ${change.subscriptionId} not found — marking change ${change.id} as cancelled`);
+            change.status = ScheduledChangeStatus.CANCELLED;
+            change.cancelledAt = now;
+            change.cancellationReason = 'Subscription not found';
+            await queryRunner.manager.save(ScheduledPlanChange, change);
+            await queryRunner.commitTransaction();
+            continue;
+          }
+
+          // ── Apply the plan change ───────────────────────────────────────
+          subscription.planId = change.newPlanId;
+          subscription.planTier = change.newPlanTier as Subscription['planTier'];
+          subscription.planName = change.newPlanName;
+          subscription.limits = change.newLimits as Subscription['limits'];
+          subscription.pricing = change.newPricing as Subscription['pricing'];
+          subscription.updatedBy = change.scheduledBy ?? 'system:billing-scheduler';
+
+          await queryRunner.manager.save(Subscription, subscription);
+
+          // ── Mark change as applied ──────────────────────────────────────
+          change.status = ScheduledChangeStatus.APPLIED;
+          change.appliedAt = now;
+          await queryRunner.manager.save(ScheduledPlanChange, change);
+
+          await queryRunner.commitTransaction();
+
+          this.logger.log(
+            `Scheduled plan change applied: tenant=${change.tenantId}, ` +
+            `${change.currentPlanTier} → ${change.newPlanTier}, changeId=${change.id}`,
+          );
+
+          // ── Publish event (non-blocking) ────────────────────────────────
+          try {
+            this.eventBus?.publish(createBaseEvent('SubscriptionUpdated', change.tenantId, {
+              subscriptionId: subscription.id,
+              tier: change.newPlanTier,
+              previousPlanTier: change.currentPlanTier,
+              isDowngrade: true,
+              isScheduledChange: true,
+            }));
+          } catch (eventError) {
+            this.logger.warn(`Event publish failed for change ${change.id}: ${(eventError as Error).message}`);
+          }
+        } catch (error) {
+          await queryRunner.rollbackTransaction();
+          this.logger.error(
+            `Failed to apply scheduled change ${change.id}: ${(error as Error).message}`,
+            (error as Error).stack,
+          );
+        } finally {
+          await queryRunner.release();
+        }
+      }
+    } finally {
+      // Release advisory lock
+      await this.dataSource.query('SELECT pg_advisory_unlock($1)', [lockId]);
+    }
   }
 }

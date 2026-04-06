@@ -14,6 +14,7 @@ import { createBaseEvent, SubscriptionUpdatedEvent } from '@platform/event-contr
 import { RedisService } from '@aquaculture/backend-common';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import { Subscription, SubscriptionStatus, BillingCycle } from '../entities/subscription.entity';
+import { ScheduledPlanChange, ScheduledChangeStatus } from '../entities/scheduled-plan-change.entity';
 import { Plan } from '../entities/plan.entity';
 
 /** Result of a plan change operation, includes the updated subscription and pro-rata details */
@@ -137,22 +138,43 @@ export class ChangeSubscriptionPlanHandler
           `(pro-rata credit: $${proRataCredit.toFixed(2)})`,
         );
       } else if (isDowngrade) {
-        // DOWNGRADE: Takes effect at end of current billing period.
-        // We store the pending change in metadata but keep current plan active.
-        // The billing scheduler will apply this at period end.
-        //
-        // For now we apply immediately but set the effective date to period end.
-        // A production system would use a scheduled_plan_change table.
-        subscription.planTier = newPlan.tier;
-        subscription.planName = newPlan.name;
-        subscription.limits = { ...newPlan.limits };
-        subscription.pricing = { ...newPlan.pricing };
+        // IP-2: DOWNGRADE — schedule for end of current billing period.
+        // WHY: Immediate downgrades would revoke access to features the tenant
+        // has already paid for. The scheduled change preserves full value for
+        // the current period. The billing scheduler cron applies it at periodEnd.
+        const scheduledChangeRepo = queryRunner.manager.getRepository(ScheduledPlanChange);
+
+        // Cancel any existing pending change for this subscription
+        await scheduledChangeRepo.update(
+          { subscriptionId: subscription.id, status: ScheduledChangeStatus.PENDING },
+          { status: ScheduledChangeStatus.CANCELLED, cancelledAt: now, cancellationReason: 'Superseded by new plan change' },
+        );
+
+        // Create new scheduled change
+        const scheduledChange = scheduledChangeRepo.create({
+          tenantId,
+          subscriptionId: subscription.id,
+          currentPlanId: subscription.planId ?? '',
+          currentPlanTier: subscription.planTier,
+          newPlanId: newPlan.id,
+          newPlanTier: newPlan.tier,
+          newPlanName: newPlan.name,
+          newLimits: { ...newPlan.limits },
+          newPricing: { ...newPlan.pricing },
+          status: ScheduledChangeStatus.PENDING,
+          effectiveDate: subscription.currentPeriodEnd,
+          reason: input.reason,
+          scheduledBy: userId,
+        });
+        await scheduledChangeRepo.save(scheduledChange);
+
+        // IMPORTANT: Do NOT change subscription fields — current plan stays active
         subscription.updatedBy = userId;
 
         this.logger.log(
-          `Downgrade plan change for tenant ${tenantId}: ` +
+          `Downgrade scheduled for tenant ${tenantId}: ` +
           `${subscription.planTier} → ${newPlan.tier} ` +
-          `(effective at period end: ${subscription.currentPeriodEnd.toISOString()})`,
+          `(effective: ${subscription.currentPeriodEnd.toISOString()}, changeId: ${scheduledChange.id})`,
         );
       } else {
         // Same tier level — lateral move (e.g., from one professional plan to another)

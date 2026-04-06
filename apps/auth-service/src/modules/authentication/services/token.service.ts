@@ -54,6 +54,9 @@ export interface JwtPayload {
   firstName?: string;
   /** @deprecated Will be removed in next major version. Fetch from auth-service instead. */
   lastName?: string;
+  /** IP-2: Set to true after MFA step-up verification. TenantGuard checks
+   *  this claim for cross-tenant access when MFA_REQUIRED_FOR_CROSS_TENANT=true. */
+  mfaVerified?: boolean;
   jti?: string; // JWT ID for blacklisting
   iat?: number;
   exp?: number;
@@ -154,6 +157,7 @@ export class TokenService {
     user: User,
     ipAddress?: string,
     userAgent?: string,
+    options?: { mfaVerified?: boolean },
   ): Promise<AuthPayload> {
     // Enforce concurrent session limit
     if (this.sessionManager) {
@@ -187,6 +191,9 @@ export class TokenService {
       resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
       type: 'access',
       jti,
+      // IP-2: MFA step-up claim — set after successful TOTP verification.
+      // TenantGuard checks this claim for cross-tenant access (MFA_REQUIRED_FOR_CROSS_TENANT=true).
+      ...(options?.mfaVerified ? { mfaVerified: true } : {}),
     };
 
     // SECURITY: Include audience claim to prevent cross-service token replay

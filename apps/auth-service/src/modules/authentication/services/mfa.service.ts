@@ -562,7 +562,101 @@ export class MfaService {
 
     await this.logMfaEvent('MFA_VERIFY_SUCCESS', user, true);
 
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    // IP-2: MFA login verification → set mfaVerified claim in JWT
+    return this.tokenService.generateTokens(user, ipAddress, userAgent, { mfaVerified: true });
+  }
+
+  // ==========================================================================
+  // Step-Up Authentication
+  // ==========================================================================
+
+  /**
+   * IP-2: MFA step-up authentication for elevated operations.
+   *
+   * Called when a user with an existing session needs to re-verify their
+   * identity for sensitive operations (e.g., impersonation, billing changes).
+   * Returns a new access token with `mfaVerified: true` claim.
+   *
+   * SECURITY: The caller must already be authenticated (valid access token).
+   * This endpoint only elevates the session — it does not create one.
+   *
+   * WHY: Separate from login MFA because:
+   *   - Login MFA uses a short-lived mfaToken (5 min) as credential
+   *   - Step-up uses the existing access token as credential
+   *   - Step-up tokens have a shorter TTL (5 min) to limit blast radius
+   *
+   * @param userId    - From the existing JWT (not user-supplied)
+   * @param code      - 6-digit TOTP code or recovery code
+   * @param ipAddress - Client IP for audit logging
+   * @param userAgent - Client user agent for audit logging
+   * @returns New auth tokens with mfaVerified=true claim
+   */
+  async verifyStepUp(
+    userId: string,
+    code: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthPayload> {
+    if (this.mfaDisabled) {
+      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
+    }
+
+    const user = await this.findUserOrFail(userId);
+
+    if (!user.mfaEnabled || !user.mfaSecret) {
+      throw new BadRequestException(
+        'MFA is not enabled for this account. Enable MFA first via setupMfa mutation.',
+      );
+    }
+
+    // ── Lockout check ───────────────────────────────────────────────────────
+    if (user.mfaLockedUntil && user.mfaLockedUntil > new Date()) {
+      const remainingMin = Math.ceil((user.mfaLockedUntil.getTime() - Date.now()) / 60000);
+      await this.logMfaEvent('MFA_STEPUP_BLOCKED_LOCKOUT', user, false, 'MFA locked out');
+      throw new ForbiddenException(
+        `Too many failed MFA attempts. Try again in ${remainingMin} minute(s).`,
+      );
+    }
+
+    // ── TOTP verification ───────────────────────────────────────────────────
+    const isTotpCode = /^\d{6}$/.test(code);
+    let verified = false;
+
+    if (isTotpCode) {
+      const secretBase32 = this.decrypt(user.mfaSecret);
+      const secretBuffer = base32Decode(secretBase32);
+      verified = verifyTOTP(secretBuffer, code);
+    }
+
+    // ── Recovery code fallback ──────────────────────────────────────────────
+    if (!verified) {
+      verified = await this.verifyAndConsumeRecoveryCode(user, code);
+    }
+
+    if (!verified) {
+      user.mfaFailedAttempts = (user.mfaFailedAttempts || 0) + 1;
+      if (user.mfaFailedAttempts >= MFA_MAX_FAILED_ATTEMPTS) {
+        user.mfaLockedUntil = new Date(Date.now() + MFA_LOCKOUT_DURATION_MINUTES * 60 * 1000);
+        await this.userRepository.save(user);
+        await this.logMfaEvent('MFA_STEPUP_LOCKOUT', user, false,
+          `Locked after ${MFA_MAX_FAILED_ATTEMPTS} failed attempts`);
+        throw new ForbiddenException(
+          `Too many failed MFA attempts. Account locked for ${MFA_LOCKOUT_DURATION_MINUTES} minutes.`,
+        );
+      }
+      await this.userRepository.save(user);
+      await this.logMfaEvent('MFA_STEPUP_FAILED', user, false, `Attempt ${user.mfaFailedAttempts}`);
+      throw new UnauthorizedException('Invalid MFA code');
+    }
+
+    // ── Success: reset failures, issue elevated token ───────────────────────
+    user.mfaFailedAttempts = 0;
+    user.mfaLockedUntil = null;
+    await this.userRepository.save(user);
+
+    await this.logMfaEvent('MFA_STEPUP_SUCCESS', user, true);
+
+    return this.tokenService.generateTokens(user, ipAddress, userAgent, { mfaVerified: true });
   }
 
   // ==========================================================================

@@ -18,6 +18,7 @@ import { Payment } from './entities/payment.entity';
 import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 import { TenantUsageMetrics } from './entities/tenant-usage-metrics.entity';
 import { Plan } from './entities/plan.entity';
+import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
 
 // Command Handlers
 import { CreateSubscriptionHandler } from './handlers/create-subscription.handler';
@@ -75,7 +76,7 @@ const EventHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan]),
+    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan, ScheduledPlanChange]),
     CqrsModule,
     ScheduleModule,
   ],

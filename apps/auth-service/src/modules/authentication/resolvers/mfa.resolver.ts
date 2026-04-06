@@ -13,6 +13,7 @@ import {
   DisableMfaInput,
   DisableMfaResponse,
   VerifyMfaLoginInput,
+  MfaStepUpInput,
   RegenerateMfaRecoveryCodesResponse,
 } from '../dto/mfa.dto';
 import { User } from '../entities/user.entity';
@@ -112,6 +113,42 @@ export class MfaResolver {
     @Args('code') code: string,
   ): Promise<RegenerateMfaRecoveryCodesResponse> {
     return this.mfaService.regenerateRecoveryCodes(userId, code);
+  }
+
+  // ==========================================================================
+  // MFA Step-Up (Authenticated — elevates existing session)
+  // ==========================================================================
+
+  /**
+   * IP-2: MFA step-up authentication.
+   *
+   * Called when an authenticated user needs to re-verify identity for
+   * sensitive operations (impersonation, cross-tenant access, billing changes).
+   * Returns new tokens with mfaVerified=true claim.
+   *
+   * SECURITY: Requires a valid access token (user must already be logged in).
+   * The TOTP code is verified against the user's MFA secret.
+   */
+  @SkipTenantGuard()
+  @Mutation(() => AuthPayload, { description: 'MFA step-up: re-verify identity for elevated operations' })
+  async mfaStepUp(
+    @CurrentUser('sub') userId: string,
+    @Args('input') input: MfaStepUpInput,
+    @Context() context: GqlContext,
+  ): Promise<AuthPayload> {
+    const forwarded = context.req?.headers?.['x-forwarded-for'];
+    const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
+    const userAgent = context.req?.headers?.['user-agent'] as string | undefined;
+
+    const result = await this.mfaService.verifyStepUp(
+      userId,
+      input.code,
+      ipAddress,
+      userAgent,
+    );
+
+    this.setRefreshTokenCookie(context.res, result.refreshToken);
+    return this.stripRefreshToken(result);
   }
 
   // ==========================================================================

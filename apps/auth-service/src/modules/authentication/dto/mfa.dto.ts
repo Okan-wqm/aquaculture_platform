@@ -39,6 +39,18 @@ export class VerifyMfaLoginInput {
   code!: string;
 }
 
+/**
+ * IP-2: MFA step-up input — user is already authenticated, just needs
+ * to re-verify identity with a TOTP code for elevated operations.
+ */
+@InputType()
+export class MfaStepUpInput {
+  @Field({ description: 'TOTP code or recovery code' })
+  @IsString()
+  @Length(6, 12, { message: 'Code must be between 6 and 12 characters' })
+  code!: string;
+}
+
 // ============================================================================
 // Response DTOs
 // ============================================================================

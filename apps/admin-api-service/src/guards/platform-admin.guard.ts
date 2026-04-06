@@ -7,6 +7,8 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+// WHY: Explicit @Inject() required — useClass + APP_GUARD relies on design:paramtypes
+// metadata which may not survive all build/runtime environments (Alpine musl, prod-only deps).
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
@@ -49,9 +51,9 @@ export class PlatformAdminGuard implements CanActivate {
   private readonly logger = new Logger(PlatformAdminGuard.name);
 
   constructor(
-    private readonly reflector: Reflector,
-    private readonly configService: ConfigService,
-    private readonly jwtService: JwtService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
   ) {
     // Validate JWT_SECRET length at startup (SEC-L05).
     // getOrThrow() inside getJwtVerifyOptions() handles the missing-secret case.

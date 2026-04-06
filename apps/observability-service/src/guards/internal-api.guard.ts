@@ -31,9 +31,10 @@ export class InternalApiGuard implements CanActivate {
   private readonly logger = new Logger(InternalApiGuard.name);
   private readonly apiKey: string;
 
+  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments.
   constructor(
-    private readonly configService: ConfigService,
-    private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(Reflector) private readonly reflector: Reflector,
   ) {
     this.apiKey = this.configService.get<string>('INTERNAL_API_KEY', '');
 

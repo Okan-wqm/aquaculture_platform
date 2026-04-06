@@ -235,10 +235,12 @@ import { TenantModule } from './modules/tenant/tenant.module';
       provide: APP_GUARD,
       useClass: ServiceIdentityGuard,
     },
-    // SECURITY: Global JWT auth guard
+    // SECURITY: Global JWT auth guard — useFactory ensures DI works without design:paramtypes
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard,
+      useFactory: (jwtService: JwtService, reflector: Reflector, configService: ConfigService, tokenBlacklist?: ITokenBlacklist): JwtAuthGuard =>
+        new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist),
+      inject: [JwtService, Reflector, ConfigService, { token: TOKEN_BLACKLIST, optional: true }],
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
     {

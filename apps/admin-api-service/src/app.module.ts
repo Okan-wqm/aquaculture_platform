@@ -158,7 +158,9 @@ import { UsersModule } from './users/users.module';
     },
     {
       provide: APP_GUARD,
-      useClass: PlatformAdminGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService): PlatformAdminGuard =>
+        new PlatformAdminGuard(reflector, configService, jwtService),
+      inject: [Reflector, ConfigService, JwtService],
     },
     // ThrottlerGuard removed: admin-api is super-admin-only (PlatformAdminGuard).
     // Rate limiting an authenticated admin panel with ~15 concurrent dashboard

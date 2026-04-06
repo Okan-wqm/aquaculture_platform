@@ -61,7 +61,8 @@ export type { TenantContext };
 export class TenantIsolationGuard implements CanActivate {
   private readonly logger = new Logger(TenantIsolationGuard.name);
 
-  constructor(private readonly reflector: Reflector) {}
+  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments.
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     // Check if endpoint is public

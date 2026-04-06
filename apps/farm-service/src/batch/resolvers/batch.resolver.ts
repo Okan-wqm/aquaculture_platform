@@ -70,19 +70,18 @@ import {
   BatchHistoryEntryResponse,
   AvailableTankResponse,
 } from '../dto/batch-resolver.dto';
-import { ArrivalMethod } from '../entities/batch.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
 
-// Register enums
+// Register enums (only those not already registered in their entity/types files)
+// ArrivalMethod → registered in batch.types.ts
+// BatchDocumentType → registered in batch-document.entity.ts
 registerEnumType(MortalityReason, { name: 'MortalityReason' });
 registerEnumType(CullReason, { name: 'CullReason' });
 registerEnumType(BatchCloseReason, { name: 'BatchCloseReason' });
 registerEnumType(AllocationType, { name: 'AllocationType' });
 registerEnumType(BatchHistoryEventType, { name: 'BatchHistoryEventType' });
-registerEnumType(ArrivalMethod, { name: 'ArrivalMethod' });
-registerEnumType(BatchDocumentType, { name: 'BatchDocumentType' });
 
 // IP-3: DTO types moved to ../dto/batch-resolver.dto.ts
 

@@ -16,7 +16,7 @@ import {
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum } from 'class-validator';
-import { BatchStatus, BatchInputType, ArrivalMethod } from '../entities/batch.entity';
+import { BatchStatus, BatchInputType } from '../entities/batch.entity';
 import { BatchDocumentType } from '../entities/batch-document.entity';
 import { UpdateBatchPayload } from '../commands/update-batch.command';
 import { MortalityReason } from '../commands/record-mortality.command';

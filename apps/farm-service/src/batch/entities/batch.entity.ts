@@ -36,21 +36,9 @@ import GraphQLJSON from 'graphql-type-json';
 import type { Species } from '../../species/entities/species.entity';
 import type { BatchDocument } from './batch-document.entity';
 
-// IP-3: Enums and interfaces extracted to batch.types.ts (keeps entity under 500 lines)
-export {
-  BatchStatus,
-  BatchInputType,
-  ArrivalMethod,
-  BatchType,
-} from './batch.types';
-export type {
-  BatchWeight,
-  BatchFCR,
-  BatchFeedingSummary,
-  BatchGrowthMetrics,
-  BatchMortalitySummary,
-} from './batch.types';
-
+// IP-3: Enums and interfaces extracted to batch.types.ts (keeps entity under 500 lines).
+// Import for local use, then re-export for backward compatibility.
+// All existing `import { BatchStatus } from '../entities/batch.entity'` continue to work.
 import {
   BatchStatus,
   BatchInputType,
@@ -64,6 +52,20 @@ import type {
   BatchGrowthMetrics,
   BatchMortalitySummary,
 } from './batch.types';
+
+export {
+  BatchStatus,
+  BatchInputType,
+  ArrivalMethod,
+  BatchType,
+};
+export type {
+  BatchWeight,
+  BatchFCR,
+  BatchFeedingSummary,
+  BatchGrowthMetrics,
+  BatchMortalitySummary,
+};
 
 // ============================================================================
 // ENTITY

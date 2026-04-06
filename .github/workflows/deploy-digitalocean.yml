@@ -708,7 +708,7 @@ jobs:
       (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
       (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     environment: production
     permissions:
       contents: write
@@ -726,7 +726,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 25m  # Increased from 15m for full deploys with 22+ Docker image pulls
+          command_timeout: 35m  # Sequential pulls + service bootstrap for 22+ Docker images
           script: |
             set -e
             cd /var/aqua-saas
@@ -780,8 +780,11 @@ jobs:
 
             if [ "$FULL_DEPLOY" = "true" ]; then
               # ── Full deploy mode (workflow_dispatch "all" or first deploy) ──
-              echo "=== FULL DEPLOY: Pulling all images ==="
-              docker compose -f docker-compose.droplet.yml pull --ignore-pull-failures
+              echo "=== FULL DEPLOY: Pulling images sequentially (avoids disk I/O contention) ==="
+              for svc in $(docker compose -f docker-compose.droplet.yml config --services); do
+                echo "  Pulling $svc..."
+                docker compose -f docker-compose.droplet.yml pull "$svc" 2>&1 || echo "  WARN: $svc pull failed, continuing..."
+              done
 
               echo "=== Stopping all services ==="
               docker compose -f docker-compose.droplet.yml down --remove-orphans --timeout 30 2>&1 || true
@@ -878,8 +881,11 @@ jobs:
               docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis nats mosquitto minio nginx 2>&1 || true
               sleep 5
 
-              echo "=== Pulling affected images: ${DEPLOY_SERVICES} ==="
-              docker compose -f docker-compose.droplet.yml pull ${DEPLOY_SERVICES} 2>&1 || true
+              echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
+              for svc in ${DEPLOY_SERVICES}; do
+                echo "  Pulling $svc..."
+                docker compose -f docker-compose.droplet.yml pull "$svc" 2>&1 || echo "  WARN: $svc pull failed, continuing..."
+              done
 
               echo "=== Restarting affected services (no-deps): ${DEPLOY_SERVICES} ==="
               docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build ${DEPLOY_SERVICES} 2>&1 || true

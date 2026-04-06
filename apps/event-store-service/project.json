@@ -3,33 +3,23 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/event-store-service/src",
   "projectType": "application",
-  "tags": ["scope:event-store", "type:app"],
+  "tags": [
+    "scope:event-store",
+    "type:app"
+  ],
   "targets": {
     "build": {
-      "executor": "@nx/webpack:webpack",
-      "outputs": ["{options.outputPath}"],
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/apps/event-store-service"
+      ],
       "defaultConfiguration": "production",
       "options": {
-        "target": "node",
-        "compiler": "tsc",
-        "outputPath": "dist/apps/event-store-service",
-        "main": "apps/event-store-service/src/main.ts",
-        "tsConfig": "apps/event-store-service/tsconfig.app.json",
-        "assets": ["apps/event-store-service/src/assets"],
-        "isolatedConfig": true,
-        "webpackConfig": "apps/event-store-service/webpack.config.js"
+        "command": "bash tools/build/build-service.sh event-store-service"
       },
       "configurations": {
-        "development": {
-          "optimization": false,
-          "sourceMap": true
-        },
-        "production": {
-          "optimization": true,
-          "extractLicenses": true,
-          "inspect": false,
-          "sourceMap": false
-        }
+        "development": {},
+        "production": {}
       }
     },
     "serve": {
@@ -49,14 +39,20 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint",
-      "outputs": ["{options.outputFile}"],
+      "outputs": [
+        "{options.outputFile}"
+      ],
       "options": {
-        "lintFilePatterns": ["apps/event-store-service/**/*.ts"]
+        "lintFilePatterns": [
+          "apps/event-store-service/**/*.ts"
+        ]
       }
     },
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "outputs": [
+        "{workspaceRoot}/coverage/{projectRoot}"
+      ],
       "options": {
         "jestConfig": "apps/event-store-service/jest.config.ts"
       }

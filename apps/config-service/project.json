@@ -3,32 +3,24 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/config-service/src",
   "projectType": "application",
-  "tags": ["scope:backend", "type:service", "domain:platform"],
+  "tags": [
+    "scope:backend",
+    "type:service",
+    "domain:platform"
+  ],
   "targets": {
     "build": {
-      "executor": "@nx/webpack:webpack",
-      "outputs": ["{options.outputPath}"],
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/apps/config-service"
+      ],
       "defaultConfiguration": "production",
       "options": {
-        "target": "node",
-        "compiler": "tsc",
-        "outputPath": "dist/apps/config-service",
-        "main": "apps/config-service/src/main.ts",
-        "tsConfig": "apps/config-service/tsconfig.app.json",
-"generatePackageJson": true,
-        "webpackConfig": "apps/config-service/webpack.config.js"
+        "command": "bash tools/build/build-service.sh config-service"
       },
       "configurations": {
-        "development": {
-          "optimization": false,
-          "sourceMap": true
-        },
-        "production": {
-          "optimization": true,
-          "extractLicenses": true,
-          "inspect": false,
-          "sourceMap": false
-        }
+        "development": {},
+        "production": {}
       }
     },
     "serve": {
@@ -49,12 +41,16 @@
     "lint": {
       "executor": "@nx/eslint:lint",
       "options": {
-        "lintFilePatterns": ["apps/config-service/**/*.ts"]
+        "lintFilePatterns": [
+          "apps/config-service/**/*.ts"
+        ]
       }
     },
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/apps/config-service"],
+      "outputs": [
+        "{workspaceRoot}/coverage/apps/config-service"
+      ],
       "options": {
         "jestConfig": "apps/config-service/jest.config.ts"
       }

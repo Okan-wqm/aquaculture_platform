@@ -3,31 +3,24 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/admin-api-service/src",
   "projectType": "application",
-  "tags": ["scope:backend", "type:service", "domain:admin"],
+  "tags": [
+    "scope:backend",
+    "type:service",
+    "domain:admin"
+  ],
   "targets": {
     "build": {
-      "executor": "@nx/webpack:webpack",
-      "outputs": ["{options.outputPath}"],
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/apps/admin-api-service"
+      ],
       "defaultConfiguration": "production",
       "options": {
-        "target": "node",
-        "compiler": "tsc",
-        "outputPath": "dist/apps/admin-api-service",
-        "main": "apps/admin-api-service/src/main.ts",
-        "tsConfig": "apps/admin-api-service/tsconfig.app.json",
-        "webpackConfig": "apps/admin-api-service/webpack.config.js",
-        "generatePackageJson": true
+        "command": "bash tools/build/build-service.sh admin-api-service"
       },
       "configurations": {
-        "development": {
-          "optimization": false,
-          "sourceMap": true
-        },
-        "production": {
-          "optimization": true,
-          "sourceMap": false,
-          "extractLicenses": true
-        }
+        "development": {},
+        "production": {}
       }
     },
     "serve": {
@@ -47,14 +40,20 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint",
-      "outputs": ["{options.outputFile}"],
+      "outputs": [
+        "{options.outputFile}"
+      ],
       "options": {
-        "lintFilePatterns": ["apps/admin-api-service/**/*.ts"]
+        "lintFilePatterns": [
+          "apps/admin-api-service/**/*.ts"
+        ]
       }
     },
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "outputs": [
+        "{workspaceRoot}/coverage/{projectRoot}"
+      ],
       "options": {
         "jestConfig": "apps/admin-api-service/jest.config.ts"
       }

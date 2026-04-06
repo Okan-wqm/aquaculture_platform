@@ -63,7 +63,10 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
       MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
+      # IP-1: PostgreSQL SSL — entrypoint wrapper copies certs to $PGDATA
+      # with correct postgres:postgres ownership + chmod 600 on key.
       POSTGRES_SSL: "on"
+    entrypoint: ["/usr/local/bin/postgres-ssl-entrypoint.sh"]
     command: >
       postgres
       -c max_connections=300
@@ -73,6 +76,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d:ro
       - ./certs/postgres:/var/lib/postgresql/ssl:ro
+      - ./infrastructure/docker/scripts/postgres-ssl-entrypoint.sh:/usr/local/bin/postgres-ssl-entrypoint.sh:ro
     networks:
       - aqua-internal
     deploy:

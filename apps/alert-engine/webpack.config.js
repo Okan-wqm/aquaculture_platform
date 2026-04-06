@@ -1,5 +1,2 @@
-const { composePlugins, withNx } = require('@nx/webpack');
-
-module.exports = composePlugins(withNx(), (config) => {
-  return config;
-});
+const { withNestJS } = require('../../tools/webpack/nestjs-base.config');
+module.exports = withNestJS();

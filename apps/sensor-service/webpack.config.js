@@ -1,9 +1,9 @@
-const { composePlugins, withNx } = require('@nx/webpack');
 const path = require('path');
+const { withNestJS } = require('../../tools/webpack/nestjs-base.config');
 
-module.exports = composePlugins(withNx(), (config) => {
-  // Add st-worker.ts as a separate entry point so piscina can load it at runtime.
-  // Without this, webpack bundles everything into main.js and st-worker.js is missing.
+module.exports = withNestJS((config) => {
+  // IMPORTANT: st-worker.ts must be a separate entry point so piscina
+  // can load it at runtime for Structured Text compilation.
   config.entry['st-worker'] = path.resolve(__dirname, 'src/automation/compiler/worker/st-worker.ts');
   return config;
 });

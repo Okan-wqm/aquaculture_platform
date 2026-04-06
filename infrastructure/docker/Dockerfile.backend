@@ -47,20 +47,15 @@ FROM deps AS builder
 COPY apps/ ./apps/
 COPY libs/ ./libs/
 COPY platform/ ./platform/
+COPY tools/ ./tools/
 
 # Build argument for service name
 ARG SERVICE_NAME
 
-# Build the specific service using NX
-# Increase Node memory limit for large builds (sensor-service has 1.4MB bundle)
-# Use NX cache mount for incremental builds
-# Disable NX Cloud in Docker to prevent connection timeouts that hang builds
+# Build the specific service using direct tsc compilation
+# WHY: Webpack breaks NestJS decorator metadata. Direct tsc is correct and faster.
 ENV NODE_OPTIONS="--max-old-space-size=2048"
-ENV NX_NO_CLOUD=true
-ENV NX_CLOUD_ACCESS_TOKEN=""
-ENV NX_DAEMON=false
-RUN --mount=type=cache,target=/app/.nx/cache,sharing=shared \
-    npx nx build ${SERVICE_NAME}
+RUN bash tools/build/build-service.sh ${SERVICE_NAME}
 
 # -----------------------------------------------------------------------------
 # Stage 4: Production dependencies only

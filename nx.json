@@ -12,7 +12,11 @@
       "!{projectRoot}/.eslintrc.json",
       "!{projectRoot}/src/test-setup.[jt]s"
     ],
-    "sharedGlobals": []
+    "sharedGlobals": [
+      "{workspaceRoot}/libs/*/src/**/*.ts",
+      "{workspaceRoot}/platform/libs/*/src/**/*.ts",
+      "{workspaceRoot}/tsconfig.base.json"
+    ]
   },
   "targetDefaults": {
     "build": {

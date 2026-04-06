@@ -1,3 +1,5 @@
+// WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
+import 'reflect-metadata';
 /**
  * @module main
  * @description Entry point for the messaging-service microservice.

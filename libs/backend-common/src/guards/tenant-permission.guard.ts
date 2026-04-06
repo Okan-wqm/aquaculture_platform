@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Inject,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
@@ -46,7 +47,8 @@ interface UserWithPermissions {
 export class TenantPermissionGuard implements CanActivate {
   private readonly logger = new Logger(TenantPermissionGuard.name);
 
-  constructor(private readonly reflector: Reflector) {}
+  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments.
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     // Skip if endpoint is public

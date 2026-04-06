@@ -17,6 +17,7 @@
 
 import {
   Injectable,
+  Inject,
   CanActivate,
   ExecutionContext,
   UnauthorizedException,
@@ -45,7 +46,8 @@ interface AuthenticatedRequest {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments.
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   /**
    * Validates that the request carries a verified user context.

@@ -3,6 +3,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Inject,
   Logger,
   Optional,
 } from '@nestjs/common';
@@ -37,8 +38,9 @@ export class ServiceIdentityGuard implements CanActivate {
   private readonly secret: string | undefined;
   private warned = false;
 
+  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments.
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Optional() private readonly securityEventService?: SecurityEventService,
   ) {
     this.secret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');

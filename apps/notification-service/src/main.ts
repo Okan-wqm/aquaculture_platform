@@ -1,3 +1,5 @@
+// WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
+import 'reflect-metadata';
 /**
  * Notification Service — Email, SMS, and push notification dispatch.
  * Event-driven only (no direct user-facing GraphQL).

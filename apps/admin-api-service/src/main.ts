@@ -1,3 +1,8 @@
+// WHY: MUST be first import. tslib.__metadata() silently no-ops if Reflect.metadata
+// is not yet a function. In Docker production (Alpine, --omit=dev), the leaner module
+// graph can cause @nestjs/common to be mid-evaluation when decorated classes load,
+// meaning reflect-metadata hasn't executed yet. This guarantees it loads first.
+import 'reflect-metadata';
 import { ValidationPipe, Logger, VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';

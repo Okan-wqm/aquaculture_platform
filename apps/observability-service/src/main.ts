@@ -1,3 +1,5 @@
+// WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
+import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { StructuredLoggerService } from '@aquaculture/backend-common';

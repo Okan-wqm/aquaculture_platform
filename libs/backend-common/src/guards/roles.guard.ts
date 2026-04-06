@@ -3,6 +3,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Inject,
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -36,7 +37,8 @@ interface UserWithRoles {
 export class RolesGuard implements CanActivate {
   private readonly logger = new Logger(RolesGuard.name);
 
-  constructor(private readonly reflector: Reflector) {}
+  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments.
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     // Check if endpoint is public

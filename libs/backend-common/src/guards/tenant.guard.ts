@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   BadRequestException,
   ForbiddenException,
+  Inject,
   Logger,
   Optional,
 } from '@nestjs/common';
@@ -58,10 +59,12 @@ export class TenantGuard implements CanActivate {
   /** Whether MFA step-up is required for SUPER_ADMIN cross-tenant access. */
   private readonly mfaRequiredForCrossTenant: boolean;
 
+  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments
+  // (Alpine musl, prod-only deps). Belt-and-suspenders for NestJS DI resolution.
   constructor(
-    private reflector: Reflector,
+    @Inject(Reflector) private reflector: Reflector,
     @Optional() private readonly auditLogService?: AuditLogService,
-    @Optional() private readonly configService?: ConfigService,
+    @Optional() @Inject(ConfigService) private readonly configService?: ConfigService,
   ) {
     this.mfaRequiredForCrossTenant =
       this.configService?.get<string>('MFA_REQUIRED_FOR_CROSS_TENANT', 'false') === 'true';

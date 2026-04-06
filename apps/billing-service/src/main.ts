@@ -1,3 +1,5 @@
+// WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
+import 'reflect-metadata';
 /**
  * Billing Service — Subscription management, metered billing, invoicing.
  *

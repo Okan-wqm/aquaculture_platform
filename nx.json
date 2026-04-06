@@ -15,7 +15,8 @@
     "sharedGlobals": [
       "{workspaceRoot}/libs/*/src/**/*.ts",
       "{workspaceRoot}/platform/libs/*/src/**/*.ts",
-      "{workspaceRoot}/tsconfig.base.json"
+      "{workspaceRoot}/tsconfig.base.json",
+      "{workspaceRoot}/tools/build/**"
     ]
   },
   "targetDefaults": {

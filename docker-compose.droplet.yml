@@ -150,12 +150,12 @@ services:
     image: redis:7-alpine
     container_name: aqua-redis
     restart: unless-stopped
-    # IP-1: TLS enabled via redis-tls.conf
-    command: redis-server /etc/redis/redis.conf --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 192mb --maxmemory-policy allkeys-lru
+    # IP-1: Redis TLS ready but disabled for phased rollout.
+    # Phase 1 (current): plaintext — ensures deploy stability
+    # Phase 2 (next deploy): enable TLS by mounting redis-tls.conf + certs, switching to rediss://
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 192mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-      - ./infrastructure/docker/redis/redis-tls.conf:/etc/redis/redis.conf:ro
-      - ./certs/redis:/etc/redis/certs:ro
     networks:
       - aqua-internal
     deploy:
@@ -164,7 +164,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli --tls --cacert /etc/redis/certs/ca-cert.pem ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -275,7 +275,7 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -383,7 +383,7 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false"
       DATABASE_LOGGING: "true"
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
@@ -434,7 +434,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
@@ -483,7 +483,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -596,7 +596,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
@@ -640,7 +640,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
@@ -684,7 +684,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
@@ -728,7 +728,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
@@ -772,7 +772,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
@@ -859,7 +859,7 @@ services:
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback

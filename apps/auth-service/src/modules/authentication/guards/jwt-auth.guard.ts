@@ -32,10 +32,11 @@ interface GqlContext {
 export class JwtAuthGuard {
   private readonly expectedAudience: string;
 
+  // IMPORTANT: Explicit @Inject() for webpack compatibility (design:paramtypes strip).
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly reflector: Reflector,
-    private readonly configService: ConfigService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
   ) {
     this.expectedAudience = this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform');

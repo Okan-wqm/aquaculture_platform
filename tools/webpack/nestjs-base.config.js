@@ -49,6 +49,14 @@ function withNestJS(customizer) {
       // Terser can reorder declarations which breaks "Cannot access
       // 'X' before initialization" in circular dependency scenarios.
       config.optimization.minimize = false;
+
+      // CRITICAL: Disable tree-shaking optimizations that strip decorator metadata.
+      // TypeScript's emitDecoratorMetadata generates __metadata("design:paramtypes", [...])
+      // calls. Webpack's usedExports/sideEffects/innerGraph analysis can mark these
+      // metadata calls as "unused" and eliminate them, breaking NestJS DI resolution.
+      config.optimization.usedExports = false;
+      config.optimization.sideEffects = false;
+      config.optimization.innerGraph = false;
     }
 
     // Apply service-specific customizations if provided

@@ -47,26 +47,24 @@ export class SeedService implements OnModuleInit {
   /**
    * Get and validate super admin email from environment
    *
-   * @throws Error if email is not set in production
-   * @throws Error if email format is invalid
-   * @returns Validated email address
+   * Returns null if email is not configured — caller must handle gracefully.
+   * ARCHITECTURAL DECISION: Seed failures must never crash the service.
+   * A missing env var is a configuration gap, not a fatal error.
+   *
+   * @returns Validated email address, or null if not configured
    */
-  private getSuperAdminEmail(): string {
+  private getSuperAdminEmail(): string | null {
     const emailFromEnv = process.env.SUPER_ADMIN_EMAIL;
     const defaultDevEmail = 'admin@localhost.dev';
 
-    // In production, SUPER_ADMIN_EMAIL is required
+    // In production, SUPER_ADMIN_EMAIL is required — but missing it is not fatal
     if (!this.isDevelopment()) {
       if (!emailFromEnv || emailFromEnv.trim() === '') {
-        this.logger.error(
-          'SUPER_ADMIN_EMAIL environment variable is required in production. ' +
-            'Please set SUPER_ADMIN_EMAIL to a valid email address for the super admin account.',
+        this.logger.warn(
+          'SUPER_ADMIN_EMAIL not set — skipping super admin seed. ' +
+            'Set SUPER_ADMIN_EMAIL to create the initial admin account.',
         );
-        throw new Error(
-          'SUPER_ADMIN_EMAIL environment variable is required in production. ' +
-            'Set this to a valid email address for the super admin account. ' +
-            'Example: export SUPER_ADMIN_EMAIL="admin@yourcompany.com"',
-        );
+        return null;
       }
     }
 
@@ -74,16 +72,14 @@ export class SeedService implements OnModuleInit {
     const email = emailFromEnv?.trim() || (this.isDevelopment() ? defaultDevEmail : '');
 
     if (!email) {
-      throw new Error('SUPER_ADMIN_EMAIL is required but not set.');
+      this.logger.warn('SUPER_ADMIN_EMAIL not configured — skipping super admin seed.');
+      return null;
     }
 
     // Validate email format
     if (!this.isValidEmail(email)) {
-      this.logger.error(`Invalid email format for SUPER_ADMIN_EMAIL: ${email}`);
-      throw new Error(
-        `Invalid email format for SUPER_ADMIN_EMAIL: "${email}". ` +
-          'Please provide a valid email address (e.g., admin@yourcompany.com).',
-      );
+      this.logger.warn(`Invalid email format for SUPER_ADMIN_EMAIL: ${email} — skipping seed.`);
+      return null;
     }
 
     // Log warning if using default email in development
@@ -116,8 +112,12 @@ export class SeedService implements OnModuleInit {
       await this.seedSuperAdmin();
       this.logger.log('Database seed completed successfully');
     } catch (error) {
-      this.logger.error('Database seed failed:', error);
-      throw error;
+      // IMPORTANT: Seed failure must NOT crash the service.
+      // The service must start and serve requests regardless of seed outcome.
+      // Admins can fix config and restart to retry seeding.
+      this.logger.error(
+        `Database seed failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -163,6 +163,12 @@ export class SeedService implements OnModuleInit {
   private async seedSuperAdmin(): Promise<void> {
     const superAdminEmail = this.getSuperAdminEmail();
 
+    // LIFE-SAFETY: Service must start regardless of seed outcome.
+    // A missing env var is a config gap, not a reason to crash.
+    if (!superAdminEmail) {
+      return;
+    }
+
     // Check if SUPER_ADMIN already exists
     const existingSuperAdmin = await this.userRepository.findOne({
       where: { email: superAdminEmail },
@@ -186,40 +192,33 @@ export class SeedService implements OnModuleInit {
     const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
     const emailFromEnv = process.env.SUPER_ADMIN_EMAIL;
 
-    // Check if password is set and not empty
+    // Check if password is set and not empty — skip seed if missing
     if (!superAdminPassword || superAdminPassword.trim() === '') {
-      this.logger.error(
-        'SUPER_ADMIN_PASSWORD environment variable is required to create super admin. ' +
-          'Set a strong password (min 12 chars with uppercase, lowercase, numbers, and special characters).',
+      this.logger.warn(
+        'SUPER_ADMIN_PASSWORD not set — skipping super admin creation. ' +
+          'Set SUPER_ADMIN_PASSWORD to create the initial admin account.',
       );
-      throw new Error(
-        'SUPER_ADMIN_PASSWORD environment variable must be set and cannot be empty. ' +
-          'Please set a strong password for the super admin account.',
-      );
+      return;
     }
 
-    // In production, both must be explicitly set together
+    // In production, both must be explicitly set together — skip if inconsistent
     if (!this.isDevelopment()) {
       if (!emailFromEnv && superAdminPassword) {
-        throw new Error(
-          'In production, both SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must be set together. ' +
-            'SUPER_ADMIN_PASSWORD is set but SUPER_ADMIN_EMAIL is missing.',
+        this.logger.warn(
+          'SUPER_ADMIN_PASSWORD is set but SUPER_ADMIN_EMAIL is missing — skipping seed.',
         );
-      }
-      if (emailFromEnv && !superAdminPassword) {
-        throw new Error(
-          'In production, both SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must be set together. ' +
-            'SUPER_ADMIN_EMAIL is set but SUPER_ADMIN_PASSWORD is missing.',
-        );
+        return;
       }
     }
 
-    // Validate password strength
+    // Validate password strength — skip if weak (don't crash)
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{12,}$/;
     if (!passwordRegex.test(superAdminPassword)) {
-      throw new Error(
-        'SUPER_ADMIN_PASSWORD must be at least 12 characters with uppercase, lowercase, number, and special character',
+      this.logger.warn(
+        'SUPER_ADMIN_PASSWORD does not meet strength requirements (min 12 chars, mixed case, number, special char). ' +
+          'Skipping super admin creation. Fix password and restart to seed.',
       );
+      return;
     }
 
     this.logger.log(`Creating SUPER_ADMIN user: ${superAdminEmail}`);

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Inject,
   CanActivate,
   ExecutionContext,
   UnauthorizedException,
@@ -47,14 +48,13 @@ const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'PLATFORM_ADMIN', 'super_admin', 'pl
 export class PlatformAdminGuard implements CanActivate {
   private readonly logger = new Logger(PlatformAdminGuard.name);
 
+  // IMPORTANT: Explicit @Inject() decorators required for webpack compatibility.
+  // Webpack's tree-shaking can strip TypeScript's design:paramtypes metadata,
+  // causing NestJS DI to see [null, null, null] instead of actual class refs.
   constructor(
-    private readonly reflector: Reflector,
-    private readonly configService: ConfigService,
-    // JwtService injected for async, algorithm-restricted JWT verification.
-    // BEFORE: guard stored this.jwtSecret and called synchronous jwt.verify() directly.
-    // Synchronous verification blocks the Node.js event loop during crypto operations.
-    // The raw jsonwebtoken library also accepted any algorithm unless restricted.
-    private readonly jwtService: JwtService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ConfigService) private readonly configService: ConfigService,
+    @Inject(JwtService) private readonly jwtService: JwtService,
   ) {
     // Validate JWT_SECRET length at startup (SEC-L05).
     // getOrThrow() inside getJwtVerifyOptions() handles the missing-secret case.

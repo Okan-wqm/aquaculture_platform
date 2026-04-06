@@ -11,7 +11,6 @@ import { MigrationLogger } from '@aquaculture/backend-common';
  */
 export class CreateSchedulingTables1769500000000 implements MigrationInterface {
   private readonly logger = new MigrationLogger('CreateSchedulingTables1769500000000');
-  private readonly logger = new MigrationLogger('CreateSchedulingTables1769500000000');
   name = 'CreateSchedulingTables1769500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

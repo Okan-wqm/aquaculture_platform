@@ -453,15 +453,18 @@ export class ImpersonationService {
     // H-S2-04: Write to central audit log — security dashboard visibility
     await this.auditLogService.log({
       action: 'USER_IMPERSONATED',
+      entityType: 'ImpersonationSession',
+      entityId: saved.id,
       performedBy: request.superAdminId,
-      targetTenantId: request.targetTenantId,
-      targetUserId: request.targetUserId,
+      tenantId: request.targetTenantId,
+      ipAddress: request.ipAddress,
       details: {
         sessionId: saved.id,
+        targetTenantId: request.targetTenantId,
+        targetUserId: request.targetUserId,
         reason: request.reason,
         reasonDetails: request.reasonDetails,
         ticketReference: request.ticketReference,
-        ipAddress: request.ipAddress,
       },
     }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
 

@@ -25,7 +25,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsIn, IsObject } Matches } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
 

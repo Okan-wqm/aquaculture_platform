@@ -140,6 +140,7 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
 export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
   private readonly logger = new Logger(InMemoryTokenBlacklistStore.name);
   private readonly blacklist = new Map<string, number>();
+  private readonly userBlacklist = new Map<string, number>();
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -164,6 +165,22 @@ export class InMemoryTokenBlacklistStore implements TokenBlacklistStore {
       return false;
     }
     return true;
+  }
+
+  async isValidToken(jti: string, userId: string, issuedAt: number): Promise<boolean> {
+    if (await this.isBlacklisted(jti)) {
+      return false;
+    }
+    const invalidatedAt = this.userBlacklist.get(userId);
+    if (invalidatedAt !== undefined && issuedAt < invalidatedAt) {
+      return false;
+    }
+    return true;
+  }
+
+  async blacklistUserTokens(userId: string, invalidatedAt: number): Promise<void> {
+    this.userBlacklist.set(userId, invalidatedAt);
+    this.logger.log(`User tokens blacklisted (in-memory): userId=${userId}, invalidatedAt=${invalidatedAt}`);
   }
 
   cleanup(): void {

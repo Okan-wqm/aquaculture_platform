@@ -152,15 +152,11 @@ export class GdprComplianceService {
     });
 
     // M-GDPR-02: Include MFA status in export (GDPR Article 15 completeness)
-    const webAuthnCredentialCount = await this.webAuthnService
-      .hasCredentials?.((user as unknown as { id: string }).id)
-      .catch(() => false) ? 1 : 0;
-
-    // Count actual credentials for the export
-    const credCount = await this.webAuthnService.credentialRepository
-      ? await (this.webAuthnService as unknown as { credentialRepository: { count: (opts: unknown) => Promise<number> } })
-          .credentialRepository.count({ where: { userId } }).catch(() => 0)
-      : 0;
+    // Use public API instead of accessing private credentialRepository
+    const credentials = await this.webAuthnService
+      .getUserCredentials?.(userId)
+      .catch(() => []);
+    const credCount = credentials?.length ?? 0;
 
     return {
       userId: user.id,

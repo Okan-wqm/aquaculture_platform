@@ -8,7 +8,7 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SchemaManagerService } from '@aquaculture/backend-common';
-import { AuditModule } from '../audit/audit.module';
+import { AuditLogModule } from '../audit/audit.module';
 
 // Entities
 import { BackupController } from './controllers/backup.controller';
@@ -47,7 +47,7 @@ import { SchemaManagementService } from './services/schema-management.service';
     // AuditModule: enables AuditLogService injection in schema, migration, and
     // backup services. Without this, database management operations (DROP SCHEMA,
     // run migration, restore backup) produce zero entries in the central audit log.
-    AuditModule,
+    AuditLogModule,
   ],
   controllers: [
     SchemaController,

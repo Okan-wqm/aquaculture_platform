@@ -48,6 +48,7 @@ export class EndRotationHandler implements ICommandHandler<EndRotationCommand, W
         );
       }
 
+      const wasExtended = rotation.status === RotationStatus.EXTENDED;
       rotation.status = RotationStatus.COMPLETED;
       rotation.actualEndTime = actualEndDate ? new Date(actualEndDate) : new Date();
       if (notes) {
@@ -80,6 +81,9 @@ export class EndRotationHandler implements ICommandHandler<EndRotationCommand, W
           eventType: 'EmployeeRotationEnded' as const,
           rotationId: saved.id,
           employeeId: saved.employeeId,
+          workAreaId: saved.workAreaId,
+          actualEndTime: saved.actualEndTime ?? new Date(),
+          wasExtended,
         };
         this.eventBus.publish(event);
       } catch (eventError) {

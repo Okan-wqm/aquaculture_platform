@@ -485,6 +485,10 @@ export class HarvestRecord {
   // AUDIT FIELDS
   // -------------------------------------------------------------------------
 
+  @Field({ nullable: true, description: 'User ID who last updated this record (regulatory audit trail)' })
+  @Column({ type: 'uuid', nullable: true })
+  updatedBy?: string;
+
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

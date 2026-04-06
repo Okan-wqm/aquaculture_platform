@@ -42,25 +42,22 @@ export class ChannelResolver {
   @Query(() => [DataChannelType], { name: 'dataChannelsBySensor' })
   async getChannelsBySensor(
     @Args('sensorId', { type: () => ID }) sensorId: string,
-    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel[]> {
-    return this.managementService.getChannelsBySensor(sensorId, tenantId);
+    return this.managementService.getChannelsBySensor(sensorId);
   }
 
   @Query(() => [DataChannelType], { name: 'enabledChannelsBySensor' })
   async getEnabledChannels(
     @Args('sensorId', { type: () => ID }) sensorId: string,
-    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel[]> {
-    return this.managementService.getEnabledChannels(sensorId, tenantId);
+    return this.managementService.getEnabledChannels(sensorId);
   }
 
   @Query(() => DataChannelType, { name: 'dataChannel', nullable: true })
   async getChannel(
     @Args('channelId', { type: () => ID }) channelId: string,
-    @Tenant() tenantId: string,
   ): Promise<SensorDataChannel | null> {
-    return this.managementService.getChannel(channelId, tenantId);
+    return this.managementService.getChannel(channelId);
   }
 
   // === Mutations ===

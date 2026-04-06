@@ -36,6 +36,7 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
 
       const rotation = await repo.findOne({
         where: { id: rotationId, tenantId, isDeleted: false },
+        relations: ['workArea'],
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -104,7 +105,13 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
           eventType: 'EmployeeRotationStarted' as const,
           rotationId: saved.id,
           employeeId: saved.employeeId,
+          workAreaId: saved.workAreaId,
+          workAreaName: saved.workArea?.name ?? saved.workAreaId,
           rotationType: saved.rotationType ?? 'STANDARD',
+          startDate: saved.startDate,
+          endDate: saved.endDate,
+          daysOn: saved.daysOn,
+          daysOff: saved.daysOff,
         };
         this.eventBus.publish(event);
       } catch (eventError) {

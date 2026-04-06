@@ -7,15 +7,10 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
-
-export enum AllocationType {
-  INITIAL_STOCKING = 'initial_stocking',   // İlk stoklama
-  SPLIT = 'split',                          // Bölme
-  TRANSFER_IN = 'transfer_in',              // Transfer (giriş)
-  TRANSFER_OUT = 'transfer_out',            // Transfer (çıkış)
-  GRADING = 'grading',                      // Grading sonrası
-  HARVEST = 'harvest',                      // Hasat için
-}
+// IP-3: Single source of truth — AllocationType defined in entity, re-exported here
+// WHY: Previously duplicated in both command and entity, causing double
+// registerEnumType() calls which can crash the GraphQL schema builder.
+export { AllocationType } from '../entities/tank-allocation.entity';
 
 export interface AllocateToTankPayload {
   tankId: string;                // Hedef tank ID

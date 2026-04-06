@@ -41,7 +41,7 @@ import { UpdateBatchStatusCommand } from '../commands/update-batch-status.comman
 import { RecordMortalityCommand, RecordMortalityPayload, MortalityReason } from '../commands/record-mortality.command';
 import { RecordCullCommand, RecordCullPayload, CullReason } from '../commands/record-cull.command';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
-import { AllocateToTankCommand, AllocateToTankPayload, AllocationType } from '../commands/allocate-to-tank.command';
+import { AllocateToTankCommand, AllocateToTankPayload } from '../commands/allocate-to-tank.command';
 import { TransferBatchCommand, TransferBatchPayload } from '../commands/transfer-batch.command';
 
 // Queries
@@ -77,10 +77,11 @@ import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloade
 // Register enums (only those not already registered in their entity/types files)
 // ArrivalMethod → registered in batch.types.ts
 // BatchDocumentType → registered in batch-document.entity.ts
+// Register command-specific enums (not registered in their definition files)
+// AllocationType → registered in tank-allocation.entity.ts (single source of truth)
 registerEnumType(MortalityReason, { name: 'MortalityReason' });
 registerEnumType(CullReason, { name: 'CullReason' });
 registerEnumType(BatchCloseReason, { name: 'BatchCloseReason' });
-registerEnumType(AllocationType, { name: 'AllocationType' });
 registerEnumType(BatchHistoryEventType, { name: 'BatchHistoryEventType' });
 
 // IP-3: DTO types moved to ../dto/batch-resolver.dto.ts

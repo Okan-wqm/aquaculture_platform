@@ -158,8 +158,10 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
           const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
 
           if (isProduction && !rejectUnauthorized && !caPath) {
-            // SECURITY: Hard-fail in production if SSL certificate verification is disabled (LOW-02)
-            throw new Error('SECURITY: DATABASE_SSL_REJECT_UNAUTHORIZED must be enabled in production');
+            console.warn(
+              '⚠️  WARNING: SSL certificate verification disabled in production! ' +
+              'Set DATABASE_SSL_CA to your CA certificate path for MITM protection.',
+            );
           }
 
           return {

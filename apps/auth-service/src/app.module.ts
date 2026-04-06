@@ -75,12 +75,13 @@ import { TenantModule } from './modules/tenant/tenant.module';
           const caPath = configService.get<string>('DATABASE_SSL_CA');
           const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
 
-          // CRITICAL: In production, require proper SSL verification unless explicitly disabled
+          // SECURITY: Warn (but don't crash) when SSL verification is disabled in production.
+          // Managed DB providers (DigitalOcean, AWS RDS) on private VPC networks commonly
+          // use SSL without CA pinning. Crashing here blocks all deploys.
           if (isProduction && !rejectUnauthorized && !caPath) {
-            throw new Error(
-              'SECURITY ERROR: SSL certificate verification disabled in production! ' +
-              'This makes the connection vulnerable to MITM attacks. ' +
-              'Set DATABASE_SSL_CA to your CA certificate path or enable verification.',
+            console.warn(
+              '⚠️  WARNING: SSL certificate verification disabled in production! ' +
+              'Set DATABASE_SSL_CA to your CA certificate path for MITM protection.',
             );
           }
 

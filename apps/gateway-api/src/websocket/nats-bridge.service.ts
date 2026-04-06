@@ -2,12 +2,26 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nest
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import { createDefaultRegistry, EventUpcasterRegistry } from '@platform/event-contracts';
 import * as fs from 'fs';
 
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
+/** ARCH-C01: Flat reading field → parameter name mapping */
+const READING_FIELD_MAP: Record<string, string> = {
+  readingTemperature: 'temperature',
+  readingPh: 'ph',
+  readingDissolvedOxygen: 'dissolvedOxygen',
+  readingSalinity: 'salinity',
+  readingAmmonia: 'ammonia',
+  readingNitrite: 'nitrite',
+  readingNitrate: 'nitrate',
+  readingTurbidity: 'turbidity',
+  readingWaterLevel: 'waterLevel',
+};
+
 /**
- * Flat NATS event structure matching sensor-service publisher format.
+ * Flat NATS event structure matching sensor-service publisher format (v2).
  * sensor-service publishes flat events via NatsEventBus.publish() which
  * serializes the event object as-is to the `events.<eventType>` subject.
  */
@@ -18,10 +32,19 @@ interface NatsEvent {
   tenantId: string;
   sensorId?: string;
   sensorName?: string;
-  readings?: Record<string, number>;
   farmId?: string;
   pondId?: string;
   version?: number;
+  // v2 flat reading fields
+  readingTemperature?: number;
+  readingPh?: number;
+  readingDissolvedOxygen?: number;
+  readingSalinity?: number;
+  readingAmmonia?: number;
+  readingNitrite?: number;
+  readingNitrate?: number;
+  readingTurbidity?: number;
+  readingWaterLevel?: number;
 }
 
 /**
@@ -34,6 +57,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private connection: NatsConnection | null = null;
   private subscription: Subscription | null = null;
   private readonly sc = StringCodec();
+  /** ARCH-C01: Raw NATS doesn't use NatsEventBus — apply upcasters manually */
+  private readonly upcasterRegistry: EventUpcasterRegistry = createDefaultRegistry();
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -138,7 +163,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       for await (const msg of subscription) {
         try {
           const data = this.sc.decode(msg.data);
-          const event = JSON.parse(data) as NatsEvent;
+          // ARCH-C01: Apply upcasters for v1→v2 migration (raw NATS, no NatsEventBus)
+          const raw = JSON.parse(data);
+          const event = this.upcasterRegistry.upcast(raw) as NatsEvent;
 
           // Runtime schema validation: ensure required fields are present
           // JSON.parse + `as NatsEvent` is only a type cast, not validation.
@@ -169,13 +196,15 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       for await (const msg of sub) {
         try {
           const data = JSON.parse(this.sc.decode(msg.data));
-          const { tenantId, deviceCode, tags, timestamp } = data;
+          const { tenantId, deviceCode, tagsJson, timestamp } = data;
 
           if (!tenantId || !deviceCode) {
             this.logger.warn('EdgeDeviceIoData event missing tenantId or deviceCode, dropping');
             continue;
           }
 
+          // ARCH-C01: Deserialize tagsJson back to object for WebSocket API backward compat
+          const tags = tagsJson ? JSON.parse(tagsJson) : {};
           this.sensorGateway.broadcastEdgeIoData({ tenantId, deviceCode, tags, timestamp });
         } catch (e) {
           this.logger.warn(`Failed to process EdgeDeviceIoData: ${(e as Error).message}`);
@@ -197,13 +226,15 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       for await (const msg of sub) {
         try {
           const data = JSON.parse(this.sc.decode(msg.data));
-          const { tenantId, deviceCode, alarms, timestamp } = data;
+          const { tenantId, deviceCode, alarmsJson, timestamp } = data;
 
           if (!tenantId || !deviceCode) {
             this.logger.warn('EdgeDeviceAlarm event missing tenantId or deviceCode, dropping');
             continue;
           }
 
+          // ARCH-C01: Deserialize alarmsJson back to array for WebSocket API backward compat
+          const alarms = alarmsJson ? JSON.parse(alarmsJson) : [];
           this.sensorGateway.broadcastEdgeAlarm({ tenantId, deviceCode, alarms, timestamp });
         } catch (e) {
           this.logger.warn(`Failed to process EdgeDeviceAlarm: ${(e as Error).message}`);
@@ -226,7 +257,16 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Forward to WebSocket gateway (flat event structure)
+    // ARCH-C01: Reconstruct readings Record from flat v2 fields for WebSocket API backward compat
+    const readings: Record<string, number> = {};
+    for (const [flatField, paramName] of Object.entries(READING_FIELD_MAP)) {
+      const value = event[flatField as keyof NatsEvent];
+      if (typeof value === 'number') {
+        readings[paramName] = value;
+      }
+    }
+
+    // Forward to WebSocket gateway
     const timestamp = event.timestamp instanceof Date
       ? event.timestamp.toISOString()
       : String(event.timestamp);
@@ -235,7 +275,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
       sensorId: event.sensorId ?? '',
       sensorName: event.sensorName ?? '',
       tenantId: event.tenantId,
-      readings: event.readings ?? {},
+      readings,
       timestamp,
     });
   }

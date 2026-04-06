@@ -3,6 +3,8 @@ import {
   OnModuleInit,
   OnModuleDestroy,
   Logger,
+  Inject,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -31,6 +33,7 @@ import {
   PublishOptions,
   EventMetadata,
 } from '../interfaces/event-bus.interface';
+import { EventUpcasterRegistry } from '@platform/event-contracts';
 
 /**
  * NATS JetStream Event Bus Implementation
@@ -73,7 +76,14 @@ export class NatsEventBus
   private readonly authUser?: string;
   private readonly authPass?: string;
 
-  constructor(private readonly configService: ConfigService) {
+  /** Optional event upcaster registry for v1→v2+ event schema migration */
+  private readonly upcasterRegistry?: EventUpcasterRegistry;
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject('EVENT_UPCASTER_REGISTRY') @Optional() upcasterRegistry?: EventUpcasterRegistry,
+  ) {
+    this.upcasterRegistry = upcasterRegistry;
     this.natsUrl = this.configService.get<string>(
       'NATS_URL',
       'nats://localhost:4222',
@@ -599,10 +609,17 @@ export class NatsEventBus
   }
 
   /**
-   * Deserialize JSON string to event
+   * Deserialize JSON string to event.
+   * Applies upcasters to migrate legacy event schemas (v1 → v2+) transparently.
    */
   private deserializeEvent(data: string): IEvent {
-    const parsed = JSON.parse(data);
+    let parsed = JSON.parse(data);
+
+    // ARCH-C01: Apply upcasters to migrate legacy event schemas
+    if (this.upcasterRegistry) {
+      parsed = this.upcasterRegistry.upcast(parsed);
+    }
+
     return {
       ...parsed,
       timestamp: new Date(parsed.timestamp),

@@ -59,7 +59,8 @@ function stripCrlf(str: string): string {
 }
 
 /**
- * Alert Triggered Event interface
+ * Alert Triggered Event interface (v2 — flat fields)
+ * Upcaster in NatsEventBus converts v1 nested `triggeringData` to flat `triggerXxx` fields.
  */
 interface AlertTriggeredEvent {
   eventId: string;
@@ -74,12 +75,12 @@ interface AlertTriggeredEvent {
   channels: string[];
   recipients: string[];
   retryCount?: number;
-  triggeringData?: {
-    sensorId?: string;
-    farmId?: string;
-    pondId?: string;
-    readings?: Record<string, number>;
-  };
+  triggerSensorId?: string;
+  triggerFarmId?: string;
+  triggerPondId?: string;
+  triggerParameter?: string;
+  triggerValue?: number;
+  triggerThreshold?: number;
 }
 
 /**
@@ -189,7 +190,7 @@ export class AlertTriggeredEventHandler
           ruleName: sanitizedRuleName,
           severity,
           message: sanitizedMessage,
-          sensorId: event.triggeringData?.sensorId,
+          sensorId: event.triggerSensorId,
           timestamp: event.timestamp,
         },
       );

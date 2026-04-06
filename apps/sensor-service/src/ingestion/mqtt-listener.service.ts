@@ -1030,14 +1030,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // 5. EventBus üzerinden WebSocket'e ilet
     //    Frontend'deki useSensorSocket veya özel hook bu event'i dinler
     if (this.eventBus) {
+      // ARCH-C01: Serialize tags to JSON string — flat-object contract
       await this.eventBus.publish({
         eventId: randomUUID(),
         eventType: 'EdgeDeviceIoData',
         timestamp: new Date(),
         tenantId,
         deviceCode,
-        tags,
-        version: 1,
+        tagsJson: JSON.stringify(tags),
+        version: 2,
       });
     }
 
@@ -1205,14 +1206,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       // Publish to EventBus for WebSocket bridge
       if (this.eventBus) {
+        // ARCH-C01: Serialize alarms to JSON string — flat-object contract
         await this.eventBus.publish({
           eventId: randomUUID(),
           eventType: 'EdgeDeviceAlarm',
           timestamp: new Date(),
           tenantId,
           deviceCode,
-          alarms,
-          version: 1,
+          alarmsJson: JSON.stringify(alarms),
+          alarmCount: alarms.length,
+          version: 2,
         });
       }
 

@@ -20,20 +20,18 @@ export interface WaterQualityMeasurementCreatedEvent extends BaseEvent {
 
 /**
  * Emitted when a measurement has critical parameters — high priority for alert-service
+ *
+ * ARCH-C01: criticalParameters serialized as JSON string — array of complex objects
+ * with variable structure makes flat-field mapping impractical.
+ * criticalParameterCount provides quick access without deserializing.
  */
 export interface WaterQualityCriticalEvent extends BaseEvent {
   eventType: 'WaterQualityCritical';
   measurementId: string;
   equipmentId: string | null;
   tankId: string | null;
-  criticalParameters: Array<{
-    code: string;
-    name: string;
-    value: number;
-    threshold: number;
-    direction: 'above' | 'below';
-    unit: string;
-  }>;
+  criticalParametersJson: string;
+  criticalParameterCount: number;
   measuredAt: string;
 }
 

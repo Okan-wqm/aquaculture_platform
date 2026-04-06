@@ -429,7 +429,8 @@ export class AlertEvaluationService {
   }
 
   /**
-   * Publish AlertTriggered event
+   * Publish AlertTriggered event (v2 — flat triggerXxx fields)
+   * ARCH-C01: Emits flat fields instead of nested `triggeringData` object.
    */
   private async publishAlertEvent(
     rule: AlertRule,
@@ -451,18 +452,13 @@ export class AlertEvaluationService {
         message,
         channels: rule.notificationChannels || [],
         recipients: rule.recipients || [],
-        triggeringData: {
-          sensorId: reading.sensorId,
-          readings: reading.readings,
-          timestamp: reading.timestamp,
-          condition: {
-            parameter: condition.parameter,
-            operator: condition.operator,
-            threshold: condition.threshold,
-            actualValue: reading.readings[condition.parameter],
-          },
-        },
-        version: 1,
+        triggerSensorId: reading.sensorId,
+        triggerFarmId: reading.farmId,
+        triggerPondId: reading.pondId,
+        triggerParameter: condition.parameter,
+        triggerValue: reading.readings[condition.parameter],
+        triggerThreshold: condition.threshold,
+        version: 2,
       });
     } catch (error) {
       this.logger.error(

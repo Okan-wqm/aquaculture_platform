@@ -1,8 +1,11 @@
 import { BaseEvent } from './base-event';
 
 /**
- * Alert Triggered Event
- * Published when an alert condition is met
+ * Alert Triggered Event (v2 — flat fields)
+ * Published when an alert condition is met.
+ *
+ * ARCH-C01: trigger context is flat `triggerXxx` fields instead of nested `triggeringData`.
+ * Legacy v1 events with nested `triggeringData` are upcasted by AlertTriggeredUpcaster.
  */
 export interface AlertTriggeredEvent extends BaseEvent {
   eventType: 'AlertTriggered';
@@ -13,15 +16,12 @@ export interface AlertTriggeredEvent extends BaseEvent {
   message: string;
   channels: string[];
   recipients: string[];
-  triggeringData: {
-    sensorId?: string;
-    farmId?: string;
-    pondId?: string;
-    parameter?: string;
-    value?: number;
-    threshold?: number;
-    [key: string]: unknown;
-  };
+  triggerSensorId?: string;
+  triggerFarmId?: string;
+  triggerPondId?: string;
+  triggerParameter?: string;
+  triggerValue?: number;
+  triggerThreshold?: number;
 }
 
 /**

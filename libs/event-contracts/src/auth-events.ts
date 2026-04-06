@@ -39,12 +39,15 @@ export interface InvitationAcceptedEvent extends BaseEvent {
  * Password Reset Requested Event
  * Published when a user requests a password reset.
  * The notification service listens to this event to send the reset email.
+ *
+ * // SECURITY: SEC-C01 — never expose raw tokens on event bus.
+ * actionUrl is built server-side (auth-service) and contains the full reset link.
  */
 export interface PasswordResetRequestedEvent extends BaseEvent {
   eventType: 'PasswordResetRequested';
   userId: string;
   email: string;
-  resetToken: string;
+  actionUrl: string;
   firstName?: string;
 }
 

@@ -39,25 +39,27 @@ export interface EdgeDeviceResponseEvent extends BaseEvent {
  * Published when an edge device sends real-time I/O tag values.
  * Critical for SCADA widget live data binding.
  *
- * Tags structure: `{ [tagName]: { value: any; quality: string } }`
+ * ARCH-C01: tags serialized as JSON string — dynamic tag names
+ * make flat-field mapping impossible.
  */
 export interface EdgeDeviceIoDataEvent extends BaseEvent {
   eventType: 'EdgeDeviceIoData';
   deviceCode: string;
-  tags: Record<string, { value: unknown; quality: string }>;
+  tagsJson: string;
 }
 
 /**
  * Edge Device Alarm Event
  * Published when an edge device reports one or more alarms.
  *
- * Each alarm object may contain: tag, type, priority, state, value,
- * setpoint, message, and other device-specific fields.
+ * ARCH-C01: alarms serialized as JSON string — device-specific alarm fields
+ * make flat-field mapping impractical. alarmCount for quick access.
  */
 export interface EdgeDeviceAlarmEvent extends BaseEvent {
   eventType: 'EdgeDeviceAlarm';
   deviceCode: string;
-  alarms: Array<Record<string, unknown>>;
+  alarmsJson: string;
+  alarmCount: number;
 }
 
 /**

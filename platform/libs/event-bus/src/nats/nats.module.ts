@@ -6,6 +6,7 @@ import {
   EVENT_HANDLER_METADATA,
   EVENT_SUBSCRIPTION_METADATA,
 } from '../decorators/event-handler.decorator';
+import { createDefaultRegistry } from '@platform/event-contracts';
 
 /**
  * Event Bus Module configuration options
@@ -49,6 +50,10 @@ export class EventBusModule {
         useValue: options ?? {},
       },
       {
+        provide: 'EVENT_UPCASTER_REGISTRY',
+        useFactory: () => createDefaultRegistry(),
+      },
+      {
         provide: 'EVENT_BUS',
         useClass: NatsEventBus,
       },
@@ -59,7 +64,7 @@ export class EventBusModule {
       module: EventBusModule,
       imports: [ConfigModule, DiscoveryModule],
       providers,
-      exports: ['EVENT_BUS', NatsEventBus],
+      exports: ['EVENT_BUS', 'EVENT_UPCASTER_REGISTRY', NatsEventBus],
     };
   }
 
@@ -80,6 +85,10 @@ export class EventBusModule {
         inject: options.inject ?? [],
       },
       {
+        provide: 'EVENT_UPCASTER_REGISTRY',
+        useFactory: () => createDefaultRegistry(),
+      },
+      {
         provide: 'EVENT_BUS',
         useClass: NatsEventBus,
       },
@@ -90,7 +99,7 @@ export class EventBusModule {
       module: EventBusModule,
       imports: [ConfigModule, DiscoveryModule, ...(options.imports ?? [])],
       providers,
-      exports: ['EVENT_BUS', NatsEventBus],
+      exports: ['EVENT_BUS', 'EVENT_UPCASTER_REGISTRY', NatsEventBus],
     };
   }
 }

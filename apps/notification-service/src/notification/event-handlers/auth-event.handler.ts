@@ -75,12 +75,18 @@ export class AuthEventHandler
    * Handle PasswordResetRequested — send password reset email
    */
   private async handlePasswordResetRequested(event: PasswordResetRequestedEvent): Promise<void> {
-    if (!event.email || !event.resetToken) {
-      this.logger.error('PasswordResetRequested event missing email or resetToken. Skipping.');
+    // SECURITY: SEC-C01 — reject stale v1 events that carry raw tokens
+    if ((event as Record<string, unknown>)['resetToken']) {
+      this.logger.warn('SECURITY: Rejected v1 PasswordResetRequested event carrying raw resetToken. User must re-request.');
       return;
     }
 
-    const resetUrl = `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/reset-password/${event.resetToken}`;
+    if (!event.email || !event.actionUrl) {
+      this.logger.error('PasswordResetRequested event missing email or actionUrl. Skipping.');
+      return;
+    }
+
+    const resetUrl = event.actionUrl;
     const displayName = event.firstName || 'there';
 
     const subject = 'Password Reset Request - Aquaculture Platform';

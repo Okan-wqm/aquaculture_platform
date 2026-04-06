@@ -915,6 +915,13 @@ export class AuthenticationService {
       user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       await this.userRepository.save(user);
 
+      // SECURITY: SEC-C01 — build actionUrl server-side, never emit raw token on event bus
+      const appUrl = this.configService.get<string>('APP_URL');
+      if (!appUrl) {
+        throw new Error('APP_URL environment variable is not configured');
+      }
+      const actionUrl = `${appUrl}/reset-password/${resetToken}`;
+
       // Publish event for notification service to send reset email
       await this.eventBus.publish({
         eventId: crypto.randomUUID(),
@@ -923,9 +930,9 @@ export class AuthenticationService {
         tenantId: user.tenantId ?? 'system',
         userId: user.id,
         email: user.email,
-        resetToken, // Plain token for email link (notification service uses this)
+        actionUrl,
         firstName: user.firstName ?? undefined,
-        version: 1,
+        version: 2,
       });
 
       // Audit log

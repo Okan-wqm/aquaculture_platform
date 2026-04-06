@@ -1,216 +1,64 @@
 // WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
 import 'reflect-metadata';
-import { ValidationPipe, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { NestFactory } from '@nestjs/core';
-import { initTelemetry, StructuredLoggerService, logBootstrapError } from '@aquaculture/backend-common';
+import { bootstrapService } from '@aquaculture/backend-common';
 import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
-import helmet from 'helmet';
-
 import { AppModule } from './app.module';
 
-// Initialize OpenTelemetry tracing BEFORE NestFactory.create()
-// so that all HTTP/DB calls are automatically instrumented.
-// Only active when ENABLE_TRACING=true environment variable is set.
-initTelemetry('gateway-api');
-
-async function bootstrap(): Promise<void> {
-  const logger = new Logger('GatewayAPI');
+bootstrapService(AppModule, {
+  serviceName: 'gateway-api',
+  portEnvVar: 'GATEWAY_PORT',
+  enableTelemetry: true,
+  hasGraphQL: true,
 
   // SECURITY: In production, INTERNAL_SERVICE_SECRET is required for authenticating
   // inter-service requests. Without it, any external client could forge internal
-  // service headers (x-service-identity, x-service-signature) and bypass auth.
-  if (
-    process.env['NODE_ENV'] === 'production' &&
-    !process.env['INTERNAL_SERVICE_SECRET']
-  ) {
-    throw new Error(
-      'FATAL: INTERNAL_SERVICE_SECRET must be set in production. ' +
-      'Without it, inter-service authentication is disabled and attackers can ' +
-      'spoof internal service headers to bypass authorization. ' +
-      'Generate a strong secret: openssl rand -base64 48',
-    );
-  }
+  // service headers and bypass auth.
+  environmentGuards: [
+    () => {
+      if (
+        process.env['NODE_ENV'] === 'production' &&
+        !process.env['INTERNAL_SERVICE_SECRET']
+      ) {
+        throw new Error(
+          'FATAL: INTERNAL_SERVICE_SECRET must be set in production. ' +
+          'Without it, inter-service authentication is disabled and attackers can ' +
+          'spoof internal service headers to bypass authorization. ' +
+          'Generate a strong secret: openssl rand -base64 48',
+        );
+      }
+    },
+  ],
 
-  /**
-   * ARCH-032: Wrap NestFactory.create() to surface readable errors.
-   *
-   * NestJS ExceptionHandler serializes Error objects via JSON.stringify, which
-   * produces '{}' because Error properties (message, stack) are non-enumerable.
-   * By catching here, we log the actual error message BEFORE NestJS can swallow it,
-   * ensuring container logs always show what went wrong during module initialization.
-   */
-  let app;
-  try {
-    app = await NestFactory.create(AppModule, {
-      // SECURITY: Disable raw body parsing - we configure it ourselves with limits
-      rawBody: false,
-      logger: new StructuredLoggerService('gateway-api'),
-    });
-  } catch (err: unknown) {
-    logBootstrapError('gateway-api', err, 'Module initialization');
-    process.exit(1);
-  }
+  nestFactoryOptions: { rawBody: false },
 
-  const configService = app.get(ConfigService);
+  // SECURITY: cookie-parser + body limits before helmet
+  earlyMiddleware: [
+    cookieParser(),
+    json({ limit: process.env['REQUEST_JSON_LIMIT'] || '1mb' }),
+    urlencoded({ limit: process.env['REQUEST_URLENCODED_LIMIT'] || '1mb', extended: true }),
+  ],
 
-  // SECURITY: Configure request body size limits to prevent DoS attacks
-  // These limits should be set based on your application's requirements
-  const jsonLimit = configService.get<string>('REQUEST_JSON_LIMIT', '1mb');
-  const urlencodedLimit = configService.get<string>('REQUEST_URLENCODED_LIMIT', '1mb');
+  // CSP is handled by the edge nginx
+  helmetOptions: {
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin' as const },
+    crossOriginResourcePolicy: { policy: 'same-origin' as const },
+    dnsPrefetchControl: { allow: false },
+    ieNoOpen: true,
+  },
 
-  // SECURITY: cookie-parser required for forwarding httpOnly refresh token cookies to auth-service
-  app.use(cookieParser());
-
-  app.use(json({ limit: jsonLimit }));
-  app.use(urlencoded({ limit: urlencodedLimit, extended: true }));
-
-  logger.log(`Request body limits: JSON=${jsonLimit}, URLEncoded=${urlencodedLimit}`);
-
-  // Trust proxy configuration for deployments behind reverse proxy (nginx, cloudflare, etc)
-  // This ensures req.ip contains the real client IP from X-Forwarded-For header
-  // SECURITY: Only enable this when behind a trusted proxy
-  const trustProxy = configService.get<string>('TRUST_PROXY', 'false');
-  if (trustProxy === 'true' || trustProxy === '1') {
-    // Trust first proxy
-    app.getHttpAdapter().getInstance().set('trust proxy', 1);
-    logger.log('Trust proxy enabled (trusting first proxy)');
-  } else if (trustProxy && trustProxy !== 'false' && trustProxy !== '0') {
-    // Trust specific proxy count or CIDR
-    app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
-    logger.log(`Trust proxy configured: ${trustProxy}`);
-  }
-
-  // Security middleware with explicit production settings
-  const isProduction = process.env.NODE_ENV === 'production';
-  app.use(
-    helmet({
-      // Content Security Policy - strict in production
-      // CSP is handled by the edge nginx (droplet.conf / nginx.prod.conf).
-      // Gateway sits behind nginx which sets CSP; Helmet's CSP would create
-      // duplicate headers (nginx already strips it via proxy_hide_header, but
-      // disabling here avoids wasted work and dev-environment conflicts).
-      contentSecurityPolicy: false,
-
-      // HSTS - Strict Transport Security (production only)
-      strictTransportSecurity: isProduction
-        ? {
-            maxAge: 31536000, // 1 year
-            includeSubDomains: true,
-            preload: true,
-          }
-        : false,
-
-      // Referrer Policy - don't leak referrer information
-      referrerPolicy: {
-        policy: 'strict-origin-when-cross-origin',
-      },
-
-      // Cross-Origin Embedder Policy
-      crossOriginEmbedderPolicy: isProduction ? { policy: 'require-corp' } : false,
-
-      // Cross-Origin Opener Policy
-      crossOriginOpenerPolicy: { policy: 'same-origin' },
-
-      // Cross-Origin Resource Policy
-      crossOriginResourcePolicy: { policy: 'same-origin' },
-
-      // X-Content-Type-Options
-      noSniff: true,
-
-      // X-Frame-Options (prevent clickjacking)
-      frameguard: { action: 'deny' },
-
-      // Hide X-Powered-By header
-      hidePoweredBy: true,
-
-      // X-XSS-Protection (legacy but still useful)
-      xssFilter: true,
-
-      // DNS Prefetch Control
-      dnsPrefetchControl: { allow: false },
-
-      // IE No Open (prevents IE from executing downloads)
-      ieNoOpen: true,
-    }),
-  );
-
-  // Global validation pipe with security settings
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-      transformOptions: {
-        // SECURITY: Disable implicit conversion. When enabled, strings like
-        // "true", "1", etc. are auto-coerced to boolean/number without explicit
-        // decorators. This can cause type-confusion bugs in authorization checks.
-        enableImplicitConversion: false,
-      },
-      // SECURITY: Hide internal details from validation errors
-      validationError: {
-        target: false, // Don't expose target object in errors
-        value: false,  // Don't expose submitted value in errors
-      },
-      // SECURITY: Disable detailed error messages in production
-      disableErrorMessages: process.env.NODE_ENV === 'production',
-    }),
-  );
-
-  // CORS configuration
-  // SECURITY: credentials cannot be true when origin is '*' (wildcard)
-  // When CORS_ORIGINS is '*', we disable credentials for security
-  // For specific origins, credentials are enabled for authenticated requests
-  const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
-  const isWildcard = corsOrigins === '*';
-
-  if (isWildcard && process.env.NODE_ENV === 'production') {
-    throw new Error('CORS_ORIGINS cannot be "*" in production. Configure an explicit allowlist.');
-  }
-
-  const parsedOrigins = isWildcard ? '*' : corsOrigins.split(',').map(o => o.trim()).filter(Boolean);
-
-  app.enableCors({
-    origin: parsedOrigins,
-    // SECURITY: credentials must be false when using wildcard origin
-    credentials: !isWildcard,
-    methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Tenant-Id',
-      'X-Correlation-Id',
-      'X-Request-Id',
-      'X-Requested-With',
-      'X-CSRF-Token',
-    ],
-  });
+  additionalCorsHeaders: ['X-Requested-With', 'X-CSRF-Token'],
 
   // BUG-05: HEAD /graphql returns 200 for mobile connectivity probes.
-  // AquaMobil's useNetworkStatus sends HEAD /graphql to detect server
-  // reachability. Without this, NestJS returns 503 because the GraphQL
-  // module only handles POST. This middleware intercepts HEAD before
-  // the GraphQL handler runs.
-  app.use('/graphql', (req: any, res: any, next: any) => {
-    if (req.method === 'HEAD') {
-      res.status(200).end();
-      return;
-    }
-    next();
-  });
-
-  // Enable graceful shutdown hooks
-  app.enableShutdownHooks();
-
-  const port = configService.get<number>('GATEWAY_PORT', 3000);
-  await app.listen(port);
-
-  logger.log(`Gateway API running on http://localhost:${port}`);
-  logger.log(`GraphQL Playground: http://localhost:${port}/graphql`);
-}
-
-bootstrap().catch((err: unknown) => {
-  logBootstrapError('gateway-api', err, 'Bootstrap');
-  process.exit(1);
+  onBeforeListen: async (app) => {
+    app.use('/graphql', (req: any, res: any, next: any) => {
+      if (req.method === 'HEAD') {
+        res.status(200).end();
+        return;
+      }
+      next();
+    });
+  },
 });

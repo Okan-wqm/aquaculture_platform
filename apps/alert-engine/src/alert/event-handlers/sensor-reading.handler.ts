@@ -7,14 +7,50 @@ import { AlertEvaluationService } from '../services/alert-evaluation.service';
 // UUID validation imported from @aquaculture/backend-common (isValidUUID)
 
 /**
- * Sensor Reading Event interface
+ * Sensor Reading Event interface (v2 — flat fields)
+ * Upcaster in NatsEventBus converts v1 nested `readings` to flat `readingXxx` fields.
  */
 interface SensorReadingEvent extends IEvent {
   eventType: 'SensorReading';
   sensorId: string;
-  readings: Record<string, number>;
   farmId?: string;
   pondId?: string;
+  readingTemperature?: number;
+  readingPh?: number;
+  readingDissolvedOxygen?: number;
+  readingSalinity?: number;
+  readingAmmonia?: number;
+  readingNitrite?: number;
+  readingNitrate?: number;
+  readingTurbidity?: number;
+  readingWaterLevel?: number;
+}
+
+/** ARCH-C01: Flat reading fields → Record<string, number> for evaluationService */
+const READING_FIELD_MAP: Record<string, string> = {
+  readingTemperature: 'temperature',
+  readingPh: 'ph',
+  readingDissolvedOxygen: 'dissolvedOxygen',
+  readingSalinity: 'salinity',
+  readingAmmonia: 'ammonia',
+  readingNitrite: 'nitrite',
+  readingNitrate: 'nitrate',
+  readingTurbidity: 'turbidity',
+  readingWaterLevel: 'waterLevel',
+};
+
+/**
+ * Extract flat readingXxx fields into a Record<string, number> for internal use.
+ */
+function extractReadingsFromEvent(event: SensorReadingEvent): Record<string, number> {
+  const readings: Record<string, number> = {};
+  for (const [flatField, paramName] of Object.entries(READING_FIELD_MAP)) {
+    const value = event[flatField as keyof SensorReadingEvent];
+    if (typeof value === 'number') {
+      readings[paramName] = value;
+    }
+  }
+  return readings;
 }
 
 /**
@@ -88,11 +124,13 @@ export class SensorReadingEventHandler
     };
 
     try {
+      const readings = extractReadingsFromEvent(event);
+
       await requestContextStorage.run(context, async () => {
         await this.evaluationService.evaluateSensorReading({
           sensorId: event.sensorId,
           tenantId: event.tenantId!,
-          readings: event.readings,
+          readings,
           farmId: event.farmId,
           pondId: event.pondId,
           timestamp: event.timestamp,

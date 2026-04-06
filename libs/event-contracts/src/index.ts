@@ -21,6 +21,9 @@ export * from './storage-events';
 // Security events (auth failures, rate limit, CSP violations, etc.)
 export * from './security';
 
+// Event upcasters (v1 → v2 schema migration at deserialization time)
+export * from './upcasters';
+
 // Re-export all domain union types for convenience
 import type { AuthEvent } from './auth-events';
 import type { TenantEvent } from './tenant-events';

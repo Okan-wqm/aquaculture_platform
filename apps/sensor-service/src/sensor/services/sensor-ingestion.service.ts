@@ -578,7 +578,8 @@ export class SensorIngestionService {
   }
 
   /**
-   * Publish sensor reading event
+   * Publish sensor reading event (v2 — flat readingXxx fields)
+   * ARCH-C01: Emits flat fields instead of nested `readings` object.
    */
   private async publishReadingEvent(reading: SensorReading): Promise<void> {
     await this.eventBusCircuitBreaker.execute(() =>
@@ -588,10 +589,18 @@ export class SensorIngestionService {
         timestamp: reading.timestamp,
         tenantId: reading.tenantId,
         sensorId: reading.sensorId,
-        readings: reading.readings,
         farmId: reading.farmId,
         pondId: reading.pondId,
-        version: 1,
+        readingTemperature: reading.readings.temperature,
+        readingPh: reading.readings.ph,
+        readingDissolvedOxygen: reading.readings.dissolvedOxygen,
+        readingSalinity: reading.readings.salinity,
+        readingAmmonia: reading.readings.ammonia,
+        readingNitrite: reading.readings.nitrite,
+        readingNitrate: reading.readings.nitrate,
+        readingTurbidity: reading.readings.turbidity,
+        readingWaterLevel: reading.readings.waterLevel,
+        version: 2,
       }),
     );
   }

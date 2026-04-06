@@ -39,11 +39,13 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import type { ValidationPipeOptions } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import type { INestApplication, Type } from '@nestjs/common';
 import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { StructuredLoggerService } from '../logging';
 import { logBootstrapError } from './safe-error-logger';
+import { buildNatsTransportOptions } from '../nats/nats-connection.factory';
 import helmet from 'helmet';
 import type { HelmetOptions } from 'helmet';
 
@@ -128,6 +130,50 @@ export interface ServiceBootstrapOptions {
    * middleware, guards, interceptors, microservice transports, Swagger, etc.
    */
   onBeforeListen?: (app: INestApplication) => Promise<void> | void;
+
+  /**
+   * Pre-NestFactory environment checks (e.g., INTERNAL_SERVICE_SECRET guard).
+   * Each function is called before NestFactory.create() — throw to abort startup.
+   */
+  environmentGuards?: Array<() => void>;
+
+  /**
+   * Middleware applied before helmet/CORS (e.g., cookieParser, body limits).
+   * Functions are applied in order via `app.use(middleware)`.
+   */
+  earlyMiddleware?: Array<(...args: any[]) => any>;
+
+  /**
+   * NATS microservice transport config. When set, connectMicroservice()
+   * is called after NestFactory.create() and startAllMicroservices()
+   * is called before app.listen().
+   */
+  natsTransport?: { queue?: string };
+
+  /**
+   * Swagger config. Auto-disabled in production (SEC-L14).
+   * When set, Swagger UI is exposed at `path` (default: 'docs').
+   */
+  swagger?: {
+    title: string;
+    description: string;
+    version: string;
+    path?: string;
+  };
+
+  /**
+   * API versioning config. When set, app.enableVersioning() is called.
+   */
+  versioning?: {
+    type: any;
+    defaultVersion?: string | string[];
+  };
+
+  /**
+   * Global guards applied via app.useGlobalGuards().
+   * Applied after validation pipe and versioning.
+   */
+  globalGuards?: any[];
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +486,12 @@ export async function createServiceApp(
     validationPipeOverrides,
     customValidationPipe,
     onBeforeListen,
+    environmentGuards = [],
+    earlyMiddleware = [],
+    natsTransport,
+    swagger,
+    versioning,
+    globalGuards = [],
   } = options;
 
   const logger = new Logger(serviceName);
@@ -467,7 +519,14 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
-  // 1. Optional OpenTelemetry initialization (must happen before NestFactory.create)
+  // 1a. Environment guards (run before NestFactory — throw to abort startup)
+  // -----------------------------------------------------------------------
+  for (const guard of environmentGuards) {
+    guard();
+  }
+
+  // -----------------------------------------------------------------------
+  // 1b. Optional OpenTelemetry initialization (must happen before NestFactory.create)
   // -----------------------------------------------------------------------
   if (enableTelemetry) {
     try {
@@ -505,6 +564,27 @@ export async function createServiceApp(
   const isProduction = configService.get('NODE_ENV') === 'production';
 
   // -----------------------------------------------------------------------
+  // 2a. NATS microservice transport (connectMicroservice early, startAll later)
+  // -----------------------------------------------------------------------
+  if (natsTransport) {
+    app.connectMicroservice<MicroserviceOptions>({
+      transport: Transport.NATS,
+      options: {
+        ...buildNatsTransportOptions(serviceName),
+        ...(natsTransport.queue ? { queue: natsTransport.queue } : {}),
+      },
+    });
+    logger.log(`NATS microservice transport connected (queue: ${natsTransport.queue ?? 'default'})`);
+  }
+
+  // -----------------------------------------------------------------------
+  // 2b. Early middleware (before helmet/CORS — e.g., cookieParser, body limits)
+  // -----------------------------------------------------------------------
+  for (const middleware of earlyMiddleware) {
+    app.use(middleware);
+  }
+
+  // -----------------------------------------------------------------------
   // 3. Trust proxy (for req.ip behind nginx/cloudflare)
   // -----------------------------------------------------------------------
   configureTrustProxy(app, configService, logger);
@@ -526,6 +606,18 @@ export async function createServiceApp(
   configureValidationPipe(app, isProduction, validationPipeOverrides, customValidationPipe);
 
   // -----------------------------------------------------------------------
+  // 6a. API versioning (when configured)
+  // -----------------------------------------------------------------------
+  if (versioning) {
+    app.enableVersioning({
+      type: versioning.type,
+      ...(versioning.defaultVersion !== undefined
+        ? { defaultVersion: versioning.defaultVersion }
+        : {}),
+    });
+  }
+
+  // -----------------------------------------------------------------------
   // 7. Global prefix with health/metrics exclusions
   // -----------------------------------------------------------------------
   if (prefixExclusions !== false) {
@@ -542,6 +634,13 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
+  // 7a. Global guards (applied after validation pipe and prefix)
+  // -----------------------------------------------------------------------
+  if (globalGuards.length > 0) {
+    app.useGlobalGuards(...globalGuards);
+  }
+
+  // -----------------------------------------------------------------------
   // 8. Graceful shutdown hooks (SIGTERM + SIGINT)
   // -----------------------------------------------------------------------
   app.enableShutdownHooks();
@@ -554,7 +653,46 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
-  // 10. Resolve port and start listening
+  // 10a. Start NATS microservices (if connected)
+  // -----------------------------------------------------------------------
+  if (natsTransport) {
+    await app.startAllMicroservices();
+    logger.log('NATS microservices started');
+  }
+
+  // -----------------------------------------------------------------------
+  // 10b. Swagger (auto-disabled in production — SEC-L14)
+  // -----------------------------------------------------------------------
+  if (swagger && !isProduction) {
+    try {
+      const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
+      const swaggerConfig = new DocumentBuilder()
+        .setTitle(swagger.title)
+        .setDescription(swagger.description)
+        .setVersion(swagger.version)
+        .addBearerAuth(
+          { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+          'JWT',
+        )
+        .build();
+
+      const document = SwaggerModule.createDocument(app, swaggerConfig);
+      const swaggerPath = swagger.path ?? 'docs';
+      SwaggerModule.setup(swaggerPath, app, document, {
+        swaggerOptions: {
+          persistAuthorization: true,
+          tagsSorter: 'alpha',
+          operationsSorter: 'alpha',
+        },
+      });
+      logger.log(`Swagger docs available at /${swaggerPath}`);
+    } catch {
+      logger.warn('Swagger module not available — skipping API docs setup');
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // 10c. Resolve port and start listening
   // -----------------------------------------------------------------------
   const port = resolvePort(configService, portEnvVar);
   await app.listen(port);

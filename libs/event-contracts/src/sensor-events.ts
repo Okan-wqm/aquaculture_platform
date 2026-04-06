@@ -1,25 +1,26 @@
 import { BaseEvent } from './base-event';
 
 /**
- * Sensor Reading Event
- * Published when sensor data is ingested
+ * Sensor Reading Event (v2 — flat fields)
+ * Published when sensor data is ingested.
+ *
+ * ARCH-C01: readings are flat `readingXxx` fields instead of nested `readings` object.
+ * Legacy v1 events with nested `readings` are upcasted by SensorReadingUpcaster.
  */
 export interface SensorReadingEvent extends BaseEvent {
   eventType: 'SensorReading';
   sensorId: string;
   farmId?: string;
   pondId?: string;
-  readings: {
-    temperature?: number;
-    ph?: number;
-    dissolvedOxygen?: number;
-    salinity?: number;
-    ammonia?: number;
-    nitrite?: number;
-    nitrate?: number;
-    turbidity?: number;
-    [key: string]: number | undefined;
-  };
+  readingTemperature?: number;
+  readingPh?: number;
+  readingDissolvedOxygen?: number;
+  readingSalinity?: number;
+  readingAmmonia?: number;
+  readingNitrite?: number;
+  readingNitrate?: number;
+  readingTurbidity?: number;
+  readingWaterLevel?: number;
 }
 
 /**
@@ -37,12 +38,15 @@ export interface SensorRegisteredEvent extends BaseEvent {
 
 /**
  * Sensor Calibration Event
+ *
+ * ARCH-C01: calibrationValues serialized as JSON string — device-specific keys
+ * make flat-field mapping impractical.
  */
 export interface SensorCalibratedEvent extends BaseEvent {
   eventType: 'SensorCalibrated';
   sensorId: string;
   calibrationDate: Date;
-  calibrationValues: Record<string, number>;
+  calibrationValuesJson: string;
   nextCalibrationDate?: Date;
 }
 

@@ -60,10 +60,9 @@ import { UsersModule } from './users/users.module';
         database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
         schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
         autoLoadEntities: true,
-        // Admin-api-service owns the 'admin' schema and all its tables.
-        // synchronize:true is safe here because admin schema is exclusively owned by this service.
-        // Set DATABASE_SYNC=false to disable (e.g., after initial setup).
-        synchronize: configService.get('DATABASE_SYNC', 'true') === 'true',
+        // SECURITY: Default to false — explicit DATABASE_SYNC=true required.
+        // Shared bootstrap guards against DATABASE_SYNC=true in production.
+        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
         logging: configService.get<string>('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {

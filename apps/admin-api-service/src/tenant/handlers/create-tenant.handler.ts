@@ -180,15 +180,17 @@ export class CreateTenantHandler
           );
 
           // Emit failure event for monitoring/alerting
+          // ARCH-C01: Serialize steps to JSON string — flat-object contract
           await this.eventBus.publish({
             eventId: crypto.randomUUID(),
             eventType: 'TenantProvisioningFailed',
             timestamp: new Date(),
             tenantId: savedTenant.id,
             error: provisionResult.error,
-            steps: provisionResult.steps,
+            stepsJson: provisionResult.steps ? JSON.stringify(provisionResult.steps) : undefined,
+            stepCount: provisionResult.steps?.length ?? 0,
             duration: provisionDuration,
-            version: 1,
+            version: 2,
           });
         }
 

@@ -63,7 +63,6 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
       MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
-      # IP-1: Enable PostgreSQL SSL for encrypted inter-service DB connections
       POSTGRES_SSL: "on"
     command: >
       postgres
@@ -147,7 +146,7 @@ services:
     image: redis:7-alpine
     container_name: aqua-redis
     restart: unless-stopped
-    # IP-1: TLS via redis-tls.conf (disables plaintext port, enables tls-port 6379)
+    # IP-1: TLS enabled via redis-tls.conf
     command: redis-server /etc/redis/redis.conf --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 192mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -161,7 +160,6 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      # IP-1: TLS healthcheck with CA cert
       test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli --tls --cacert /etc/redis/certs/ca-cert.pem ping"]
       interval: 15s
       timeout: 5s
@@ -185,7 +183,6 @@ services:
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
-      # IP-1: TLS config included by nats.conf via 'include /etc/nats/nats-tls.conf'
       - ./infrastructure/docker/nats/nats-tls-enabled.conf:/etc/nats/nats-tls.conf:ro
       - ./certs/nats:/etc/nats/certs:ro
     networks:

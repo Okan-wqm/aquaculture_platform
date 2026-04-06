@@ -740,6 +740,34 @@ jobs:
             git fetch --force --prune origin
             git checkout -f ${{ github.sha }}
 
+            # IP-1: Auto-generate/renew TLS certificates for NATS/Redis/PostgreSQL.
+            # Server certs expire after 365 days. This step regenerates them if:
+            #   - certs/ directory doesn't exist (first deploy)
+            #   - any cert expires within 30 days (proactive renewal)
+            echo "=== TLS certificate check ==="
+            CERT_RENEW=false
+            if [ ! -f "certs/redis/redis-cert.pem" ]; then
+              echo "  Certificates missing — generating..."
+              CERT_RENEW=true
+            else
+              EXPIRY=$(openssl x509 -enddate -noout -in certs/redis/redis-cert.pem 2>/dev/null | cut -d= -f2)
+              if [ -n "$EXPIRY" ]; then
+                EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s 2>/dev/null || echo 0)
+                NOW_EPOCH=$(date +%s)
+                DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
+                echo "  Certificate expires in ${DAYS_LEFT} days"
+                if [ "$DAYS_LEFT" -lt 30 ]; then
+                  echo "  Expiring soon — regenerating..."
+                  CERT_RENEW=true
+                fi
+              fi
+            fi
+            if [ "$CERT_RENEW" = true ]; then
+              bash infrastructure/docker/scripts/generate-internal-certs.sh --force
+            else
+              echo "  Certificates valid — skipping generation"
+            fi
+
             # SEC-CI-001: GITHUB_TOKEN (packages:read) is substituted at template time by the
             # GitHub Actions runner and masked as *** in all logs. Short-lived, run-scoped only.
             echo "=== Logging into GHCR ==="

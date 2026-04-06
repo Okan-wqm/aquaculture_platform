@@ -1,36 +1,112 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { RedisService } from '@aquaculture/backend-common';
 
 /**
- * Token budget management using Redis counters.
- * Tracks monthly token usage per tenant and enforces limits.
+ * Monthly token budget tracking per tenant.
  *
- * NOTE: Uses in-memory counters as placeholder.
- * Will be replaced with Redis when ioredis is wired up.
+ * Uses Redis INCRBY for distributed, atomic token counters.
+ * Falls back to in-memory Map when Redis is unavailable (single-instance only).
+ *
+ * Redis key pattern: ai:tokens:{tenantId}:{YYYY-MM}
+ * TTL: End of month + 48 hours buffer (for billing reconciliation queries).
+ *
+ * WHY: Monthly keys rotate naturally — each month gets a fresh counter.
+ * The 48h buffer after month-end allows billing cron jobs to read
+ * the final value before the key expires.
  */
 @Injectable()
 export class TokenBudgetService {
   private readonly logger = new Logger(TokenBudgetService.name);
-  // In-memory fallback (replaced with Redis in production)
-  private readonly counters = new Map<string, number>();
+  private readonly useRedis: boolean;
 
+  /** In-memory fallback — single-instance only, loses data on restart */
+  private readonly localCounters = new Map<string, number>();
+
+  constructor(
+    @Optional() private readonly redisService?: RedisService,
+  ) {
+    this.useRedis = !!this.redisService;
+    if (!this.useRedis) {
+      this.logger.warn(
+        'AI token budget using in-memory Map — NOT distributed. ' +
+        'Multi-instance deployments will have separate counters. ' +
+        'Data will be lost on service restart.',
+      );
+    }
+  }
+
+  // ── Key generation ────────────────────────────────────────────────────────
+
+  /**
+   * Generate a monthly-scoped Redis key.
+   * Format: ai:tokens:{tenantId}:{YYYY-MM}
+   */
   private getMonthlyKey(tenantId: string): string {
     const now = new Date();
-    return `ai:tokens:${tenantId}:${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    return `ai:tokens:${tenantId}:${month}`;
   }
 
+  /**
+   * Calculate seconds until end of current month + 48h buffer.
+   *
+   * WHY: 48h buffer ensures billing reconciliation cron jobs can still
+   * read the final token count after the month rolls over.
+   */
+  private getMonthEndTtl(): number {
+    const now = new Date();
+    const endOfMonth = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth() + 1, // Next month
+      1, 0, 0, 0,           // First day at midnight
+    ));
+    const bufferMs = 48 * 60 * 60 * 1000; // 48 hours
+    const ttlMs = endOfMonth.getTime() - now.getTime() + bufferMs;
+    return Math.max(1, Math.ceil(ttlMs / 1000));
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+
+  /**
+   * Get current token usage for a tenant this month.
+   *
+   * @param tenantId - Tenant identifier (from JWT, not user-supplied)
+   * @returns Current token count (0 if no usage this month)
+   */
   async getUsage(tenantId: string): Promise<number> {
+    if (this.useRedis) {
+      const key = this.getMonthlyKey(tenantId);
+      const value = await this.redisService!.get(key);
+      return value ? parseInt(value, 10) : 0;
+    }
     const key = this.getMonthlyKey(tenantId);
-    return this.counters.get(key) ?? 0;
+    return this.localCounters.get(key) ?? 0;
   }
 
+  /**
+   * Add token usage for a tenant.
+   *
+   * Uses Redis INCRBY for atomic, distributed increment.
+   * Sets TTL on first write so the key auto-expires after month end.
+   *
+   * @param tenantId - Tenant identifier (from JWT, not user-supplied)
+   * @param tokens   - Number of tokens consumed in this request
+   * @returns New cumulative usage for the current month
+   */
   async addUsage(tenantId: string, tokens: number): Promise<number> {
-    const key = this.getMonthlyKey(tenantId);
-    const current = this.counters.get(key) ?? 0;
-    const newValue = current + tokens;
-    this.counters.set(key, newValue);
-    return newValue;
+    if (this.useRedis) {
+      return this.addUsageRedis(tenantId, tokens);
+    }
+    return this.addUsageLocal(tenantId, tokens);
   }
 
+  /**
+   * Check whether a tenant has remaining budget.
+   *
+   * @param tenantId - Tenant identifier (from JWT, not user-supplied)
+   * @param budget   - Monthly token limit from subscription plan
+   * @returns Budget status with used/remaining counts
+   */
   async checkBudget(
     tenantId: string,
     budget: number,
@@ -42,5 +118,45 @@ export class TokenBudgetService {
       used,
       remaining,
     };
+  }
+
+  // ── Redis implementation ──────────────────────────────────────────────────
+
+  /**
+   * Atomic Redis token increment using INCRBY + conditional EXPIRE.
+   *
+   * SECURITY: INCRBY is atomic — concurrent requests cannot cause
+   * lost updates. The key auto-expires via TTL after month end.
+   */
+  private async addUsageRedis(tenantId: string, tokens: number): Promise<number> {
+    const key = this.getMonthlyKey(tenantId);
+
+    // INCRBY atomically creates the key with the increment value if it doesn't exist
+    const newValue = await this.redisService!.incrby(key, tokens);
+
+    // Set TTL only on first write (when newValue equals the tokens just added)
+    // WHY: Re-setting TTL on every write would push expiry into the future
+    if (newValue === tokens) {
+      const ttl = this.getMonthEndTtl();
+      await this.redisService!.expire(key, ttl);
+    }
+
+    return newValue;
+  }
+
+  // ── In-memory fallback ────────────────────────────────────────────────────
+
+  /**
+   * In-memory token increment for single-instance deployments.
+   *
+   * IMPORTANT: Counters are lost on service restart and are NOT
+   * shared across instances.
+   */
+  private async addUsageLocal(tenantId: string, tokens: number): Promise<number> {
+    const key = this.getMonthlyKey(tenantId);
+    const current = this.localCounters.get(key) ?? 0;
+    const newValue = current + tokens;
+    this.localCounters.set(key, newValue);
+    return newValue;
   }
 }

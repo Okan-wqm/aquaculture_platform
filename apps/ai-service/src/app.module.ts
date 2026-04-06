@@ -22,6 +22,7 @@ import {
   TenantGuard,
   ThrottlerModule,
   ThrottlerGuard,
+  RedisModule,
   SourceSchemaBootstrapService,
   createTenantSchemaMiddleware,
   createTenantConnectionBootstrap,
@@ -188,6 +189,16 @@ const complexityCache = new Map<string, number>();
       useFactory: (configService: ConfigService) => ({
         natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
         streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+      }),
+    }),
+    // Redis: Distributed state for rate limiting and token budget counters.
+    // WHY: Without Redis, each ai-service instance maintains its own in-memory
+    // counters, effectively multiplying rate limits by the instance count.
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
       }),
     }),
     // Rate limiting: applies sliding-window throttling to all GraphQL and REST endpoints.

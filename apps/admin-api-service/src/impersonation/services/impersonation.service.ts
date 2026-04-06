@@ -76,11 +76,12 @@ export class ImpersonationService {
   private readonly TOKEN_EXPIRY_BUFFER_MS = 60000; // 1 minute
 
   // SECURITY: Rate limiting for impersonation attempts
-  /** In-memory fallback — multi-instance bypass risk without Redis */
-  private readonly localRateLimitMap: Map<string, { count: number; resetAt: number }> = new Map();
-  private readonly RATE_LIMIT_MAX_ATTEMPTS = 5; // Max attempts per window
-  private readonly RATE_LIMIT_WINDOW_MS = 300000; // 5 minutes window
+  private static readonly RATE_LIMIT_MAX_ATTEMPTS = 5;
+  private static readonly RATE_LIMIT_WINDOW_SECONDS = 300; // 5 minutes
   private readonly useRedis: boolean;
+
+  /** In-memory fallback — single-instance only, not distributed */
+  private readonly localRateLimitMap: Map<string, { count: number; resetAt: number }> = new Map();
 
   constructor(
     @InjectRepository(ImpersonationSession)
@@ -98,25 +99,78 @@ export class ImpersonationService {
       );
     }
     this.loadActiveSessions();
-    // Clean up rate limit map periodically
-    setInterval(() => this.cleanupRateLimitMap(), 60000);
+    // Clean up in-memory rate limit map periodically (no-op when using Redis)
+    if (!this.useRedis) {
+      setInterval(() => this.cleanupRateLimitMap(), 60000);
+    }
+  }
+
+  // ── Rate Limiting ─────────────────────────────────────────────────────────
+
+  /**
+   * SECURITY: Check rate limit for impersonation attempts.
+   * Prevents brute-force attacks on the impersonation endpoint.
+   *
+   * Uses Redis INCR + EXPIRE when available for distributed enforcement.
+   * Falls back to in-memory Map for single-instance deployments.
+   *
+   * Redis key pattern: impersonate:ratelimit:{adminId}:{ip}
+   * TTL: 300 seconds (5 minutes)
+   *
+   * @param key - Rate limit key (format: superAdminId:ipAddress)
+   * @returns Whether the request is allowed and retry delay if blocked
+   */
+  private async checkRateLimit(key: string): Promise<{ allowed: boolean; retryAfterMs?: number }> {
+    if (this.useRedis) {
+      return this.checkRateLimitRedis(key);
+    }
+    return this.checkRateLimitLocal(key);
   }
 
   /**
-   * SECURITY: Check rate limit for impersonation attempts
-   * Prevents brute-force attacks on impersonation
+   * Redis-backed rate limit using atomic INCR + EXPIRE.
+   *
+   * SECURITY: INCR is atomic — concurrent requests from the same admin
+   * cannot race past the 5-attempt limit across multiple instances.
    */
-  private checkRateLimit(key: string): { allowed: boolean; retryAfterMs?: number } {
+  private async checkRateLimitRedis(key: string): Promise<{ allowed: boolean; retryAfterMs?: number }> {
+    const redisKey = `impersonate:ratelimit:${key}`;
+    const count = await this.redisService!.incr(redisKey);
+
+    // Set TTL only on first increment
+    if (count === 1) {
+      await this.redisService!.expire(redisKey, ImpersonationService.RATE_LIMIT_WINDOW_SECONDS);
+    }
+
+    if (count > ImpersonationService.RATE_LIMIT_MAX_ATTEMPTS) {
+      // WHY: We read the remaining TTL from Redis to give an accurate retry-after value
+      const ttlRemaining = await this.redisService!.ttl(redisKey);
+      return {
+        allowed: false,
+        retryAfterMs: Math.max(0, ttlRemaining * 1000),
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * In-memory rate limit fallback for single-instance deployments.
+   *
+   * IMPORTANT: Does NOT work across multiple instances — each instance
+   * maintains its own counter, allowing N× configured limit.
+   */
+  private checkRateLimitLocal(key: string): { allowed: boolean; retryAfterMs?: number } {
     const now = Date.now();
     const entry = this.localRateLimitMap.get(key);
 
     if (!entry || now > entry.resetAt) {
-      // Reset or create new entry
-      this.localRateLimitMap.set(key, { count: 1, resetAt: now + this.RATE_LIMIT_WINDOW_MS });
+      const resetAt = now + ImpersonationService.RATE_LIMIT_WINDOW_SECONDS * 1000;
+      this.localRateLimitMap.set(key, { count: 1, resetAt });
       return { allowed: true };
     }
 
-    if (entry.count >= this.RATE_LIMIT_MAX_ATTEMPTS) {
+    if (entry.count >= ImpersonationService.RATE_LIMIT_MAX_ATTEMPTS) {
       return { allowed: false, retryAfterMs: entry.resetAt - now };
     }
 
@@ -125,7 +179,8 @@ export class ImpersonationService {
   }
 
   /**
-   * Clean up expired rate limit entries
+   * Clean up expired in-memory rate limit entries.
+   * Only runs when Redis is not available.
    */
   private cleanupRateLimitMap(): void {
     const now = Date.now();
@@ -338,7 +393,7 @@ export class ImpersonationService {
   async startImpersonation(request: StartImpersonationRequest): Promise<ImpersonationSession> {
     // SECURITY: Rate limiting based on admin ID and IP address
     const rateLimitKey = `impersonate:${request.superAdminId}:${request.ipAddress || 'unknown'}`;
-    const rateCheck = this.checkRateLimit(rateLimitKey);
+    const rateCheck = await this.checkRateLimit(rateLimitKey);
 
     if (!rateCheck.allowed) {
       const retryAfterSeconds = Math.ceil((rateCheck.retryAfterMs || 0) / 1000);

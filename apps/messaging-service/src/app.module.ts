@@ -17,7 +17,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, Reflector } from '@nestjs/core';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
@@ -38,6 +38,7 @@ import {
   TenantGuard,
   ThrottlerModule,
   ThrottlerGuard,
+  SlidingWindowStrategy,
   ServiceIdentityGuard,
   SourceSchemaBootstrapService,
   createTenantSchemaMiddleware,
@@ -294,11 +295,11 @@ const complexityCache = new Map<string, number>();
     MetricsModule,
   ],
   providers: [
-    // SECURITY: Service identity guard — validates HMAC-signed service identity headers
-    { provide: APP_GUARD, useClass: ServiceIdentityGuard },
-    { provide: APP_GUARD, useClass: TenantGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
+    { provide: APP_GUARD, useFactory: (c: ConfigService): ServiceIdentityGuard => new ServiceIdentityGuard(c), inject: [ConfigService] },
+    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c), inject: [Reflector, ConfigService] },
+    { provide: APP_GUARD, useFactory: (r: Reflector): RolesGuard => new RolesGuard(r), inject: [Reflector] },
+    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard => new ThrottlerGuard(r, c, s), inject: [Reflector, ConfigService, SlidingWindowStrategy] },
 
     // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)
     SourceSchemaBootstrapService,

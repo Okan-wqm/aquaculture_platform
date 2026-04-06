@@ -606,16 +606,21 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
      * (authorization/isolation) -> RateLimitGuard -> MutationRateLimitGuard.
      * This ensures the user is authenticated before tenant isolation is checked.
      */
+    // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,
-      useClass: TenantIsolationGuard,
+      useFactory: (reflector: Reflector): TenantIsolationGuard =>
+        new TenantIsolationGuard(reflector),
+      inject: [Reflector],
     },
     // Rate limiting guard
     {
       provide: APP_GUARD,
-      useClass: RateLimitGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService, redisStore?: unknown): RateLimitGuard =>
+        new RateLimitGuard(reflector, configService, redisStore as never),
+      inject: [Reflector, ConfigService, { token: RATE_LIMIT_STORE, optional: true }],
     },
-    // GraphQL mutation rate limiting guard
+    // GraphQL mutation rate limiting guard (no deps)
     {
       provide: APP_GUARD,
       useClass: MutationRateLimitGuard,

@@ -156,11 +156,19 @@ import { UsersModule } from './users/users.module';
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
+    // WHY: PlatformAdminGuard registered as named class-token provider via useFactory.
+    // @UseGuards(PlatformAdminGuard) on controllers resolves the guard from the DI container
+    // using the class token — NOT the APP_GUARD symbol. Without this explicit registration,
+    // NestJS falls back to reflect-metadata class resolution which fails in Docker Alpine.
     {
-      provide: APP_GUARD,
+      provide: PlatformAdminGuard,
       useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService): PlatformAdminGuard =>
         new PlatformAdminGuard(reflector, configService, jwtService),
       inject: [Reflector, ConfigService, JwtService],
+    },
+    {
+      provide: APP_GUARD,
+      useExisting: PlatformAdminGuard,
     },
     // ThrottlerGuard removed: admin-api is super-admin-only (PlatformAdminGuard).
     // Rate limiting an authenticated admin panel with ~15 concurrent dashboard

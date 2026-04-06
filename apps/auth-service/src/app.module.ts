@@ -229,13 +229,17 @@ import { TenantModule } from './modules/tenant/tenant.module';
     AuthMetricsModule,
   ],
   providers: [
+    // WHY: All guards use useFactory to bypass reflect-metadata resolution which fails
+    // in Docker Alpine production (design:paramtypes resolves to [null,...]).
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
     // Must be FIRST guard (before auth/tenant/roles) to verify request origin
     {
       provide: APP_GUARD,
-      useClass: ServiceIdentityGuard,
+      useFactory: (configService: ConfigService): ServiceIdentityGuard =>
+        new ServiceIdentityGuard(configService),
+      inject: [ConfigService],
     },
-    // SECURITY: Global JWT auth guard — useFactory ensures DI works without design:paramtypes
+    // SECURITY: Global JWT auth guard
     {
       provide: APP_GUARD,
       useFactory: (jwtService: JwtService, reflector: Reflector, configService: ConfigService, tokenBlacklist?: ITokenBlacklist): JwtAuthGuard =>
@@ -245,12 +249,16 @@ import { TenantModule } from './modules/tenant/tenant.module';
     // SECURITY: Global tenant guard - ensures tenant isolation
     {
       provide: APP_GUARD,
-      useClass: TenantGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService): TenantGuard =>
+        new TenantGuard(reflector, undefined, configService),
+      inject: [Reflector, ConfigService],
     },
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
-      useClass: RolesGuard,
+      useFactory: (reflector: Reflector): RolesGuard =>
+        new RolesGuard(reflector),
+      inject: [Reflector],
     },
   ],
 })

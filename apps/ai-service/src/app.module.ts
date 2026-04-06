@@ -5,7 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule } from '@nestjs/jwt';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
@@ -22,6 +22,7 @@ import {
   TenantGuard,
   ThrottlerModule,
   ThrottlerGuard,
+  SlidingWindowStrategy,
   RedisModule,
   SourceSchemaBootstrapService,
   createTenantSchemaMiddleware,
@@ -218,17 +219,24 @@ const complexityCache = new Map<string, number>();
     AuditLogModule.forRoot(),
   ],
   providers: [
+    // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,
-      useClass: TenantGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService): TenantGuard =>
+        new TenantGuard(reflector, undefined, configService),
+      inject: [Reflector, ConfigService],
     },
     {
       provide: APP_GUARD,
-      useClass: RolesGuard,
+      useFactory: (reflector: Reflector): RolesGuard =>
+        new RolesGuard(reflector),
+      inject: [Reflector],
     },
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService, rateLimiter: SlidingWindowStrategy): ThrottlerGuard =>
+        new ThrottlerGuard(reflector, configService, rateLimiter),
+      inject: [Reflector, ConfigService, SlidingWindowStrategy],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
     {

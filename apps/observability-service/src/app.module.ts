@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggingModule } from '@aquaculture/backend-common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -66,9 +66,12 @@ import { InternalApiGuard } from './guards/internal-api.guard';
     TracingModule,
   ],
   providers: [
+    // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,
-      useClass: InternalApiGuard,
+      useFactory: (configService: ConfigService, reflector: Reflector): InternalApiGuard =>
+        new InternalApiGuard(configService, reflector),
+      inject: [ConfigService, Reflector],
     },
   ],
 })

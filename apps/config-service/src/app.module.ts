@@ -6,7 +6,7 @@ import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/ap
 import { join } from 'path';
 import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
 import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common';
 import { ConfigurationModule } from './configuration/configuration.module';
@@ -102,19 +102,26 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     },
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
     // Must be FIRST guard (before tenant/roles) to verify request origin
+    // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,
-      useClass: ServiceIdentityGuard,
+      useFactory: (configService: ConfigService): ServiceIdentityGuard =>
+        new ServiceIdentityGuard(configService),
+      inject: [ConfigService],
     },
     // SECURITY: Tenant guard - ensures tenant isolation (defense-in-depth)
     {
       provide: APP_GUARD,
-      useClass: TenantGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService): TenantGuard =>
+        new TenantGuard(reflector, undefined, configService),
+      inject: [Reflector, ConfigService],
     },
     // SECURITY: Roles guard - enforces @Roles() decorator authorization
     {
       provide: APP_GUARD,
-      useClass: RolesGuard,
+      useFactory: (reflector: Reflector): RolesGuard =>
+        new RolesGuard(reflector),
+      inject: [Reflector],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
     {

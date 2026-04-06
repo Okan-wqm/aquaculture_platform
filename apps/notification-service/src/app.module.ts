@@ -7,7 +7,7 @@ import {
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
 import { JwtModule } from '@nestjs/jwt';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
 import {
   CorrelationIdMiddleware,
@@ -192,17 +192,24 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * NATS event handlers are not affected by HTTP guards because NestJS
      * microservice handlers operate outside the HTTP execution context.
      */
+    // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,
-      useClass: ServiceIdentityGuard,
+      useFactory: (configService: ConfigService): ServiceIdentityGuard =>
+        new ServiceIdentityGuard(configService),
+      inject: [ConfigService],
     },
     {
       provide: APP_GUARD,
-      useClass: TenantGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService): TenantGuard =>
+        new TenantGuard(reflector, undefined, configService),
+      inject: [Reflector, ConfigService],
     },
     {
       provide: APP_GUARD,
-      useClass: RolesGuard,
+      useFactory: (reflector: Reflector): RolesGuard =>
+        new RolesGuard(reflector),
+      inject: [Reflector],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
     {

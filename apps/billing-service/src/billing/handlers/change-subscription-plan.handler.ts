@@ -142,7 +142,7 @@ export class ChangeSubscriptionPlanHandler
         // WHY: Immediate downgrades would revoke access to features the tenant
         // has already paid for. The scheduled change preserves full value for
         // the current period. The billing scheduler cron applies it at periodEnd.
-        const scheduledChangeRepo = queryRunner.manager.getRepository(ScheduledPlanChange);
+        const scheduledChangeRepo = manager.getRepository(ScheduledPlanChange);
 
         // Cancel any existing pending change for this subscription
         await scheduledChangeRepo.update(

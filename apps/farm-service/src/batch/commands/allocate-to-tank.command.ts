@@ -7,10 +7,9 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
-// IP-3: Single source of truth — AllocationType defined in entity, re-exported here
-// WHY: Previously duplicated in both command and entity, causing double
-// registerEnumType() calls which can crash the GraphQL schema builder.
-export { AllocationType } from '../entities/tank-allocation.entity';
+import { AllocationType } from '../entities/tank-allocation.entity';
+
+export { AllocationType };
 
 export interface AllocateToTankPayload {
   tankId: string;                // Hedef tank ID

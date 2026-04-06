@@ -529,8 +529,8 @@ export class BillingSchedulerService {
           subscription.planId = change.newPlanId;
           subscription.planTier = change.newPlanTier as Subscription['planTier'];
           subscription.planName = change.newPlanName;
-          subscription.limits = change.newLimits as Subscription['limits'];
-          subscription.pricing = change.newPricing as Subscription['pricing'];
+          subscription.limits = change.newLimits;
+          subscription.pricing = change.newPricing;
           subscription.updatedBy = change.scheduledBy ?? 'system:billing-scheduler';
 
           await queryRunner.manager.save(Subscription, subscription);
@@ -549,13 +549,14 @@ export class BillingSchedulerService {
 
           // ── Publish event (non-blocking) ────────────────────────────────
           try {
-            this.eventBus?.publish(createBaseEvent('SubscriptionUpdated', change.tenantId, {
+            this.eventBus?.publish({
+              ...createBaseEvent('SubscriptionUpdated', change.tenantId),
               subscriptionId: subscription.id,
               tier: change.newPlanTier,
               previousPlanTier: change.currentPlanTier,
               isDowngrade: true,
               isScheduledChange: true,
-            }));
+            });
           } catch (eventError) {
             this.logger.warn(`Event publish failed for change ${change.id}: ${(eventError as Error).message}`);
           }

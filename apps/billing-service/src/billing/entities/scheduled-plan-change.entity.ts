@@ -7,6 +7,7 @@ import {
   Index,
 } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
+import { PlanLimits, PlanPricing } from './subscription.entity';
 
 /**
  * IP-2: Scheduled plan change — deferred subscription modifications.
@@ -69,13 +70,13 @@ export class ScheduledPlanChange {
   @Column()
   newPlanName!: string;
 
-  @Field(() => String)
+  @Field(() => PlanLimits)
   @Column('jsonb')
-  newLimits!: Record<string, unknown>;
+  newLimits!: PlanLimits;
 
-  @Field(() => String)
+  @Field(() => PlanPricing)
   @Column('jsonb')
-  newPricing!: Record<string, unknown>;
+  newPricing!: PlanPricing;
 
   // ── Scheduling metadata ─────────────────────────────────────────────────
 

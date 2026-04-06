@@ -79,10 +79,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
           // Managed DB providers (DigitalOcean, AWS RDS) on private VPC networks commonly
           // use SSL without CA pinning. Crashing here blocks all deploys.
           if (isProduction && !rejectUnauthorized && !caPath) {
-            console.warn(
-              '⚠️  WARNING: SSL certificate verification disabled in production! ' +
-              'Set DATABASE_SSL_CA to your CA certificate path for MITM protection.',
-            );
+            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
           }
 
           return {

@@ -72,7 +72,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
 
           if (isProduction && !rejectUnauthorized && !caPath) {
-            console.warn('⚠️  WARNING: SSL certificate verification disabled in production!');
+            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
           }
 
           return {

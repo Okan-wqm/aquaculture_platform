@@ -32,7 +32,7 @@ import { InternalApiGuard } from './guards/internal-api.guard';
         let sslConfig: boolean | Record<string, unknown> = false;
         if (sslEnabled) {
           if (isProduction && !rejectUnauthorized && !caPath) {
-            console.warn('WARNING: SSL certificate verification disabled in production!');
+            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
           }
           // Read CA certificate asynchronously to avoid blocking the event loop
           const ca = caPath ? await readFile(caPath) : undefined;

@@ -158,10 +158,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
           const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
 
           if (isProduction && !rejectUnauthorized && !caPath) {
-            console.warn(
-              '⚠️  WARNING: SSL certificate verification disabled in production! ' +
-              'Set DATABASE_SSL_CA to your CA certificate path for MITM protection.',
-            );
+            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
           }
 
           return {

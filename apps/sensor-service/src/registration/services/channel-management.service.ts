@@ -163,10 +163,11 @@ export class ChannelManagementService {
 
   /**
    * Delete a data channel
+   * SECURITY: tenantId in WHERE clause prevents cross-tenant IDOR
    */
   async deleteChannel(channelId: string, tenantId: string): Promise<void> {
     const channel = await this.channelRepository.findOne({
-      where: { id: channelId },
+      where: { id: channelId, tenantId },
     });
 
     if (!channel) {
@@ -179,30 +180,33 @@ export class ChannelManagementService {
 
   /**
    * Get all channels for a sensor
+   * SECURITY: tenantId in WHERE clause prevents cross-tenant IDOR
    */
-  async getChannelsBySensor(sensorId: string): Promise<SensorDataChannel[]> {
+  async getChannelsBySensor(sensorId: string, tenantId: string): Promise<SensorDataChannel[]> {
     return this.channelRepository.find({
-      where: { sensorId },
+      where: { sensorId, tenantId },
       order: { displayOrder: 'ASC', createdAt: 'ASC' },
     });
   }
 
   /**
    * Get only enabled channels for a sensor
+   * SECURITY: tenantId in WHERE clause prevents cross-tenant IDOR
    */
-  async getEnabledChannels(sensorId: string): Promise<SensorDataChannel[]> {
+  async getEnabledChannels(sensorId: string, tenantId: string): Promise<SensorDataChannel[]> {
     return this.channelRepository.find({
-      where: { sensorId, isEnabled: true },
+      where: { sensorId, tenantId, isEnabled: true },
       order: { displayOrder: 'ASC', createdAt: 'ASC' },
     });
   }
 
   /**
    * Get a single channel by ID
+   * SECURITY: tenantId in WHERE clause prevents cross-tenant IDOR
    */
-  async getChannel(channelId: string): Promise<SensorDataChannel | null> {
+  async getChannel(channelId: string, tenantId: string): Promise<SensorDataChannel | null> {
     return this.channelRepository.findOne({
-      where: { id: channelId },
+      where: { id: channelId, tenantId },
     });
   }
 
@@ -283,14 +287,15 @@ export class ChannelManagementService {
 
   /**
    * Reorder channels
+   * SECURITY: tenantId in WHERE clause prevents cross-tenant IDOR
    */
   async reorderChannels(
     sensorId: string,
     channelIds: string[],
+    tenantId: string,
   ): Promise<SensorDataChannel[]> {
-    // Query scoped to sensorId to enforce tenant isolation
     const channels = await this.channelRepository.find({
-      where: { id: In(channelIds), sensorId },
+      where: { id: In(channelIds), sensorId, tenantId },
     });
 
     // Verify all requested channels were found (prevents cross-sensor references)
@@ -430,9 +435,10 @@ export class ChannelManagementService {
 
   /**
    * Delete all channels for a sensor
+   * SECURITY: tenantId in WHERE clause prevents cross-tenant IDOR
    */
-  async deleteChannelsForSensor(sensorId: string): Promise<void> {
-    await this.channelRepository.delete({ sensorId });
+  async deleteChannelsForSensor(sensorId: string, tenantId: string): Promise<void> {
+    await this.channelRepository.delete({ sensorId, tenantId });
     this.logger.log(`Deleted all channels for sensor ${sensorId}`);
   }
 

@@ -66,13 +66,33 @@ export interface TenantArchivedEvent extends BaseEvent {
 }
 
 /**
+ * Snapshot of a provisioning step for failure diagnostics.
+ * Captures which step failed and which succeeded during tenant provisioning.
+ */
+export interface ProvisioningStepSnapshot {
+  /** Step name (e.g., 'createSchema', 'seedAdmin', 'configureDefaults') */
+  name: string;
+  /** Whether this step completed successfully */
+  success: boolean;
+  /** Duration of this step in milliseconds */
+  durationMs?: number;
+  /** Error message if this step failed */
+  error?: string;
+}
+
+/**
  * Tenant Provisioning Failed Event
- * Published when tenant provisioning (schema creation, admin setup) fails
+ * Published when tenant provisioning (schema creation, admin setup) fails.
+ *
+ * ARCH-C01: steps serialized as JSON string — array of complex objects
+ * with variable structure makes flat-field mapping impractical.
+ * stepCount provides quick access without deserializing.
  */
 export interface TenantProvisioningFailedEvent extends BaseEvent {
   eventType: 'TenantProvisioningFailed';
   error?: string;
-  steps?: unknown[];
+  stepsJson?: string;
+  stepCount?: number;
   duration?: number;
 }
 

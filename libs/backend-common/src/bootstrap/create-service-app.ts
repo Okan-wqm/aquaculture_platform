@@ -40,7 +40,7 @@ import type { ValidationPipeOptions } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import type { INestApplication, Type } from '@nestjs/common';
+import type { INestApplication, Type, VersioningOptions } from '@nestjs/common';
 import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { StructuredLoggerService } from '../logging';
@@ -164,10 +164,7 @@ export interface ServiceBootstrapOptions {
   /**
    * API versioning config. When set, app.enableVersioning() is called.
    */
-  versioning?: {
-    type: any;
-    defaultVersion?: (string | symbol)[];
-  };
+  versioning?: VersioningOptions;
 
   /**
    * Global guards applied via app.useGlobalGuards().
@@ -609,12 +606,7 @@ export async function createServiceApp(
   // 6a. API versioning (when configured)
   // -----------------------------------------------------------------------
   if (versioning) {
-    app.enableVersioning({
-      type: versioning.type,
-      ...(versioning.defaultVersion !== undefined
-        ? { defaultVersion: versioning.defaultVersion }
-        : {}),
-    });
+    app.enableVersioning(versioning);
   }
 
   // -----------------------------------------------------------------------

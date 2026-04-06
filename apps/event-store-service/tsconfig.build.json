@@ -5,13 +5,16 @@
     "rootDir": "../..",
     "module": "commonjs",
     "target": "ES2021",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
-    "removeComments": true
+    "removeComments": true,
+    "strictPropertyInitialization": false
   },
   "include": [
     "src/**/*.ts",
@@ -56,6 +59,10 @@
     "../../platform/libs/observability/src/**/*.spec.ts",
     "../../platform/libs/observability/src/**/*.test.ts",
     "../../platform/libs/security/src/**/*.spec.ts",
-    "../../platform/libs/security/src/**/*.test.ts"
+    "../../platform/libs/security/src/**/*.test.ts",
+    "src/**/__tests__/**",
+    "src/**/test-utils/**",
+    "src/**/test-helpers/**",
+    "src/**/*.e2e-spec.ts"
   ]
 }

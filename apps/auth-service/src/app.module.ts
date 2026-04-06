@@ -235,13 +235,10 @@ import { TenantModule } from './modules/tenant/tenant.module';
       provide: APP_GUARD,
       useClass: ServiceIdentityGuard,
     },
-    // SECURITY: Global JWT auth guard — useFactory bypasses webpack metadata stripping.
-    // useClass relies on design:paramtypes which webpack can strip during bundling.
+    // SECURITY: Global JWT auth guard
     {
       provide: APP_GUARD,
-      useFactory: (jwtService: JwtService, reflector: Reflector, configService: ConfigService, tokenBlacklist?: ITokenBlacklist) =>
-        new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist),
-      inject: [JwtService, Reflector, ConfigService, { token: TOKEN_BLACKLIST, optional: true }],
+      useClass: JwtAuthGuard,
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
     {

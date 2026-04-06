@@ -55,14 +55,13 @@ export type { TenantContext };
  * Tenant Isolation Guard
  * Enforces strict tenant isolation across all requests
  *
- * NOTE: Explicit @Inject() decorators are required because Nx webpack (SWC loader)
- * strips TypeScript emitDecoratorMetadata (design:paramtypes) during bundling.
+ * Enforces strict tenant isolation across all requests.
  */
 @Injectable()
 export class TenantIsolationGuard implements CanActivate {
   private readonly logger = new Logger(TenantIsolationGuard.name);
 
-  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     // Check if endpoint is public

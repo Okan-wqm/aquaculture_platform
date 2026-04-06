@@ -31,10 +31,9 @@ export class InternalApiGuard implements CanActivate {
   private readonly logger = new Logger(InternalApiGuard.name);
   private readonly apiKey: string;
 
-  // IMPORTANT: Explicit @Inject() for webpack compatibility (design:paramtypes strip).
   constructor(
-    @Inject(ConfigService) private readonly configService: ConfigService,
-    @Inject(Reflector) private readonly reflector: Reflector,
+    private readonly configService: ConfigService,
+    private readonly reflector: Reflector,
   ) {
     this.apiKey = this.configService.get<string>('INTERNAL_API_KEY', '');
 

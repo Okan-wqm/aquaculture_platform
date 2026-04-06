@@ -71,11 +71,10 @@ interface GqlContext {
 export class GqlAuthGuard implements CanActivate {
   private readonly logger = new Logger(GqlAuthGuard.name);
 
-  // IMPORTANT: Explicit @Inject() for webpack compatibility (design:paramtypes strip).
   constructor(
-    @Inject(JwtService) private readonly jwtService: JwtService,
-    @Inject(ConfigService) private readonly configService: ConfigService,
-    @Inject(Reflector) private readonly reflector: Reflector,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

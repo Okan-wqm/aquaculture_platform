@@ -156,14 +156,9 @@ import { UsersModule } from './users/users.module';
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
-    // IMPORTANT: useFactory + inject bypasses webpack's broken design:paramtypes
-    // metadata. useClass relies on decorator metadata which webpack can strip.
-    // This pattern matches gateway-api's AuthGuard registration.
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService) =>
-        new PlatformAdminGuard(reflector, configService, jwtService),
-      inject: [Reflector, ConfigService, JwtService],
+      useClass: PlatformAdminGuard,
     },
     // ThrottlerGuard removed: admin-api is super-admin-only (PlatformAdminGuard).
     // Rate limiting an authenticated admin panel with ~15 concurrent dashboard

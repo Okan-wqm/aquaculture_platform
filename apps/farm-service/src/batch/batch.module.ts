@@ -35,6 +35,7 @@ import { Feed } from '../feed/entities/feed.entity';
 
 // Services
 import { BatchService } from './services/batch.service';
+import { BatchDomainService } from './services/batch-domain.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
 import { DomainEventPublisher } from '../common/services/domain-event-publisher.service';
@@ -80,6 +81,7 @@ import { BatchResolvers } from './resolvers';
   ],
   providers: [
     BatchService,
+    BatchDomainService,
     SGRCalculatorService,
     BiomassCalculatorService,
     DomainEventPublisher,

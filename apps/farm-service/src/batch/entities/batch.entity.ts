@@ -500,158 +500,81 @@ export class Batch {
 
   // -------------------------------------------------------------------------
   // BUSINESS METHODS
+  // IP-3: Domain logic extracted to BatchDomainService for testability.
+  // Entity methods delegate to keep backward compatibility with existing
+  // callers (resolvers, handlers). New code should inject BatchDomainService.
   // -------------------------------------------------------------------------
 
-  /**
-   * Mevcut biomass'ı hesaplar (kg)
-   */
+  /** @see BatchDomainService.getCurrentBiomass */
   getCurrentBiomass(): number {
-    // Önce actual, yoksa theoretical
-    if (this.weight?.actual?.totalBiomass) {
-      return this.weight.actual.totalBiomass;
-    }
-    if (this.weight?.theoretical?.totalBiomass) {
-      return this.weight.theoretical.totalBiomass;
-    }
-    // Fallback: initial
+    if (this.weight?.actual?.totalBiomass) return this.weight.actual.totalBiomass;
+    if (this.weight?.theoretical?.totalBiomass) return this.weight.theoretical.totalBiomass;
     return this.weight?.initial?.totalBiomass || 0;
   }
 
-  /**
-   * Mevcut ortalama ağırlığı döner (g)
-   */
+  /** @see BatchDomainService.getCurrentAvgWeight */
   getCurrentAvgWeight(): number {
-    if (this.weight?.actual?.avgWeight) {
-      return this.weight.actual.avgWeight;
-    }
-    if (this.weight?.theoretical?.avgWeight) {
-      return this.weight.theoretical.avgWeight;
-    }
+    if (this.weight?.actual?.avgWeight) return this.weight.actual.avgWeight;
+    if (this.weight?.theoretical?.avgWeight) return this.weight.theoretical.avgWeight;
     return this.weight?.initial?.avgWeight || 0;
   }
 
-  /**
-   * Mortality oranını hesaplar (%)
-   */
   getMortalityRate(): number {
     if (this.initialQuantity <= 0) return 0;
     return (this.totalMortality / this.initialQuantity) * 100;
   }
 
-  /**
-   * Hayatta kalma oranını hesaplar (%) - SADECE doğal ölüm
-   * Survival Rate = ((initialQty - mortalityCount) / initialQty) * 100
-   */
   getSurvivalRate(): number {
     if (this.initialQuantity <= 0) return 100;
     return ((this.initialQuantity - this.totalMortality) / this.initialQuantity) * 100;
   }
 
-  /**
-   * Retention rate hesaplar (%) - mortality + cull dahil
-   * Retention Rate = (currentQty / initialQty) * 100
-   */
   getRetentionRate(): number {
     if (this.initialQuantity <= 0) return 100;
     return (this.currentQuantity / this.initialQuantity) * 100;
   }
 
-  /**
-   * FCR hesaplar (Feed Conversion Ratio)
-   * FCR = totalFeedConsumed / weightGain
-   * weightGain = finalBiomass - initialBiomass + mortalityBiomass
-   */
   calculateFCR(mortalityBiomass: number = 0): number {
     const initialBiomass = this.weight?.initial?.totalBiomass || 0;
     const currentBiomass = this.getCurrentBiomass();
     const weightGain = currentBiomass - initialBiomass + mortalityBiomass;
-
     if (weightGain <= 0 || this.totalFeedConsumed <= 0) return 0;
     return this.totalFeedConsumed / weightGain;
   }
 
-  /**
-   * SGR hesaplar (Specific Growth Rate)
-   * SGR = ((ln(finalWeight) - ln(initialWeight)) / days) * 100
-   */
   calculateSGR(): number {
     const initialWeight = this.weight?.initial?.avgWeight || 0;
     const currentWeight = this.getCurrentAvgWeight();
     const days = this.getDaysInProduction();
-
     if (initialWeight <= 0 || currentWeight <= 0 || days <= 0) return 0;
     return ((Math.log(currentWeight) - Math.log(initialWeight)) / days) * 100;
   }
 
-  /**
-   * Üretimdeki gün sayısını hesaplar
-   */
   getDaysInProduction(): number {
     const stockDate = new Date(this.stockedAt);
-    const endDate = this.actualHarvestDate
-      ? new Date(this.actualHarvestDate)
-      : new Date();
-    const diffTime = Math.abs(endDate.getTime() - stockDate.getTime());
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const endDate = this.actualHarvestDate ? new Date(this.actualHarvestDate) : new Date();
+    return Math.ceil(Math.abs(endDate.getTime() - stockDate.getTime()) / (1000 * 60 * 60 * 24));
   }
 
-  /**
-   * Status geçişi valid mi kontrol eder
-   */
   canTransitionTo(newStatus: BatchStatus): boolean {
-    const validTransitions: Record<BatchStatus, BatchStatus[]> = {
+    const transitions: Record<BatchStatus, BatchStatus[]> = {
       [BatchStatus.QUARANTINE]: [BatchStatus.ACTIVE, BatchStatus.FAILED],
-      [BatchStatus.ACTIVE]: [
-        BatchStatus.GROWING,
-        BatchStatus.TRANSFERRED,
-        BatchStatus.FAILED,
-      ],
-      [BatchStatus.GROWING]: [
-        BatchStatus.PRE_HARVEST,
-        BatchStatus.TRANSFERRED,
-        BatchStatus.FAILED,
-      ],
-      [BatchStatus.PRE_HARVEST]: [
-        BatchStatus.HARVESTING,
-        BatchStatus.GROWING,
-        BatchStatus.FAILED,
-      ],
-      [BatchStatus.HARVESTING]: [
-        BatchStatus.HARVESTED,
-        BatchStatus.FAILED,
-      ],
+      [BatchStatus.ACTIVE]: [BatchStatus.GROWING, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
+      [BatchStatus.GROWING]: [BatchStatus.PRE_HARVEST, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
+      [BatchStatus.PRE_HARVEST]: [BatchStatus.HARVESTING, BatchStatus.GROWING, BatchStatus.FAILED],
+      [BatchStatus.HARVESTING]: [BatchStatus.HARVESTED, BatchStatus.FAILED],
       [BatchStatus.HARVESTED]: [BatchStatus.CLOSED],
       [BatchStatus.TRANSFERRED]: [BatchStatus.CLOSED],
       [BatchStatus.FAILED]: [BatchStatus.CLOSED],
       [BatchStatus.CLOSED]: [],
     };
-
-    return validTransitions[this.status]?.includes(newStatus) ?? false;
+    return transitions[this.status]?.includes(newStatus) ?? false;
   }
 
-  /**
-   * Batch aktif mi?
-   */
   isOperational(): boolean {
-    return [
-      BatchStatus.ACTIVE,
-      BatchStatus.GROWING,
-      BatchStatus.PRE_HARVEST,
-      BatchStatus.HARVESTING,
-    ].includes(this.status);
+    return [BatchStatus.ACTIVE, BatchStatus.GROWING, BatchStatus.PRE_HARVEST, BatchStatus.HARVESTING].includes(this.status);
   }
 
-  /**
-   * Bu batch cleaner fish batch'i mi?
-   */
-  isCleanerFishBatch(): boolean {
-    return this.batchType === BatchType.CLEANER_FISH;
-  }
-
-  /**
-   * Bu batch production batch'i mi?
-   */
-  isProductionBatch(): boolean {
-    return this.batchType === BatchType.PRODUCTION;
-  }
+  isCleanerFishBatch(): boolean { return this.batchType === BatchType.CLEANER_FISH; }
+  isProductionBatch(): boolean { return this.batchType === BatchType.PRODUCTION; }
 }

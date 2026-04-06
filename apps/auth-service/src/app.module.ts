@@ -3,13 +3,13 @@ import { readFileSync } from 'fs';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule } from '@aquaculture/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
@@ -235,11 +235,13 @@ import { TenantModule } from './modules/tenant/tenant.module';
       provide: APP_GUARD,
       useClass: ServiceIdentityGuard,
     },
-    // SECURITY: Global JWT auth guard - requires authentication on all endpoints
-    // Endpoints that should be publicly accessible must use @Public() decorator
+    // SECURITY: Global JWT auth guard — useFactory bypasses webpack metadata stripping.
+    // useClass relies on design:paramtypes which webpack can strip during bundling.
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard,
+      useFactory: (jwtService: JwtService, reflector: Reflector, configService: ConfigService, tokenBlacklist?: ITokenBlacklist) =>
+        new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist),
+      inject: [JwtService, Reflector, ConfigService, { token: TOKEN_BLACKLIST, optional: true }],
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
     {

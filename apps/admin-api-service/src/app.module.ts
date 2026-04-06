@@ -1,11 +1,11 @@
 import { ThrottlerModule, RedisModule, LoggingModule } from '@aquaculture/backend-common';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
 // JwtModule added: PlatformAdminGuard now uses JwtService.verifyAsync() with
 // centralised getJwtVerifyOptions() instead of raw jwt.verify() (sync, no algorithm restriction).
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
@@ -156,9 +156,14 @@ import { UsersModule } from './users/users.module';
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
+    // IMPORTANT: useFactory + inject bypasses webpack's broken design:paramtypes
+    // metadata. useClass relies on decorator metadata which webpack can strip.
+    // This pattern matches gateway-api's AuthGuard registration.
     {
       provide: APP_GUARD,
-      useClass: PlatformAdminGuard,
+      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService) =>
+        new PlatformAdminGuard(reflector, configService, jwtService),
+      inject: [Reflector, ConfigService, JwtService],
     },
     // ThrottlerGuard removed: admin-api is super-admin-only (PlatformAdminGuard).
     // Rate limiting an authenticated admin panel with ~15 concurrent dashboard

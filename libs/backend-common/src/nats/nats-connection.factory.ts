@@ -60,6 +60,34 @@ export function buildNatsConnectionOptions(serviceName?: string): {
     options.pass = authPass;
   }
 
+  // ── TLS Configuration ─────────────────────────────────────────────────────
+  // IP-1: Enable TLS when URL scheme is tls:// or a CA cert is explicitly set.
+  // On internal Docker networks with self-signed certs, CA verification
+  // is relaxed (rejectUnauthorized: false) — traffic is still encrypted.
+  const isTlsUrl = natsUrl.split(',').some((s) => s.trim().startsWith('tls://'));
+  const tlsCaPath = process.env['NATS_TLS_CA'];
+
+  if (isTlsUrl || tlsCaPath) {
+    const tls: { rejectUnauthorized?: boolean; ca?: Buffer[] } = {};
+
+    if (tlsCaPath) {
+      try {
+        const { readFileSync } = require('fs');
+        tls.ca = [readFileSync(tlsCaPath)];
+      } catch {
+        // CA file not found — fall through to relaxed mode
+      }
+    }
+
+    if (!tls.ca) {
+      // WHY: Internal Docker network with self-signed cert — accept without CA.
+      // Traffic is encrypted, which prevents plaintext sniffing.
+      tls.rejectUnauthorized = false;
+    }
+
+    (options as Record<string, unknown>)['tls'] = tls;
+  }
+
   return options;
 }
 
@@ -81,19 +109,13 @@ export function buildNatsConnectionOptions(serviceName?: string): {
  * }])
  * ```
  */
-export function buildNatsTransportOptions(serviceName?: string): {
-  servers: string[];
-  user?: string;
-  pass?: string;
-  token?: string;
-  name?: string;
-} {
-  const base = buildNatsConnectionOptions(serviceName);
-  return {
-    servers: base.servers,
-    ...(base.user ? { user: base.user } : {}),
-    ...(base.pass ? { pass: base.pass } : {}),
-    ...(base.token ? { token: base.token } : {}),
-    ...(base.name ? { name: base.name } : {}),
-  };
+export function buildNatsTransportOptions(serviceName?: string): Record<string, unknown> {
+  const base = buildNatsConnectionOptions(serviceName) as Record<string, unknown>;
+  const result: Record<string, unknown> = { servers: base['servers'] };
+  if (base['user']) result['user'] = base['user'];
+  if (base['pass']) result['pass'] = base['pass'];
+  if (base['token']) result['token'] = base['token'];
+  if (base['name']) result['name'] = base['name'];
+  if (base['tls']) result['tls'] = base['tls'];
+  return result;
 }

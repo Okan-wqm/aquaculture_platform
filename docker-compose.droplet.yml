@@ -63,13 +63,17 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
       MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
+      # IP-1: Enable PostgreSQL SSL for encrypted inter-service DB connections
+      POSTGRES_SSL: "on"
     command: >
       postgres
       -c max_connections=300
       -c search_path=public,auth,admin
+      -c ssl=on
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d:ro
+      - ./certs/postgres:/var/lib/postgresql/ssl:ro
     networks:
       - aqua-internal
     deploy:
@@ -143,9 +147,12 @@ services:
     image: redis:7-alpine
     container_name: aqua-redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 192mb --maxmemory-policy allkeys-lru
+    # IP-1: TLS via redis-tls.conf (disables plaintext port, enables tls-port 6379)
+    command: redis-server /etc/redis/redis.conf --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required} --maxmemory 192mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
+      - ./infrastructure/docker/redis/redis-tls.conf:/etc/redis/redis.conf:ro
+      - ./certs/redis:/etc/redis/certs:ro
     networks:
       - aqua-internal
     deploy:
@@ -154,8 +161,8 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      # SEC-014: Use REDISCLI_AUTH env var to avoid password in process list
-      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping"]
+      # IP-1: TLS healthcheck with CA cert
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli --tls --cacert /etc/redis/certs/ca-cert.pem ping"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -178,6 +185,9 @@ services:
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
+      # IP-1: TLS config included by nats.conf via 'include /etc/nats/nats-tls.conf'
+      - ./infrastructure/docker/nats/nats-tls-enabled.conf:/etc/nats/nats-tls.conf:ro
+      - ./certs/nats:/etc/nats/certs:ro
     networks:
       - aqua-internal
     deploy:
@@ -258,15 +268,17 @@ services:
       # M-RL-01: Redis-backed rate limiting — prevents multi-replica bypass
       RATE_LIMIT_USE_REDIS: "true"
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      NATS_URL: nats://nats:4222
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -362,14 +374,16 @@ services:
       NODE_OPTIONS: '--max-old-space-size=384'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false"
       DATABASE_LOGGING: "true"
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -412,13 +426,15 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -459,16 +475,18 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      NATS_URL: nats://nats:4222
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -519,6 +537,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -527,7 +547,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      NATS_URL: nats://nats:4222
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -568,13 +588,15 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -610,13 +632,15 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -652,13 +676,15 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -694,13 +720,15 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -736,13 +764,15 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -821,13 +851,15 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      NATS_URL: nats://nats:4222
+      REDIS_URL: rediss://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -863,6 +895,8 @@ services:
       PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
       DATABASE_HOST: postgres
+      DATABASE_SSL: "true"
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -873,7 +907,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       REDIS_DB: '3'
-      NATS_URL: nats://nats:4222
+      NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       # SEC-NEW01: NATS password must be provided via .env — no default fallback
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"

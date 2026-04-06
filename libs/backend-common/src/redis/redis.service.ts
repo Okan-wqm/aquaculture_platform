@@ -24,7 +24,12 @@ export class RedisService implements OnModuleDestroy {
     this.keyPrefix = options.keyPrefix || 'aqua:';
 
     if (options.url) {
-      this.client = new Redis(options.url);
+      // IP-1: ioredis handles rediss:// URLs for TLS. For internal Docker
+      // networks with self-signed certs, disable strict cert verification.
+      const isTls = options.url.startsWith('rediss://');
+      this.client = new Redis(options.url, isTls ? {
+        tls: { rejectUnauthorized: false },
+      } : {});
     } else {
       this.client = new Redis({
         host: options.host || 'localhost',

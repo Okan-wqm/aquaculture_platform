@@ -1,0 +1,64 @@
+/**
+ * Mock DataSource factory for CQRS handler tests.
+ *
+ * Provides a complete DataSource → QueryRunner → EntityManager mock chain
+ * for handlers that use the transaction pattern:
+ *   const qr = dataSource.createQueryRunner();
+ *   await qr.connect(); await qr.startTransaction();
+ *   ... qr.manager.findOne / qr.manager.save ...
+ *   await qr.commitTransaction(); qr.release();
+ *
+ * WHY: Every CQRS handler in the platform uses this pattern.
+ * Without a shared factory, each test file duplicates 30+ lines
+ * of mock setup that must be kept in sync as the QueryRunner API evolves.
+ */
+import { DataSource, QueryRunner, EntityManager, Repository } from 'typeorm';
+
+export interface MockDataSourceResult {
+  mockDataSource: jest.Mocked<DataSource>;
+  mockQueryRunner: jest.Mocked<QueryRunner>;
+  mockManager: jest.Mocked<EntityManager>;
+}
+
+export function createMockDataSource(): MockDataSourceResult {
+  const mockManager = {
+    find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn().mockResolvedValue(null),
+    save: jest.fn().mockImplementation((_entityClass: unknown, data: unknown) =>
+      Promise.resolve({ id: 'mock-id', ...(data as object) }),
+    ),
+    create: jest.fn().mockImplementation((_entityClass: unknown, data: unknown) => data),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
+    delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    getRepository: jest.fn().mockReturnValue({
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn().mockImplementation((data: unknown) => Promise.resolve(data)),
+      create: jest.fn().mockImplementation((data: unknown) => data),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+      count: jest.fn().mockResolvedValue(0),
+    } as unknown as jest.Mocked<Repository<unknown>>),
+  } as unknown as jest.Mocked<EntityManager>;
+
+  const mockQueryRunner = {
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: jest.fn().mockResolvedValue(undefined),
+    rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+    query: jest.fn().mockResolvedValue([]),
+    manager: mockManager,
+  } as unknown as jest.Mocked<QueryRunner>;
+
+  const mockDataSource = {
+    createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
+    query: jest.fn().mockResolvedValue([]),
+    getRepository: jest.fn().mockReturnValue({
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn().mockResolvedValue({}),
+    }),
+  } as unknown as jest.Mocked<DataSource>;
+
+  return { mockDataSource, mockQueryRunner, mockManager };
+}

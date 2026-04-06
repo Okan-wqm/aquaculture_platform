@@ -7,7 +7,6 @@ import {
   Param,
   Query,
   Req,
-  UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -22,8 +21,6 @@ import { Request } from 'express';
 
 // Fix: MEDIUM-002 -- rate-limit sensitive PUT endpoints
 import { ThrottleSensitive } from '@aquaculture/backend-common';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
-
 import { SettingCategory } from './entities/system-setting.entity';
 import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
 import {
@@ -74,7 +71,6 @@ class UpdateRateLimitConfigDto {
 
 @ApiTags('Settings')
 @Controller('settings')
-@UseGuards(PlatformAdminGuard)
 export class SettingsController {
   constructor(private readonly settingsService: SystemSettingService) {}
 

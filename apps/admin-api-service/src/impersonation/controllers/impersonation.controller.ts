@@ -10,7 +10,6 @@ import {
   Req,
   HttpCode,
   HttpStatus,
-  UseGuards,
   UnauthorizedException,
   ParseUUIDPipe,
 } from '@nestjs/common';
@@ -35,7 +34,6 @@ import { Request } from 'express';
 
 // Fix: H8 -- per-route throttle for sensitive impersonation endpoints
 import { ThrottleSensitive } from '@aquaculture/backend-common';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   ImpersonationStatus,
   ImpersonationReason,
@@ -270,7 +268,6 @@ class QuerySessionsDto {
 
 @ApiTags('Impersonation')
 @Controller('impersonation')
-@UseGuards(PlatformAdminGuard)
 export class ImpersonationController {
   constructor(private readonly impersonationService: ImpersonationService) {}
 

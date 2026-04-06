@@ -14,14 +14,12 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { IsString, IsOptional, IsBoolean, IsArray, IsObject } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
 import { MessageAttachment, AnnouncementTarget } from '../entities/support.entity';
 import { MessagingService } from '../services/messaging.service';
@@ -88,7 +86,6 @@ class BulkMessageDto {
 
 @ApiTags('Support')
 @Controller('support/messages')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class MessagingController {
   constructor(private readonly messagingService: MessagingService) {}
 

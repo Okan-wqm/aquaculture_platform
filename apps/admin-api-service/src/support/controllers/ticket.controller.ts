@@ -15,14 +15,12 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
 import { PaginationQueryDto } from '../../shared/pagination-query.dto';
 import { TicketPriority, TicketStatus, TicketCategory, TicketAttachment } from '../entities/support.entity';
@@ -154,7 +152,6 @@ class SatisfactionRatingDto {
 
 @ApiTags('Support')
 @Controller('support/tickets')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class TicketController {
   constructor(private readonly ticketService: TicketService) {}
 

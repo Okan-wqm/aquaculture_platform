@@ -10,14 +10,12 @@ import {
   Req,
   HttpCode,
   HttpStatus,
-  UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { Request } from 'express';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   IsUUID,
   IsEnum,
@@ -360,7 +358,6 @@ class InvalidateCachePatternDto {
 
 @ApiTags('Impersonation')
 @Controller('debug')
-@UseGuards(PlatformAdminGuard)
 export class DebugToolsController {
   constructor(private readonly debugToolsService: DebugToolsService) {}
 

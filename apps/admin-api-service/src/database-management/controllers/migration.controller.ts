@@ -15,13 +15,11 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsOptional, IsBoolean, MaxLength, Matches } from 'class-validator';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { MigrationStatus } from '../entities/database-management.entity';
 import { MigrationManagementService } from '../services/migration-management.service';
 
@@ -82,7 +80,6 @@ class RollbackMigrationDto {
 
 @ApiTags('Database Management')
 @Controller('database/migrations')
-@UseGuards(PlatformAdminGuard)
 export class MigrationController {
   constructor(private readonly migrationService: MigrationManagementService) {}
 

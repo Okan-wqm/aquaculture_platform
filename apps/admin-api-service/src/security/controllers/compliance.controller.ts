@@ -15,15 +15,12 @@ import {
   Req,
   HttpCode,
   HttpStatus,
-  UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
 import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsIn } from 'class-validator';
-
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
   DataRequest,
@@ -203,7 +200,6 @@ class QueryReportsDto {
 
 @ApiTags('Security')
 @Controller('security/compliance')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class ComplianceController {
   constructor(private readonly complianceService: ComplianceService) {}
 

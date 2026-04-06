@@ -10,14 +10,11 @@ import {
   Req,
   HttpCode,
   HttpStatus,
-  UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsArray, IsIP, IsOptional, IsString, ArrayMaxSize, MaxLength } from 'class-validator';
 import { Request } from 'express';
-
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
   IpAccessService,
@@ -49,7 +46,6 @@ class BulkIpDto {
 
 @ApiTags('Settings')
 @Controller('settings/ip-access')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class IpAccessController {
   constructor(
     private readonly ipAccessService: IpAccessService,

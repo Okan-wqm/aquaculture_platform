@@ -168,7 +168,13 @@ export class StructuredLoggerService implements LoggerService {
       timestamp: new Date().toISOString(),
       level: toSeverity(level),
       service: this.serviceName,
-      message: typeof message === 'string' ? message : JSON.stringify(message),
+      // WHY: Error properties (message, stack) are non-enumerable — JSON.stringify produces '{}'.
+      // Must extract message explicitly for DI errors, bootstrap failures, etc.
+      message: typeof message === 'string'
+        ? message
+        : message instanceof Error
+          ? message.message || String(message)
+          : JSON.stringify(message),
       ...(context ? { context } : {}),
       ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
       ...(ctx.correlationId ? { correlationId: ctx.correlationId } : {}),

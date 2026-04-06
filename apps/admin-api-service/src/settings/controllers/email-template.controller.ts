@@ -9,11 +9,8 @@ import {
   Query,
   HttpCode,
   HttpStatus,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
   EmailTemplateService,
@@ -29,7 +26,6 @@ import {
 
 @ApiTags('Settings')
 @Controller('settings/email-templates')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class EmailTemplateController {
   constructor(
     private readonly templateService: EmailTemplateService,

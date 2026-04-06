@@ -8,12 +8,10 @@ import {
   Controller,
   Get,
   Query,
-  UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { AnalyticsService } from '../services/analytics.service';
 
 // INPUT VALIDATION: Constants for parameter limits
@@ -92,7 +90,6 @@ function validatePeriod(value: string): 'day' | 'week' | 'month' | 'year' {
 
 @ApiTags('Analytics')
 @Controller('analytics')
-@UseGuards(PlatformAdminGuard)
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 

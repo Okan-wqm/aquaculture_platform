@@ -13,7 +13,6 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
-  UseGuards,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -36,7 +35,6 @@ import {
 } from 'class-validator';
 
 import { AllowTenantAdmin, Roles } from '../decorators/roles.decorator';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { EmailSenderService, InvitationEmailData } from '../settings/services/email-sender.service';
 
 import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
@@ -208,7 +206,6 @@ export class ListUsersQueryDto {
 
 @ApiTags('Users')
 @Controller('users')
-@UseGuards(PlatformAdminGuard)
 export class UsersController {
   private readonly logger = new Logger(UsersController.name);
 

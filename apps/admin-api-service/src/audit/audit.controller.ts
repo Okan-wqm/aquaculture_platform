@@ -4,11 +4,9 @@ import {
   Query,
   Param,
   ParseUUIDPipe,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
 
 import { AuditLog, AuditSeverity } from './audit.entity';
@@ -16,7 +14,6 @@ import { AuditLogService, AuditLogFilter } from './audit.service';
 
 @ApiTags('Security')
 @Controller('audit-logs')
-@UseGuards(PlatformAdminGuard)
 export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 

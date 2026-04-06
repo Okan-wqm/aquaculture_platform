@@ -16,14 +16,12 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { AllowTenantAdmin } from '../../decorators/roles.decorator';
 import { AnnouncementType, AnnouncementStatus, AnnouncementTarget } from '../entities/support.entity';
 import { AnnouncementService } from '../services/announcement.service';
@@ -113,7 +111,6 @@ class AcknowledgeDto {
 
 @ApiTags('Support')
 @Controller('support/announcements')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class AnnouncementController {
   constructor(private readonly announcementService: AnnouncementService) {}
 

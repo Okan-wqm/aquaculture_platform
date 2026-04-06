@@ -10,7 +10,6 @@ import {
   Req,
   HttpCode,
   HttpStatus,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -18,7 +17,6 @@ import { Request } from 'express';
 // Fix: H8 -- per-route throttle for sensitive billing operations
 import { ThrottleSensitive } from '@aquaculture/backend-common';
 import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
 
 import { CustomPlanStatus } from './entities/custom-plan.entity';
@@ -99,7 +97,6 @@ import {
  */
 @ApiTags('Billing')
 @Controller('billing')
-@UseGuards(PlatformAdminGuard)
 export class BillingController {
   constructor(
     private readonly planService: PlanDefinitionService,

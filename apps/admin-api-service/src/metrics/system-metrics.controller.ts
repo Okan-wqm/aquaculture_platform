@@ -1,7 +1,5 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
 
 import {
   SystemMetricsService,
@@ -11,7 +9,6 @@ import {
 
 @ApiTags('Analytics')
 @Controller('system')
-@UseGuards(PlatformAdminGuard)
 export class SystemMetricsController {
   constructor(private readonly metricsService: SystemMetricsService) {}
 

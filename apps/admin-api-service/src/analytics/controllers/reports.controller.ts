@@ -17,13 +17,11 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsIn, IsString, IsOptional, IsBoolean, IsObject, IsArray } from 'class-validator';
 import { Response } from 'express';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import {
   ReportType,
   ReportFormat,
@@ -164,7 +162,6 @@ class QuickReportDto {
 
 @ApiTags('Analytics')
 @Controller('reports')
-@UseGuards(PlatformAdminGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 

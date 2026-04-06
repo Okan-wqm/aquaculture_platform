@@ -11,7 +11,6 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
@@ -20,8 +19,6 @@ import { Type } from 'class-transformer';
 import { Request } from 'express';
 
 import { Public } from '../../decorators/public.decorator';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-
 import {
   FeatureToggleScope,
   FeatureToggleStatus,
@@ -428,7 +425,6 @@ class BulkUpdateConfigsDto {
 
 @ApiTags('Settings')
 @Controller('system/settings')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard (method-level @Public() overrides where needed)
 export class GlobalSettingsController {
   constructor(private readonly globalSettingsService: GlobalSettingsService) {}
 
@@ -677,14 +673,13 @@ export class GlobalSettingsController {
   // ============================================================================
 
   /** SEC-M19: Removed @Public() — this endpoint exposes platform configuration
-   *  and must be protected by the class-level PlatformAdminGuard. */
+   *  and must be protected by the global APP_GUARD (PlatformAdminGuard). */
   @Get('provisioning-config')
   async getProvisioningConfig() {
     return this.globalSettingsService.getProvisioningConfig();
   }
 
   @Put('provisioning-config')
-  @UseGuards(PlatformAdminGuard)
   async updateProvisioningConfig(
     @Body() body: Record<string, string>,
     @Req() req: Request,

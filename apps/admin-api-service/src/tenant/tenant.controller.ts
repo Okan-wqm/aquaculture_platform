@@ -11,14 +11,11 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
-  UseGuards,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
 import { CurrentUser } from '../decorators/current-user.decorator';
-import { PlatformAdminGuard } from '../guards/platform-admin.guard';
-
 import {
   CreateTenantCommand,
   UpdateTenantCommand,
@@ -69,7 +66,6 @@ interface AdminUser {
 
 @ApiTags('Tenants')
 @Controller('tenants')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class TenantController {
   constructor(
     private readonly commandBus: CommandBus,

@@ -15,7 +15,6 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -35,7 +34,6 @@ import {
   ArrayMaxSize,
 } from 'class-validator';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { BackupType, BackupStatus } from '../entities/database-management.entity';
 import { BackupRestoreService } from '../services/backup-restore.service';
 
@@ -114,7 +112,6 @@ class PointInTimeRecoveryDto {
 
 @ApiTags('Database Management')
 @Controller('database/backups')
-@UseGuards(PlatformAdminGuard)
 export class BackupController {
   constructor(private readonly backupService: BackupRestoreService) {}
 

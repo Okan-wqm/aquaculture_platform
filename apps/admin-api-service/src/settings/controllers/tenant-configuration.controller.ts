@@ -9,13 +9,10 @@ import {
   Req,
   HttpCode,
   HttpStatus,
-  UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import {
   TenantConfigurationService,
@@ -42,7 +39,6 @@ import {
 
 @ApiTags('Settings')
 @Controller('settings/tenant')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class TenantConfigurationController {
   constructor(
     private readonly configService: TenantConfigurationService,

@@ -4,13 +4,10 @@ import {
   Post,
   Body,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { IsString, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, MaxLength } from 'class-validator';
-
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { MetricType } from '../entities/performance-metric.entity';
 import { PerformanceMonitoringService, MetricThreshold } from '../services/performance-monitoring.service';
@@ -81,7 +78,6 @@ class UpdateThresholdsDto {
 
 @ApiTags('Analytics')
 @Controller('system/performance')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class PerformanceController {
   constructor(private readonly performanceService: PerformanceMonitoringService) {}
 

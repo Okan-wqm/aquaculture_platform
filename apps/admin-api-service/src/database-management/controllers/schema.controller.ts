@@ -15,13 +15,11 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
-  UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class-validator';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { SchemaStatus } from '../entities/database-management.entity';
 import { SchemaManagementService } from '../services/schema-management.service';
 
@@ -59,7 +57,6 @@ class UpdateSchemaStatusDto {
 
 @ApiTags('Database Management')
 @Controller('database/schemas')
-@UseGuards(PlatformAdminGuard)
 export class SchemaController {
   constructor(private readonly schemaService: SchemaManagementService) {}
 

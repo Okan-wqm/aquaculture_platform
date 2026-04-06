@@ -15,13 +15,10 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { IsString, IsOptional, IsNumber, IsIn } from 'class-validator';
-
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 
 import { OnboardingStatus, TrainingSession } from '../entities/support.entity';
 import { OnboardingService } from '../services/onboarding.service';
@@ -90,7 +87,6 @@ class AssignGuideDto {
 
 @ApiTags('Support')
 @Controller('support/onboarding')
-@UseGuards(PlatformAdminGuard) // H14 fix: explicit guard
 export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}
 

@@ -17,7 +17,6 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
-  UseGuards,
   Res,
   Req,
   StreamableFile,
@@ -32,8 +31,6 @@ import { DataSource } from 'typeorm';
 // Fix: H8 -- per-route throttle for sensitive database operations
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common';
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-
 // ============================================================================
 // Module Table Access Control
 // ============================================================================
@@ -229,7 +226,6 @@ interface TableData {
 
 @ApiTags('Database Management')
 @Controller('database/explorer')
-@UseGuards(PlatformAdminGuard)
 export class DatabaseExplorerController {
   private readonly logger = new Logger(DatabaseExplorerController.name);
 

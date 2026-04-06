@@ -13,12 +13,10 @@ import {
   Query,
   HttpStatus,
   HttpCode,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { DatabaseMonitoringService } from '../services/database-monitoring.service';
 
 // ============================================================================
@@ -41,7 +39,6 @@ class AnalyzeQueryDto {
 
 @ApiTags('Database Management')
 @Controller('database/monitoring')
-@UseGuards(PlatformAdminGuard)
 export class MonitoringController {
   constructor(private readonly monitoringService: DatabaseMonitoringService) {}
 

@@ -166,7 +166,7 @@ export interface ServiceBootstrapOptions {
    */
   versioning?: {
     type: any;
-    defaultVersion?: string | string[];
+    defaultVersion?: (string | symbol)[];
   };
 
   /**

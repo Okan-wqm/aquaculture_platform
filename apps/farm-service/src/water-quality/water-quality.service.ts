@@ -336,16 +336,18 @@ export class WaterQualityService {
               }));
 
             if (criticalParams.length > 0) {
+              // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
               const criticalEvent: WaterQualityCriticalEvent = {
                 eventId: randomUUID(),
                 eventType: 'WaterQualityCritical',
                 tenantId,
                 timestamp: new Date(),
-                version: 1,
+                version: 2,
                 measurementId: measurement.id,
                 equipmentId: measurement.equipmentId ?? null,
                 tankId: measurement.tankId ?? null,
-                criticalParameters: criticalParams,
+                criticalParametersJson: JSON.stringify(criticalParams),
+                criticalParameterCount: criticalParams.length,
                 measuredAt: measurement.measuredAt.toISOString(),
               };
               await this.eventBus.publish(criticalEvent);

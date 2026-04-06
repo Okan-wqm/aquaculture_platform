@@ -76,7 +76,7 @@ export class AuthEventHandler
    */
   private async handlePasswordResetRequested(event: PasswordResetRequestedEvent): Promise<void> {
     // SECURITY: SEC-C01 — reject stale v1 events that carry raw tokens
-    if ((event as Record<string, unknown>)['resetToken']) {
+    if ((event as unknown as Record<string, unknown>)['resetToken']) {
       this.logger.warn('SECURITY: Rejected v1 PasswordResetRequested event carrying raw resetToken. User must re-request.');
       return;
     }

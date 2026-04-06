@@ -165,7 +165,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
           const data = this.sc.decode(msg.data);
           // ARCH-C01: Apply upcasters for v1→v2 migration (raw NATS, no NatsEventBus)
           const raw = JSON.parse(data);
-          const event = this.upcasterRegistry.upcast(raw) as NatsEvent;
+          const event = this.upcasterRegistry.upcast(raw) as unknown as NatsEvent;
 
           // Runtime schema validation: ensure required fields are present
           // JSON.parse + `as NatsEvent` is only a type cast, not validation.

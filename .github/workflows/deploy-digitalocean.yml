@@ -712,7 +712,7 @@ jobs:
       (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
       (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 80
     environment: production
     permissions:
       contents: write
@@ -730,7 +730,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 35m  # Sequential pulls + service bootstrap for 22+ Docker images
+          command_timeout: 75m  # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
           script: |
             set -e
             cd /var/aqua-saas

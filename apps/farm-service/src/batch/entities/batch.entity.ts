@@ -30,178 +30,40 @@ import {
   Float,
   Int,
   Directive,
-  registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Type-only imports to avoid circular dependency at runtime
 import type { Species } from '../../species/entities/species.entity';
 import type { BatchDocument } from './batch-document.entity';
 
-// ============================================================================
-// ENUMS
-// ============================================================================
+// IP-3: Enums and interfaces extracted to batch.types.ts (keeps entity under 500 lines)
+export {
+  BatchStatus,
+  BatchInputType,
+  ArrivalMethod,
+  BatchType,
+} from './batch.types';
+export type {
+  BatchWeight,
+  BatchFCR,
+  BatchFeedingSummary,
+  BatchGrowthMetrics,
+  BatchMortalitySummary,
+} from './batch.types';
 
-/**
- * Batch durumu
- */
-export enum BatchStatus {
-  QUARANTINE = 'QUARANTINE',       // Karantinada
-  ACTIVE = 'ACTIVE',               // Aktif üretimde
-  GROWING = 'GROWING',             // Büyüme aşamasında
-  PRE_HARVEST = 'PRE_HARVEST',     // Hasat öncesi
-  HARVESTING = 'HARVESTING',       // Hasat yapılıyor
-  HARVESTED = 'HARVESTED',         // Hasat tamamlandı
-  TRANSFERRED = 'TRANSFERRED',     // Transfer edildi
-  FAILED = 'FAILED',               // Başarısız (toplu ölüm vb.)
-  CLOSED = 'CLOSED',               // Kapatıldı
-}
-
-registerEnumType(BatchStatus, {
-  name: 'BatchStatus',
-  description: 'Batch durumu',
-});
-
-/**
- * Girdi tipi - Batch'in başlangıç formu
- */
-export enum BatchInputType {
-  EGGS = 'EGGS',                   // Yumurta
-  LARVAE = 'LARVAE',               // Larva
-  POST_LARVAE = 'POST_LARVAE',     // Post-larva
-  FRY = 'FRY',                     // Yavru
-  FINGERLINGS = 'FINGERLINGS',     // Parmak boy
-  JUVENILES = 'JUVENILES',         // Genç
-  ADULTS = 'ADULTS',               // Yetişkin
-  BROODSTOCK = 'BROODSTOCK',       // Anaç
-}
-
-registerEnumType(BatchInputType, {
-  name: 'BatchInputType',
-  description: 'Batch girdi tipi',
-});
-
-/**
- * Arrival Method - Batch'in tesise ulaşım şekli
- */
-export enum ArrivalMethod {
-  AIR_CARGO = 'AIR_CARGO',
-  TRUCK = 'TRUCK',
-  BOAT = 'BOAT',
-  RAIL = 'RAIL',
-  LOCAL_PICKUP = 'LOCAL_PICKUP',
-  OTHER = 'OTHER',
-}
-
-registerEnumType(ArrivalMethod, {
-  name: 'ArrivalMethod',
-  description: 'Batch arrival/transport method',
-});
-
-/**
- * Batch tipi - Production (üretim) veya Cleaner Fish
- */
-export enum BatchType {
-  PRODUCTION = 'production',      // Normal üretim batch'i
-  CLEANER_FISH = 'cleaner_fish',  // Cleaner fish batch'i (lumpfish, wrasse)
-}
-
-registerEnumType(BatchType, {
-  name: 'BatchType',
-  description: 'Batch tipi - üretim veya cleaner fish',
-});
-
-// ============================================================================
-// INTERFACES
-// ============================================================================
-
-/**
- * Ağırlık takibi - Çift kayıt sistemi
- */
-export interface BatchWeight {
-  initial: {
-    avgWeight: number;             // g - Başlangıç ortalama ağırlık
-    totalBiomass: number;          // kg - Başlangıç toplam biomass
-    measuredAt: Date;
-  };
-
-  theoretical: {
-    avgWeight: number;             // g - Teorik ortalama ağırlık
-    totalBiomass: number;          // kg - Teorik toplam biomass
-    lastCalculatedAt: Date;
-    basedOnFCR: number;            // Hesaplamada kullanılan FCR
-  };
-
-  actual: {
-    avgWeight: number;             // g - Gerçek ortalama ağırlık
-    totalBiomass: number;          // kg - Gerçek toplam biomass
-    lastMeasuredAt: Date;
-    sampleSize: number;            // Örnek sayısı
-    confidencePercent: number;     // Güven yüzdesi
-  };
-
-  variance: {
-    weightDifference: number;      // g (actual - theoretical)
-    percentageDifference: number;  // %
-    isSignificant: boolean;        // |%| > threshold
-  };
-}
-
-/**
- * FCR (Feed Conversion Ratio) takibi
- */
-export interface BatchFCR {
-  target: number;                  // Hedef FCR
-  actual: number;                  // Gerçek FCR
-  theoretical: number;             // Teorik FCR
-  isUserOverride: boolean;         // Kullanıcı tarafından override edildi mi
-  lastUpdatedAt: Date;
-}
-
-/**
- * Yemleme özeti
- */
-export interface BatchFeedingSummary {
-  currentFeedId?: string;
-  currentFeedName?: string;
-  totalFeedGiven: number;          // kg - Toplam verilen yem
-  totalFeedCost: number;           // TL - Toplam yem maliyeti
-  lastFeedingAt?: Date;
-  avgDailyFeed?: number;           // kg/gün
-}
-
-/**
- * Büyüme metrikleri
- */
-export interface BatchGrowthMetrics {
-  currentGrowthStage?: string;     // Mevcut büyüme aşaması
-
-  growthRate: {
-    actual: number;                // g/gün - Gerçek büyüme hızı
-    target: number;                // g/gün - Hedef büyüme hızı
-    variancePercent: number;       // % - Sapma
-  };
-
-  specificGrowthRate?: number;     // SGR - Spesifik büyüme oranı
-
-  daysInProduction: number;        // Üretimde geçen gün
-
-  projections: {
-    harvestDate?: Date;
-    harvestWeight?: number;        // g
-    harvestBiomass?: number;       // kg
-    confidenceLevel: 'high' | 'medium' | 'low';
-  };
-}
-
-/**
- * Mortality özeti
- */
-export interface BatchMortalitySummary {
-  totalMortality: number;          // Toplam ölüm adedi
-  mortalityRate: number;           // %
-  lastMortalityAt?: Date;
-  mainCause?: string;
-}
+import {
+  BatchStatus,
+  BatchInputType,
+  ArrivalMethod,
+  BatchType,
+} from './batch.types';
+import type {
+  BatchWeight,
+  BatchFCR,
+  BatchFeedingSummary,
+  BatchGrowthMetrics,
+  BatchMortalitySummary,
+} from './batch.types';
 
 // ============================================================================
 // ENTITY

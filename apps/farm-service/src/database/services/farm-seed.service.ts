@@ -80,6 +80,7 @@ export class FarmSeedService implements OnModuleInit {
       await this.seedEquipmentTypes(queryRunner);
       await this.seedChemicalTypes(queryRunner);
       await this.seedSupplierTypes(queryRunner);
+      await this.seedGlobalCleanerFishSpecies(queryRunner);
       await queryRunner.commitTransaction();
       this.logger.log('Reference data seeding completed successfully');
     } catch (error) {
@@ -88,6 +89,68 @@ export class FarmSeedService implements OnModuleInit {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  /**
+   * Seed global cleaner fish species (Lumpfish + 3 wrasses) into the
+   * template-tenant row of the `species` table. This used to live in the
+   * deleted `AddCleanerFishSupport1768500000000` migration; that migration
+   * was removed as an architectural cleanup (its column adds were
+   * redundant with the current entity decorators, and its ALTER TYPE step
+   * targeted the legacy enum name `operation_type_enum` which the post-
+   * refactor entity no longer creates — TypeORM synchronize produces the
+   * default `tank_operations_operationtype_enum` instead, so the migration
+   * hard-failed on every fresh environment).
+   *
+   * Moving the seed here keeps a single, idempotent code path that runs
+   * on every cold start in every environment (including production,
+   * unlike `seedFarmData()` which is dev-only). The insert uses
+   * `ON CONFLICT DO NOTHING` on the natural uniqueness key
+   * `(tenantId, code)` so repeated starts, parallel instances, and
+   * partial-state recoveries are all no-ops after the first successful
+   * run.
+   *
+   * Species provisioning for a new tenant copies these rows through
+   * `SchemaManagerService.copyReferenceData()`, so the global-tenant
+   * entries populate every future tenant schema automatically.
+   *
+   * Cleaner fish biology — Lumpfish (Cyclopterus lumpus) and three
+   * wrasse species are widely used in Norwegian salmon farming to
+   * biologically control sea lice, replacing chemical treatments. The
+   * minimum set seeded here mirrors the original migration's selection
+   * so existing test data and farm operations assuming these codes
+   * continue to work.
+   */
+  private async seedGlobalCleanerFishSpecies(queryRunner: QueryRunner): Promise<void> {
+    // All-zeros UUID = the global/template tenant that the tenant-
+    // provisioning pipeline clones from when a new customer onboards.
+    const globalTenantId = '00000000-0000-0000-0000-000000000000';
+
+    const existing = await queryRunner.query(
+      `SELECT COUNT(*)::int AS count FROM "species"
+       WHERE "isCleanerFish" = true AND "tenantId" = $1`,
+      [globalTenantId],
+    );
+    if ((existing[0]?.count ?? 0) > 0) {
+      this.logger.log('  Cleaner fish species already present — skipping');
+      return;
+    }
+
+    await queryRunner.query(
+      `INSERT INTO "species" (
+         "id", "tenantId", "scientificName", "commonName", "localName", "code",
+         "category", "waterType", "isCleanerFish", "cleanerFishType", "status", "isActive",
+         "createdAt", "updatedAt", "isDeleted"
+       ) VALUES
+       (gen_random_uuid(), $1, 'Cyclopterus lumpus',   'Lumpfish',         'Rognkjeks', 'LUMPFISH',  'fish', 'saltwater', true, 'lumpfish', 'active', true, NOW(), NOW(), false),
+       (gen_random_uuid(), $1, 'Labrus bergylta',      'Ballan Wrasse',    'Berggylt',  'BALLAN',    'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false),
+       (gen_random_uuid(), $1, 'Symphodus melops',     'Corkwing Wrasse',  'Grønngylt', 'CORKWING',  'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false),
+       (gen_random_uuid(), $1, 'Ctenolabrus rupestris','Goldsinny Wrasse', 'Bergnebb',  'GOLDSINNY', 'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false)
+       ON CONFLICT DO NOTHING`,
+      [globalTenantId],
+    );
+
+    this.logger.log('  Seeded 4 global cleaner fish species (lumpfish, ballan, corkwing, goldsinny wrasse)');
   }
 
   async seedFarmData() {

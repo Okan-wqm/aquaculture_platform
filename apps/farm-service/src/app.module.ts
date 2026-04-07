@@ -98,7 +98,21 @@ import { AddBatchDocuments1734500000000 } from './database/migrations/1734500000
 // the git history preserves the audit trail. Adding an idempotency guard
 // would only mask a no-op behind ceremonial code, not solve the structural
 // issue of a migration whose desired state is now provided by another mechanism.
-import { AddCleanerFishSupport1768500000000 } from './database/migrations/1768500000000-AddCleanerFishSupport';
+//
+// `AddCleanerFishSupport1768500000000` was deleted for the SAME class of
+// reason: its ALTER TABLE column adds are now expressed by the @Column
+// decorators on Species/Batch/TankBatch/TankOperation entities, its enum
+// extension targeted `operation_type_enum` but TypeORM synchronize creates
+// the enum as `tank_operations_operationtype_enum` (default
+// {table}_{column_lowercase}_enum convention) so ALTER TYPE on the legacy
+// name fails on every fresh environment, and every idempotency branch in
+// the migration logged "column already exists, skipping" in production —
+// proof the schema was already provisioned by synchronize before the
+// migration ever ran. The only non-redundant part — the global cleaner
+// fish species seed — has been moved to
+// FarmSeedService.seedGlobalCleanerFishSpecies() so it ships on every
+// cold start in every environment, idempotently. Git history preserves
+// the full original migration for audit purposes.
 import { AddRegulatorySettings1769000000000 } from './database/migrations/1769000000000-AddRegulatorySettings';
 import { AddSpeciesTags1769100000000 } from './database/migrations/1769100000000-AddSpeciesTags';
 import { AddFeedMinFishWeight1770000000000 } from './database/migrations/1770000000000-AddFeedMinFishWeight';
@@ -169,7 +183,6 @@ import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrat
         migrations: [
           AddSystemHierarchy1734336000000,
           AddBatchDocuments1734500000000,
-          AddCleanerFishSupport1768500000000,
           AddRegulatorySettings1769000000000,
           AddSpeciesTags1769100000000,
           AddFeedMinFishWeight1770000000000,

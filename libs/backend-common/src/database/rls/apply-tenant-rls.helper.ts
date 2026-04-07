@@ -127,6 +127,25 @@ export interface ApplyTenantRlsOptions {
    * shared with NestJS Logger, so both work without casts.
    */
   logger?: RlsHelperLogger;
+
+  /**
+   * Override the target schema. By default, the helper queries
+   * `current_schema()` and operates on whatever schema the migration
+   * runner / connection has set up — typically the source schema for a
+   * schema-per-tenant service (e.g. `farm`).
+   *
+   * Pass an explicit schema name to install policies on a specific
+   * tenant schema (e.g. `tenant_4b529829ea7948da`). This is the path
+   * `TenantRlsSyncService` uses to iterate every `tenant_*` schema at
+   * runtime — `CREATE TABLE LIKE source INCLUDING ALL` does NOT copy
+   * RLS policies, so each per-tenant copy needs its policies installed
+   * explicitly.
+   *
+   * Identifier validation still applies: the override must match
+   * `^[a-zA-Z_][a-zA-Z0-9_]*$` or the helper throws before any SQL is
+   * issued.
+   */
+  schemaOverride?: string;
 }
 
 /**
@@ -257,14 +276,21 @@ export async function applyTenantRlsToSchema(
       : DEFAULT_TENANT_ID_COLUMNS;
   const excludeTables = options.excludeTables ?? [];
 
-  // current_schema() respects the search_path the migration runner set up,
-  // so the helper always operates inside the service's own schema — never
-  // public, never another service's schema.
-  const schemaRows: Array<{ schema: string }> = await qr.query(
-    `SELECT current_schema() AS schema`,
-  );
-  const schema = schemaRows[0]?.schema ?? 'public';
-  assertSafeIdentifier(schema, 'current_schema');
+  // Resolve the target schema. If the caller passed `schemaOverride`,
+  // we trust it (after identifier validation) and skip the round-trip
+  // to current_schema(). Otherwise we ask the database directly so the
+  // helper always operates inside whatever schema the migration runner
+  // has set up — never public, never another service's schema.
+  let schema: string;
+  if (options.schemaOverride !== undefined) {
+    schema = options.schemaOverride;
+  } else {
+    const schemaRows: Array<{ schema: string }> = await qr.query(
+      `SELECT current_schema() AS schema`,
+    );
+    schema = schemaRows[0]?.schema ?? 'public';
+  }
+  assertSafeIdentifier(schema, options.schemaOverride !== undefined ? 'schemaOverride' : 'current_schema');
 
   logger.log(
     `Applying tenant RLS in schema "${schema}" ` +

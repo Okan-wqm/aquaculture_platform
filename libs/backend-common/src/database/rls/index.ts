@@ -3,5 +3,6 @@ export * from './apply-tenant-rls.helper';
 export * from './rls-connection-bootstrap.service';
 export * from './bypass-rls.service';
 export * from './rls-schema-bootstrap.service';
+export * from './tenant-rls-sync.service';
 export * from './rls.module';
 export * from './admin-bypass-rls.interceptor';

@@ -6,6 +6,10 @@ import {
   RlsSchemaBootstrap,
   RlsSchemaBootstrapOptions,
 } from './rls-schema-bootstrap.service';
+import {
+  TenantRlsSyncService,
+  TenantRlsSyncOptions,
+} from './tenant-rls-sync.service';
 import { TenantRlsService } from './tenant-rls.service';
 
 /**
@@ -112,6 +116,26 @@ export interface RlsModuleOptions {
    * @see ApplyTenantRlsOptions.tenantIdColumns
    */
   tenantIdColumns?: readonly string[];
+  /**
+   * If `true`, register `TenantRlsSyncService` so the helper iterates
+   * every `tenant_<uuid>` schema at `OnApplicationBootstrap` and
+   * installs the canonical `tenant_isolation_policy` on each.
+   *
+   * Required for schema-per-tenant services. The Phase 1 migration
+   * pattern (running `applyTenantRlsToSchema` against `current_schema`)
+   * only installs policies on the SOURCE schema's template tables —
+   * production data lives in `tenant_<uuid>` tables created via
+   * `CREATE TABLE LIKE INCLUDING ALL`, which does NOT copy RLS
+   * policies. Without this sync, RLS is non-functional in
+   * schema-per-tenant services.
+   *
+   * Defaults to `false` for backward compatibility — existing
+   * registrations of `RlsModule.forRoot()` continue to work without
+   * changes. Enable explicitly for farm-service, hr-service,
+   * sensor-service, and any other schema-per-tenant service that
+   * wants tenant-table RLS as defense-in-depth.
+   */
+  syncTenantSchemas?: boolean;
 }
 
 @Module({})
@@ -153,6 +177,25 @@ export class RlsModule {
             excludeTables: options.excludeTables,
             tenantIdColumns: options.tenantIdColumns,
           } satisfies RlsSchemaBootstrapOptions),
+        inject: [DataSource],
+      });
+    }
+
+    // Optional: register the per-tenant schema sweep. Schema-per-tenant
+    // services need this because the Phase 1 migration only touches the
+    // SOURCE schema (current_schema in migration runner context), and
+    // CREATE TABLE LIKE INCLUDING ALL does NOT propagate RLS policies
+    // to per-tenant copies. Without this sync, RLS is installed on
+    // template tables that production never queries.
+    if (options.syncTenantSchemas === true) {
+      providers.push({
+        provide: TenantRlsSyncService,
+        useFactory: (dataSource: DataSource): TenantRlsSyncService =>
+          new TenantRlsSyncService(dataSource, {
+            serviceName: options.serviceName,
+            excludeTables: options.excludeTables,
+            tenantIdColumns: options.tenantIdColumns,
+          } satisfies TenantRlsSyncOptions),
         inject: [DataSource],
       });
     }

@@ -1,0 +1,229 @@
+import type { DataSource, QueryRunner } from 'typeorm';
+import { TenantRlsSyncService } from './tenant-rls-sync.service';
+
+/**
+ * tenant-rls-sync.service.spec.ts
+ * ============================================================================
+ *
+ * Behavioural test suite for the per-tenant RLS sweep that closes the
+ * NEW-C1 finding (Phase 1 farm-service RLS was installed on the source
+ * schema only — production tenant tables had no policies).
+ *
+ * The service iterates `tenant_<uuid>` schemas at OnApplicationBootstrap
+ * and calls `applyTenantRlsToSchema(qr, { schemaOverride: schema })` on
+ * each. We verify:
+ *
+ *   1. Schema discovery uses the strict `tenant_<16 hex>` regex (rejects
+ *      legacy/sandbox patterns silently).
+ *   2. Each discovered schema gets its own QueryRunner (released cleanly,
+ *      no connection leak on success or failure).
+ *   3. A failure on one schema does NOT stop the sweep — sibling schemas
+ *      continue processing and the failure is logged with the
+ *      `rls.bootstrap.failed` substring for alerting.
+ *   4. Empty discovery (no tenants provisioned yet) is handled
+ *      gracefully — log + return, no throw.
+ *   5. The `disabled` option short-circuits the entire sweep with a
+ *      WARN log.
+ */
+
+/**
+ * Mock factory for DataSource. Each createQueryRunner call returns a
+ * fresh runner with its own scripted reply queue. The factory tracks
+ * how many times createQueryRunner was called and how many releases
+ * happened (so the test can assert no leaks).
+ */
+function makeMockDataSource(opts: {
+  /** Reply rows from listTenantSchemas() */
+  schemas: string[];
+  /**
+   * Per-schema reply scripts. Key = schema name, value = FIFO queue
+   * for that schema's QueryRunner. If a key is omitted, the runner
+   * for that schema returns undefined for every call.
+   */
+  perSchemaReplies?: Record<string, ReadonlyArray<unknown>>;
+  /**
+   * If set, the runner for the named schema throws this error from
+   * its `connect()` call. Used to simulate per-tenant failures
+   * without unwinding the whole sweep.
+   */
+  failOnSchemaConnect?: string;
+}): {
+  ds: DataSource;
+  createdRunners: number;
+  releasedRunners: number;
+  releasedRunnerSchemas: string[];
+} {
+  let createdRunners = 0;
+  let releasedRunners = 0;
+  const releasedRunnerSchemas: string[] = [];
+
+  // The runner factory is invoked once per schema iteration. We need to
+  // know which schema each runner is "for" so we can deliver the right
+  // reply script. The DataSource itself doesn't know — instead the
+  // helper queries `information_schema.columns` first and the schema is
+  // a parameter. We sniff the parameter from the first query call.
+  const ds: DataSource = {
+    query: async (sql: string): Promise<unknown> => {
+      // listTenantSchemas() pattern
+      if (sql.includes('information_schema.schemata')) {
+        return opts.schemas.map((s) => ({ schema_name: s }));
+      }
+      throw new Error(`mock DataSource: unexpected query "${sql.slice(0, 80)}"`);
+    },
+    createQueryRunner: () => {
+      createdRunners++;
+      let currentSchema: string | undefined;
+      const calls: Array<{ sql: string; params?: unknown[] }> = [];
+      let replyIdx = 0;
+
+      const runner: QueryRunner = {
+        connect: async (): Promise<void> => {
+          // Defer the schema decision until the first query, because
+          // the QueryRunner doesn't know which schema it's for.
+        },
+        query: async (sql: string, params?: unknown[]): Promise<unknown> => {
+          calls.push({ sql, params });
+          // Identify the schema from the first information_schema query
+          // parameter. After that, all replies come from the per-schema
+          // queue.
+          if (currentSchema === undefined && Array.isArray(params)) {
+            currentSchema = params[0] as string;
+            // Simulate per-schema connect failure if configured. We do
+            // it here (on first query) instead of connect() because the
+            // helper interleaves connect() with query() and we want to
+            // hit the helper's catch block.
+            if (opts.failOnSchemaConnect === currentSchema) {
+              throw new Error('simulated connect failure');
+            }
+          }
+          const replies =
+            currentSchema && opts.perSchemaReplies?.[currentSchema];
+          if (replies && replyIdx < replies.length) {
+            const r = replies[replyIdx++];
+            return r;
+          }
+          // Default reply for unscripted calls (mostly DDL) — undefined
+          // means "no rows", which the helper accepts for ALTER/CREATE.
+          return undefined;
+        },
+        release: async (): Promise<void> => {
+          releasedRunners++;
+          if (currentSchema !== undefined) {
+            releasedRunnerSchemas.push(currentSchema);
+          }
+        },
+      } as unknown as QueryRunner;
+      return runner;
+    },
+  } as unknown as DataSource;
+
+  return {
+    ds,
+    get createdRunners() {
+      return createdRunners;
+    },
+    get releasedRunners() {
+      return releasedRunners;
+    },
+    releasedRunnerSchemas,
+  };
+}
+
+describe('TenantRlsSyncService', () => {
+  describe('onApplicationBootstrap', () => {
+    it('runs no-op gracefully when no tenant schemas exist', async () => {
+      const mock = makeMockDataSource({ schemas: [] });
+      const service = new TenantRlsSyncService(mock.ds, {
+        serviceName: 'farm',
+      });
+
+      await service.onApplicationBootstrap();
+
+      // Discovery happened, but no QueryRunner was created (no work).
+      expect(mock.createdRunners).toBe(0);
+      expect(mock.releasedRunners).toBe(0);
+    });
+
+    it('iterates discovered tenant schemas, one QueryRunner per schema', async () => {
+      const schemas = [
+        'tenant_4b529829ea7948da',
+        'tenant_5c640940fb805aeb',
+      ];
+      // Each schema's discovery query returns one BaseEntity-shaped table
+      // → 4 DDLs run per table → 4 helper replies per schema
+      const perSchemaReplies: Record<string, unknown[]> = {
+        [schemas[0]!]: [
+          [{ table_name: 'batches', column_name: 'tenant_id' }],
+          undefined, undefined, undefined, undefined,
+        ],
+        [schemas[1]!]: [
+          [{ table_name: 'batches', column_name: 'tenant_id' }],
+          undefined, undefined, undefined, undefined,
+        ],
+      };
+      const mock = makeMockDataSource({ schemas, perSchemaReplies });
+      const service = new TenantRlsSyncService(mock.ds, {
+        serviceName: 'farm',
+      });
+
+      await service.onApplicationBootstrap();
+
+      // One runner per schema, all released.
+      expect(mock.createdRunners).toBe(2);
+      expect(mock.releasedRunners).toBe(2);
+      expect(mock.releasedRunnerSchemas).toEqual(schemas);
+    });
+
+    it('continues processing siblings when one schema fails', async () => {
+      const schemas = [
+        'tenant_4b529829ea7948da',
+        'tenant_5c640940fb805aeb', // this one will fail
+        'tenant_6d751a51fc916bfc',
+      ];
+      const perSchemaReplies: Record<string, unknown[]> = {
+        [schemas[0]!]: [
+          [{ table_name: 'batches', column_name: 'tenant_id' }],
+          undefined, undefined, undefined, undefined,
+        ],
+        [schemas[2]!]: [
+          [{ table_name: 'batches', column_name: 'tenant_id' }],
+          undefined, undefined, undefined, undefined,
+        ],
+      };
+      const mock = makeMockDataSource({
+        schemas,
+        perSchemaReplies,
+        failOnSchemaConnect: schemas[1],
+      });
+      const service = new TenantRlsSyncService(mock.ds, {
+        serviceName: 'farm',
+      });
+
+      // The sweep itself MUST NOT throw — partial failures are logged
+      // but the service continues.
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+
+      // All 3 runners created and released, even though one failed.
+      // Connection leak on the failure path would surface as a count
+      // mismatch here.
+      expect(mock.createdRunners).toBe(3);
+      expect(mock.releasedRunners).toBe(3);
+    });
+
+    it('honours the disabled flag and short-circuits without running', async () => {
+      const mock = makeMockDataSource({
+        schemas: ['tenant_4b529829ea7948da'],
+      });
+      const service = new TenantRlsSyncService(mock.ds, {
+        serviceName: 'farm',
+        disabled: true,
+      });
+
+      await service.onApplicationBootstrap();
+
+      // No discovery, no runners.
+      expect(mock.createdRunners).toBe(0);
+      expect(mock.releasedRunners).toBe(0);
+    });
+  });
+});

@@ -32,7 +32,7 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@aquaculture/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
@@ -347,6 +347,34 @@ import { AddTenantActivePartialIndexes1781800000000 } from './database/migration
     TaskModule,
     // WHY: AI insights module — MCP Farm Intelligence integration
     AiInsightsModule,
+    /**
+     * SEC-DB NEW-C1: Tenant Row-Level Security for the schema-per-tenant
+     * deployment. Three things this wires up:
+     *
+     * 1. RlsConnectionBootstrap (always) — patches the pg pool so every
+     *    checkout sets `app.current_tenant` and `app.bypass_rls` from
+     *    AsyncLocalStorage. Without this, the policies installed below
+     *    would deny every query because the GUC is unset.
+     *
+     * 2. autoApply: false — the existing TypeORM migration runner already
+     *    applies `applyTenantRlsToSchema` to the source `farm` schema via
+     *    RefreshTenantRlsPredicate1781000000000. We do NOT want
+     *    RlsSchemaBootstrap to also touch the source schema; that would
+     *    duplicate work.
+     *
+     * 3. syncTenantSchemas: true — registers TenantRlsSyncService which
+     *    iterates every `tenant_<uuid>` schema at OnApplicationBootstrap
+     *    and installs policies on each. This is the actual production
+     *    enforcement layer; CREATE TABLE LIKE INCLUDING ALL does NOT
+     *    propagate RLS policies, so per-tenant tables need them
+     *    installed explicitly.
+     */
+    RlsModule.forRoot({
+      serviceName: 'farm',
+      autoApply: false,
+      syncTenantSchemas: true,
+      excludeTables: ['farm_outbox', 'audit_logs', 'audit_log'],
+    }),
   ],
   providers: [
     // Global exception filter

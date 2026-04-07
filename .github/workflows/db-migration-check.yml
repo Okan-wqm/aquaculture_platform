@@ -131,7 +131,7 @@ jobs:
               echo "::error file=$file::Class name mismatch — expected 'export class ${expected_class}' based on filename '$base'"
               INVALID=1
             fi
-          done < <(find apps -type f -name '[0-9]*-*.ts' -path '*/migrations/*' 2>/dev/null | sort)
+          done < <(find apps -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' 2>/dev/null | sort)
 
           if [ "$INVALID" -eq 1 ]; then
             exit 1
@@ -151,7 +151,7 @@ jobs:
           # Extract the 13-digit timestamp prefix from every migration
           # filename across every service, count duplicates.
           dupes=$(
-            find apps -type f -name '[0-9]*-*.ts' -path '*/migrations/*' \
+            find apps -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' \
               -exec basename {} \; \
               | cut -d- -f1 \
               | sort \
@@ -161,7 +161,7 @@ jobs:
             echo "::error::Duplicate migration timestamps detected across services:"
             for ts in $dupes; do
               echo "  $ts is used by:"
-              find apps -type f -name "${ts}-*.ts" -path '*/migrations/*' | sed 's/^/    /'
+              find apps -type f -name "${ts}-*.ts" -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' | sed 's/^/    /'
             done
             exit 1
           fi

@@ -77,6 +77,7 @@ import { CreateMessagingTables1711800000000 } from './migrations/1711800000000-C
 import { CreateAITables1711800000001 } from './migrations/1711800000001-CreateAITables';
 import { AddAiPersonaColumns1711800000002 } from './migrations/1711800000002-AddAiPersonaColumns';
 import { CreateComplianceTables1711800000003 } from './migrations/1711800000003-CreateComplianceTables';
+import { ConvertMessagingOutboxToIdentity1781200000000 } from './migrations/1781200000000-ConvertMessagingOutboxToIdentity';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -150,6 +151,7 @@ const complexityCache = new Map<string, number>();
             CreateAITables1711800000001,
             AddAiPersonaColumns1711800000002,
             CreateComplianceTables1711800000003,
+            ConvertMessagingOutboxToIdentity1781200000000,
           ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {

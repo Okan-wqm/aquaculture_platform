@@ -101,6 +101,7 @@ import { AddFeederFieldsToExecution1775000000000 } from './database/migrations/1
 import { EnableRowLevelSecurity1776000000000 } from './database/migrations/1776000000000-EnableRowLevelSecurity';
 import { CreateFarmOutboxTable1780300000000 } from './database/migrations/1780300000000-CreateFarmOutboxTable';
 import { RefreshTenantRlsPredicate1781000000000 } from './database/migrations/1781000000000-RefreshTenantRlsPredicate';
+import { ConvertFarmOutboxToIdentity1781200000000 } from './database/migrations/1781200000000-ConvertFarmOutboxToIdentity';
 
 @Module({
   imports: [
@@ -165,6 +166,7 @@ import { RefreshTenantRlsPredicate1781000000000 } from './database/migrations/17
           EnableRowLevelSecurity1776000000000,
           CreateFarmOutboxTable1780300000000,
           RefreshTenantRlsPredicate1781000000000,
+          ConvertFarmOutboxToIdentity1781200000000,
         ],
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation

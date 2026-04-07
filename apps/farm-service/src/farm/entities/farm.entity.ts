@@ -49,7 +49,7 @@ export class Farm {
   location: Location;
 
   @Field()
-  @Column()
+  @Column('uuid')
   @Index()
   tenantId: string;
 

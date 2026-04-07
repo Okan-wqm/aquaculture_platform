@@ -102,7 +102,7 @@ export class Pond {
   batches?: Batch[];
 
   @Field()
-  @Column()
+  @Column('uuid')
   @Index()
   tenantId: string;
 

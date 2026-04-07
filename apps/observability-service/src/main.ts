@@ -66,6 +66,13 @@ function createRateLimiter(maxRequests: number, windowMs: number) {
 bootstrapService(AppModule, {
   serviceName: 'observability-service',
   portEnvVar: 'OBSERVABILITY_SERVICE_PORT',
+  // Internal-only service: Prometheus scrapes /metrics from inside the cluster,
+  // and the only HTTP surface is /metrics + /health. No browser ever talks to
+  // this service, so CORS is conceptually inapplicable. The shared bootstrap
+  // skips configureCors() entirely when visibility is 'internal' rather than
+  // requiring a synthetic CORS_ORIGINS env var to bypass the production
+  // hard-fail (which would be a patch hiding the architectural truth).
+  serviceVisibility: 'internal',
   // Rate limiting: 60 requests per minute per IP across all observability endpoints.
   earlyMiddleware: [createRateLimiter(60, 60 * 1000)],
   prefixExclusions: ['metrics', 'health', 'health/live', 'health/ready', 'health/metrics'],

@@ -171,6 +171,29 @@ export interface ServiceBootstrapOptions {
    * Applied after validation pipe and versioning.
    */
   globalGuards?: any[];
+
+  /**
+   * Service reachability classification — drives the CORS policy.
+   *
+   * - `'public'` (default): the service is reachable by browsers (directly
+   *   or through the API gateway). `configureCors()` runs and the
+   *   `CORS_ORIGINS` env var is REQUIRED in production. This is the safe
+   *   default for any HTTP-exposed service.
+   *
+   * - `'internal'`: the service is only reachable from within the cluster
+   *   (e.g. Prometheus scraping `observability-service`, service-to-service
+   *   NATS RPC, internal admin tooling). CORS is conceptually meaningless
+   *   for an internal service because no browser ever sends a preflight to
+   *   it — `configureCors()` is SKIPPED entirely. Setting a fake
+   *   `CORS_ORIGINS` env var to bypass the production hard-fail would be a
+   *   patch hiding the real architectural fact: this service does not
+   *   participate in CORS at all.
+   *
+   * Defaults to `'public'` so existing services remain backward compatible
+   * without code changes. New services should declare their visibility
+   * explicitly so the architectural intent is captured at the boot site.
+   */
+  serviceVisibility?: 'public' | 'internal';
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +512,7 @@ export async function createServiceApp(
     swagger,
     versioning,
     globalGuards = [],
+    serviceVisibility = 'public',
   } = options;
 
   const logger = new Logger(serviceName);
@@ -594,8 +618,27 @@ export async function createServiceApp(
 
   // -----------------------------------------------------------------------
   // 5. CORS with production wildcard guard
+  //
+  // Internal services (Prometheus aggregators, internal admin tools, RPC-only
+  // services) have no browser exposure — they cannot receive a CORS preflight,
+  // so configuring CORS would be configuring a no-op. We skip configureCors()
+  // entirely instead of setting a synthetic `CORS_ORIGINS` env var to satisfy
+  // the production hard-fail. The hard-fail correctly catches missing CORS for
+  // public-facing services; for internal services it would be a false positive.
   // -----------------------------------------------------------------------
-  configureCors(app, configService, isProduction, additionalCorsHeaders, logger);
+  if (serviceVisibility === 'internal') {
+    logger.log(
+      `Service visibility 'internal' — CORS not configured (no browser exposure)`,
+    );
+  } else {
+    configureCors(
+      app,
+      configService,
+      isProduction,
+      additionalCorsHeaders,
+      logger,
+    );
+  }
 
   // -----------------------------------------------------------------------
   // 6. Global validation pipe

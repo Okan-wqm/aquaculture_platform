@@ -44,7 +44,11 @@ registerEnumType(AccessType, {
  */
 @ObjectType()
 @Entity('users')
-@Index('IDX_users_email', ['email'], { unique: true })
+// NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
+// created by migration EnforceCaseInsensitiveEmailUniqueness1781300000000.
+// TypeORM decorators don't support expression indexes, so the index lives
+// in SQL. The @Column below has `unique: true` REMOVED so TypeORM does
+// not create a conflicting case-sensitive index at synchronize time.
 @Index('IDX_users_tenant', ['tenantId'])
 @Index('IDX_users_role', ['role'])
 @Index('IDX_users_invitation_token', ['invitationToken'], { unique: true, where: '"invitationToken" IS NOT NULL' })
@@ -55,7 +59,12 @@ export class User {
   id!: string;
 
   @Field()
-  @Column({ type: 'varchar', length: 255, unique: true })
+  // NOTE: column-level `unique: true` REMOVED so TypeORM does not create a
+  // case-sensitive auto-index that conflicts with the case-insensitive
+  // `LOWER(email)` expression index installed by
+  // EnforceCaseInsensitiveEmailUniqueness1781300000000. Uniqueness is still
+  // enforced at the DB level — just by the migration, not the decorator.
+  @Column({ type: 'varchar', length: 255 })
   email!: string;
 
   @HideField()

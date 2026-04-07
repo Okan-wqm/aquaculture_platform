@@ -3,30 +3,22 @@ import {
   Query,
   Mutation,
   Args,
-  Int,
   ID,
   ResolveReference,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { CommandBus, QueryBus } from '@platform/cqrs';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 import { Farm } from '../entities/farm.entity';
 import { Pond } from '../entities/pond.entity';
-import { PondBatch } from '../entities/batch.entity';
 import { CreateFarmCommand } from '../commands/create-farm.command';
 import { CreatePondCommand } from '../commands/create-pond.command';
-import { CreatePondBatchCommand } from '../commands/create-batch.command';
-import { HarvestBatchCommand } from '../commands/harvest-batch.command';
 import { GetFarmQuery } from '../queries/get-farm.query';
 import { ListFarmsQuery } from '../queries/list-farms.query';
 import { GetPondQuery } from '../queries/get-pond.query';
-import { ListPondBatchesQuery } from '../queries/list-batches.query';
 import { CreateFarmInput } from '../dto/create-farm.input';
 import { CreatePondInput } from '../dto/create-pond.input';
-import { CreatePondBatchInput } from '../dto/create-batch.input';
-import { HarvestBatchInput } from '../dto/harvest-batch.input';
-import { BatchStatus } from '../entities/batch.entity';
 
 /**
  * User context interface
@@ -137,34 +129,6 @@ export class FarmResolver {
   }
 
   /**
-   * List batches with filters
-   */
-  @Query(() => [PondBatch], { name: 'pondBatches' })
-  async listPondBatches(
-    @Tenant() tenantId: string,
-    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 })
-    page: number,
-    @Args('limit', { type: () => Int, nullable: true, defaultValue: 10 })
-    limit: number,
-    @Args('status', { type: () => BatchStatus, nullable: true })
-    status?: BatchStatus,
-    @Args('species', { type: () => String, nullable: true })
-    species?: string,
-    @Args('pondId', { type: () => ID, nullable: true })
-    pondId?: string,
-  ): Promise<PondBatch[]> {
-    this.logger.debug(`Query: listPondBatches(tenant=${tenantId})`);
-    const result: PaginatedQueryResult<PondBatch> = await this.queryBus.execute(
-      new ListPondBatchesQuery(
-        tenantId,
-        { page, limit },
-        { status, species, pondId },
-      ),
-    );
-    return fromCqrsPaginated(result).items;
-  }
-
-  /**
    * Create a new farm
    */
   @Mutation(() => Farm, { name: 'createFarm' })
@@ -217,55 +181,4 @@ export class FarmResolver {
     );
   }
 
-  /**
-   * Create a new pond batch (legacy pond-based aquaculture)
-   */
-  @Mutation(() => PondBatch, { name: 'createPondBatch' })
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async createPondBatch(
-    @Args('input') input: CreatePondBatchInput,
-    @Tenant() tenantId: string,
-    @CurrentUser() user: UserContext,
-  ): Promise<PondBatch> {
-    this.logger.log(`Mutation: createPondBatch(${input.name})`);
-    return await this.commandBus.execute(
-      new CreatePondBatchCommand(
-        input.name,
-        input.species,
-        input.quantity,
-        input.pondId,
-        tenantId,
-        user.sub,
-        input.stockedAt,
-        input.strain,
-        input.averageWeight,
-        input.expectedHarvestDate,
-        input.notes,
-      ),
-    );
-  }
-
-  /**
-   * Harvest a pond batch (legacy pond-based aquaculture)
-   */
-  @Mutation(() => PondBatch, { name: 'harvestPondBatch' })
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async harvestPondBatch(
-    @Args('input') input: HarvestBatchInput,
-    @Tenant() tenantId: string,
-    @CurrentUser() user: UserContext,
-  ): Promise<PondBatch> {
-    this.logger.log(`Mutation: harvestPondBatch(${input.batchId})`);
-    return await this.commandBus.execute(
-      new HarvestBatchCommand(
-        input.batchId,
-        tenantId,
-        user.sub,
-        input.harvestedQuantity,
-        input.harvestedWeight,
-        input.harvestedAt,
-        input.notes,
-      ),
-    );
-  }
 }

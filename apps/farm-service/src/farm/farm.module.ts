@@ -4,7 +4,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 // Entities
 import { Farm } from './entities/farm.entity';
 import { Pond } from './entities/pond.entity';
-import { PondBatch } from './entities/batch.entity';
 
 // Resolvers
 import { FarmResolver } from './resolvers/farm.resolver';
@@ -13,14 +12,11 @@ import { FarmResolver } from './resolvers/farm.resolver';
 import { CreateFarmHandler } from './handlers/create-farm.handler';
 import { UpdateFarmHandler } from './handlers/update-farm.handler';
 import { CreatePondHandler } from './handlers/create-pond.handler';
-import { CreatePondBatchHandler } from './handlers/create-batch.handler';
-import { HarvestBatchHandler } from './handlers/harvest-batch.handler';
 
 // Query Handlers
 import { GetFarmQueryHandler } from './query-handlers/get-farm.handler';
 import { ListFarmsQueryHandler } from './query-handlers/list-farms.handler';
 import { GetPondQueryHandler } from './query-handlers/get-pond.handler';
-import { ListPondBatchesHandler } from './query-handlers/list-batches.handler';
 
 // Setup submodules
 import { SiteModule } from '../site/site.module';
@@ -32,17 +28,28 @@ import { FeedModule } from '../feed/feed.module';
 
 /**
  * Farm Module
- * Contains all farm-related functionality including:
+ * Contains farm-level infrastructure functionality:
  * - Farm management (CRUD operations)
- * - Pond management
- * - Batch management (stocking, harvesting)
+ * - Pond management (for farms that still model pond infrastructure)
  * - Site/Department/Equipment setup
  * - Supplier/Chemical/Feed management
- * - CQRS command/query handlers
+ * - CQRS command/query handlers for farms + ponds
+ *
+ * Batch lifecycle (stocking, harvesting, transfers, cleaner fish) lives
+ * entirely under `../batch/BatchModule`, which owns the canonical
+ * `Batch` entity (`batches_v2` table). An earlier revision of this
+ * module also owned a parallel `PondBatch` entity backed by the legacy
+ * `batches` table, but that code path had zero frontend and zero
+ * cross-service consumers and used a text-typed `tenantId` column that
+ * was architecturally incompatible with the platform's uuid tenant
+ * convention (and actively crashed `EnableRowLevelSecurity1776000000000`
+ * in every production deploy). PondBatch has therefore been fully
+ * removed; use `BatchModule`'s `Batch` entity and `batches`/`batch`
+ * GraphQL fields for every batch operation going forward.
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Farm, Pond, PondBatch]),
+    TypeOrmModule.forFeature([Farm, Pond]),
     // Setup submodules
     SiteModule,
     DepartmentModule,
@@ -59,14 +66,11 @@ import { FeedModule } from '../feed/feed.module';
     CreateFarmHandler,
     UpdateFarmHandler,
     CreatePondHandler,
-    CreatePondBatchHandler,
-    HarvestBatchHandler,
 
     // Query Handlers
     GetFarmQueryHandler,
     ListFarmsQueryHandler,
     GetPondQueryHandler,
-    ListPondBatchesHandler,
   ],
   exports: [TypeOrmModule],
 })

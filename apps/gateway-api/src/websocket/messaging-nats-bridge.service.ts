@@ -202,7 +202,24 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
             this.logger.warn('Messaging NATS bridge disconnected');
             break;
           case 'reconnect':
-            this.logger.log('Messaging NATS bridge reconnected — re-subscribing');
+            // Phase D fix: drain and clear the previous subscription array
+            // BEFORE re-subscribing. Previously `subscribeToMessagingEvents()`
+            // pushed new Subscription objects onto `this.subscriptions` without
+            // cleaning up the stale ones, so each reconnect doubled the array
+            // and duplicated message processing for every subject.
+            this.logger.log(
+              'Messaging NATS bridge reconnected — draining stale subscriptions then re-subscribing',
+            );
+            for (const sub of this.subscriptions) {
+              try {
+                sub.unsubscribe();
+              } catch (error) {
+                this.logger.debug(
+                  `Stale subscription cleanup error: ${(error as Error).message}`,
+                );
+              }
+            }
+            this.subscriptions = [];
             this.subscribeToMessagingEvents();
             break;
           case 'error':

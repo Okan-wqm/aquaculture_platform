@@ -6,18 +6,54 @@
  * SECURITY FIX: Transaction protection added to prevent race conditions
  * when multiple concurrent requests attempt to allocate to the same tank.
  *
+ * Phase D refactor: DomainEventPublisher → OutboxPublisher (pre-commit,
+ * transactional). BatchAllocatedToTank events now ship with at-least-once
+ * delivery guarantee. The command's AllocationType enum is mapped to the
+ * narrower contract literal (`'initial' | 'transfer_in' | 'split'`) — the
+ * mismatch was silent before because DomainEventPublisher accepted any
+ * `Record<string, unknown>`.
+ *
  * @module Batch/Handlers
  */
+import { randomUUID } from 'crypto';
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import type { BatchAllocatedToTankEvent } from '@platform/event-contracts';
 import { AllocateToTankCommand, AllocationType } from '../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment, TankSpecifications, EquipmentStatus } from '../../equipment/entities/equipment.entity';
-import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
+
+/**
+ * Map the command's AllocationType enum to the BatchAllocatedToTankEvent
+ * contract's narrower literal union. The contract intentionally restricts
+ * to the three values that mean "fish arrived in this tank" — TRANSFER_OUT
+ * / GRADING / HARVEST do not produce an "allocated to tank" event
+ * semantically and therefore throw rather than silently remapping.
+ */
+function toAllocationTypeCode(
+  input: AllocationType,
+): 'initial' | 'transfer_in' | 'split' {
+  switch (input) {
+    case AllocationType.INITIAL_STOCKING:
+      return 'initial';
+    case AllocationType.TRANSFER_IN:
+      return 'transfer_in';
+    case AllocationType.SPLIT:
+      return 'split';
+    case AllocationType.TRANSFER_OUT:
+    case AllocationType.GRADING:
+    case AllocationType.HARVEST:
+      throw new BadRequestException(
+        `AllocationType ${input} is not valid for AllocateToTankCommand — ` +
+          `these operations have their own dedicated handlers and events.`,
+      );
+  }
+}
 
 @Injectable()
 @CommandHandler(AllocateToTankCommand)
@@ -35,7 +71,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly eventPublisher: DomainEventPublisher,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -220,30 +256,32 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         await queryRunner.manager.save(batch);
       }
 
+      // Enqueue BatchAllocatedToTankEvent into the transactional outbox BEFORE commit.
+      const allocationDate = payload.allocatedAt || new Date();
+      const eventBiomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
+      const allocationEvent: BatchAllocatedToTankEvent = {
+        eventId: randomUUID(),
+        eventType: 'BatchAllocatedToTank',
+        timestamp: new Date(),
+        tenantId,
+        version: 1,
+        userId: allocatedBy,
+        aggregateId: batchId,
+        aggregateType: 'Batch',
+        batchId,
+        tankId: payload.tankId,
+        quantity: payload.quantity,
+        biomassKg: eventBiomassKg,
+        allocationType: toAllocationTypeCode(payload.allocationType as AllocationType),
+        allocationDate,
+      };
+      await this.outboxPublisher.enqueue(allocationEvent, queryRunner.manager);
+
       await queryRunner.commitTransaction();
 
       this.logger.log(
         `Batch ${batchId} allocated to tank ${payload.tankId} — ` +
         `qty=${payload.quantity}, type=${payload.allocationType}, tenant=${tenantId}`,
-      );
-
-      // Publish BatchAllocatedToTank event AFTER transaction commit
-      const eventBiomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
-      await this.eventPublisher.publish(
-        {
-          eventId: crypto.randomUUID(),
-          eventType: 'BatchAllocatedToTank',
-          timestamp: new Date(),
-          tenantId,
-          batchId,
-          tankId: payload.tankId,
-          quantity: payload.quantity,
-          biomassKg: eventBiomassKg,
-          allocationType: payload.allocationType,
-          userId: allocatedBy,
-          version: 1,
-        },
-        { handler: AllocateToTankHandler.name, tenantId, aggregateId: batchId },
       );
 
       return savedAllocation;

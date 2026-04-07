@@ -4,15 +4,21 @@
  * UpdateBatchStatusCommand'ı işler ve batch durumunu değiştirir.
  * Status transition validasyonu yapar.
  *
+ * Phase D refactor: DomainEventPublisher → OutboxPublisher (pre-commit,
+ * transactional). BatchStatusChanged events now ship with at-least-once
+ * delivery guarantee.
+ *
  * @module Batch/Handlers
  */
+import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import type { BatchStatusChangedEvent } from '@platform/event-contracts';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
-import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 
 @Injectable()
 @CommandHandler(UpdateBatchStatusCommand)
@@ -24,7 +30,7 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
     private readonly dataSource: DataSource,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
-    private readonly eventPublisher: DomainEventPublisher,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateBatchStatusCommand): Promise<Batch> {
@@ -55,16 +61,17 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
       }
 
       const previousStatus = batch.status;
+      const statusChangedAt = new Date();
 
       batch.status = newStatus;
-      batch.statusChangedAt = new Date();
+      batch.statusChangedAt = statusChangedAt;
       batch.statusReason = reason;
       batch.updatedBy = updatedBy;
 
       switch (newStatus) {
         case BatchStatus.HARVESTED:
           if (!batch.actualHarvestDate) {
-            batch.actualHarvestDate = new Date();
+            batch.actualHarvestDate = statusChangedAt;
           }
           break;
         case BatchStatus.FAILED:
@@ -75,26 +82,27 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
       }
 
       savedBatch = await queryRunner.manager.save(Batch, batch);
+
+      // Enqueue BatchStatusChangedEvent into the transactional outbox BEFORE commit.
+      const statusEvent: BatchStatusChangedEvent = {
+        eventId: randomUUID(),
+        eventType: 'BatchStatusChanged',
+        timestamp: statusChangedAt,
+        tenantId,
+        version: 1,
+        userId: updatedBy,
+        aggregateId: savedBatch.id,
+        aggregateType: 'Batch',
+        batchId: savedBatch.id,
+        previousStatus,
+        newStatus,
+        reason,
+      };
+      await this.outboxPublisher.enqueue(statusEvent, queryRunner.manager);
+
       await queryRunner.commitTransaction();
 
       this.logger.log(`Batch ${batchId} status: ${previousStatus} → ${newStatus}, tenant: ${tenantId}`);
-
-      await this.eventPublisher.publish(
-        {
-          eventId: crypto.randomUUID(),
-          eventType: 'BatchStatusChanged',
-          timestamp: new Date(),
-          tenantId,
-          batchId: savedBatch.id,
-          previousStatus,
-          newStatus,
-          reason,
-          userId: updatedBy,
-          version: 1,
-        },
-        { handler: UpdateBatchStatusHandler.name, tenantId, aggregateId: batchId },
-      );
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;

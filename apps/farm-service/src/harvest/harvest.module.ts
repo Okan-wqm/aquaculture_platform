@@ -29,7 +29,6 @@ import { TankOperation } from '../batch/entities/tank-operation.entity';
 
 // Services
 import { HarvestPlanService } from './services/harvest-plan.service';
-import { DomainEventPublisher } from '../common/services/domain-event-publisher.service';
 
 // Command Handlers
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
@@ -59,7 +58,6 @@ import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
   providers: [
     // Services
     HarvestPlanService,
-    DomainEventPublisher,
     // Command Handlers
     CreateHarvestRecordHandler,
     UpdateHarvestRecordHandler,

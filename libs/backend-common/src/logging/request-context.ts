@@ -28,6 +28,18 @@ export interface RequestContext {
    * SET search_path at the pool connection checkout level.
    */
   schemaName?: string;
+  /**
+   * RLS bypass flag for SUPER_ADMIN endpoints, background workers, and any
+   * legitimately cross-tenant code path. When true, RlsConnectionBootstrap
+   * sets `app.bypass_rls = 'on'` on the checked-out connection so the
+   * tenant_isolation_policy USING clause grants full visibility.
+   *
+   * SECURITY: This flag must NEVER be set from a tenant-scoped request
+   * handler. It is reserved for admin-api-service controllers (which
+   * already authenticate as SUPER_ADMIN) and for cron/queue workers that
+   * explicitly iterate tenants on their own.
+   */
+  bypassRls?: boolean;
 }
 
 /**

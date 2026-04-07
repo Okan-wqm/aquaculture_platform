@@ -20,6 +20,7 @@ import {
   RolesGuard,
   AuditLogModule,
   AuditLogInterceptor,
+  RlsModule,
 } from '@aquaculture/backend-common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
@@ -169,6 +170,20 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * SEC-DB: Tenant Row-Level Security.
+     *
+     * notification-service is a global-schema service — every tenant's
+     * device-tokens and notification-logs live in the same tables in the
+     * `notification` schema. RLS is the only DB-level isolation in place.
+     *
+     * autoApply runs the helper at OnApplicationBootstrap because there
+     * is no migration runner wired in for this service.
+     */
+    RlsModule.forRoot({
+      serviceName: 'notification',
+      autoApply: true,
+    }),
   ],
   providers: [
     {

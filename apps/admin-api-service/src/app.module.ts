@@ -1,4 +1,4 @@
-import { ThrottlerModule, RedisModule, LoggingModule } from '@aquaculture/backend-common';
+import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor } from '@aquaculture/backend-common';
 import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -149,6 +149,23 @@ import { UsersModule } from './users/users.module';
         signOptions: { algorithm: 'HS256' },
       }),
     }),
+    /**
+     * SEC-DB: Tenant Row-Level Security wiring for an admin-only service.
+     *
+     * autoApply is FALSE because admin-api-service does not own any
+     * tenant-scoped tables of its own that need RLS — every query it
+     * issues is a cross-tenant analytics read against `auth.*`,
+     * `billing.*`, etc. The pool patch (RlsConnectionBootstrap) is still
+     * registered so that `app.bypass_rls` propagates to the connection
+     * when the AdminBypassRlsInterceptor wraps the request.
+     *
+     * The interceptor is registered below as APP_INTERCEPTOR so EVERY
+     * request automatically runs inside `BypassRlsService.withBypass()`.
+     */
+    RlsModule.forRoot({
+      serviceName: 'admin-api',
+      autoApply: false,
+    }),
   ],
   providers: [
     {
@@ -176,6 +193,16 @@ import { UsersModule } from './users/users.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,
+    },
+    /**
+     * SEC-DB: Wrap every admin-api request in BypassRlsService.withBypass()
+     * so cross-schema reads against billing/notification/config (which
+     * have RLS enforced) succeed. The interceptor logs every grant/release
+     * via BypassRlsService — see audit trail discussion in its docblock.
+     */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AdminBypassRlsInterceptor,
     },
     GracefulShutdownService,
   ],

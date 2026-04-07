@@ -11,7 +11,7 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -146,6 +146,21 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * SEC-DB: Tenant Row-Level Security.
+     *
+     * - serviceName: 'billing' — log prefix for RlsConnectionBootstrap and
+     *   RlsSchemaBootstrap so RLS-related lines are easy to grep.
+     * - autoApply: true — billing-service has no TypeORM migration runner
+     *   (synchronize was removed in commit 5ce2b127), so policies are
+     *   installed at OnApplicationBootstrap by RlsSchemaBootstrap. The
+     *   helper is idempotent — cold restarts re-install the canonical
+     *   predicate without manual intervention.
+     */
+    RlsModule.forRoot({
+      serviceName: 'billing',
+      autoApply: true,
+    }),
   ],
   providers: [
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers

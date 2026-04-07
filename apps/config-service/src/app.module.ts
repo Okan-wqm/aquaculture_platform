@@ -8,7 +8,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common';
+import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule } from '@aquaculture/backend-common';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -94,6 +94,19 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * SEC-DB: Tenant Row-Level Security.
+     *
+     * config-service stores per-tenant configuration in a single global
+     * table — RLS is the only DB-level isolation guard for it.
+     *
+     * autoApply runs the helper at OnApplicationBootstrap because there
+     * is no migration runner wired in for this service.
+     */
+    RlsModule.forRoot({
+      serviceName: 'config',
+      autoApply: true,
+    }),
   ],
   providers: [
     {

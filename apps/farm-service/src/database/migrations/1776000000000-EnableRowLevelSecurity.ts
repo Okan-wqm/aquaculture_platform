@@ -44,6 +44,20 @@ export class EnableRowLevelSecurity1776000000000 implements MigrationInterface {
   }
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Defensive: pin the search_path to the farm source schema before any
+    // catalog introspection. See ConvergeTenantIdTypesAndDropPondBatch's
+    // docblock + the Phase 11 incident history — non-request pool
+    // checkouts used to inherit contaminated `public` search_path from
+    // previous sessions, which made this migration target the wrong
+    // schema and crashed with `operator does not exist: text = uuid`.
+    // TenantConnectionBootstrap now re-asserts the default on every
+    // checkout, but migrations should still set their own search_path
+    // explicitly so they remain correct even if run against a pool
+    // that lacks the bootstrap patch (test harnesses, ad-hoc repair
+    // scripts, future services without the patch). Same pattern used
+    // by AddRegulatorySettings1769000000000 and AddPurchaseOrders1772000000000.
+    await queryRunner.query(`SET search_path TO "farm", public`);
+
     const schema = await queryRunner.query(`SELECT current_schema() AS schema`);
     const currentSchema: string = schema[0]?.schema ?? 'public';
     this.logger.log(`Enabling RLS in schema: ${currentSchema}`);
@@ -107,6 +121,11 @@ export class EnableRowLevelSecurity1776000000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    // Symmetric to up() — pin to the farm source schema before the
+    // discovery query so rollback hits the correct tables regardless
+    // of pool state. See up() for the incident history.
+    await queryRunner.query(`SET search_path TO "farm", public`);
+
     const schema = await queryRunner.query(`SELECT current_schema() AS schema`);
     const currentSchema: string = schema[0]?.schema ?? 'public';
     this.logger.log(`Disabling RLS in schema: ${currentSchema}`);

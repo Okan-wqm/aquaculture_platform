@@ -169,8 +169,12 @@ CREATE TABLE IF NOT EXISTS messaging.message_attachments (
         REFERENCES messaging.messages ("id", "createdAt") ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS "idx_attachments_message"
-    ON messaging.message_attachments ("messageId");
+-- Composite index matching the (messageId, messageCreatedAt) FK shape —
+-- accelerates cascade delete triggers AND referential integrity checks
+-- (vs a single-column (messageId) index which forces per-row re-check
+-- of messageCreatedAt). See AddCompositeFkIndexesOnMessageChildren1781600000000.
+CREATE INDEX IF NOT EXISTS "idx_attachments_message_composite"
+    ON messaging.message_attachments ("messageId", "messageCreatedAt");
 
 
 -- ============================================================================
@@ -222,8 +226,9 @@ CREATE TABLE IF NOT EXISTS messaging.message_receipts_2026_12 PARTITION OF messa
 
 CREATE INDEX IF NOT EXISTS "idx_receipts_user_status"
     ON messaging.message_receipts ("userId", "status");
-CREATE INDEX IF NOT EXISTS "idx_receipts_message"
-    ON messaging.message_receipts ("messageId");
+-- Composite FK-shaped index; see AddCompositeFkIndexesOnMessageChildren1781600000000.
+CREATE INDEX IF NOT EXISTS "idx_receipts_message_composite"
+    ON messaging.message_receipts ("messageId", "messageCreatedAt");
 
 
 -- ============================================================================
@@ -245,8 +250,9 @@ CREATE TABLE IF NOT EXISTS messaging.message_reactions (
         REFERENCES messaging.messages ("id", "createdAt") ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS "idx_reactions_message"
-    ON messaging.message_reactions ("messageId");
+-- Composite FK-shaped index; see AddCompositeFkIndexesOnMessageChildren1781600000000.
+CREATE INDEX IF NOT EXISTS "idx_reactions_message_composite"
+    ON messaging.message_reactions ("messageId", "messageCreatedAt");
 
 
 -- ============================================================================
@@ -271,6 +277,11 @@ CREATE TABLE IF NOT EXISTS messaging.pinned_messages (
 
 CREATE INDEX IF NOT EXISTS "idx_pins_channel"
     ON messaging.pinned_messages ("channelId", "pinnedAt" DESC);
+-- Composite FK-shaped index — pinned_messages had NO messageId index at all
+-- before this was added, meaning cascade delete of a message did a seq scan
+-- across pinned_messages. See AddCompositeFkIndexesOnMessageChildren1781600000000.
+CREATE INDEX IF NOT EXISTS "idx_pins_message_composite"
+    ON messaging.pinned_messages ("messageId", "messageCreatedAt");
 
 
 -- ============================================================================

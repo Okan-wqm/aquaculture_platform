@@ -78,6 +78,7 @@ import { CreateAITables1711800000001 } from './migrations/1711800000001-CreateAI
 import { AddAiPersonaColumns1711800000002 } from './migrations/1711800000002-AddAiPersonaColumns';
 import { CreateComplianceTables1711800000003 } from './migrations/1711800000003-CreateComplianceTables';
 import { ConvertMessagingOutboxToIdentity1781200000000 } from './migrations/1781200000000-ConvertMessagingOutboxToIdentity';
+import { AddCompositeFkIndexesOnMessageChildren1781600000000 } from './migrations/1781600000000-AddCompositeFkIndexesOnMessageChildren';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -152,6 +153,7 @@ const complexityCache = new Map<string, number>();
             AddAiPersonaColumns1711800000002,
             CreateComplianceTables1711800000003,
             ConvertMessagingOutboxToIdentity1781200000000,
+            AddCompositeFkIndexesOnMessageChildren1781600000000,
           ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {

@@ -88,7 +88,16 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
 // before the migrations attempt to ALTER them.
 import { AddSystemHierarchy1734336000000 } from './database/migrations/1734336000000-AddSystemHierarchy';
 import { AddBatchDocuments1734500000000 } from './database/migrations/1734500000000-AddBatchDocuments';
-import { MakeDepartmentSiteIdNullable1765012800000 } from './database/migrations/1765012800000-MakeDepartmentSiteIdNullable';
+// `MakeDepartmentSiteIdNullable1765012800000` was deleted: its intent
+// (siteId nullable, FK ON DELETE SET NULL, unique index on (tenantId, code))
+// is fully expressed by the current Department entity decorators. Every
+// environment that bootstraps via SourceSchemaBootstrapService.synchronize()
+// already has the post-refactor camelCase schema, so the migration could
+// never run successfully — the snake_case `site_id` column it targets does
+// not exist anywhere. Removing the dead migration is the architectural fix;
+// the git history preserves the audit trail. Adding an idempotency guard
+// would only mask a no-op behind ceremonial code, not solve the structural
+// issue of a migration whose desired state is now provided by another mechanism.
 import { AddCleanerFishSupport1768500000000 } from './database/migrations/1768500000000-AddCleanerFishSupport';
 import { AddRegulatorySettings1769000000000 } from './database/migrations/1769000000000-AddRegulatorySettings';
 import { AddSpeciesTags1769100000000 } from './database/migrations/1769100000000-AddSpeciesTags';
@@ -154,7 +163,6 @@ import { AddTenantActivePartialIndexes1781800000000 } from './database/migration
         migrations: [
           AddSystemHierarchy1734336000000,
           AddBatchDocuments1734500000000,
-          MakeDepartmentSiteIdNullable1765012800000,
           AddCleanerFishSupport1768500000000,
           AddRegulatorySettings1769000000000,
           AddSpeciesTags1769100000000,

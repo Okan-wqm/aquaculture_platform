@@ -3,13 +3,14 @@ import {
   Query,
   Mutation,
   Args,
+  Int,
   ID,
   ResolveReference,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CommandBus, QueryBus } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { Farm } from '../entities/farm.entity';
 import { Pond } from '../entities/pond.entity';
 import { CreateFarmCommand } from '../commands/create-farm.command';

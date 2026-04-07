@@ -139,33 +139,55 @@ jobs:
           echo "All migration filenames and class names match convention."
 
       # -------------------------------------------------------------------
-      # Check 3: no two migrations share a timestamp. Collisions produce
-      # non-deterministic ordering under TypeORM's migration runner,
-      # which silently executes one of the duplicates and marks both as
-      # "applied" in the migrations table — a nightmare to diagnose in
-      # production. Catching it here is cheap.
+      # Check 3: no two migrations WITHIN A SINGLE SERVICE share a
+      # timestamp. Each service owns its own `migrations` tracking table
+      # (TypeORM runs migrations per DataSource, and every service
+      # instantiates its own), so collisions only matter inside a service's
+      # migration lineage. Collisions ACROSS services are not only allowed
+      # but actively useful — they let a cross-cutting fix (e.g. NEW-H1,
+      # which ships `1781900000000-ConvertAuditColumnsToTimestamptz` to
+      # 5 services simultaneously) advertise its relationship through a
+      # shared timestamp that's easy to grep and correlate in incident
+      # forensics. Within a single service, however, TypeORM orders the
+      # migration list by this timestamp and a duplicate produces
+      # non-deterministic ordering — the classic "silently marks both as
+      # applied even though only one actually runs" production nightmare.
+      #
+      # Implementation note: we group by the service directory extracted
+      # from the path (everything between `apps/` and `/src/...`), then
+      # count duplicate timestamps inside each group independently.
       # -------------------------------------------------------------------
-      - name: Check for duplicate migration timestamps across all services
+      - name: Check for duplicate migration timestamps within each service
         run: |
           set -euo pipefail
-          # Extract the 13-digit timestamp prefix from every migration
-          # filename across every service, count duplicates.
-          dupes=$(
+          FAILED=0
+          # Derive the list of services that actually own migrations.
+          services=$(
             find apps -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' \
-              -exec basename {} \; \
-              | cut -d- -f1 \
-              | sort \
-              | uniq -d
+              | sed -E 's|^apps/([^/]+)/.*|\1|' \
+              | sort -u
           )
-          if [ -n "$dupes" ]; then
-            echo "::error::Duplicate migration timestamps detected across services:"
-            for ts in $dupes; do
-              echo "  $ts is used by:"
-              find apps -type f -name "${ts}-*.ts" -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' | sed 's/^/    /'
-            done
+          for svc in $services; do
+            dupes=$(
+              find "apps/${svc}" -type f -name '[0-9]*-*.ts' -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' \
+                -exec basename {} \; \
+                | cut -d- -f1 \
+                | sort \
+                | uniq -d
+            )
+            if [ -n "$dupes" ]; then
+              echo "::error::Duplicate migration timestamps detected within service '$svc':"
+              for ts in $dupes; do
+                echo "  $ts is used by:"
+                find "apps/${svc}" -type f -name "${ts}-*.ts" -not -name '*.spec.ts' -not -name '*.test.ts' -path '*/migrations/*' | sed 's/^/    /'
+              done
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -eq 1 ]; then
             exit 1
           fi
-          echo "All migration timestamps are globally unique."
+          echo "All migration timestamps are unique within each service."
 
       # -------------------------------------------------------------------
       # Check 4: type-check migration files so structural TypeScript

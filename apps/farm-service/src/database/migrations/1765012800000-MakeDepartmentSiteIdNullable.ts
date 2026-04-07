@@ -12,6 +12,24 @@ import { MigrationLogger } from '@aquaculture/backend-common';
  * 2. Drop old unique index on (tenant_id, site_id, code)
  * 3. Create new unique index on (tenant_id, code) for non-deleted records
  * 4. Update foreign key constraint to SET NULL on delete
+ *
+ * IDEMPOTENCY GUARD (added retroactively):
+ * The Department entity was later refactored from snake_case columns
+ * (`site_id`, `tenant_id`, `is_deleted`) to camelCase (`siteId`, `tenantId`,
+ * `isDeleted`). On any environment provisioned AFTER that refactor,
+ * SourceSchemaBootstrapService.synchronize() creates the table directly
+ * from the entity decorators in the post-refactor state — `siteId` is
+ * already nullable, the unique index on (tenantId, code) already exists,
+ * and the foreign key already uses ON DELETE SET NULL. The migration's
+ * intent is fully satisfied before it ever runs, so it must detect that
+ * and exit cleanly. Without this guard the ALTER COLUMN statement would
+ * raise `column "site_id" of relation "departments" does not exist` and
+ * crash the entire farm-service bootstrap.
+ *
+ * The check is consistent with the migration's existing idempotency
+ * pattern (constraint and index existence checks) — we extend it with a
+ * column existence check at the top so the whole migration is safely
+ * skipped on the post-refactor schema.
  */
 export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInterface {
   private readonly logger = new MigrationLogger('MakeDepartmentSiteIdNullable1765012800000');
@@ -20,6 +38,23 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
   public async up(queryRunner: QueryRunner): Promise<void> {
     const schema = await queryRunner.query(`SELECT current_schema()`);
     this.logger.log('Running migration in schema:', schema);
+
+    // IDEMPOTENCY GUARD: skip the entire migration if the snake_case column
+    // does not exist. This means we are on a post-refactor environment
+    // where SourceSchemaBootstrapService has already created the table
+    // with the camelCase `siteId` column in its desired final state
+    // (nullable, indexed on (tenantId, code), FK ON DELETE SET NULL).
+    // Running the original ALTER COLUMN statement would fail because the
+    // `site_id` column does not exist on this schema.
+    const hasOldSiteIdColumn = await this.columnExists(queryRunner, 'departments', 'site_id');
+    if (!hasOldSiteIdColumn) {
+      this.logger.log(
+        'departments.site_id column does not exist (entity uses camelCase siteId; ' +
+        'SourceSchemaBootstrapService already created the table in the desired state) — ' +
+        'migration is a no-op on this schema, skipping',
+      );
+      return;
+    }
 
     // 1. Drop the existing foreign key constraint (if exists)
     const fkExists = await this.constraintExists(queryRunner, 'departments', 'FK_departments_site');
@@ -166,6 +201,32 @@ export class MakeDepartmentSiteIdNullable1765012800000 implements MigrationInter
         WHERE indexname = $1
       )
     `, [indexName]);
+    return result[0]?.exists === true;
+  }
+
+  /**
+   * Helper to check if a column exists on a given table in the current schema.
+   * Used by the idempotency guard at the top of `up()` to detect a post-refactor
+   * environment where the snake_case `site_id` column has been replaced with the
+   * camelCase `siteId` by SourceSchemaBootstrapService synchronize().
+   */
+  private async columnExists(
+    queryRunner: QueryRunner,
+    tableName: string,
+    columnName: string,
+  ): Promise<boolean> {
+    const result = await queryRunner.query(
+      `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = $1
+          AND column_name = $2
+          AND table_schema = current_schema()
+      )
+      `,
+      [tableName, columnName],
+    );
     return result[0]?.exists === true;
   }
 }

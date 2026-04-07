@@ -1,5 +1,49 @@
 import { BaseEvent } from './base-event';
 
+// ====================================================================
+// Shared enum codes — single source of truth for backend, frontend,
+// NATS payloads, GraphQL schema, and DB columns. SCREAMING_SNAKE_CASE
+// matches PostgreSQL enum types and GraphQL Federation conventions.
+// ====================================================================
+
+/**
+ * Mortality cause codes.
+ *
+ * Mirror of the PostgreSQL `mortality_reason_enum` and the GraphQL
+ * `MortalityReason` enum. Frontend mutation inputs and backend domain
+ * events MUST use these exact values — case-sensitive.
+ */
+export const MORTALITY_REASONS = [
+  'DISEASE',
+  'WATER_QUALITY',
+  'STRESS',
+  'HANDLING',
+  'TEMPERATURE',
+  'OXYGEN',
+  'PREDATION',
+  'CANNIBALISM',
+  'UNKNOWN',
+  'OTHER',
+] as const;
+export type MortalityReasonCode = typeof MORTALITY_REASONS[number];
+
+/**
+ * Cull reason codes.
+ *
+ * Mirror of the PostgreSQL `cull_reason_enum` and the GraphQL
+ * `CullReason` enum. Used by `CullRecordedEvent.reason`.
+ */
+export const CULL_REASONS = [
+  'SMALL_SIZE',
+  'DEFORMED',
+  'SICK',
+  'POOR_GROWTH',
+  'GRADING',
+  'QUALITY',
+  'OTHER',
+] as const;
+export type CullReasonCode = typeof CULL_REASONS[number];
+
 /**
  * Farm Created Event
  */
@@ -93,10 +137,35 @@ export interface MortalityRecordedEvent extends BaseEvent {
   siteId?: string;
   tankId?: string;
   quantity: number;
-  reason: string;
+  reason: MortalityReasonCode;
   mortalityDate: Date;
   newTotalMortality: number;
   newMortalityRate: number;
+}
+
+/**
+ * Cull Recorded Event
+ *
+ * Emitted when a cull operation removes fish from a batch (e.g. for
+ * grading, undersized fish, or quality control). Distinct from mortality:
+ * culls are intentional removals, mortality is unintended loss.
+ *
+ * Downstream consumers (read-models, dashboards, AI insights) use
+ * `newCurrentQuantity` and `newCullCount` to update their projections
+ * without re-querying the source-of-truth `Batch` aggregate.
+ */
+export interface CullRecordedEvent extends BaseEvent {
+  eventType: 'CullRecorded';
+  batchId: string;
+  farmId?: string;
+  siteId?: string;
+  tankId?: string;
+  quantity: number;
+  reason: CullReasonCode;
+  detail?: string;
+  culledAt: Date;
+  newCullCount: number;
+  newCurrentQuantity: number;
 }
 
 /**
@@ -403,6 +472,7 @@ export type FarmEvent =
   | BatchHarvestedEvent
   | BatchStatusChangedEvent
   | MortalityRecordedEvent
+  | CullRecordedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

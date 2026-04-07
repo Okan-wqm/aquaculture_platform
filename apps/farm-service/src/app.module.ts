@@ -41,6 +41,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
+import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
 import { HealthModule } from './health/health.module';
 import { SpeciesModule } from './species/species.module';
@@ -78,6 +79,27 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { GraphQLContextFactory } from './common/graphql-context.factory';
 import { GraphQLContextModule } from './common/graphql-context.module';
 import { getTenantSchemaName } from './common/utils/schema-sanitizer';
+
+// Migrations — imported as class references so webpack/tsc bundles them.
+// Glob paths ('dist/migrations/*.js') do NOT work with NX builds because
+// all source files are bundled into a single output, leaving zero file matches.
+// MigrationRunnerService (database.module) executes these on OnApplicationBootstrap
+// AFTER SourceSchemaBootstrapService.synchronize() has run, ensuring tables exist
+// before the migrations attempt to ALTER them.
+import { AddSystemHierarchy1734336000000 } from './database/migrations/1734336000000-AddSystemHierarchy';
+import { AddBatchDocuments1734500000000 } from './database/migrations/1734500000000-AddBatchDocuments';
+import { MakeDepartmentSiteIdNullable1765012800000 } from './database/migrations/1765012800000-MakeDepartmentSiteIdNullable';
+import { AddCleanerFishSupport1768500000000 } from './database/migrations/1768500000000-AddCleanerFishSupport';
+import { AddRegulatorySettings1769000000000 } from './database/migrations/1769000000000-AddRegulatorySettings';
+import { AddSpeciesTags1769100000000 } from './database/migrations/1769100000000-AddSpeciesTags';
+import { AddFeedMinFishWeight1770000000000 } from './database/migrations/1770000000000-AddFeedMinFishWeight';
+import { AddStorageManagement1771000000000 } from './database/migrations/1771000000000-AddStorageManagement';
+import { AddPurchaseOrders1772000000000 } from './database/migrations/1772000000000-AddPurchaseOrders';
+import { AddWeatherTables1773000000000 } from './database/migrations/1773000000000-AddWeatherTables';
+import { AddFeederCalibrations1774000000000 } from './database/migrations/1774000000000-AddFeederCalibrations';
+import { AddFeederFieldsToExecution1775000000000 } from './database/migrations/1775000000000-AddFeederFieldsToExecution';
+import { EnableRowLevelSecurity1776000000000 } from './database/migrations/1776000000000-EnableRowLevelSecurity';
+import { CreateFarmOutboxTable1780300000000 } from './database/migrations/1780300000000-CreateFarmOutboxTable';
 
 @Module({
   imports: [
@@ -118,6 +140,30 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
         // Enable sync from DATABASE_SYNC env var (default: false for safety)
         // In production, always use migrations: npx typeorm migration:generate
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+        // migrationsRun is FALSE here because MigrationRunnerService (in database.module)
+        // executes migrations on OnApplicationBootstrap. That ordering guarantees
+        // SourceSchemaBootstrapService.synchronize() (which fires in OnModuleInit) has
+        // already created the base tables before any ALTER statement runs.
+        // SECURITY: production hard-fails if DATABASE_MIGRATIONS_RUN=false (see migration-runner.service.ts).
+        migrationsRun: false,
+        // Class references — tsc/webpack bundles all into the build output.
+        // Glob paths would match zero files at runtime in a bundled NestJS service.
+        migrations: [
+          AddSystemHierarchy1734336000000,
+          AddBatchDocuments1734500000000,
+          MakeDepartmentSiteIdNullable1765012800000,
+          AddCleanerFishSupport1768500000000,
+          AddRegulatorySettings1769000000000,
+          AddSpeciesTags1769100000000,
+          AddFeedMinFishWeight1770000000000,
+          AddStorageManagement1771000000000,
+          AddPurchaseOrders1772000000000,
+          AddWeatherTables1773000000000,
+          AddFeederCalibrations1774000000000,
+          AddFeederFieldsToExecution1775000000000,
+          EnableRowLevelSecurity1776000000000,
+          CreateFarmOutboxTable1780300000000,
+        ],
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
@@ -258,8 +304,12 @@ import { getTenantSchemaName } from './common/utils/schema-sanitizer';
       }),
     }),
 
-    // Database module (audit, code generation)
+    // Database module (audit, code generation, migration runner)
     DatabaseModule,
+
+    // Transactional outbox for reliable event publishing
+    // (handlers enqueue → OutboxWorkerService polls → NATS publish)
+    FarmOutboxModule,
 
     // Feature modules
     FarmModule,

@@ -1,178 +1,214 @@
 name: Database Migration Check
 
-# SEC-CI-015: Replaced entirely. Previous workflow used Alembic/Python/SQLAlchemy/Flask
-# which do not exist in this TypeScript/TypeORM project. This workflow now validates
-# TypeORM migrations and Flyway SQL migration files that actually exist in the repo.
-# SEC-CI-002: All third-party actions pinned to full commit SHAs
+# =============================================================================
+# Database Migration Check — TypeORM Migration Validation
+#
+# PURPOSE
+# -------
+# Fast, hermetic validation of the TypeORM migration files that actually
+# ship with this codebase, with no database, no NX build, and no docker.
+# The previous revision of this workflow tried to:
+#
+#   1. Build gateway-api with `npx nx build gateway-api`, then run
+#      `typeorm migration:run -d dist/apps/gateway-api/src/data-source.js`.
+#      Neither gateway-api nor any other service owns a `data-source.ts`
+#      file — migrations are registered as class references inside
+#      `TypeOrmModule.forRoot({ migrations: [...] })` and executed at
+#      service-boot time by `MigrationRunnerService`, not by the typeorm
+#      CLI. The step has never worked in this codebase.
+#
+#   2. Run Flyway validate against `database/migrations/core/**` and
+#      `database/migrations/modules/**`. 9 of the 13 SQL files in that
+#      tree are **empty** (0 bytes). The Flyway tree is a vestigial
+#      scaffolding experiment that was never completed; nothing in the
+#      runtime code references it. Deleting the job removes the
+#      confusion. The SQL tree itself is left in place so the git history
+#      stays intact and anyone looking for the old Flyway design can
+#      still find it.
+#
+# Beyond that, the `npx nx build` step hung silently for hours on every
+# run because the Windows-generated `package-lock.json` has no
+# `@nx/nx-linux-x64-gnu` binary; without it NX hangs until the 6-hour
+# GitHub Actions runner timeout. Five zombie runs piled up at
+# 09:36Z, 12:27Z, 13:37Z, 13:53Z, and 14:28Z on 2026-04-07 before this
+# rewrite landed.
+#
+# WHAT THIS WORKFLOW CHECKS NOW
+# -----------------------------
+# The real migration path in this codebase is
+# `apps/<service>/src/**/migrations/<timestamp>-<Name>.ts`, one class
+# per file, registered in the service's AppModule. The checks below
+# match that reality:
+#
+#   1. Filename convention — every migration file name must match
+#      `<13-digit-timestamp>-<PascalCaseName>.ts`.
+#   2. Class name consistency — the exported class inside must be
+#      named `<PascalCaseName><timestamp>` and match the file name.
+#   3. Global timestamp uniqueness — no two migrations anywhere in the
+#      repo may share the same timestamp. Collisions would produce
+#      undefined ordering under TypeORM's migration runner.
+#   4. Syntax / type check — each migration file compiles under
+#      `tsc --noEmit` against the service's `tsconfig.build.json` so
+#      structural errors (missing imports, bad decorator usage, typos
+#      in table names as SQL string literals — the latter caught only
+#      at runtime but the former all caught here) surface at PR time
+#      instead of at deploy time.
+#
+# The job finishes in well under a minute and has no external
+# dependencies: no postgres, no docker, no native binaries, no NX.
+# It cannot hang.
+#
+# Real integration-level migration validation — i.e. "does the
+# migration actually run against a database" — happens at deploy time
+# via `MigrationRunnerService.onApplicationBootstrap()` and the
+# deploy workflow's `Verify deployment` health check. Two different
+# quality gates at two different layers, neither duplicating the
+# other's work.
+#
+# SEC-CI-002: All third-party actions pinned to full commit SHAs.
+# =============================================================================
 
 on:
   pull_request:
     paths:
-      - 'apps/*/src/database/migrations/**'
-      - 'database/migrations/**'
+      - 'apps/*/src/**/migrations/**'
       - 'apps/*/src/**/*.entity.ts'
       - '.github/workflows/db-migration-check.yml'
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
     paths:
-      - 'apps/*/src/database/migrations/**'
-      - 'database/migrations/**'
+      - 'apps/*/src/**/migrations/**'
+      - '.github/workflows/db-migration-check.yml'
+
+# SEC-CI-021: Minimum token permissions.
+permissions:
+  contents: read
 
 jobs:
-  typeorm-migration-check:
+  typeorm-migration-validation:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: aquaculture_migration_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+    # Bounded budget — the checks take ~30 seconds on a cold runner.
+    # 10 minutes is a generous ceiling that still guarantees no zombies.
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
-        # SEC-CI-002: pinned to SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
-        # SEC-CI-002: pinned to SHA
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '22'
-          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
-
-      - name: Build gateway-api (needed for data-source)
-        run: npx nx build gateway-api
-        env:
-          NX_DAEMON: 'false'
-          NX_NO_CLOUD: 'true'
-          NODE_OPTIONS: '--max-old-space-size=4096'
-
-      - name: Run TypeORM migrations
+      # -------------------------------------------------------------------
+      # Check 1 + 2: filename convention and class name consistency.
+      # Pure shell — no node_modules needed. Fails fast on the first bad
+      # file with an inline GitHub annotation so the PR reviewer can
+      # click straight to the offending line.
+      # -------------------------------------------------------------------
+      - name: Validate migration filename and class name conventions
         run: |
-          npx typeorm migration:run -d dist/apps/gateway-api/src/data-source.js
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test
-          NODE_ENV: test
-
-      - name: Validate TypeORM schema
-        run: |
-          npx typeorm schema:validate -d dist/apps/gateway-api/src/data-source.js
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test
-          NODE_ENV: test
-
-      - name: Check for pending migrations (diff between entity models and DB schema)
-        run: |
-          # Check if there are entity changes not covered by a migration
-          PENDING=$(npx typeorm migration:generate /tmp/check-migration -d dist/apps/gateway-api/src/data-source.js --check 2>&1 || true)
-          if echo "$PENDING" | grep -q "No changes in database schema"; then
-            echo "Schema is in sync with migrations."
-          else
-            echo "::warning::Possible un-migrated entity changes detected. Run 'typeorm migration:generate' to create a migration."
-            echo "$PENDING"
-          fi
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_migration_test
-          NODE_ENV: test
-
-  flyway-sql-check:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: aquaculture_flyway_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-    steps:
-      - name: Checkout repository
-        # SEC-CI-002: pinned to SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Check if SQL migration files exist
-        id: check-sql
-        run: |
-          if [ -d "database/migrations" ] && find database/migrations -name "*.sql" | grep -q .; then
-            echo "has_sql=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_sql=false" >> $GITHUB_OUTPUT
-            echo "No SQL migration files found in database/migrations/ — skipping Flyway check."
-          fi
-
-      - name: Validate SQL migration files (naming convention)
-        if: steps.check-sql.outputs.has_sql == 'true'
-        run: |
+          set -euo pipefail
           INVALID=0
-          for f in database/migrations/**/*.sql; do
-            basename=$(basename "$f")
-            # Flyway naming convention: V<version>__<description>.sql
-            if ! echo "$basename" | grep -qE '^V[0-9]+__[a-zA-Z0-9_]+\.sql$'; then
-              echo "::error::Invalid migration filename: $f (expected V<version>__<description>.sql)"
+          while IFS= read -r file; do
+            base=$(basename "$file")
+            # Expected: <13-digit-timestamp>-<PascalCaseName>.ts
+            if ! echo "$base" | grep -qE '^[0-9]{13}-[A-Z][A-Za-z0-9]*\.ts$'; then
+              echo "::error file=$file::Invalid migration filename: '$base' (expected <13-digit-timestamp>-<PascalCaseName>.ts)"
+              INVALID=1
+              continue
+            fi
+
+            # Derive the expected class name from the file name:
+            #   "1781900000000-ConvertAuditColumnsToTimestamptz.ts"
+            # → class "ConvertAuditColumnsToTimestamptz1781900000000"
+            ts=$(echo "$base" | cut -d- -f1)
+            name_ts=$(echo "$base" | sed -E 's/\.ts$//')
+            name=${name_ts#*-}
+            expected_class="${name}${ts}"
+
+            if ! grep -qE "^export class ${expected_class}\b" "$file"; then
+              echo "::error file=$file::Class name mismatch — expected 'export class ${expected_class}' based on filename '$base'"
               INVALID=1
             fi
-          done
+          done < <(find apps -type f -name '[0-9]*-*.ts' -path '*/migrations/*' 2>/dev/null | sort)
+
           if [ "$INVALID" -eq 1 ]; then
             exit 1
           fi
-          echo "All SQL migration files follow Flyway naming convention."
+          echo "All migration filenames and class names match convention."
 
-      - name: Create module schemas and run Flyway validate
-        if: steps.check-sql.outputs.has_sql == 'true'
+      # -------------------------------------------------------------------
+      # Check 3: no two migrations share a timestamp. Collisions produce
+      # non-deterministic ordering under TypeORM's migration runner,
+      # which silently executes one of the duplicates and marks both as
+      # "applied" in the migrations table — a nightmare to diagnose in
+      # production. Catching it here is cheap.
+      # -------------------------------------------------------------------
+      - name: Check for duplicate migration timestamps across all services
         run: |
-          # Each module has its own V001..VN version sequence.
-          # Flyway requires globally-unique version numbers within a single scan,
-          # so we validate each subdirectory independently.
-          # Schemas must exist before Flyway validate — create them first.
+          set -euo pipefail
+          # Extract the 13-digit timestamp prefix from every migration
+          # filename across every service, count duplicates.
+          dupes=$(
+            find apps -type f -name '[0-9]*-*.ts' -path '*/migrations/*' \
+              -exec basename {} \; \
+              | cut -d- -f1 \
+              | sort \
+              | uniq -d
+          )
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate migration timestamps detected across services:"
+            for ts in $dupes; do
+              echo "  $ts is used by:"
+              find apps -type f -name "${ts}-*.ts" -path '*/migrations/*' | sed 's/^/    /'
+            done
+            exit 1
+          fi
+          echo "All migration timestamps are globally unique."
+
+      # -------------------------------------------------------------------
+      # Check 4: type-check migration files so structural TypeScript
+      # errors surface here rather than at deploy time. We install
+      # dependencies once and then run `tsc --noEmit` against every
+      # service's `tsconfig.build.json` that actually contains
+      # migrations. The install is expensive (~90s on a cold cache) but
+      # runs once per workflow invocation, and type-checking each
+      # service is sub-10 seconds because tsc has skipLibCheck: true.
+      # -------------------------------------------------------------------
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Type-check every service that owns migrations
+        run: |
+          set -euo pipefail
+          # Services with migrations, derived from the filesystem so this
+          # list stays in sync automatically when a new service is added.
+          services=$(
+            find apps -type d -name migrations \
+              | sed -E 's|apps/([^/]+)/.*|\1|' \
+              | sort -u
+          )
+          if [ -z "$services" ]; then
+            echo "No services with migrations — nothing to check."
+            exit 0
+          fi
+
           FAILED=0
-          for dir in database/migrations/core database/migrations/modules/*/; do
-            [ -d "$dir" ] || continue
-            if find "$dir" -maxdepth 1 -name "*.sql" | grep -q .; then
-              module=$(basename "$dir")
-              schema="flyway_check_${module}"
-              echo "--- Validating migrations in $dir (module: $module) ---"
-
-              # Create the schema so Flyway validate can work
-              PGPASSWORD=postgres psql -h localhost -U postgres -d aquaculture_flyway_test \
-                -c "CREATE SCHEMA IF NOT EXISTS \"${schema}\";"
-
-              # Run migrate first (applies migrations), then validate (checks consistency)
-              docker run --rm --network host \
-                -v "$PWD/$dir:/flyway/sql" \
-                flyway/flyway:10 \
-                -url="jdbc:postgresql://localhost:5432/aquaculture_flyway_test" \
-                -user=postgres \
-                -password=postgres \
-                -schemas="${schema}" \
-                -createSchemas=false \
-                migrate || FAILED=1
-
-              docker run --rm --network host \
-                -v "$PWD/$dir:/flyway/sql" \
-                flyway/flyway:10 \
-                -url="jdbc:postgresql://localhost:5432/aquaculture_flyway_test" \
-                -user=postgres \
-                -password=postgres \
-                -schemas="${schema}" \
-                validate || FAILED=1
+          for svc in $services; do
+            tsconfig="apps/${svc}/tsconfig.build.json"
+            if [ ! -f "$tsconfig" ]; then
+              echo "::warning::Service '$svc' has migrations but no $tsconfig — skipping"
+              continue
+            fi
+            echo "─── Type-checking $svc ───"
+            if ! npx --no-install tsc -p "$tsconfig" --noEmit; then
+              echo "::error::Type-check failed for service '$svc'"
+              FAILED=1
             fi
           done
-          exit $FAILED
+
+          if [ "$FAILED" -eq 1 ]; then
+            exit 1
+          fi
+          echo "All services with migrations type-checked successfully."

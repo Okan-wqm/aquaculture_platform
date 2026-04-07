@@ -5,7 +5,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { TankBatch, MortalityReason, MortalityReasonLabels } from '../types/batch.types';
-import { useRecordMortality, MortalityReason as MortalityReasonType } from '../../../hooks/useBatches';
+import { useRecordMortality } from '../../../hooks/useBatches';
 
 interface MortalityModalProps {
   isOpen: boolean;
@@ -96,7 +96,10 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         batchId: tank.primaryBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        reason: reason as unknown as MortalityReasonType,
+        // `reason` is a MortalityReason enum value whose string literal
+        // (e.g. `'disease'`) matches the hook's `MortalityReason` union
+        // type exactly — no cast required.
+        reason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         observedAt,
         notes,

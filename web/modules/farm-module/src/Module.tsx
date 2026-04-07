@@ -8,6 +8,7 @@
 import './styles.css';
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
 import FarmDetailPage from './pages/FarmDetailPage';
 import FarmFormPage from './pages/FarmFormPage';
 import SensorDashboardPage from './pages/SensorDashboardPage';
@@ -31,6 +32,14 @@ import AnalyticsPage from './pages/analytics/AnalyticsPage';
 // ============================================================================
 
 const FarmModule: React.FC = () => {
+  // Phase C: connect once to gateway-api `/farms` Socket.IO namespace and
+  // invalidate React Query caches when farm domain events arrive from NATS.
+  // This is the last link in the real-time pipeline:
+  //   farm-service handler → outbox → NATS → FarmNatsBridgeService →
+  //   FarmGateway → Socket.IO → this hook → queryClient.invalidateQueries
+  //                                       → components re-fetch & re-render
+  useFarmRealtimeStream();
+
   return (
     <Routes>
       {/* Index -> Map'e yönlendir */}

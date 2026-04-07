@@ -5,7 +5,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Modal, Button, useToast } from '@aquaculture/shared-ui';
 import { TankBatch, CullReason, CullReasonLabels } from '../types/batch.types';
-import { useRecordCull, CullReason as CullReasonType } from '../../../hooks/useBatches';
+import { useRecordCull } from '../../../hooks/useBatches';
 
 interface CullModalProps {
   isOpen: boolean;
@@ -90,7 +90,10 @@ export const CullModal: React.FC<CullModalProps> = ({
         batchId: tank.primaryBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        reason: reason as unknown as CullReasonType,
+        // `reason` is a CullReason enum value whose string literal
+        // (e.g. `'small_size'`) matches the hook's `CullReason` union
+        // type exactly — no cast required.
+        reason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         culledAt,
         notes,

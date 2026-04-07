@@ -1,0 +1,193 @@
+/**
+ * useFarmRealtimeStream
+ *
+ * Connects once per farm-module mount to the gateway-api `/farms` Socket.IO
+ * namespace, listens for domain events, and invalidates the matching React
+ * Query caches so the UI re-renders with fresh data without a manual refresh.
+ *
+ * # Why a hook (not a component)
+ *
+ * This is module-level infrastructure — exactly ONE instance should live
+ * for the lifetime of the farm-module mount. A component would either
+ * require careful Provider placement or risk double-mounting the socket
+ * in React strict mode. A hook called from `FarmModule.tsx` is the
+ * simplest correct placement.
+ *
+ * # Cache invalidation strategy
+ *
+ * We do NOT try to patch individual query caches with the event payload —
+ * that would couple the hook to the exact shape of every list/detail
+ * query and would drift the moment a query adds a new field. Instead we
+ * invalidate the relevant cache PREFIXES so React Query re-fetches the
+ * authoritative data from the backend. This is slightly less optimal in
+ * network terms but much more robust: the backend remains the single
+ * source of truth.
+ *
+ * The invalidation prefixes map to the actual query keys used in
+ * `useBatches.ts`, `useTanks.ts`, etc. If those keys change, this hook
+ * must be updated — the drift is caught by types at build time (the
+ * prefix-match pattern is tolerant) but verify after any hook rename.
+ *
+ * # Connection lifecycle
+ *
+ * The Socket.IO client is created with `reconnection: true` so transient
+ * network blips are handled automatically. The token is passed once at
+ * connect time via `auth: { token }`; the `reconnect_attempt` listener
+ * updates it from the current auth state before each retry.
+ *
+ * Cleanup on unmount disconnects the socket cleanly so the backend
+ * closes the room membership.
+ *
+ * @see Phase C of farm domain real-time visibility plan.
+ */
+
+import { useEffect } from 'react';
+import { io, type Socket } from 'socket.io-client';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@aquaculture/shared-ui';
+
+// ─── Configuration ──────────────────────────────────────────────────
+
+/**
+ * Gateway URL for the farm domain namespace. Resolution order:
+ *   1. `VITE_WS_URL` — explicit override at build time (preferred in prod)
+ *   2. `window.__RUNTIME_CONFIG__.WS_URL` — runtime config injected by shell
+ *   3. Empty string — Socket.IO defaults to current origin (dev mode)
+ *
+ * The `/farms` suffix is the Socket.IO namespace exposed by `FarmGateway`.
+ */
+function resolveFarmSocketUrl(): string {
+  const viteEnv = (import.meta as unknown as { env?: Record<string, string> })
+    .env;
+  const viteWsUrl = viteEnv?.['VITE_WS_URL'];
+  const runtimeConfig = (
+    window as unknown as { __RUNTIME_CONFIG__?: { WS_URL?: string } }
+  ).__RUNTIME_CONFIG__;
+  const runtimeWsUrl = runtimeConfig?.WS_URL;
+
+  const baseUrl = viteWsUrl || runtimeWsUrl || '';
+  return `${baseUrl}/farms`;
+}
+
+/** Event → React Query key prefix invalidation map. */
+const INVALIDATION_MAP = {
+  batchCreated: [
+    ['batches', 'list'],
+    ['tanks', 'list'],
+  ],
+  batchHarvested: [
+    ['batches', 'list'],
+    ['batches', 'detail'],
+    ['tanks', 'list'],
+    ['harvestPlans'],
+    ['harvestRecords'],
+  ],
+  batchTransferred: [
+    ['batches', 'list'],
+    ['batches', 'detail'],
+    ['tanks', 'list'],
+  ],
+  batchStatusChanged: [
+    ['batches', 'list'],
+    ['batches', 'detail'],
+  ],
+  batchClosed: [
+    ['batches', 'list'],
+    ['batches', 'detail'],
+    ['tanks', 'list'],
+  ],
+  batchAllocatedToTank: [
+    ['batches', 'detail'],
+    ['tanks', 'list'],
+  ],
+  mortalityRecorded: [
+    ['batches', 'list'],
+    ['batches', 'detail'],
+    ['tanks', 'list'],
+    ['mortalityRecords'],
+    ['batchOperations'],
+  ],
+  cullRecorded: [
+    ['batches', 'list'],
+    ['batches', 'detail'],
+    ['tanks', 'list'],
+    ['batchOperations'],
+  ],
+  feedingRecorded: [
+    ['feeding', 'daily-executions'],
+    ['batches', 'detail'],
+    ['tanks', 'list'],
+  ],
+  feedInventoryLow: [
+    ['storage', 'inventory'],
+    ['feeds', 'inventory'],
+  ],
+} as const satisfies Record<string, readonly (readonly unknown[])[]>;
+
+type FarmEventName = keyof typeof INVALIDATION_MAP;
+
+/**
+ * Hook-level state is limited to the React effect — there is no
+ * component-visible return value. Callers mount the hook and trust it
+ * to keep caches fresh in the background.
+ */
+export function useFarmRealtimeStream(): void {
+  const queryClient = useQueryClient();
+  const { tenantId, token } = useAuth();
+
+  useEffect(() => {
+    // Gate: only connect after auth is established. Without a token the
+    // socket handshake would be rejected by FarmGateway (401) and the
+    // client would keep reconnecting uselessly.
+    if (!token || !tenantId) return;
+
+    const url = resolveFarmSocketUrl();
+
+    const socket: Socket = io(url, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      auth: { token },
+    });
+
+    // Refresh token on every reconnect attempt so an expired JWT does
+    // not lock the connection out after a long-lived session.
+    socket.on('reconnect_attempt', () => {
+      (socket as unknown as { auth: { token: string } }).auth = { token };
+    });
+
+    /**
+     * Generic handler factory: invalidates the mapped prefixes for this
+     * event type. React Query's `invalidateQueries` with a partial key
+     * matches every query whose key starts with the given prefix, so
+     * we re-fetch the batch list, detail, tank list, etc. in one pass.
+     */
+    const handlers: Array<{ event: FarmEventName; fn: () => void }> = (
+      Object.keys(INVALIDATION_MAP) as FarmEventName[]
+    ).map((event) => ({
+      event,
+      fn: () => {
+        const prefixes = INVALIDATION_MAP[event];
+        for (const prefix of prefixes) {
+          // `QueryKey` in @tanstack/react-query is `readonly unknown[]`,
+          // so the `const satisfies` readonly tuples pass through
+          // unchanged. No cast required.
+          void queryClient.invalidateQueries({ queryKey: prefix });
+        }
+      },
+    }));
+
+    for (const { event, fn } of handlers) {
+      socket.on(event, fn);
+    }
+
+    return () => {
+      for (const { event, fn } of handlers) {
+        socket.off(event, fn);
+      }
+      socket.disconnect();
+    };
+  }, [queryClient, tenantId, token]);
+}

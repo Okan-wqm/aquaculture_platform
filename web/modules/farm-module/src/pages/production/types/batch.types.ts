@@ -54,24 +54,50 @@ export enum AllocationType {
   HARVEST = 'HARVEST',
 }
 
+/**
+ * Cull reason codes.
+ *
+ * Values are lowercase strings matching the backend GraphQL schema and
+ * `tank_operations.cullReason` enum column exactly. TypeScript keys stay
+ * UPPERCASE for idiomatic JS enum usage — but the VALUE is what travels
+ * on the wire. Previous revision used UPPERCASE values which required
+ * `as unknown as CullReasonType` casts in modals to bridge to the hook's
+ * lowercase union type. Aligning the values removes the casts entirely.
+ */
 export enum CullReason {
-  SMALL_SIZE = 'SMALL_SIZE',
-  DEFORMED = 'DEFORMED',
-  SICK = 'SICK',
-  POOR_GROWTH = 'POOR_GROWTH',
-  GRADING = 'GRADING',
-  OTHER = 'OTHER',
+  SMALL_SIZE = 'small_size',
+  DEFORMED = 'deformed',
+  SICK = 'sick',
+  POOR_GROWTH = 'poor_growth',
+  GRADING = 'grading',
+  QUALITY = 'quality',
+  OTHER = 'other',
 }
 
+/**
+ * Mortality cause codes.
+ *
+ * Values are lowercase strings matching the backend GraphQL schema and
+ * `tank_operations.mortalityReason` enum column exactly. Previously the
+ * enum values were UPPERCASE, requiring cast hacks in the modal to send
+ * them to the lowercase-typed mutation. Now the enum value IS the wire
+ * format so the cast disappears naturally.
+ *
+ * `PREDATION` and `CANNIBALISM` were missing — the hook's string literal
+ * type already knew about them but the enum didn't, so any user picking
+ * those options silently produced a runtime type error.
+ */
 export enum MortalityReason {
-  DISEASE = 'DISEASE',
-  WATER_QUALITY = 'WATER_QUALITY',
-  STRESS = 'STRESS',
-  HANDLING = 'HANDLING',
-  TEMPERATURE = 'TEMPERATURE',
-  OXYGEN = 'OXYGEN',
-  UNKNOWN = 'UNKNOWN',
-  OTHER = 'OTHER',
+  DISEASE = 'disease',
+  WATER_QUALITY = 'water_quality',
+  STRESS = 'stress',
+  HANDLING = 'handling',
+  TEMPERATURE = 'temperature',
+  OXYGEN = 'oxygen',
+  PREDATION = 'predation',
+  CANNIBALISM = 'cannibalism',
+  UNKNOWN = 'unknown',
+  OTHER = 'other',
 }
 
 export enum EquipmentStatus {
@@ -405,7 +431,10 @@ export interface TankOperationsChartData {
 }
 
 /**
- * Mortality reason labels (English)
+ * Mortality reason labels (English). Computed-property keys resolve to
+ * the enum's string VALUE, so the dictionary keys are lowercase
+ * (`'disease'`, `'water_quality'`, ...) and can be looked up directly
+ * with any value that matches the `MortalityReason` type.
  */
 export const MortalityReasonLabels: Record<MortalityReason, string> = {
   [MortalityReason.DISEASE]: 'Disease',
@@ -414,12 +443,14 @@ export const MortalityReasonLabels: Record<MortalityReason, string> = {
   [MortalityReason.HANDLING]: 'Handling',
   [MortalityReason.TEMPERATURE]: 'Temperature',
   [MortalityReason.OXYGEN]: 'Low Oxygen',
+  [MortalityReason.PREDATION]: 'Predation',
+  [MortalityReason.CANNIBALISM]: 'Cannibalism',
   [MortalityReason.UNKNOWN]: 'Unknown',
   [MortalityReason.OTHER]: 'Other',
 };
 
 /**
- * Cull reason labels (English)
+ * Cull reason labels (English).
  */
 export const CullReasonLabels: Record<CullReason, string> = {
   [CullReason.SMALL_SIZE]: 'Small Size',
@@ -427,6 +458,7 @@ export const CullReasonLabels: Record<CullReason, string> = {
   [CullReason.SICK]: 'Sick',
   [CullReason.POOR_GROWTH]: 'Poor Growth',
   [CullReason.GRADING]: 'Grading',
+  [CullReason.QUALITY]: 'Quality',
   [CullReason.OTHER]: 'Other',
 };
 
@@ -455,6 +487,8 @@ export const ChartColors = {
     [MortalityReason.HANDLING]: '#8B5CF6',      // purple
     [MortalityReason.TEMPERATURE]: '#EC4899',   // pink
     [MortalityReason.OXYGEN]: '#06B6D4',        // cyan
+    [MortalityReason.PREDATION]: '#0EA5E9',     // sky
+    [MortalityReason.CANNIBALISM]: '#DC2626',   // red-600
     [MortalityReason.UNKNOWN]: '#6B7280',       // gray
     [MortalityReason.OTHER]: '#9CA3AF',         // gray-400
   },
@@ -465,6 +499,7 @@ export const ChartColors = {
     [CullReason.SICK]: '#DC2626',         // red-600
     [CullReason.POOR_GROWTH]: '#FBBF24',  // yellow
     [CullReason.GRADING]: '#10B981',      // green
+    [CullReason.QUALITY]: '#14B8A6',      // teal
     [CullReason.OTHER]: '#9CA3AF',        // gray-400
   },
   // Tank colors (for by-tank view)

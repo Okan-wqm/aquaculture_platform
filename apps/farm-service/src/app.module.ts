@@ -121,6 +121,12 @@ import { AddPurchaseOrders1772000000000 } from './database/migrations/1772000000
 import { AddWeatherTables1773000000000 } from './database/migrations/1773000000000-AddWeatherTables';
 import { AddFeederCalibrations1774000000000 } from './database/migrations/1774000000000-AddFeederCalibrations';
 import { AddFeederFieldsToExecution1775000000000 } from './database/migrations/1775000000000-AddFeederFieldsToExecution';
+// NEW-S1: Schema convergence — drop dead PondBatch `batches` table and
+// converge `farms`/`ponds`/`workers`.`tenantId` from the legacy varchar
+// type to uuid, matching the corrected entity decorators. Runs IMMEDIATELY
+// BEFORE EnableRowLevelSecurity so the RLS policy install no longer fails
+// with `operator does not exist: text = uuid` on legacy columns.
+import { ConvergeTenantIdTypesAndDropPondBatch1775900000000 } from './database/migrations/1775900000000-ConvergeTenantIdTypesAndDropPondBatch';
 import { EnableRowLevelSecurity1776000000000 } from './database/migrations/1776000000000-EnableRowLevelSecurity';
 import { CreateFarmOutboxTable1780300000000 } from './database/migrations/1780300000000-CreateFarmOutboxTable';
 import { RefreshTenantRlsPredicate1781000000000 } from './database/migrations/1781000000000-RefreshTenantRlsPredicate';
@@ -191,6 +197,7 @@ import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrat
           AddWeatherTables1773000000000,
           AddFeederCalibrations1774000000000,
           AddFeederFieldsToExecution1775000000000,
+          ConvergeTenantIdTypesAndDropPondBatch1775900000000,
           EnableRowLevelSecurity1776000000000,
           CreateFarmOutboxTable1780300000000,
           RefreshTenantRlsPredicate1781000000000,

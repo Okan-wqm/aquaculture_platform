@@ -11,6 +11,8 @@ import { STLanguageGateway } from './st-language.gateway';
 import { STLanguageBridgeService } from './st-language-bridge.service';
 import { MessagingGateway } from './messaging.gateway';
 import { MessagingNatsBridgeService } from './messaging-nats-bridge.service';
+import { FarmGateway } from './farm.gateway';
+import { FarmNatsBridgeService } from './farm-nats-bridge.service';
 
 @Module({
   imports: [
@@ -33,8 +35,18 @@ import { MessagingNatsBridgeService } from './messaging-nats-bridge.service';
     STLanguageBridgeService,
     MessagingGateway,
     MessagingNatsBridgeService,
+    // Phase B — farm domain real-time bridge: subscribes to NATS subjects
+    // `events.*.{BatchCreated,MortalityRecorded,CullRecorded,...}` and
+    // forwards to FarmGateway → tenant-scoped Socket.IO rooms.
+    FarmGateway,
+    FarmNatsBridgeService,
   ],
-  exports: [SensorReadingsGateway, STLanguageGateway, MessagingGateway],
+  exports: [
+    SensorReadingsGateway,
+    STLanguageGateway,
+    MessagingGateway,
+    FarmGateway,
+  ],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class WebSocketModule {}

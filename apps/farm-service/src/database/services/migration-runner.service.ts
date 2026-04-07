@@ -53,6 +53,39 @@ export class MigrationRunnerService implements OnApplicationBootstrap {
 
     this.logger.log('Running pending migrations on source schema...');
 
+    // ── Pre-step: assert search_path before TypeORM opens migration txns ──
+    // Phase 11.1 (commit d257fd69) makes TenantConnectionBootstrap re-assert
+    // `SET search_path TO "farm", public` on every non-request pool
+    // checkout, so by the time `runMigrations()` grabs its QueryRunner the
+    // connection should already be on the right schema. This extra pre-step
+    // is belt-and-suspenders: it acquires ONE more fresh QueryRunner, sets
+    // search_path explicitly, logs the observed `current_schema()` so any
+    // future regression is visible in the deploy log, and releases the
+    // runner before TypeORM takes over. On a correctly-patched pool this
+    // reasserts an already-correct value; on a misconfigured pool it
+    // surfaces the drift loudly.
+    const preRunner = this.dataSource.createQueryRunner();
+    try {
+      await preRunner.connect();
+      await preRunner.query(`SET search_path TO "farm", public`);
+      const schemaRow: Array<{ schema: string }> = await preRunner.query(
+        `SELECT current_schema() AS schema`,
+      );
+      const observedSchema = schemaRow[0]?.schema ?? '<unknown>';
+      this.logger.log(
+        `MigrationRunner pre-step — search_path pinned to "farm", public; observed current_schema() = "${observedSchema}".`,
+      );
+      if (observedSchema !== 'farm') {
+        this.logger.warn(
+          `Expected current_schema() to be "farm" after SET search_path, got "${observedSchema}". ` +
+            `This indicates the farm schema does not exist yet — SourceSchemaBootstrap should have created it before this runner ran. ` +
+            `Proceeding anyway; the migrations themselves each SET search_path defensively.`,
+        );
+      }
+    } finally {
+      await preRunner.release();
+    }
+
     try {
       const applied = await this.dataSource.runMigrations({
         transaction: 'each',

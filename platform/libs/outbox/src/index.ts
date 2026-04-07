@@ -13,4 +13,5 @@ export { OutboxEntityBase } from './outbox-entity.base';
 // Public API
 export { OutboxPublisher } from './outbox-publisher.service';
 export { OutboxWorkerService } from './outbox-worker.service';
+export { OutboxMetricsService } from './outbox-metrics.service';
 export { OutboxModule } from './outbox.module';

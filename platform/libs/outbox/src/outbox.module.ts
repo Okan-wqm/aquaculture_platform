@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { OutboxEntityBase } from './outbox-entity.base';
 import { OutboxPublisher } from './outbox-publisher.service';
 import { OutboxWorkerService } from './outbox-worker.service';
+import { OutboxMetricsService } from './outbox-metrics.service';
 import { OUTBOX_ENTITY_CLASS } from './constants';
 
 /**
@@ -27,7 +28,12 @@ import { OUTBOX_ENTITY_CLASS } from './constants';
  * Requires the consuming service to have already registered an `EVENT_BUS`
  * provider via `EventBusModule.forRoot(...)` — the worker injects it.
  *
- * @see Phase 2 of farm domain real-time visibility plan.
+ * The `OutboxMetricsService` is registered alongside and exports Prometheus
+ * gauges/counters/histograms into the default prom-client registry, so the
+ * consumer's existing `/metrics` HTTP endpoint (if any) picks them up
+ * automatically without additional wiring.
+ *
+ * @see Phase 2 + Phase E of farm domain real-time visibility plan.
  */
 @Module({})
 export class OutboxModule {
@@ -45,10 +51,11 @@ export class OutboxModule {
           provide: OUTBOX_ENTITY_CLASS,
           useValue: entityClass,
         },
+        OutboxMetricsService,
         OutboxPublisher,
         OutboxWorkerService,
       ],
-      exports: [OutboxPublisher],
+      exports: [OutboxPublisher, OutboxMetricsService],
     };
   }
 }

@@ -31,6 +31,7 @@ import {
   OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import * as promClient from 'prom-client';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {
@@ -53,6 +54,34 @@ interface TokenPayload {
  * Identical pattern to SensorReadingsGateway / MessagingGateway so behaviour
  * stays consistent across all WebSocket namespaces.
  */
+/**
+ * Prometheus gauges for farm WebSocket operational health. Registered as
+ * singletons on the default prom-client registry so multiple replicas and
+ * test re-instantiations share the same metric objects. The `getSingleMetric`
+ * guard prevents double-registration errors when NestJS rebuilds the module.
+ */
+const farmWsConnections =
+  (promClient.register.getSingleMetric(
+    'farm_ws_connected_clients',
+  ) as promClient.Gauge<string>) ??
+  new promClient.Gauge({
+    name: 'farm_ws_connected_clients',
+    help: 'Number of Socket.IO clients currently connected to /farms',
+    labelNames: ['tenant'] as const,
+    registers: [promClient.register],
+  });
+
+const farmWsBroadcasts =
+  (promClient.register.getSingleMetric(
+    'farm_ws_events_broadcast_total',
+  ) as promClient.Counter<string>) ??
+  new promClient.Counter({
+    name: 'farm_ws_events_broadcast_total',
+    help: 'Total number of farm domain events broadcast to tenant rooms',
+    labelNames: ['tenant', 'event_type'] as const,
+    registers: [promClient.register],
+  });
+
 function buildWsCorsConfig(): {
   origin: string[] | boolean;
   credentials: boolean;
@@ -181,6 +210,11 @@ export class FarmGateway
       // Auto-join tenant room — all farm events for this tenant land here.
       void client.join(`tenant:${tenantId}`);
 
+      // Observability: bump the per-tenant connection gauge. Labelled by
+      // tenant so the Grafana dashboard can show connection distribution
+      // and detect tenants with zero or abnormally high connections.
+      farmWsConnections.inc({ tenant: tenantId }, 1);
+
       this.logger.log(
         `Farm client ${client.id} connected for tenant ${tenantId}`,
       );
@@ -197,7 +231,14 @@ export class FarmGateway
   }
 
   handleDisconnect(client: Socket): void {
+    const clientData = this.clients.get(client.id);
     this.clients.delete(client.id);
+    if (clientData) {
+      // Decrement the per-tenant gauge. Skipping the gauge update when
+      // clientData is missing prevents double-decrement if the same socket
+      // somehow disconnects twice.
+      farmWsConnections.dec({ tenant: clientData.tenantId }, 1);
+    }
     this.logger.log(`Farm client ${client.id} disconnected`);
   }
 
@@ -205,13 +246,28 @@ export class FarmGateway
   // Each method emits to the tenant-scoped room. The bridge has already
   // validated event.tenantId before invoking these — gateway just routes.
 
+  /**
+   * Shared helper for all broadcast methods: emit to the tenant-scoped
+   * Socket.IO room and bump the Prometheus counter. Keeping the
+   * increment in a single place ensures no event type is silently
+   * missed in the metric.
+   */
+  private emitFarmEvent(
+    tenantId: string,
+    eventName: string,
+    payload: Record<string, unknown>,
+  ): void {
+    this.server.to(`tenant:${tenantId}`).emit(eventName, payload);
+    farmWsBroadcasts.inc({ tenant: tenantId, event_type: eventName }, 1);
+    this.logger.debug(`broadcast ${eventName} → tenant ${tenantId}`);
+  }
+
   /** Broadcast a BatchCreated event to all connected clients of the tenant. */
   broadcastBatchCreated(
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('batchCreated', payload);
-    this.logger.debug(`broadcastBatchCreated → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'batchCreated', payload);
   }
 
   /** Broadcast a BatchHarvested event. */
@@ -219,8 +275,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('batchHarvested', payload);
-    this.logger.debug(`broadcastBatchHarvested → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'batchHarvested', payload);
   }
 
   /** Broadcast a BatchTransferred event. */
@@ -228,8 +283,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('batchTransferred', payload);
-    this.logger.debug(`broadcastBatchTransferred → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'batchTransferred', payload);
   }
 
   /** Broadcast a BatchStatusChanged event. */
@@ -237,8 +291,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('batchStatusChanged', payload);
-    this.logger.debug(`broadcastBatchStatusChanged → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'batchStatusChanged', payload);
   }
 
   /** Broadcast a BatchClosed event. */
@@ -246,8 +299,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('batchClosed', payload);
-    this.logger.debug(`broadcastBatchClosed → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'batchClosed', payload);
   }
 
   /** Broadcast a BatchAllocatedToTank event. */
@@ -255,8 +307,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('batchAllocatedToTank', payload);
-    this.logger.debug(`broadcastBatchAllocatedToTank → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'batchAllocatedToTank', payload);
   }
 
   /** Broadcast a MortalityRecorded event. */
@@ -264,8 +315,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('mortalityRecorded', payload);
-    this.logger.debug(`broadcastMortalityRecorded → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'mortalityRecorded', payload);
   }
 
   /** Broadcast a CullRecorded event. */
@@ -273,8 +323,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('cullRecorded', payload);
-    this.logger.debug(`broadcastCullRecorded → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'cullRecorded', payload);
   }
 
   /** Broadcast a FeedingRecorded event. */
@@ -282,8 +331,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('feedingRecorded', payload);
-    this.logger.debug(`broadcastFeedingRecorded → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'feedingRecorded', payload);
   }
 
   /** Broadcast a FeedInventoryLow alert. */
@@ -291,8 +339,7 @@ export class FarmGateway
     tenantId: string,
     payload: Record<string, unknown>,
   ): void {
-    this.server.to(`tenant:${tenantId}`).emit('feedInventoryLow', payload);
-    this.logger.debug(`broadcastFeedInventoryLow → tenant ${tenantId}`);
+    this.emitFarmEvent(tenantId, 'feedInventoryLow', payload);
   }
 
   /** Get connected client count (used by health probes / metrics). */

@@ -6,9 +6,16 @@ import {
   Type,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { DataSource, Repository, IsNull, LessThan } from 'typeorm';
+import {
+  DataSource,
+  Repository,
+  IsNull,
+  LessThan,
+  MoreThanOrEqual,
+} from 'typeorm';
 import type { IEventBus, IEvent } from '@platform/event-bus';
 import { OutboxEntityBase } from './outbox-entity.base';
+import { OutboxMetricsService } from './outbox-metrics.service';
 import {
   OUTBOX_ENTITY_CLASS,
   OUTBOX_BATCH_SIZE,
@@ -45,6 +52,8 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OutboxWorkerService.name);
   private repo!: Repository<OutboxEntityBase>;
   private processing = false;
+  /** Prometheus `service` label derived from the consuming entity class name. */
+  private readonly metricsLabel: string;
 
   constructor(
     @Inject(OUTBOX_ENTITY_CLASS)
@@ -52,7 +61,13 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     private readonly dataSource: DataSource,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
-  ) {}
+    private readonly metrics: OutboxMetricsService,
+  ) {
+    // `FarmOutbox` → `farm_outbox` — stable, readable, Prometheus-safe.
+    this.metricsLabel = entityClass.name
+      .replace(/([a-z])([A-Z])/g, '$1_$2')
+      .toLowerCase();
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     this.repo = this.dataSource.getRepository(this.entityClass);
@@ -75,6 +90,10 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
   /**
    * Polls unpublished outbox events every second and publishes them to NATS.
    * Skips silently if a previous cycle is still running (no overlap).
+   *
+   * Also refreshes the Prometheus `outbox_pending` and
+   * `outbox_dead_letter_count` gauges every cycle — this gives operators
+   * a near-real-time view of outbox health without a separate observer job.
    */
   @Cron(CronExpression.EVERY_SECOND, { name: 'outbox-poll' })
   async pollAndPublish(): Promise<void> {
@@ -83,6 +102,28 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     this.processing = true;
 
     try {
+      // Refresh gauges. Counting is cheap — a partial index on
+      // `(createdAt) WHERE publishedAt IS NULL` makes the pending count
+      // fast even when the table is large.
+      const [pendingCount, deadLetterCount] = await Promise.all([
+        this.repo.count({
+          where: {
+            publishedAt: IsNull(),
+            retryCount: LessThan(OUTBOX_MAX_RETRIES),
+          },
+        }),
+        this.repo.count({
+          where: {
+            publishedAt: IsNull(),
+            retryCount: MoreThanOrEqual(OUTBOX_MAX_RETRIES),
+          },
+        }),
+      ]);
+      this.metrics.setPending(this.metricsLabel, pendingCount);
+      this.metrics.setDeadLetterCount(this.metricsLabel, deadLetterCount);
+
+      if (pendingCount === 0) return;
+
       const events = await this.repo.find({
         where: {
           publishedAt: IsNull(),
@@ -91,8 +132,6 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
         order: { createdAt: 'ASC' },
         take: OUTBOX_BATCH_SIZE,
       });
-
-      if (events.length === 0) return;
 
       for (const row of events) {
         await this.publishOne(row);
@@ -112,14 +151,28 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       const event = row.payload as unknown as IEvent;
       await this.eventBus.publish(event);
 
-      await this.repo.update(row.id, { publishedAt: new Date() });
+      const publishedAt = new Date();
+      await this.repo.update(row.id, { publishedAt });
+
+      // Latency from enqueue (createdAt) to successful publish, in seconds.
+      // This is the most important operational signal for the outbox:
+      // a rising p99 means the worker is falling behind real-time writes.
+      const latencySeconds =
+        (publishedAt.getTime() - new Date(row.createdAt).getTime()) / 1000;
+      this.metrics.recordPublishSuccess(
+        this.metricsLabel,
+        row.eventType,
+        latencySeconds,
+      );
 
       this.logger.debug(
-        `Published outbox row ${row.id} (${row.eventType}) to NATS`,
+        `Published outbox row ${row.id} (${row.eventType}) to NATS in ${latencySeconds.toFixed(3)}s`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const newRetryCount = row.retryCount + 1;
+
+      this.metrics.recordPublishFailure(this.metricsLabel, row.eventType);
 
       if (newRetryCount >= OUTBOX_MAX_RETRIES) {
         this.logger.error(

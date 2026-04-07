@@ -250,7 +250,7 @@ export class ActivityLog {
   @Column({ type: 'boolean', default: false })
   isArchived!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   archivedAt?: Date | null;
 }
 
@@ -347,14 +347,14 @@ export class SecurityEvent {
   @Column({ type: 'varchar', length: 255, nullable: true })
   assignedToName?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   assignedAt?: Date | null;
 
   // Resolution
   @Column({ type: 'text', nullable: true })
   resolution?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   resolvedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
@@ -427,19 +427,19 @@ export class SecurityIncident {
   businessImpact?: string | null;
 
   // Timeline
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   detectedAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   containedAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   eradicatedAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   recoveredAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   closedAt?: Date | null;
 
   // Response team
@@ -470,7 +470,7 @@ export class SecurityIncident {
   @Column({ type: 'boolean', default: false })
   reportedToAuthorities!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   reportedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -535,20 +535,20 @@ export class ThreatIntelligence {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   validFrom?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   validUntil?: Date | null;
 
   // Activity tracking
   @Column({ type: 'int', default: 0 })
   hitCount!: number;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastSeenAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   firstSeenAt?: Date | null;
 
   // Related data
@@ -622,7 +622,7 @@ export class DataRequest {
   @Column({ type: 'boolean', default: false })
   identityVerified!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   verifiedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
@@ -632,7 +632,7 @@ export class DataRequest {
   verificationMethod?: string | null;
 
   // Processing
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   dueDate!: Date;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
@@ -641,11 +641,11 @@ export class DataRequest {
   @Column({ type: 'varchar', length: 255, nullable: true })
   assignedToName?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   processingStartedAt?: Date | null;
 
   // Completion
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
@@ -661,7 +661,7 @@ export class DataRequest {
   @Column({ type: 'varchar', length: 500, nullable: true })
   downloadUrl?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   downloadExpiresAt?: Date | null;
 
   @Column({ type: 'int', default: 0 })
@@ -702,10 +702,10 @@ export class ComplianceReport {
   @Column({ type: 'varchar', length: 20 })
   complianceType!: ComplianceType;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   reportPeriodStart!: Date;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   reportPeriodEnd!: Date;
 
   // Scope
@@ -993,7 +993,7 @@ export class UserSession {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   expiresAt!: Date;
 
   // Source info
@@ -1010,14 +1010,14 @@ export class UserSession {
   @Column({ type: 'int', default: 0 })
   requestCount!: number;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   lastActivityAt!: Date;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   lastActivityPath?: string | null;
 
   // Termination
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   terminatedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })

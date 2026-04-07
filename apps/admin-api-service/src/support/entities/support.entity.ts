@@ -63,7 +63,7 @@ export class MessageThread {
   @Column({ type: 'boolean', default: false })
   isClosed!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastMessageAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -115,7 +115,7 @@ export class Message {
   @Column({ type: 'jsonb', nullable: true })
   attachments?: MessageAttachment[];
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   readAt?: Date;
 
   @Column({ type: 'boolean', default: false })
@@ -166,10 +166,10 @@ export class Announcement {
   @Column({ type: 'varchar', length: 200, nullable: true })
   createdByName?: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   publishAt?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   expiresAt?: Date;
 
   @Column({ type: 'boolean', default: false })
@@ -218,10 +218,10 @@ export class AnnouncementAcknowledgment {
   @Column({ type: 'varchar', length: 200, nullable: true })
   userName?: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   viewedAt?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   acknowledgedAt?: Date;
 
   @ManyToOne(() => Announcement, announcement => announcement.acknowledgments)
@@ -289,16 +289,16 @@ export class SupportTicket {
   @Column({ type: 'jsonb', nullable: true })
   tags?: string[];
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   firstResponseAt?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   resolvedAt?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   closedAt?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   dueAt?: Date;
 
   @Column({ type: 'int', nullable: true })
@@ -405,7 +405,7 @@ export class OnboardingProgress {
   @Column({ type: 'boolean', default: false })
   welcomeEmailSent!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   welcomeEmailSentAt?: Date;
 
   @Column({ type: 'boolean', default: false })
@@ -423,10 +423,10 @@ export class OnboardingProgress {
   @Column({ type: 'varchar', length: 200, nullable: true })
   assignedGuideName?: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startedAt?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })

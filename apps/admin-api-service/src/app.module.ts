@@ -10,6 +10,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
+import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -63,6 +64,18 @@ import { UsersModule } from './users/users.module';
         // SECURITY: Default to false — explicit DATABASE_SYNC=true required.
         // Shared bootstrap guards against DATABASE_SYNC=true in production.
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+        // Enterprise: Run pending migrations on startup (idempotent,
+        // safe for multi-replica because TypeORM tracks applied
+        // migrations in the `migrations` table with advisory-lock
+        // based single-runner semantics).
+        migrationsRun:
+          configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+        // Class references (not glob paths) — webpack bundles all files
+        // into main.js and glob patterns match zero files at runtime.
+        // Matches the pattern used by farm-service and messaging-service.
+        migrations: [
+          ConvertTimestampToTimestamptz1781500000000,
+        ],
         logging: configService.get<string>('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {

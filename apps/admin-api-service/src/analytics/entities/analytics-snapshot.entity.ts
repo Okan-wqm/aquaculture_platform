@@ -249,7 +249,7 @@ export class ReportDefinition {
   @Column({ type: 'varchar', length: 255, nullable: true })
   createdByEmail?: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastRunAt?: Date;
 
   @Column({ type: 'int', default: 0 })
@@ -258,7 +258,7 @@ export class ReportDefinition {
   @CreateDateColumn()
   createdAt!: Date;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   updatedAt!: Date;
 }
 
@@ -291,10 +291,10 @@ export class ReportExecution {
   @Column({ type: 'varchar', length: 20, default: 'pending' })
   status!: ReportExecutionStatus;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startDate?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   endDate?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -312,7 +312,7 @@ export class ReportExecution {
   @Column({ type: 'varchar', length: 500, nullable: true })
   downloadUrl?: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   downloadExpiresAt?: Date;
 
   @Column({ type: 'text', nullable: true })
@@ -330,6 +330,6 @@ export class ReportExecution {
   @CreateDateColumn()
   createdAt!: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date;
 }

@@ -61,10 +61,10 @@ export class TenantSchema {
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown>;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastMigrationAt!: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastBackupAt!: Date;
 
   @CreateDateColumn()
@@ -122,10 +122,10 @@ export class SchemaMigration {
   @Column({ type: 'varchar', length: 100, nullable: true })
   executedBy!: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startedAt!: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt!: Date;
 
   @CreateDateColumn()
@@ -188,13 +188,13 @@ export class SchemaBackup {
     compressionRatio?: number;
   };
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startedAt!: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt!: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   expiresAt!: Date;
 
   @CreateDateColumn()
@@ -228,7 +228,7 @@ export class SchemaRestore {
   @Column({ type: 'boolean', default: false })
   isPointInTime!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   pointInTimeTarget!: Date;
 
   @Column({ type: 'text', nullable: true })
@@ -243,10 +243,10 @@ export class SchemaRestore {
   @Column({ type: 'jsonb', nullable: true })
   restoredTables!: string[];
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startedAt!: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt!: Date;
 
   @CreateDateColumn()
@@ -277,7 +277,7 @@ export class DatabaseMetric {
   @Column({ type: 'jsonb' })
   metrics!: DatabaseMetricData;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   recordedAt!: Date;
 
   @CreateDateColumn()
@@ -329,7 +329,7 @@ export class SlowQueryLog {
   @Column({ type: 'varchar', length: 100, nullable: true })
   userId!: string;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   recordedAt!: Date;
 
   @CreateDateColumn()

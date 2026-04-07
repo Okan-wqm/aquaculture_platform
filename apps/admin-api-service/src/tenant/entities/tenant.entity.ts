@@ -82,10 +82,10 @@ export class Tenant {
   @Column({ type: 'int', default: 0, name: 'sensor_count' })
   sensorCount!: number;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt?: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   subscriptionEndsAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -115,10 +115,10 @@ export class Tenant {
   @Column({ type: 'uuid', nullable: true })
   createdBy?: string;
 
-  @CreateDateColumn({ type: 'timestamp' })
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamp' })
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   @VersionColumn({ name: 'version' })

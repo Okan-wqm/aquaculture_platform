@@ -100,7 +100,25 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'farm',
     sourceSchema: 'farm', // Tables are in farm schema, will be copied to tenant schema
-    referenceDataTables: ['equipment_types', 'sub_equipment_types', 'supplier_types', 'chemical_types', 'feed_types'],
+    // Reference tables are exempt from SourceSchemaWriteGuardService so that
+    // seed services (FarmSeedService) can write global/template rows that
+    // subsequently get copied into each tenant schema on provisioning via
+    // SchemaManagerService.copyReferenceData(). `species` was added in
+    // Phase 11.4 because FarmSeedService.seedGlobalCleanerFishSpecies()
+    // writes cleaner-fish species with `tenantId = '00000000-0000-0000-0000-000000000000'`
+    // (the global-template tenant) directly into `farm.species`, and
+    // without this exemption the write-guard trigger raises
+    // TENANT_ISOLATION_VIOLATION on the insert. Per-tenant species
+    // additions still route through tenant schemas via search_path and
+    // are unaffected by this exemption.
+    referenceDataTables: [
+      'equipment_types',
+      'sub_equipment_types',
+      'supplier_types',
+      'chemical_types',
+      'feed_types',
+      'species',
+    ],
     tables: [
       // Core entities
       'farms',
@@ -112,8 +130,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tank_batches',
       'tank_operations',
 
-      // Batch management
-      'batches',
+      // Batch management — `batches` (legacy PondBatch) was removed in
+      // commit b5bcec3c and dropped from existing databases by the
+      // ConvergeTenantIdTypesAndDropPondBatch1775900000000 migration.
+      // `batches_v2` is the current canonical batches table.
       'batches_v2',
       'batch_documents',
       'batch_feed_assignments',

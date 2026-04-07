@@ -21,6 +21,7 @@ import {
   AuditLogModule,
   AuditLogInterceptor,
   RlsModule,
+  AuditColumnsModule,
 } from '@aquaculture/backend-common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
@@ -184,6 +185,16 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       serviceName: 'notification',
       autoApply: true,
     }),
+    /**
+     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
+     *
+     * notification-service is global-schema (one DB, no per-tenant schemas)
+     * and has no TypeORM migration runner. The bootstrap path is the
+     * canonical delivery vehicle, paired with the RlsModule above on the
+     * same OnApplicationBootstrap lifecycle. Idempotent — re-runs are
+     * no-ops at the discovery layer.
+     */
+    AuditColumnsModule.forRoot({ serviceName: 'notification' }),
   ],
   providers: [
     {

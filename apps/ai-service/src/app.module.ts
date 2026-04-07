@@ -31,6 +31,7 @@ import {
   SourceSchemaWriteGuardService,
   AuditLogModule,
   AuditLogInterceptor,
+  AuditColumnsModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
@@ -217,6 +218,16 @@ const complexityCache = new Map<string, number>();
     ChatModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
+     *
+     * ai-service is schema-per-tenant (mirrors farm/sensor/hr/messaging)
+     * but currently has no TypeORM migration runner — schema concerns
+     * are delivered through SourceSchemaBootstrapService and the related
+     * tenant-sync services. The audit-column bootstrap follows the same
+     * lifecycle and is idempotent.
+     */
+    AuditColumnsModule.forRoot({ serviceName: 'ai' }),
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

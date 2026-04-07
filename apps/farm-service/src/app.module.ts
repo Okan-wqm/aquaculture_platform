@@ -112,6 +112,12 @@ import { CreateFarmOutboxTable1780300000000 } from './database/migrations/178030
 import { RefreshTenantRlsPredicate1781000000000 } from './database/migrations/1781000000000-RefreshTenantRlsPredicate';
 import { ConvertFarmOutboxToIdentity1781200000000 } from './database/migrations/1781200000000-ConvertFarmOutboxToIdentity';
 import { AddTenantActivePartialIndexes1781800000000 } from './database/migrations/1781800000000-AddTenantActivePartialIndexes';
+// NEW-H1: convert audit columns from TIMESTAMP to TIMESTAMPTZ across the
+// farm schema. Excludes farm_outbox/audit_logs/audit_log to stay in lockstep
+// with the RLS migration's exclusion list. Helper uses dynamic discovery,
+// so any new entity that uses the bare @CreateDateColumn() decorator is
+// picked up automatically without amending this list.
+import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
 
 @Module({
   imports: [
@@ -177,6 +183,7 @@ import { AddTenantActivePartialIndexes1781800000000 } from './database/migration
           RefreshTenantRlsPredicate1781000000000,
           ConvertFarmOutboxToIdentity1781200000000,
           AddTenantActivePartialIndexes1781800000000,
+          ConvertAuditColumnsToTimestamptz1781900000000,
         ],
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation

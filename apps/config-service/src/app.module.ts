@@ -8,7 +8,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule } from '@aquaculture/backend-common';
+import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule } from '@aquaculture/backend-common';
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -107,6 +107,15 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       serviceName: 'config',
       autoApply: true,
     }),
+    /**
+     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
+     *
+     * config-service has no TypeORM migration runner — schema state is
+     * managed via TypeORM autoLoadEntities + the RLS bootstrap above.
+     * The audit-column bootstrap closes NEW-H1 on the same lifecycle
+     * hook. Idempotent.
+     */
+    AuditColumnsModule.forRoot({ serviceName: 'config' }),
   ],
   providers: [
     {

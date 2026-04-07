@@ -79,6 +79,12 @@ import { AddAiPersonaColumns1711800000002 } from './migrations/1711800000002-Add
 import { CreateComplianceTables1711800000003 } from './migrations/1711800000003-CreateComplianceTables';
 import { ConvertMessagingOutboxToIdentity1781200000000 } from './migrations/1781200000000-ConvertMessagingOutboxToIdentity';
 import { AddCompositeFkIndexesOnMessageChildren1781600000000 } from './migrations/1781600000000-AddCompositeFkIndexesOnMessageChildren';
+// NEW-H1: convert audit columns from TIMESTAMP to TIMESTAMPTZ across the
+// messaging schema. Excludes messaging_outbox to stay in lockstep with the
+// outbox migration's invariants (cross-tenant table read by background
+// workers). Runs after the outbox IDENTITY conversion is complete; the
+// helper is idempotent at the discovery layer so retries are free.
+import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -154,6 +160,7 @@ const complexityCache = new Map<string, number>();
             CreateComplianceTables1711800000003,
             ConvertMessagingOutboxToIdentity1781200000000,
             AddCompositeFkIndexesOnMessageChildren1781600000000,
+            ConvertAuditColumnsToTimestamptz1781900000000,
           ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {

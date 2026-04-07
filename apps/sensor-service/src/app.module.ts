@@ -93,6 +93,11 @@ import { CreateAutomationTables1740300001000 } from './database/migrations/17403
 import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrations/1741100000000-AddEnterprisePlcConnectionFields';
 import { EnterprisePerformanceOptimizations1741200000000 } from './database/migrations/1741200000000-EnterprisePerformanceOptimizations';
 import { AddSensorProtocolTopicIndex1781400000000 } from './database/migrations/1781400000000-AddSensorProtocolTopicIndex';
+// NEW-H1: convert audit columns from TIMESTAMP to TIMESTAMPTZ across the
+// sensor schema. Excludes sensor_audit_logs to mirror its RLS-migration
+// exclusion (deliberately cross-tenant audit table). Helper uses dynamic
+// discovery — TimescaleDB hypertables and OLTP entities are both handled.
+import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
 import { CredentialVaultModule } from './infrastructure/vault/credential-vault.module';
 import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
@@ -185,6 +190,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           AddEnterprisePlcConnectionFields1741100000000,
           EnterprisePerformanceOptimizations1741200000000,
           AddSensorProtocolTopicIndex1781400000000,
+          ConvertAuditColumnsToTimestamptz1781900000000,
         ],
         // When sync is on (initial deploy), skip migrations to avoid index conflicts.
         // When sync is off (production), run migrations for structural changes.

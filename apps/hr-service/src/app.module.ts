@@ -30,6 +30,7 @@ import {
   SourceSchemaWriteGuardService,
   AuditLogModule,
   AuditLogInterceptor,
+  AuditColumnsModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
@@ -272,6 +273,20 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
+     *
+     * hr-service has no TypeORM migration runner — it currently delivers
+     * schema concerns through OnApplicationBootstrap services
+     * (SourceSchemaBootstrapService, TenantSchemaSyncService). The
+     * AuditColumnsModule.forRoot() pattern mirrors RlsModule.forRoot()
+     * exactly: a single import line that registers the bootstrap with
+     * DataSource injection. The bootstrap is idempotent at the discovery
+     * layer, so cold restarts re-run safely.
+     *
+     * No excludeTables — every hr-service table should use TIMESTAMPTZ.
+     */
+    AuditColumnsModule.forRoot({ serviceName: 'hr' }),
   ],
   providers: [
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers

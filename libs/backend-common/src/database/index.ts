@@ -33,3 +33,13 @@ export { createTenantConnectionBootstrap } from './tenant-connection-bootstrap.s
 
 // Row-Level Security (RLS) for PostgreSQL tenant isolation
 export * from './rls';
+
+// Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
+// `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`
+// are imported by per-service migrations in `auth`, `admin-api`, `farm`,
+// `sensor`, and `messaging`. `AuditColumnsBootstrap` is the runtime
+// installer used by services without a migration runner via the
+// `AuditColumnsModule` dynamic module below.
+export * from './convert-audit-columns-to-timestamptz.helper';
+export * from './audit-columns-bootstrap.service';
+export * from './audit-columns.module';

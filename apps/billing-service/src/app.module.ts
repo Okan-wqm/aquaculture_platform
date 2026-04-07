@@ -11,7 +11,7 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -161,6 +161,20 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
       serviceName: 'billing',
       autoApply: true,
     }),
+    /**
+     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
+     *
+     * billing-service has no TypeORM migration runner — synchronize was
+     * removed in commit 5ce2b127 to lock the schema down. The bootstrap
+     * path closes the audit-column blind spot via OnApplicationBootstrap,
+     * mirroring how RlsSchemaBootstrap above installs RLS policies on
+     * the same lifecycle hook. Idempotent at the discovery layer.
+     *
+     * No excludeTables — all billing-service tables should use TIMESTAMPTZ
+     * for audit-trail integrity (financial timestamps are compliance-
+     * sensitive and must not drift across DST).
+     */
+    AuditColumnsModule.forRoot({ serviceName: 'billing' }),
   ],
   providers: [
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers

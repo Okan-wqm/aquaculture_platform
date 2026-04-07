@@ -3,15 +3,20 @@
  *
  * CreateBatchCommand'ı işler ve yeni batch oluşturur.
  *
+ * Phase A refactor: replaced fire-and-forget `eventBus.publish()` (post-commit,
+ * @Optional() injection that silently dropped events when EVENT_BUS was missing)
+ * with `OutboxPublisher.enqueue()` inside the same transaction as the domain
+ * write. BatchCreated events are now delivered with at-least-once guarantee.
+ *
  * @module Batch/Handlers
  */
 import { randomUUID } from 'crypto';
 
-import { Injectable, BadRequestException, Inject, Optional, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { BatchCreatedEvent } from '@platform/event-contracts';
 import { CreateBatchCommand } from '../commands/create-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
@@ -41,8 +46,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly codeGenerator: CodeGeneratorService,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateBatchCommand): Promise<Batch> {
@@ -340,7 +344,33 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         }
       }
 
-      // Commit transaction
+      // Enqueue BatchCreatedEvent into the transactional outbox BEFORE commit.
+      // savedBatch is non-null at this point because we only reach here after
+      // a successful save. The outbox INSERT joins the same transaction so the
+      // domain write and event delivery commit atomically — at-least-once
+      // delivery guaranteed even when NATS is briefly unavailable.
+      const tankIds = (payload.initialLocations || [])
+        .map((loc) => loc.tankId || loc.pondId)
+        .filter((id): id is string => !!id);
+      const batchCreatedEvent: BatchCreatedEvent = {
+        eventId: randomUUID(),
+        eventType: 'BatchCreated',
+        timestamp: new Date(),
+        tenantId,
+        version: 1,
+        userId: createdBy,
+        aggregateId: savedBatch.id,
+        aggregateType: 'Batch',
+        batchId: savedBatch.id,
+        tankIds: tankIds.length > 0 ? tankIds : undefined,
+        name: savedBatch.batchNumber,
+        species: species.commonName,
+        quantity: savedBatch.initialQuantity,
+        stockedAt: savedBatch.stockedAt,
+      };
+      await this.outboxPublisher.enqueue(batchCreatedEvent, queryRunner.manager);
+
+      // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();
     } catch (error) {
       // Rollback transaction on any error
@@ -349,33 +379,6 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     } finally {
       // Release query runner
       await queryRunner.release();
-    }
-
-    // Publish domain event AFTER transaction committed and queryRunner released
-    if (this.eventBus) {
-      try {
-        const tankIds = (payload.initialLocations || [])
-          .map((loc) => loc.tankId || loc.pondId)
-          .filter((id): id is string => !!id);
-        const event: BatchCreatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'BatchCreated',
-          tenantId,
-          timestamp: new Date(),
-          batchId: savedBatch.id,
-          tankIds: tankIds.length > 0 ? tankIds : undefined,
-          name: savedBatch.batchNumber,
-          species: species.commonName,
-          quantity: savedBatch.initialQuantity,
-          stockedAt: savedBatch.stockedAt,
-          version: 1,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published BatchCreatedEvent for batch ${savedBatch.id}`);
-      } catch (eventError) {
-        // Log but don't fail for event publishing errors
-        this.logger.warn(`Failed to publish BatchCreatedEvent: ${(eventError as Error).message}`);
-      }
     }
 
     return savedBatch;

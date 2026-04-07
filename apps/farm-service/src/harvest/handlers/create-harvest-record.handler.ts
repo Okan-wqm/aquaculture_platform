@@ -8,14 +8,23 @@
  * to prevent TOCTOU race conditions. generateCode() moved inside transaction.
  * Math.max(0, ...) guards added to prevent negative biomass values.
  *
+ * Phase A refactor: replaced DomainEventPublisher (post-commit fire-and-forget,
+ * publishing non-contract field names) with OutboxPublisher (pre-commit
+ * transactional). The previous event payload sent `harvestRecordId`,
+ * `lotNumber`, `totalQuantity`, `totalBiomassKg` — none of which exist on the
+ * BatchHarvestedEvent contract. The contract requires `harvestedQuantity`,
+ * `harvestedAt`, `averageWeight`, `totalWeight`. The wrong field names made
+ * downstream consumers (read models, dashboards) read `undefined` for the
+ * critical harvest-quantity field, silently producing zero rows in projections.
+ *
  * @module Harvest/Handlers
  */
+import { randomUUID } from 'crypto';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { createBaseEvent } from '@platform/event-contracts';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
-import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
+import { OutboxPublisher } from '@platform/outbox';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { CreateHarvestRecordCommand, CreateHarvestRecordInput } from '../commands/create-harvest-record.command';
 import { HarvestRecord, HarvestRecordStatus, QualityGrade, HarvestOperation, LotInfo } from '../entities/harvest-record.entity';
@@ -31,7 +40,7 @@ import { Tank } from '../../tank/entities/tank.entity';
 export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvestRecordCommand, HarvestRecord> {
   constructor(
     private readonly dataSource: DataSource,
-    private readonly eventPublisher: DomainEventPublisher,
+    private readonly outboxPublisher: OutboxPublisher,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
     @InjectRepository(Batch)
@@ -238,25 +247,31 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         await queryRunner.manager.save(TankOperation, tankOperation);
       }
 
-      // Commit transaction
-      await queryRunner.commitTransaction();
+      // Enqueue BatchHarvestedEvent into the transactional outbox BEFORE commit.
+      // Field names match the BatchHarvestedEvent contract exactly:
+      // `harvestedQuantity`, `harvestedAt`, `averageWeight`, `totalWeight`.
+      // The previous implementation sent `harvestRecordId`/`lotNumber`/
+      // `totalQuantity`/`totalBiomassKg` — none of those are contract fields,
+      // so consumers reading `event.harvestedQuantity` got `undefined`.
+      const harvestEvent: BatchHarvestedEvent = {
+        eventId: randomUUID(),
+        eventType: 'BatchHarvested',
+        timestamp: new Date(),
+        tenantId,
+        version: 1,
+        userId: recordedBy,
+        aggregateId: harvestRecord.batchId,
+        aggregateType: 'Batch',
+        batchId: harvestRecord.batchId,
+        harvestedQuantity: harvestRecord.quantityHarvested,
+        harvestedAt: harvestRecord.harvestDate,
+        averageWeight: harvestRecord.averageWeight,
+        totalWeight: harvestRecord.totalBiomass,
+      };
+      await this.outboxPublisher.enqueue(harvestEvent, queryRunner.manager);
 
-      // Publish BatchHarvestedEvent after commit (farm-events.ts line 61)
-      await this.eventPublisher.publish(
-        {
-          ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', tenantId, {}),
-          aggregateId: harvestRecord.batchId,
-          aggregateType: 'Batch',
-          eventType: 'BatchHarvested' as const,
-          batchId: harvestRecord.batchId,
-          harvestRecordId: harvestRecord.id,
-          lotNumber: harvestRecord.lotNumber,
-          totalQuantity: harvestRecord.quantityHarvested,
-          totalBiomassKg: harvestRecord.totalBiomass,
-          version: 1,
-        },
-        { handler: CreateHarvestRecordHandler.name, tenantId, aggregateId: harvestRecord.batchId },
-      );
+      // Commit transaction (domain writes + outbox row are atomic)
+      await queryRunner.commitTransaction();
 
       // Return the created harvest record so clients get harvest-specific fields
       return harvestRecord;

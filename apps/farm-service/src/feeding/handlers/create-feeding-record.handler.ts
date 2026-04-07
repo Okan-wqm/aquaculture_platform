@@ -4,15 +4,23 @@
  * CreateFeedingRecordCommand'ı işler ve yeni yemleme kaydı oluşturur.
  * Otomatik stok düşümü yapar: ilgili FeedInventory'den tüketilen miktar düşülür.
  *
+ * Phase A refactor:
+ *  - Replaced fire-and-forget eventBus.publish() (post-commit, @Optional
+ *    injection that silently dropped events) with OutboxPublisher.enqueue()
+ *    inside the same transaction as the domain write.
+ *  - Moved Batch + Feed validation reads INSIDE the transaction with
+ *    pessimistic_write lock on Batch to eliminate the TOCTOU race where the
+ *    batch could be deactivated between the pre-check and the feeding write.
+ *
  * @module Feeding/Handlers
  */
 import { randomUUID } from 'crypto';
 
-import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { FeedInventoryLowEvent, FeedingRecordedEvent } from '@platform/event-contracts';
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
 import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity';
@@ -35,43 +43,45 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     @InjectRepository(FeedInventory)
     private readonly inventoryRepository: Repository<FeedInventory>,
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
     const { tenantId, payload, userId } = command;
 
-    // Batch'i doğrula
-    const batch = await this.batchRepository.findOne({
-      where: { id: payload.batchId, tenantId },
-    });
-
-    if (!batch) {
-      throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
-    }
-
-    if (!batch.isActive) {
-      throw new BadRequestException('Aktif olmayan batch için yemleme kaydı oluşturulamaz');
-    }
-
-    // Feed'i doğrula
-    const feed = await this.feedRepository.findOne({
-      where: { id: payload.feedId, tenantId },
-    });
-
-    if (!feed) {
-      throw new NotFoundException(`Feed ${payload.feedId} bulunamadı`);
-    }
-
-    // Transaction ile hem feeding record hem stok düşümü yap
+    // All reads + writes inside a single transaction. TOCTOU fix: batch/feed
+    // lookups now run with pessimistic locks so a concurrent CloseBatch or
+    // feed-delete cannot mutate state between the validation and the write.
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
+      // Batch'i doğrula (inside TX with pessimistic_write lock)
+      const batch = await queryRunner.manager.findOne(Batch, {
+        where: { id: payload.batchId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!batch) {
+        throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
+      }
+
+      if (!batch.isActive) {
+        throw new BadRequestException('Aktif olmayan batch için yemleme kaydı oluşturulamaz');
+      }
+
+      // Feed'i doğrula (inside TX)
+      const feed = await queryRunner.manager.findOne(Feed, {
+        where: { id: payload.feedId, tenantId },
+      });
+
+      if (!feed) {
+        throw new NotFoundException(`Feed ${payload.feedId} bulunamadı`);
+      }
+
       // Yemleme kaydını oluştur
-      const feedingRecord = this.feedingRecordRepository.create({
+      const feedingRecord = queryRunner.manager.create(FeedingRecord, {
         tenantId,
         batchId: payload.batchId,
         tankId: payload.tankId,
@@ -116,7 +126,8 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       batch.totalFeedCost = Number(batch.totalFeedCost || 0) + (saved.feedCost ?? 0);
       await queryRunner.manager.save(batch);
 
-      // Otomatik stok düşüm
+      // Otomatik stok düşüm — may also enqueue a FeedInventoryLowEvent on the
+      // outbox if stock hits the reorder point.
       await this.deductFeedInventory(
         queryRunner.manager,
         tenantId,
@@ -126,42 +137,34 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
         userId,
       );
 
-      await queryRunner.commitTransaction();
+      // Enqueue FeedingRecordedEvent into the transactional outbox BEFORE commit.
+      // The storage module consumes this NATS event to auto-deduct feed inventory
+      // and update reorder projections — this is the key integration that
+      // connects farm operations to inventory management. With the outbox the
+      // feeding record and integration event commit atomically.
+      const feedingEvent: FeedingRecordedEvent = {
+        eventId: randomUUID(),
+        eventType: 'FeedingRecorded',
+        timestamp: new Date(),
+        tenantId,
+        version: 1,
+        userId,
+        aggregateId: payload.batchId,
+        aggregateType: 'Batch',
+        batchId: payload.batchId,
+        tankId: payload.tankId,
+        feedId: payload.feedId,
+        plannedAmountKg: payload.plannedAmount ?? 0,
+        actualAmountKg: payload.actualAmount,
+        feedingDate: new Date(payload.feedingDate),
+        feedingTime: payload.feedingTime || '',
+        variance: (payload.actualAmount - (payload.plannedAmount ?? 0)),
+      };
+      await this.outboxPublisher.enqueue(feedingEvent, queryRunner.manager);
 
-      // Publish FeedingRecordedEvent for cross-module integration.
-      // The storage module consumes this to auto-deduct feed from inventory,
-      // eliminating the need for manual stock OUT movements after feeding.
-      // This is the key integration that connects farm operations to inventory
-      // management — a core differentiator vs generic WMS platforms.
-      if (this.eventBus) {
-        try {
-          const feedingEvent: FeedingRecordedEvent = {
-            eventId: randomUUID(),
-            eventType: 'FeedingRecorded',
-            tenantId,
-            timestamp: new Date(),
-            version: 1,
-            userId,
-            batchId: payload.batchId,
-            tankId: payload.tankId,
-            feedId: payload.feedId,
-            plannedAmountKg: payload.plannedAmount ?? 0,
-            actualAmountKg: payload.actualAmount,
-            feedingDate: new Date(payload.feedingDate),
-            feedingTime: payload.feedingTime || '',
-            variance: (payload.actualAmount - (payload.plannedAmount ?? 0)),
-          };
-          await this.eventBus.publish(feedingEvent);
-          this.logger.debug(
-            `Published FeedingRecordedEvent for batch=${payload.batchId}, feed=${payload.feedId}, amount=${payload.actualAmount}kg`,
-          );
-        } catch (e) {
-          // Best-effort delivery: the feeding record is the source of truth.
-          // If the event fails to publish, the storage module will not auto-deduct
-          // but the feeding record remains valid. Manual stock adjustment can reconcile.
-          this.logger.warn(`Failed to publish FeedingRecordedEvent: ${(e as Error).message}`);
-        }
-      }
+      // Commit transaction (feeding record + batch update + inventory
+      // deduction + outbox row(s) are all atomic)
+      await queryRunner.commitTransaction();
 
       return saved;
     } catch (error) {
@@ -251,29 +254,28 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       `${currentQuantity}kg -> ${feedInventory.quantityKg}kg (used ${actualAmountKg}kg)`,
     );
 
-    // Low stock event publish
-    if (feedInventory.quantityKg <= feedInventory.minStockKg && this.eventBus) {
-      try {
-        const event: FeedInventoryLowEvent = {
-          eventId: randomUUID(),
-          eventType: 'FeedInventoryLow',
-          tenantId,
-          timestamp: new Date(),
-          inventoryId: feedInventory.id,
-          feedId: feedInventory.feedId,
-          siteId: feedInventory.siteId,
-          currentQuantityKg: feedInventory.quantityKg,
-          reorderPointKg: feedInventory.minStockKg,
-          status: feedInventory.quantityKg <= 0 ? 'critical' : 'low_stock',
-          version: 1,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published FeedInventoryLowEvent for inventory ${feedInventory.id}`);
-      } catch (eventError) {
-        this.logger.warn(
-          `Failed to publish FeedInventoryLowEvent: ${(eventError as Error).message}`,
-        );
-      }
+    // Enqueue FeedInventoryLowEvent into the transactional outbox if the
+    // remaining stock crosses the reorder threshold. The same `manager`
+    // participates in the caller's transaction so the event commits atomically
+    // with the inventory update.
+    if (feedInventory.quantityKg <= feedInventory.minStockKg) {
+      const lowStockEvent: FeedInventoryLowEvent = {
+        eventId: randomUUID(),
+        eventType: 'FeedInventoryLow',
+        timestamp: new Date(),
+        tenantId,
+        version: 1,
+        userId,
+        aggregateId: feedInventory.id,
+        aggregateType: 'FeedInventory',
+        inventoryId: feedInventory.id,
+        feedId: feedInventory.feedId,
+        siteId: feedInventory.siteId,
+        currentQuantityKg: feedInventory.quantityKg,
+        reorderPointKg: feedInventory.minStockKg,
+        status: feedInventory.quantityKg <= 0 ? 'critical' : 'low_stock',
+      };
+      await this.outboxPublisher.enqueue(lowStockEvent, manager);
     }
   }
 

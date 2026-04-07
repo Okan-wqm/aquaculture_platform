@@ -8,14 +8,23 @@
  * to prevent TOCTOU race conditions. Math.max(0, ...) guards added to prevent
  * negative counts/biomass from concurrent operations.
  *
+ * Phase A refactor: replaced DomainEventPublisher (post-commit fire-and-forget)
+ * with OutboxPublisher (pre-commit transactional). Mortality events now ship
+ * with at-least-once delivery guarantee even when NATS is briefly unavailable.
+ * Event payload uses `MortalityReasonCode` (UPPERCASE) per the contract — the
+ * lowercase command input is normalised via `toMortalityReasonCode` at the
+ * event boundary, not at the entity layer.
+ *
  * @module Batch/Handlers
  */
+import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import type { MortalityRecordedEvent } from '@platform/event-contracts';
 import { RecordMortalityCommand } from '../commands/record-mortality.command';
-import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
 import { Batch } from '../entities/batch.entity';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
@@ -24,6 +33,7 @@ import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-lookup.util';
+import { toMortalityReasonCode } from '../../common/utils/reason-codecs';
 
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
@@ -46,7 +56,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly tankRepository: Repository<Tank>,
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
-    private readonly eventPublisher: DomainEventPublisher,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: RecordMortalityCommand): Promise<Batch> {
@@ -192,7 +202,30 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         await queryRunner.manager.save(Equipment, tank);
       }
 
-      // Commit transaction
+      // Enqueue MortalityRecordedEvent into the transactional outbox BEFORE commit.
+      // The outbox INSERT is part of the same transaction as the domain writes —
+      // either both commit or neither. OutboxWorkerService publishes to NATS
+      // asynchronously with retry + dead-letter on failure.
+      const mortalityEvent: MortalityRecordedEvent = {
+        eventId: randomUUID(),
+        eventType: 'MortalityRecorded',
+        timestamp: new Date(),
+        tenantId,
+        version: 1,
+        userId: recordedBy,
+        aggregateId: batchId,
+        aggregateType: 'Batch',
+        batchId,
+        tankId: payload.tankId,
+        quantity: payload.quantity,
+        reason: toMortalityReasonCode(payload.reason),
+        mortalityDate: payload.observedAt,
+        newTotalMortality: batch.totalMortality,
+        newMortalityRate: batch.getMortalityRate(),
+      };
+      await this.outboxPublisher.enqueue(mortalityEvent, queryRunner.manager);
+
+      // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();
     } catch (error) {
       // Rollback transaction on any error
@@ -202,26 +235,6 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       // Release query runner
       await queryRunner.release();
     }
-
-    // Publish domain event via DomainEventPublisher (after commit, outside transaction)
-    await this.eventPublisher.publish(
-      {
-        eventId: crypto.randomUUID(),
-        eventType: 'MortalityRecorded',
-        timestamp: new Date(),
-        tenantId,
-        batchId,
-        tankId: payload.tankId,
-        quantity: payload.quantity,
-        reason: payload.reason,
-        mortalityDate: payload.observedAt,
-        newTotalMortality: batch.totalMortality,
-        newMortalityRate: batch.getMortalityRate(),
-        userId: recordedBy,
-        version: 1,
-      },
-      { handler: RecordMortalityHandler.name, tenantId, aggregateId: batchId },
-    );
 
     // Return the updated batch (GraphQL expects Batch, not MortalityRecord)
     return batch;

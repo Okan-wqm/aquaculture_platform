@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { OutboxModule } from '@platform/outbox';
 import { FarmOutbox } from './farm-outbox.entity';
 
@@ -7,16 +7,19 @@ import { FarmOutbox } from './farm-outbox.entity';
  *
  * Wires the @platform/outbox library against the farm_outbox table.
  *
- * Re-exports `OutboxModule.forFeature(FarmOutbox)` so any handler module
- * that imports `FarmOutboxModule` gains access to the `OutboxPublisher`
- * provider for transactional `enqueue(event, manager)` calls.
+ * `@Global()` so any feature module's command handler can inject
+ * `OutboxPublisher` directly via constructor without each module
+ * needing to import `FarmOutboxModule`. This mirrors how `EventBusModule`
+ * is also global — transactional outbox is a cross-cutting infrastructure
+ * concern, not a per-feature dependency.
  *
  * Requires:
  *   - `EventBusModule.forRoot(...)` registered globally (already in app.module.ts)
  *   - `farm_outbox` table created (CreateFarmOutboxTable1780300000000 migration)
  *
- * @see Phase 2 of farm domain real-time visibility plan.
+ * @see Phase A of farm domain real-time visibility plan.
  */
+@Global()
 @Module({
   imports: [OutboxModule.forFeature(FarmOutbox)],
   exports: [OutboxModule],

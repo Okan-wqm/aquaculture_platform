@@ -8,13 +8,22 @@
  * negative counts/biomass from concurrent operations. Deprecated
  * updateTankBatchAfterTransfer method removed.
  *
+ * Phase A refactor: replaced DomainEventPublisher with OutboxPublisher
+ * (pre-commit, transactional). Event payload now matches the
+ * BatchTransferredEvent contract exactly: `transferDate` is provided
+ * (was missing), `transferReason` is mapped to the contract's optional
+ * `reason` field (was a non-contract field name). The previous post-commit
+ * fire-and-forget pattern silently dropped events on any NATS hiccup.
+ *
  * @module Batch/Handlers
  */
+import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
+import { OutboxPublisher } from '@platform/outbox';
+import type { BatchTransferredEvent } from '@platform/event-contracts';
 import { TransferBatchCommand } from '../commands/transfer-batch.command';
 import { Batch } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
@@ -54,7 +63,7 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly tankRepository: Repository<Tank>,
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
-    private readonly eventPublisher: DomainEventPublisher,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: TransferBatchCommand): Promise<Batch> {
@@ -311,35 +320,36 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         await queryRunner.manager.save(TankOperation, savedDestOp);
       }
 
-      // Commit transaction
+      // Enqueue BatchTransferredEvent into the transactional outbox BEFORE commit.
+      // Event field names match the contract exactly: `transferDate` is set
+      // (was previously missing), `transferReason` is mapped to the contract's
+      // optional `reason` field. `biomassKg` uses the actual computed value,
+      // not the pre-update batch state.
+      const transferEvent: BatchTransferredEvent = {
+        eventId: randomUUID(),
+        eventType: 'BatchTransferred',
+        timestamp: new Date(),
+        tenantId,
+        version: 1,
+        userId: transferredBy,
+        aggregateId: batchId,
+        aggregateType: 'Batch',
+        batchId,
+        sourceTankId: payload.sourceTankId,
+        destinationTankId: payload.destinationTankId,
+        quantity: payload.quantity,
+        biomassKg,
+        transferDate,
+        reason: payload.transferReason,
+      };
+      await this.outboxPublisher.enqueue(transferEvent, queryRunner.manager);
+
+      // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();
 
       this.logger.log(
         `Batch ${batchId} transferred: tank ${payload.sourceTankId} → ${payload.destinationTankId}, ` +
         `quantity=${payload.quantity}, tenant=${tenantId}`,
-      );
-
-      // Publish BatchTransferred event AFTER transaction commit
-      const biomassKgForEvent = batch.getCurrentBiomass
-        ? batch.getCurrentBiomass()
-        : (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
-
-      await this.eventPublisher.publish(
-        {
-          eventId: crypto.randomUUID(),
-          eventType: 'BatchTransferred',
-          timestamp: new Date(),
-          tenantId,
-          batchId,
-          sourceTankId: payload.sourceTankId,
-          destinationTankId: payload.destinationTankId,
-          quantity: payload.quantity,
-          biomassKg: biomassKgForEvent,
-          transferReason: payload.transferReason,
-          userId: transferredBy,
-          version: 1,
-        },
-        { handler: TransferBatchHandler.name, tenantId, aggregateId: batchId },
       );
 
       return batch;

@@ -32,13 +32,13 @@ export class RefreshToken {
   @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   expiresAt!: Date;
 
   @Column({ type: 'boolean', default: false })
   isRevoked!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   revokedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

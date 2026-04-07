@@ -182,14 +182,14 @@ export class Tenant {
    * Trial end date (if on trial)
    */
   @Field(() => String, { nullable: true })
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt?: Date | null;
 
   /**
    * Subscription end date
    */
   @Field(() => String, { nullable: true })
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   subscriptionEndsAt?: Date | null;
 
   /**

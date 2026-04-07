@@ -42,7 +42,7 @@ export class UserReadOnly {
   @Column({ type: 'boolean', default: false })
   isEmailVerified!: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 
   @CreateDateColumn()

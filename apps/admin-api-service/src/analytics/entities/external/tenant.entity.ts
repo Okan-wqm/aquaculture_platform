@@ -43,10 +43,10 @@ export class TenantReadOnly {
   @Column({ type: 'int', default: 5 })
   maxUsers!: number;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt!: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   subscriptionEndsAt!: Date | null;
 
   @CreateDateColumn()

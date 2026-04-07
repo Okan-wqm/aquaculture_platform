@@ -75,14 +75,14 @@ export class TenantModule {
    * Activation date (when module became available to tenant)
    */
   @Field()
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   activatedAt!: Date;
 
   /**
    * Expiration date (for time-limited module access)
    */
   @Field(() => GraphQLISODateTime, { nullable: true })
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   expiresAt?: Date | null;
 
   /**

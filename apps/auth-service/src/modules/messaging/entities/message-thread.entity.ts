@@ -65,7 +65,7 @@ export class MessageThread {
   @Field(() => String, { nullable: true })
   lastMessage?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   lastMessageAt?: Date | null;
 

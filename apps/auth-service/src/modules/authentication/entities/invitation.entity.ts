@@ -94,11 +94,11 @@ export class Invitation {
   status!: InvitationStatus;
 
   @Field(() => Date)
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   expiresAt!: Date;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   acceptedAt?: Date | null;
 
   @Field(() => String, { nullable: true })
@@ -118,7 +118,7 @@ export class Invitation {
   sendCount!: number;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastSentAt?: Date | null;
 
   @Field(() => String, { nullable: true })

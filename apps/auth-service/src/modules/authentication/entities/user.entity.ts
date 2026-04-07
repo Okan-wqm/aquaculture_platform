@@ -126,7 +126,7 @@ export class User {
 
   // SECURITY: Hidden from GraphQL — reveals whether invitation is active (SEC-AUTH-003)
   @HideField()
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   invitationExpiresAt?: Date | null;
 
   /**
@@ -210,11 +210,11 @@ export class User {
   /**
    * Timestamp until which MFA verification is locked out.
    */
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   mfaLockedUntil?: Date | null;
 
   @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastLoginAt?: Date | null;
 
   // SECURITY: Hidden from GraphQL — IP addresses are PII under GDPR Article 4(1) (SEC-AUTH-003)
@@ -227,13 +227,13 @@ export class User {
   passwordResetToken?: string | null;
 
   @HideField()
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   passwordResetExpires?: Date | null;
 
   @Column({ type: 'int', default: 0 })
   failedLoginAttempts!: number;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lockedUntil?: Date | null;
 
   // ============================================

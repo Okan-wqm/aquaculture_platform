@@ -132,19 +132,19 @@ export class SupportTicket {
   commentCount!: number;
 
   // SLA tracking
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   slaResponseDeadline?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   slaResolutionDeadline?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   firstResponseAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   resolvedAt?: Date | null;
 

@@ -84,7 +84,7 @@ export class WebAuthnCredential {
   updatedAt!: Date;
 
   @Field()
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   lastUsedAt!: Date;
 
   // Relations

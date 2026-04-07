@@ -134,11 +134,11 @@ export class Announcement {
   targetCriteria?: AnnouncementTarget | null;
 
   // Scheduling
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   publishAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   expiresAt?: Date | null;
 

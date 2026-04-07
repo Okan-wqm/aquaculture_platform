@@ -93,7 +93,7 @@ export class UserModuleAssignment {
    * Assignment expiration date (for temporary assignments)
    */
   @Field(() => String, { nullable: true })
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   expiresAt?: Date | null;
 
   /**

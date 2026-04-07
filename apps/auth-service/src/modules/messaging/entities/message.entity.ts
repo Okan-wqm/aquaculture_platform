@@ -120,7 +120,7 @@ export class Message {
   @Field(() => [MessageAttachment], { nullable: true })
   attachments?: MessageAttachment[] | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   readAt?: Date | null;
 

@@ -57,7 +57,7 @@ export class AnnouncementAcknowledgment {
   @Field()
   viewedAt!: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   @Field(() => Date, { nullable: true })
   acknowledgedAt?: Date | null;
 

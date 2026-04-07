@@ -17,9 +17,49 @@ const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
  * The returned class is then registered as a NestJS provider.
  *
  * At startup the provider monkey-patches the pg Pool.connect() method so that
- * EVERY connection checkout automatically sets `search_path` from the current
- * AsyncLocalStorage request context.  This is transparent to all repositories,
- * query builders, and raw queries.
+ * EVERY connection checkout has a deterministic, known-correct `search_path`:
+ *
+ *   - When a tenant context is present in AsyncLocalStorage, the search_path
+ *     becomes `"tenant_<uuid>", <sourceSchema>, public` so per-request queries
+ *     find tenant data first, falling back to the source schema for shared
+ *     reference data.
+ *
+ *   - When NO tenant context is present (non-request code paths: the NestJS
+ *     bootstrap phase, SourceSchemaBootstrapService, MigrationRunnerService,
+ *     seed services, cron jobs), the search_path becomes
+ *     `<sourceSchema>, public`. This is the source-of-truth invariant for
+ *     every non-request query in the service.
+ *
+ * # Why the non-request branch MUST also set search_path (root cause of
+ *   an incident burned the whole of 2026-04-07)
+ *
+ * An earlier revision of this patch only set the search_path in the tenant
+ * branch and fell through to "relies on pool startup option" for non-request
+ * checkouts. The pool IS created with `options: '-c search_path=<src>,public'`
+ * (e.g. `apps/farm-service/src/app.module.ts:227`), and PostgreSQL applies
+ * that at the physical connection's startup message. But pg sessions are
+ * mutable: anything that runs `SET search_path = public` on a pooled
+ * connection contaminates that connection forever (until the pool evicts it).
+ * Once contaminated, subsequent checkouts inherit the contaminated value.
+ *
+ * On the 2026-04-07 farm-service deploys (runs #830-#841), this produced a
+ * schema split-brain: `SourceSchemaBootstrapService` happened to draw a clean
+ * connection and synced 73 tables into `farm` schema, but
+ * `MigrationRunnerService` drew a contaminated connection and ran every
+ * subsequent migration with `current_schema() = 'public'`. The legacy
+ * `public.*` tables from a long-deprecated initial synchronize were
+ * discovered by `EnableRowLevelSecurity1776000000000` and its RLS policy
+ * install failed with `operator does not exist: text = uuid` — the public-
+ * schema duplicates had varchar tenantId while the RLS policy's
+ * `COALESCE(..., '')::uuid` cast expected uuid.
+ *
+ * The correct architectural guarantee is: **every connection checked out of
+ * the pool MUST have its search_path re-asserted before the caller receives
+ * it, regardless of context**. This converts an implicit "startup option will
+ * stick" contract into an explicit "every checkout is a reset" contract, at
+ * the cost of one `SET` round-trip per checkout (~0.1ms on a local socket).
+ * That cost is vastly outweighed by never again shipping a deploy with a
+ * schema split-brain.
  */
 export function createTenantConnectionBootstrap(sourceSchema: string) {
   if (!/^[a-z][a-z0-9_]*$/.test(sourceSchema)) {
@@ -48,6 +88,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
 
       const originalConnect = pool.connect.bind(pool);
       const src = sourceSchema;
+      const defaultSearchPath = `SET search_path TO "${src}", public`;
       const logger = this.logger;
 
       pool.connect = function (callback?: any) {
@@ -67,7 +108,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
               /** SEC-M13: Validate schema name before SQL interpolation as defense-in-depth */
               validateTenantSchemaName(schemaName);
               client.query(
-                `SET search_path TO "${schemaName}", ${src}, public`,
+                `SET search_path TO "${schemaName}", "${src}", public`,
                 (qErr: any) => {
                   if (qErr) {
                     logger.error(`Failed to set search_path to ${schemaName}: ${qErr.message}`);
@@ -79,10 +120,20 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
                 },
               );
             } else {
-              if (!schemaName) {
-                logger.debug(`Pool checkout without tenant context — using default search_path (${src},public)`);
-              }
-              callback(null, client, done);
+              // Non-request / bootstrap / migration context — re-assert the
+              // source-schema default on every checkout so pool state
+              // contamination (see the 2026-04-07 incident docblock above)
+              // can never leak a `public`-schema current_schema() into
+              // SourceSchemaBootstrap, MigrationRunner, or seed services.
+              client.query(defaultSearchPath, (qErr: any) => {
+                if (qErr) {
+                  logger.error(`Failed to set default search_path (${src},public): ${qErr.message}`);
+                  done(qErr);
+                  callback(qErr);
+                  return;
+                }
+                callback(null, client, done);
+              });
             }
           });
         }
@@ -101,20 +152,32 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
             try {
               /** SEC-M13: Validate schema name before SQL interpolation as defense-in-depth */
               validateTenantSchemaName(schemaName);
-              await client.query(`SET search_path TO "${schemaName}", ${src}, public`);
+              await client.query(`SET search_path TO "${schemaName}", "${src}", public`);
             } catch (qErr) {
               logger.error(`Failed to set search_path to ${schemaName}: ${(qErr as Error).message}`);
               client.release(true); // release with error
               throw qErr;
             }
-          } else if (!schemaName) {
-            logger.debug(`Pool checkout (promise) without tenant context — using default search_path (${src},public)`);
+          } else {
+            // Non-request / bootstrap / migration context — re-assert the
+            // source-schema default. See the 2026-04-07 split-brain incident
+            // docblock above for the full rationale.
+            try {
+              await client.query(defaultSearchPath);
+            } catch (qErr) {
+              logger.error(`Failed to set default search_path (${src},public): ${(qErr as Error).message}`);
+              client.release(true); // release with error
+              throw qErr;
+            }
           }
           return client;
         });
       };
 
-      this.logger.log('PostgreSQL connection pool patched for tenant-aware search_path routing');
+      this.logger.log(
+        `PostgreSQL connection pool patched for tenant-aware search_path routing ` +
+          `(default: "${src}",public on every non-request checkout)`,
+      );
     }
   }
 

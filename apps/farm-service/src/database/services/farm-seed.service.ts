@@ -1,20 +1,53 @@
 /**
  * Farm Seed Service
+ * ============================================================================
  *
  * IMPORTANT: This service seeds the farm SOURCE SCHEMA (template) only.
- * It runs at module initialization via onModuleInit, using the default
- * DataSource connection whose search_path is set to "farm, public".
- * All queries intentionally target the farm source schema.
- * Do NOT use this service to seed tenant schemas — use SchemaManagerService.copyReferenceData() instead.
+ * It runs at `onApplicationBootstrap` (NOT `onModuleInit`) using the
+ * default DataSource connection whose search_path is pinned to
+ * "farm, public". All queries intentionally target the farm source
+ * schema. Do NOT use this service to seed tenant schemas — use
+ * `SchemaManagerService.copyReferenceData()` instead.
+ *
+ * # Why onApplicationBootstrap (not onModuleInit)
+ *
+ * The seed writes reference-data rows into `farm.*` tables that are
+ * protected by `SourceSchemaWriteGuardService`'s BEFORE triggers. The
+ * guard exempts tables listed in `MODULE_SCHEMAS[farm].referenceDataTables`
+ * (equipment_types, chemical_types, supplier_types, feed_types, species,
+ * ...) by dropping any existing trigger on them and skipping the
+ * reinstall loop. The guard runs its install at
+ * `SourceSchemaWriteGuardService.onModuleInit`, which means the stale
+ * trigger cleanup (Phase 12.2) only completes AFTER onModuleInit has
+ * fully run for that provider.
+ *
+ * If this seed service also runs in onModuleInit, NestJS can initialise
+ * providers in any order — and empirically on farm-service it did
+ * initialise `FarmSeedService.onModuleInit` BEFORE
+ * `SourceSchemaWriteGuardService.onModuleInit`. The seed then hit the
+ * stale `farm.species` trigger from the PREVIOUS deploy (when species
+ * was not yet exempt) and failed with
+ * `TENANT_ISOLATION_VIOLATION: Direct write to source schema farm.species blocked`.
+ *
+ * Moving to `onApplicationBootstrap` fixes this: that phase fires
+ * after EVERY `onModuleInit` provider in the app, including the write
+ * guard's clean-slate trigger reinstall. The seed then runs against a
+ * schema where the exemption is effective.
+ *
+ * The service will ALSO only receive requests (via its Nest app
+ * context) after onApplicationBootstrap completes, so moving the seed
+ * here does not expose a window where the application is "up" but
+ * reference data isn't loaded.
  *
  * Seeds reference data (all environments) and test data (dev only):
- * - EquipmentTypes, ChemicalTypes, SupplierTypes (reference/system-wide)
+ * - EquipmentTypes, ChemicalTypes, SupplierTypes, Species (reference/system-wide)
  * - Test tenant, Sites, Departments, Systems, SubSystems
  * - Tanks, Species, Feeds, Feed Inventory, Sample Batch (dev only)
  *
  * @module Database
+ * @see Phase 12.3 — 2026-04-07 schema split-brain fix chain
  */
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -30,7 +63,7 @@ interface IdRow {
 }
 
 @Injectable()
-export class FarmSeedService implements OnModuleInit {
+export class FarmSeedService implements OnApplicationBootstrap {
   private readonly logger = new Logger(FarmSeedService.name);
 
   constructor(
@@ -38,16 +71,19 @@ export class FarmSeedService implements OnModuleInit {
     private readonly dataSource: DataSource,
   ) {}
 
-  async onModuleInit() {
+  async onApplicationBootstrap() {
     try {
-      // Reference data (equipment_types, chemical_types, supplier_types) her ortamda çalışır
-      // Bu tablolar sistem geneli ve tenant provisioning'de kopyalanır
+      // Reference data (equipment_types, chemical_types, supplier_types,
+      // species) — runs in every environment including production.
+      // These rows are source-schema templates that are copied into
+      // every tenant schema on provisioning via
+      // SchemaManagerService.copyReferenceData().
       await this.seedReferenceDataStandalone();
     } catch (error) {
       this.logger.error('Error during reference data seed:', error);
     }
 
-    // Test verileri sadece geliştirme ortamında çalışır
+    // Test data only runs in non-production environments.
     if (process.env.NODE_ENV === 'production') {
       this.logger.log('Skipping test data seed in production environment');
       return;
@@ -59,7 +95,7 @@ export class FarmSeedService implements OnModuleInit {
     }
 
     try {
-      // Tenant'a bağlı test verileri seed et
+      // Tenant-scoped test data (dev/staging only).
       await this.seedFarmData();
     } catch (error) {
       this.logger.error('Error during farm seed:', error);

@@ -58,6 +58,65 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
       return;
     }
 
+    // ── Phase 12.2 — clean-slate trigger reinstall ────────────────────
+    // BEFORE we install triggers on currently-protected tables, drop
+    // every existing `guard_source_write` trigger in this source
+    // schema. This handles the cross-deploy state transition where a
+    // table was protected in a previous deploy but is now exempt
+    // (moved into `referenceDataTables`): the old trigger would
+    // otherwise stay on the table and block the writes that the
+    // exemption was supposed to allow.
+    //
+    // Concrete incident this fixes: in Phase 11.4 (commit 91abb3dd) I
+    // added `species` to the farm module's `referenceDataTables` so
+    // `FarmSeedService.seedGlobalCleanerFishSpecies` could write
+    // cleaner-fish template rows. The registry change took effect for
+    // NEW trigger installs, but the install loop never touched the
+    // already-existing `farm.species` trigger from a previous deploy.
+    // The stale trigger continued to raise TENANT_ISOLATION_VIOLATION
+    // on every subsequent seed attempt. Dropping all triggers at the
+    // start of every install makes the state transition complete and
+    // idempotent: whatever set of tables the MODULE_SCHEMAS registry
+    // currently marks as protected is the authoritative set after
+    // this method returns.
+    //
+    // The query uses `pg_trigger` (catalogue) rather than
+    // `information_schema.triggers` so it finds BOTH enabled AND
+    // disabled triggers of our name, and uses the schema-qualified
+    // table name in the DROP so schema isolation is explicit.
+    const existingGuards: Array<{ schemaname: string; tablename: string }> =
+      await this.dataSource.query(
+        `
+        SELECT n.nspname AS schemaname, c.relname AS tablename
+        FROM pg_trigger t
+        JOIN pg_class c ON t.tgrelid = c.oid
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE t.tgname = 'guard_source_write'
+          AND n.nspname = $1
+          AND NOT t.tgisinternal
+        `,
+        [sourceSchema],
+      );
+
+    for (const row of existingGuards) {
+      try {
+        await this.dataSource.query(
+          `DROP TRIGGER IF EXISTS guard_source_write ON "${row.schemaname}"."${row.tablename}"`,
+        );
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Failed to drop stale write guard on ${row.schemaname}.${row.tablename}: ${msg}`,
+        );
+      }
+    }
+
+    if (existingGuards.length > 0) {
+      this.logger.log(
+        `Clean-slate trigger reset: dropped ${existingGuards.length} existing guard_source_write trigger(s) in "${sourceSchema}" before reinstall.`,
+      );
+    }
+
     // Create or replace the trigger function in the source schema
     await this.dataSource.query(`
       CREATE OR REPLACE FUNCTION "${sourceSchema}".block_source_writes()

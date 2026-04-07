@@ -92,6 +92,7 @@ import { CreateProcessesTable1740300000000 } from './database/migrations/1740300
 import { CreateAutomationTables1740300001000 } from './database/migrations/1740300001000-CreateAutomationTables';
 import { AddEnterprisePlcConnectionFields1741100000000 } from './database/migrations/1741100000000-AddEnterprisePlcConnectionFields';
 import { EnterprisePerformanceOptimizations1741200000000 } from './database/migrations/1741200000000-EnterprisePerformanceOptimizations';
+import { AddSensorProtocolTopicIndex1781400000000 } from './database/migrations/1781400000000-AddSensorProtocolTopicIndex';
 import { CredentialVaultModule } from './infrastructure/vault/credential-vault.module';
 import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
@@ -183,6 +184,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           CreateAutomationTables1740300001000,
           AddEnterprisePlcConnectionFields1741100000000,
           EnterprisePerformanceOptimizations1741200000000,
+          AddSensorProtocolTopicIndex1781400000000,
         ],
         // When sync is on (initial deploy), skip migrations to avoid index conflicts.
         // When sync is off (production), run migrations for structural changes.

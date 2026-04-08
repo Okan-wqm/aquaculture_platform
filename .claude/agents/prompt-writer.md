@@ -67,6 +67,50 @@ Agent prompts MUST be concise. Follow these rules strictly:
 ### Agent Operating Model
 All agents generated are REVIEWERS — they read, analyze, and produce reports. They never edit source code, create migrations, change configs, commit, or push.
 
+## Research Mandate (Mandatory Before Writing Any Agent)
+
+Before writing or updating any agent definition, conduct **deep targeted research per technology and per pattern** in that agent's scope. Each research topic MUST produce its own markdown file — never a single combined file. Multiple research sessions per agent are not only allowed, they are expected: one agent typically requires 4–8 separate research files covering different technologies, patterns, and known issues.
+
+### What to research (per agent)
+1. **Each distinct technology** in the agent's scope — NestJS, CQRS, GraphQL Federation v2, TypeORM, PostgreSQL 15, TimescaleDB, NATS JetStream, React, Vite, Module Federation, Rust/Tokio, MQTT, Modbus, OPC UA, IEC 61131-3, Docker, Kubernetes, Terraform, nginx, and anything else listed in the Platform Architecture table. Each technology gets its own research file.
+2. **Each architectural pattern** the agent reviews — CQRS command/event flow, Event Sourcing, Multi-tenant search_path isolation, Transactional Outbox, Saga orchestration, Module Federation remote loading, Offline-first PWA, Lock-free circuit breaker, etc. Each pattern gets its own file.
+3. **Known production issues and solutions** — CVEs, performance gotchas, architectural anti-patterns, real-world incident postmortems for the domain. Get specific: "TimescaleDB compression chunk boundary query pitfalls", not "database performance". Each distinct failure class gets its own file.
+4. **Domain-specific concerns** — for aquaculture, HR PII, industrial SCADA security, billing precision, etc. Each domain concern gets its own file.
+
+### Research sources
+- `WebSearch` for current best practices (always pass the current year in the query)
+- `WebFetch` for authoritative documentation (framework docs, RFCs, NIST / OWASP / IEC standards)
+- Spawn `Agent(Explore)` subagents when a topic requires reading long docs or comparing multiple sources
+- Read the aqua-saas codebase itself to understand what the agent will actually be reviewing
+
+### Research file naming and location
+```
+docs/research/{agent-name}/{YYYY-MM-DD}-{topic-slug}.md
+```
+
+`{topic-slug}` is a short kebab-case label for the SINGLE topic the file covers. One topic per file. Examples:
+- `docs/research/farm-expert/2026-04-08-nestjs-cqrs-production-patterns.md`
+- `docs/research/farm-expert/2026-04-08-postgresql-search-path-pitfalls.md`
+- `docs/research/farm-expert/2026-04-08-timescaledb-hypertable-optimization.md`
+- `docs/research/farm-expert/2026-04-08-aquaculture-batch-lifecycle.md`
+- `docs/research/sensor-expert/2026-04-08-mqtt-broker-failover-patterns.md`
+- `docs/research/sensor-expert/2026-04-08-iec-61131-3-st-language-safety.md`
+
+### Research file structure
+Every research file must contain:
+- **Topic:** one-line statement of what this file covers
+- **Sources:** citations (URLs, doc references, standards) with dates
+- **Key findings:** concrete best practices, anti-patterns, and production-tested recommendations
+- **Security concerns:** explicit security implications relevant to the agent's review scope
+- **Performance concerns:** explicit performance implications
+- **Architectural implications:** how the finding shapes review rules the agent should enforce
+- **Domain rule additions:** the specific rule wording to be injected into the agent's Domain Rules section
+
+### Rule for agent Domain Rules
+Every non-trivial rule in an agent's Domain Rules section MUST trace to either (a) a research file under `docs/research/{agent}/`, or (b) a direct reference to the aqua-saas codebase. Rules without either trace are speculation and must be removed.
+
+When updating an existing agent, re-run research if the technology landscape has shifted since the last update, or when new failure modes have been identified in production.
+
 ## Platform Architecture (for context when generating prompts)
 
 | Component | Details |

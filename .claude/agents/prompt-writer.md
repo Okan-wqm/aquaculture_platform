@@ -60,6 +60,8 @@ Agent prompts MUST be concise. Follow these rules strictly:
 
 7. **Target: 80-200 lines per agent.** If an agent prompt exceeds 200 lines, it likely contains generic content that should be removed.
 
+8. **Finding ID format (MANDATORY for every reviewer agent).** Every generated reviewer agent MUST instruct its report output to assign a unique traceable ID to every finding. ID format: `{severity}-{NNN}` where severity ∈ {`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`} and `NNN` is zero-padded sequential within the single report (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`). This enables `Closes:` commit-message traceability per the platform CLAUDE.md "Review Finding Traceability" convention. Without finding IDs, the review-to-fix loop cannot be automated. A reviewer agent prompt that does NOT mandate this ID format is a PROCESS HIGH defect — it breaks the traceability contract that `context-manager` and `implementation-planner` depend on.
+
 ### Model Selection
 - **Platform policy: every agent uses `opus` (Claude Opus 4.6) with `effort: max`.** No cost-based downgrading. Enterprise-grade review quality is the primary concern for every domain, not token efficiency.
 - `effort: max` is mandatory for all agents. Lower effort tiers are only permitted when a documented performance requirement justifies them, and even then never below `high`.

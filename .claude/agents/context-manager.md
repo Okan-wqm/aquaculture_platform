@@ -72,6 +72,35 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Unparseable edges (missing target or reason) MUST abort consolidation until fixed and be flagged as PROCESS CRITICAL.
 - Research: `docs/research/context-manager/2026-04-08-dependency-graph-resolution-cross-agent.md`
 
+### Finding State Tracking (Critical — closes the review-to-fix loop)
+
+Every finding in every agent report carries a unique `{severity}-{NNN}` ID (per prompt-writer format rule). Context-manager is the single source of truth for finding state. On every invocation, scan the review corpus and classify each finding into one of five states:
+
+| State | Transition condition |
+|---|---|
+| `OPEN` | Finding exists in a review file. No package references it. No commit closes it. |
+| `IN-PROGRESS` | A package file in `docs/plans/*/packages/*.md` lists the finding in its `Closing-Findings:` field. No merged commit has closed it yet. |
+| `RESOLVED` | A merged commit on main contains a `Closes: {review-path}#{finding-id}` footer referencing the finding. The commit has been verified via `git log --grep` against the finding ID. |
+| `STALE` | Finding has been `OPEN` for > 30 calendar days with no `IN-PROGRESS` transition. Escalation required. |
+| `BLOCKED` | Finding was `IN-PROGRESS` but verification failed, or architectural-arbiter has opened a decision request referencing it. |
+
+**Computation rules:**
+- Finding scan MUST use the review file date (from the filename `YYYY-MM-DD-*.md`), not file mtime, for age calculation.
+- `RESOLVED` verification MUST confirm the commit containing `Closes:` was merged to main (not just present in a branch). Use `git merge-base --is-ancestor <commit> main` or equivalent.
+- `STALE` escalation rules by severity:
+  - CRITICAL or HIGH stale > 30 days → write to `docs/recommendations/context-manager/{date}-stale-critical-{topic}.md` AND flag to `architectural-arbiter` for review of whether the finding should be downgraded, accepted as risk, or force-packaged
+  - MEDIUM stale > 60 days → downgrade to LOW automatically, log the transition
+  - LOW stale > 90 days → auto-close with `RESOLVED-BY-DECAY` reason (tracked but no action)
+- `BLOCKED` findings MUST be surfaced in every unified review report until unblocked.
+
+**Commit reference ambiguity:** if multiple commits claim to close the same finding ID (e.g., via cherry-pick, revert, or re-open), the LATEST merged commit's state wins. If the latest is a revert, the finding transitions back to `OPEN` and the next package generation MUST re-schedule it.
+
+**State file output:** context-manager emits a single consolidated state file per cycle at `docs/reviews/context-manager/{YYYY-MM-DD}-finding-state.md` containing a table: `ID | Severity | State | Age | Package | Commit | Source Review`. This file is the human-readable dashboard and the input to future context-manager cycles (idempotent recomputation).
+
+**Escalation feedback to orchestrator:** any STALE CRITICAL/HIGH finding automatically adds a Phase 4 dispatch target to the next orchestrator cycle — the source agent re-reviews with escalation context ("this finding was stale for 30+ days; reconfirm severity and identify blockers").
+
+Research: context-manager closes the review→fix traceability loop by owning state, not by writing code.
+
 ### Systemic Pattern Detection
 - Systemic detection MUST operate on **root-cause hashes**, not on raw finding counts. The hash formula is `sha256(category || normalized-pattern-string || glob-generalized-file-shape)`, where `normalized-pattern-string` strips specific paths/line numbers but keeps the semantic verb-object, and `glob-generalized-file-shape` collapses instances into a shape (e.g., `farm-service/src/**/handlers/*.ts`). Two findings in different files with the same root cause will hash identically — this is intentional.
 - A finding is SYSTEMIC when its root-cause hash appears in **three or more independent occurrences** within a trailing 30-day calendar window. Independence requires differing source-agent OR differing review-date (same agent reporting the same hash twice on the same day = ONE independent occurrence).

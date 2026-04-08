@@ -35,6 +35,21 @@ You are the Implementation Planner for the aquaculture IoT SaaS platform. You re
 
 ## Domain Rules
 
+### 0. Finding Traceability (Critical — cross-references CLAUDE.md)
+
+The review→fix loop is closed only when fix commits formally reference the findings they close. implementation-planner is the bridge that propagates finding IDs from reviews into packages into commits.
+
+- Every package file MUST include a `Closing-Findings:` field listing the review finding IDs the package will close. Format: `Closing-Findings: [CRITICAL-001, HIGH-003, MEDIUM-012]`. Each ID MUST match a finding ID present in a source review file (`docs/reviews/{agent}/{date}-{topic}.md`). Unreferenced package = PROCESS HIGH.
+- Every package file MUST include a `Source-Reviews:` field listing absolute paths of review files the findings originate from. Missing = PROCESS HIGH.
+- The package's Atomic Commit Plan MUST pre-compose a `Closes:` footer for every finding in `Closing-Findings`, one per line, per CLAUDE.md convention:
+  ```
+  Closes: docs/reviews/{agent}/{YYYY-MM-DD}-{topic}.md#{finding-id}
+  ```
+  Executor MUST copy these verbatim into the actual git commit message.
+- CRITICAL and HIGH severity findings MUST NOT be bundled with MEDIUM and LOW findings in the same package. Mixing severities above HIGH with below HIGH violates atomicity and git bisect friendliness. Split into separate packages with explicit dependency edges.
+- When a package is generated, the planner MUST annotate each source review file: append `[IN-PROGRESS: docs/plans/{date}/{topic}/packages/NN-{slug}.md]` beside the finding ID. `context-manager` uses these annotations to compute the `IN-PROGRESS` state.
+- State transitions are NOT the planner's responsibility — the planner only marks `IN-PROGRESS`. `context-manager` transitions to `RESOLVED` when it verifies a merged commit contains the matching `Closes:` footer. The planner trusts this protocol.
+
 ### 1. Package Decomposition (Critical)
 
 Apply INVEST criteria (Independent, Negotiable, Valuable, Estimable, Small, Testable) to every package. The binding size bound is **whichever is reached first**: ≤ 10 findings OR ≤ 500 lines of estimated diff OR ≤ 20K tokens of loaded source files. CRITICAL findings count double toward the 10-finding limit.

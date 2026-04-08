@@ -16,6 +16,37 @@
 - Commit sonrası her zaman `git push` yapılacak (aktif branch'e)
 - Force push (`--force`, `--force-with-lease`) YASAK
 
+## Review Finding Traceability (MANDATORY)
+
+Her fix commit'i kapattığı review finding'lerine **formal olarak referans vermeli**. Aksi halde `docs/reviews/` klasörü infinite growing knowledge base olur, "audit theater" anti-pattern'i oluşur.
+
+**Commit message format:**
+```
+{type}({scope}): {subject}
+
+{body explaining the change}
+
+Closes: docs/reviews/{agent}/{YYYY-MM-DD}-{topic}.md#{finding-id}
+Closes: docs/reviews/{agent}/{YYYY-MM-DD}-{topic}.md#{finding-id}
+```
+
+**Kurallar:**
+- Bir fix birden fazla finding kapatabilir — her biri ayrı `Closes:` satırı
+- Finding ID format: `{severity}-{sequential}` (örn: `CRITICAL-001`, `HIGH-003`, `MEDIUM-012`)
+- Reviewer agents HER finding'e unique ID vermek zorunda (prompt-writer rule §...)
+- `Closes:` referansı olmadan fix commit'i = PROCESS MEDIUM (review traceability boşluğu)
+- Security CRITICAL fix commit'leri `Closes:` olmadan = PROCESS HIGH
+
+**State machine (context-manager tarafından track edilir):**
+- `OPEN` → finding var, henüz commit yok
+- `IN-PROGRESS` → implementation-planner package'ına dahil ama commit henüz yok
+- `RESOLVED` → commit message'da `Closes:` referansı var, commit merge edildi
+- `STALE` → 30 gün OPEN kaldı, weekly escalation
+- `BLOCKED` → fix attempt fail etti veya architectural-arbiter'a escalate edildi
+
+**implementation-planner package'ları için:**
+Her package `NN-{slug}.md` dosyası `Closing-Findings: [list]` field'ı içermeli. Executor (main Claude veya CI) commit ederken bu field'ı kopyalayarak commit message'a `Closes:` satırları ekler.
+
 ## File Organization
 
 - NEVER save to root folder — use the directories below

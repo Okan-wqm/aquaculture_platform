@@ -171,6 +171,14 @@ Produce a unified report combining all agent findings:
 
 Save this report to `docs/reviews/orchestrator/{YYYY-MM-DD}-{topic}.md`.
 
+**Finding ID propagation across phases:**
+- Phase 2 expert reports MUST assign `{severity}-{NNN}` IDs to every finding (enforced by prompt-writer content rule).
+- Phase 3.5 context-manager preserves IDs verbatim during compaction and computes per-finding state (OPEN / IN-PROGRESS / RESOLVED / STALE / BLOCKED).
+- Phase 5 unified report lists every CRITICAL and HIGH finding with its ID, state, and source review file path.
+- Phase 6 implementation-planner package files MUST include `Closing-Findings:` and `Source-Reviews:` fields referencing those IDs.
+- Executor commits MUST include `Closes:` footers referencing the IDs verbatim (CLAUDE.md review traceability convention).
+- STALE CRITICAL / HIGH findings from the prior cycle MUST appear in Phase 4 as mandatory dispatch targets to the source agent for escalation re-review.
+
 ### Phase 6: Implementation Packaging (conditional)
 
 Trigger conditions (any ONE is sufficient):

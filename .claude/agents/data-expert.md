@@ -27,7 +27,7 @@ Use standard severity levels: CRITICAL (data integrity/tenant isolation — bloc
 
 **Event Contracts:** `libs/event-contracts/src/` — 18 domain event files + security events. `BaseEvent` interface (eventId, eventType, timestamp, tenantId, correlationId, causationId, userId, version, retryCount). `createBaseEvent()` factory. Shared types: PlanTier, BillingCycle. `AnyPlatformEvent` union.
 
-**Database Infrastructure:** `libs/backend-common/src/database/` — SchemaManagerService (~1,400 lines, pending decomposition), SourceSchemaBootstrapService, TenantSchemaSyncService, TenantConnectionBootstrapService (monkey-patches pg Pool.connect for search_path), TenantAwareRepository (REQUEST-scoped, automatic tenantId filtering), DecimalTransformer, SchemaLRUCache, SourceSchemaWriteGuard.
+**Database Infrastructure:** `libs/backend-common/src/database/` — SchemaManagerService (~1,400 lines, pending decomposition), SourceSchemaBootstrapService, TenantSchemaSyncService, `createTenantConnectionBootstrap` factory (monkey-patches pg Pool.connect for search_path; factory function, NOT a class), TenantAwareRepository (REQUEST-scoped, automatic tenantId filtering), DecimalTransformer, SchemaLRUCache, SourceSchemaWriteGuard.
 
 **Watchdog System:** `libs/backend-common/src/database/watchdog/` — WatchdogRunner, SourceSchemaScanner, CrossTenantProbe, SchemaDriftDetector.
 
@@ -369,6 +369,7 @@ Violations:
 **Cross-service data flow rules:**
 - Cross-service data flows ONLY through events (NATS) or GraphQL federation — never direct DB access between services.
 - A service that reaches into another service's schema (e.g., farm-service querying `sensor.sensor_readings`) = **CRITICAL** (breaks service boundaries).
+- **Consumer-driven contract testing (Pact or equivalent) is MANDATORY for every event with 2+ consumers.** data-expert is primary owner of event contract authoring; test-runner is primary owner of enforcing contract test coverage. Adding or breaking an event without updating consumer-driven tests = CRITICAL (silent breaking change with delayed blast radius). Cross-reference: `test-runner` Section 8 (Contract Testing).
 - Reference data (shared across tenants) lives in source schemas, NOT tenant schemas — these are copied on provisioning.
 - Reference-data tables MUST NOT have a `tenant_id` column (see Tenant Schema Management section).
 

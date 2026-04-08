@@ -182,6 +182,21 @@ Baseline: WCAG 2.1 AA (enterprise mandate). Success criteria explicitly enforced
 - **MUST** wrap post-`await` state updates in a nested `startTransition` if they should remain transitions. Only synchronous updates inside the callback are marked = MEDIUM
 - **MUST** React.lazy routes have a meaningful Suspense fallback AND prefer route prefetching on hover / nav intent to prevent fallback flash under ~300ms
 
+### Internationalization & Localization (i18n / l10n)
+
+The aquaculture platform operates globally. Frontend code MUST be locale-agnostic unless explicitly justified.
+
+- **MUST** route all user-visible strings through a typed i18n library (react-intl, i18next, or equivalent). Hardcoded user-visible strings in JSX/TSX = HIGH (blocks expansion to non-English locales).
+- **MUST** format dates, times, and durations via `Intl.DateTimeFormat` with explicit `timeZone`. Raw `Date.toLocaleString()` without timezone = HIGH (operators in different timezones see inconsistent values for the same batch event).
+- **MUST** format numbers, currencies, and units via `Intl.NumberFormat` with explicit `locale` and `currency` / `unit`. Hardcoded decimal separator, thousand separator, or currency symbol = HIGH.
+- **MUST** use logical CSS properties (`margin-inline-start` / `padding-inline-end`) instead of physical ones (`margin-left`) in components that may render in RTL locales. Physical-only layouts break for RTL = MEDIUM.
+- **MUST** declare `dir="ltr"` or `dir="rtl"` at the root `<html>` element based on the active locale, not hardcoded. Missing `dir` = HIGH (RTL locales degrade silently).
+- **MUST** ensure all ICU message strings have plural / gender variants where the source language grammar requires it. English-only fallback for plurals = MEDIUM (quality regression in target locales).
+- **MUST** lazy-load locale bundles (`i18next` resource modules, `react-intl` message imports) — never bundle all locales into the initial JS chunk. Eager loading all locales = MEDIUM performance.
+- **MUST** store the active locale in a single source of truth (URL segment, cookie, or Zustand store) and propagate through `TenantContext` when tenant locale preferences override user locale.
+- **MUST NOT** concatenate translated strings (`"Welcome " + username + "!"`) — always use message interpolation (`t('welcome', { name: username })`). Concatenation breaks grammar in non-English languages = HIGH.
+- **MUST** coordinate with backend `Accept-Language` header propagation — server-rendered errors and validation messages MUST be localized consistently with client messages. Mismatch = MEDIUM.
+
 ### Multi-Tenancy (Frontend-Specific Domain Rules)
 
 Cross-cutting tenant isolation (backend enforcement via JWT, DB `search_path`, NATS subject scoping, CrossTenantProbe) is the **primary ownership of `multi-tenant-saas-expert`**. This subsection covers only frontend-domain-specific tenant rules — browser storage, cache scoping, MFE-wide tenant propagation:

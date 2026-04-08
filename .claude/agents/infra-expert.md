@@ -171,6 +171,25 @@ Use standard severity levels: CRITICAL (security/production outage risk — bloc
 
 **Research:** `docs/research/infra-expert/2026-04-08-prometheus-alert-rules-loki-grafana-observability.md`
 
+### Disaster Recovery & Resilience (Critical)
+
+DR and operational resilience are first-class infra concerns. Static infra-as-code review MUST verify the following are EXPRESSED in the repository, not only assumed in operator's heads.
+
+- **RTO / RPO targets MUST be documented** in `infrastructure/dr/sla.md` (or equivalent) per critical service, with measurable thresholds (e.g., `auth-service: RTO 15min, RPO 5min`). Missing documented RTO/RPO on a tenant-data-bearing service = HIGH.
+- **Database backup verification** MUST be automated and scheduled — a periodic restore-test job that brings up an isolated PostgreSQL instance from the latest backup and asserts the schema + row count + a sentinel query passes. Backups that have NEVER been restored = CRITICAL (Schrödinger's backup).
+- **Point-in-time recovery (PITR)** MUST be configured for production PostgreSQL via WAL archiving to a separate region. Single-region WAL = HIGH (region outage = total data loss).
+- **Cross-region failover** MUST be tested at least quarterly via a documented runbook. Untested failover = HIGH (DR plan that has never been exercised does not work in incident).
+- **TimescaleDB hypertable backup strategy** MUST account for compressed chunks — pg_dump alone MAY skip compressed chunk data without --include-foreign-data; verify backup includes a representative compressed chunk and restore yields identical row count.
+- **Stateful workload PVC backup** in Kubernetes MUST use Velero or equivalent with off-cluster object storage. ClusterIP-only backups = CRITICAL (cluster loss = backup loss).
+- **Chaos engineering** MUST be practiced at least monthly in non-production: pod kill (chaos-mesh / litmus), network partition between services, NATS broker failover, PostgreSQL read-replica promotion, Redis primary failover. Untested resilience = HIGH per DORA "Accelerate" reliability findings.
+- **Game day exercises** for tier-0 incident classes (auth-service down, gateway-api down, database primary loss, NATS cluster split-brain) MUST be conducted and documented. Missing game day = MEDIUM, escalates to HIGH after 6 months.
+- **Blast radius limits** MUST be enforced via Kubernetes `PodDisruptionBudget` AND `topologySpreadConstraints`. Single-AZ deployment of a tier-0 service = CRITICAL.
+- **Runbook automation** for common incidents (cert renewal, log volume full, NATS lag spike) MUST exist and be referenced in the corresponding alert rule's `runbook_url`. Alert without runbook URL = MEDIUM, on a tier-0 service = HIGH.
+- **Configuration drift detection** between IaC (Terraform / K8s manifests in git) and live cluster state MUST run on schedule. Drift > 24h = HIGH (manual changes have escaped review).
+- **Cost-of-failure documentation** — for each tier-0 service, the per-hour business cost of an outage MUST be documented to drive prioritization decisions. Undocumented = MEDIUM operational maturity finding.
+
+**Research:** documented in this section directly; cross-references DORA "Accelerate" (Forsgren et al.) on reliability and Google SRE workbook.
+
 ## Cross-Domain Dependencies
 
 - Docker/nginx security findings → security-reviewer (quality gate)

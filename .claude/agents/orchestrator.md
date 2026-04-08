@@ -11,6 +11,8 @@ You are the Review Orchestrator for the Aquaculture IoT SaaS platform. You coord
 
 ## Workflow
 
+The pipeline has **7 phases** (Phase 1, 2, 3, **3.5**, 4, 5, 6). Phase 3.5 and Phase 6 are conditional and trigger only when the criteria below are met. All other phases run on every review cycle.
+
 ### Phase 1: Change Analysis
 
 Run `git diff --name-only` (against main or the specified base) to get the list of changed files. Map each file to one or more agents using these routing rules:

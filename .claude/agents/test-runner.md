@@ -142,6 +142,19 @@ Use standard severity levels: CRITICAL (tests hiding bugs/security gaps — bloc
 - Every confirmed tenant leak incident MUST produce a regression test in the cross-tenant probe suite within one sprint. Recurring incidents without regression test = SYSTEMIC.
 - Research: `docs/research/test-runner/2026-04-08-tenant-isolation-test-coverage-multi-tenant.md`
 
+### 8. Contract Testing (Cross-Service Boundaries)
+
+The platform has 14 backend services + Rust edge agent + 9 MFEs interacting via NATS events, GraphQL Federation, REST, and MQTT. Pure unit and integration tests inside each service CANNOT detect contract drift between producers and consumers. Contract testing is mandatory at the boundary.
+
+- **Consumer-driven contract testing (Pact or equivalent)** MUST exist for every NATS event consumed by 2+ services. The consumer publishes its expected schema; the producer's CI verifies the producer can satisfy every consumer's contract. Missing Pact (or equivalent contract test) on a multi-consumer event = HIGH.
+- **Event contract registry** MUST be the single source of truth — each event in `libs/event-contracts/src/*.ts` MUST have at least one consumer-driven test asserting backward compatibility. Adding/changing an event without updating contract tests = CRITICAL (silent breaking change).
+- **GraphQL Federation supergraph composition test** MUST run on every PR that touches a `*.graphql` schema or a `@nestjs/graphql` resolver. `rover supergraph compose` or Apollo Studio composition check failing on PR = HIGH (federated graph would break in production).
+- **REST contract tests for admin-api-service** (the only REST service) MUST use OpenAPI / JSON Schema validation against the live spec. Drift between code and OpenAPI document = HIGH.
+- **MQTT topic format contract test** MUST exist between sensor-service and the Rust edge agent — both sides assert the same topic namespace, payload schema, and QoS. Format drift = CRITICAL (life-safety control loop breaks silently).
+- **Event upcaster tests** (per data-expert event versioning rules) MUST cover every historical version of every breaking-changed event. Missing upcaster test = HIGH (replay break risk).
+- **Contract test failures gate the deploy** of the publisher AND notify all known consumers. Gate-bypass for contract failure = CRITICAL.
+- Research: `docs/research/data-expert/2026-04-08-event-contract-versioning-breaking-changes.md` (cross-reference: data-expert is primary owner of event contract authoring, test-runner enforces test coverage of those contracts).
+
 ## Cross-Domain Dependencies
 
 - Test failures in a specific service → respective domain expert (e.g., `apps/farm-service/` → farm-expert)

@@ -143,6 +143,22 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Compliance reports must be complete and non-editable after generation
 - Research: `docs/research/admin-expert/2026-04-08-audit-log-immutability-compliance.md`
 
+### Admin Frontend Accessibility & i18n (admin-panel + tenant-admin)
+
+The `web/modules/admin-panel/` (SUPER_ADMIN) and `web/modules/tenant-admin/` (TENANT_ADMIN) frontends are in-scope for this agent. Cross-cutting MFE rules (Module Federation, token lifecycle, CSP, Workbox) remain under `frontend-expert`. This subsection covers admin-domain-specific frontend expectations that NO other agent enforces:
+
+- **WCAG 2.1 AA mandatory** for all admin surfaces. Admin operators include compliance auditors, support staff, and government inspectors who may rely on assistive technologies. Failures create regulatory exposure (ADA Title II for government deployments, EN 301 549). Missing label / aria-describedby on a destructive admin action = HIGH.
+- **Color contrast ≥ 4.5:1** for all admin-panel and tenant-admin text; ≥ 3:1 for chart labels and status badges. Status icons that rely on COLOR ALONE (red/green health) = HIGH (WCAG 1.4.1) — must include text or icon shape redundancy.
+- **Keyboard navigation MANDATORY** for: impersonation initiation, tenant CRUD, billing void/refund, database explorer, audit-log filter, security incident triage. Mouse-only destructive operation = HIGH (motor-impaired SUPER_ADMINs blocked).
+- **Confirmation dialogs for destructive operations** MUST be focus-trapped, ESC-cancellable, with the destructive button NOT autofocused. Autofocused "Delete tenant" = CRITICAL (single Enter keystroke wipes a tenant).
+- **High-cardinality data tables** (audit log, user list, billing history) MUST be virtualized AND keyboard-paginable (Page Up/Down, Home/End). 10K-row admin table without keyboard pagination = HIGH.
+- **PII masking in admin dashboards** by default — operator must explicitly request unmask, action audit-logged via the same audit pipeline as backend. Always-visible PII in admin search results = CRITICAL (mass shoulder-surfing risk during ops support sessions).
+- **Real-time alerts MUST use accessible live regions** (`role="alert"` / `aria-live="assertive"` for security incidents, `polite` for non-critical). Silent visual-only alerts = HIGH (operators with screen readers miss security events).
+- **Long-form admin tasks** (database migration UI, backup/restore wizard) MUST report progress via `role="status"` with measurable updates (percentage, ETA), not just spinners. Spinner-only progress = MEDIUM.
+- **Print/export views** for compliance reports MUST be a11y-equivalent (PDF tagged, semantic structure preserved). Missing tagged PDF on compliance export = MEDIUM (Section 508 fail).
+- **i18n for all admin strings** — admin operators may run in non-English locales, especially TENANT_ADMINs. Date/number/currency formatting via `Intl.*` per `frontend-expert` i18n rules. Hardcoded English in admin-panel/tenant-admin = HIGH.
+- **Focus management on route change** between admin sections — moving from "Tenants" to "Audit" MUST move focus to the new page heading. Orphan focus on admin route change = HIGH (loss of orientation in long admin sessions).
+
 ## Cross-Domain Dependencies
 
 - Tenant provisioning → auth-security-expert (user creation, role setup)

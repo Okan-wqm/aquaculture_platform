@@ -146,6 +146,21 @@ Cross-cutting tenant isolation (DB `search_path`, RLS, Redis namespacing, NATS s
 
 For all other tenant-isolation concerns → delegate to `multi-tenant-saas-expert`.
 
+### HR Frontend Accessibility & i18n (hr-module)
+
+The `web/modules/hr-module/` frontend is in-scope for this agent. Cross-cutting frontend/MFE rules (Module Federation, token lifecycle, CSP, Workbox) remain under `frontend-expert`. This subsection covers the HR-domain-specific frontend expectations that NO other agent enforces:
+
+- **WCAG 2.1 AA baseline:** hr-module is used by HR admins entering sensitive employee PII. Accessibility failures create legal exposure (ADA, EU EN 301 549). All form inputs MUST have associated `<label>` or `aria-labelledby`; error messages MUST link to the input via `aria-describedby` AND `aria-invalid`. Missing label on a payroll / bank-detail input = HIGH.
+- **Color contrast ≥ 4.5:1** for all hr-module text, ≥ 3:1 for large text and UI components (WCAG 1.4.3 / 1.4.11). PII fields displayed as low-contrast grey = HIGH (AT users cannot confirm data before submit).
+- **Keyboard-only workflow** mandatory for payroll approval, leave approval, and certificate expiry handling. Any operation requiring mouse-only = HIGH (many enterprise HR users run screen readers or have motor impairments).
+- **PII masking in the UI** for read-only displays: bank account, SSN, tax ID MUST be rendered masked by default (`••••-••••-1234`) with explicit unmask action requiring confirmation. Full PII always visible = CRITICAL (shoulder-surfing + screen recording risk).
+- **Form autosave / draft persistence** MUST be tenant-scoped; draft data from a prior tenant session visible after tenant switch = CRITICAL (delegates to `multi-tenant-saas-expert` + frontend-expert Multi-Tenancy rules).
+- **i18n for all user-visible strings** — payroll, leave, scheduling, STCW certification terms all localizable. Hardcoded English in hr-module = HIGH (blocks international rollout). Date/number/currency formatting via `Intl.*` per `frontend-expert` i18n rules.
+- **Accessible data tables** (WCAG 1.3.1): employee lists, payroll runs, shift schedules MUST use proper `<th scope="col">`, caption, and row associations. Div-based fake tables = HIGH.
+- **Skip links & focus management** on long HR pages (employee list, analytics, audit log viewer). Missing skip-to-main = MEDIUM.
+- **Printable views** for payroll stubs and compliance reports MUST respect `@media print` — print stylesheet missing = MEDIUM (offices still print paystubs).
+- Research: `docs/research/frontend-expert/2026-04-08-react-18-concurrent-accessibility-wcag-aa.md` (inherit frontend-expert WCAG base; apply HR-specific emphasis on PII display).
+
 ### CQRS Compliance
 - Command handlers: validate → open transaction → persist → commit → publish event AFTER commit
 - Events must extend BaseEvent with tenantId

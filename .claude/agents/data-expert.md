@@ -46,14 +46,54 @@ Use standard severity levels: CRITICAL (data integrity/tenant isolation — bloc
 ## Domain Rules
 
 ### Event Contract Integrity (Critical)
-- ALL events MUST extend `BaseEvent` — never standalone interfaces
-- `eventType` MUST be PascalCase matching the interface name
-- `tenantId` MANDATORY on every event — events without tenantId = CRITICAL
-- Event fields MUST be flat — no nested `payload` wrapper
-- New fields on existing events MUST be optional (additive, non-breaking)
-- Removing or renaming fields = BREAKING CHANGE requiring: version bump, consumer migration plan, deprecation period
-- `createBaseEvent()` factory must be used for constructing events (ensures required fields populated)
-- `AnyPlatformEvent` union must include all event types (no orphaned events)
+
+Research foundation: `docs/research/data-expert/2026-04-08-event-contract-versioning-breaking-changes.md` (Microsoft Event Sourcing Pattern, Azure Event Hubs Schema Registry, WCF Data Contract Versioning best practices).
+
+**Immutability constraint.** The NATS event stream is an append-only ledger that is the permanent system of record. Historical events with old shapes continue to exist forever, so every consumer that replays a stream must be able to decode every shape that has ever been produced. This makes event schema evolution fundamentally different from REST/gRPC versioning.
+
+**Structural rules:**
+- ALL events MUST extend `BaseEvent` — never standalone interfaces.
+- `eventType` MUST be PascalCase matching the interface name (routing mismatch risk otherwise).
+- `tenantId` MANDATORY at the top level of every event — events without top-level `tenantId` = **CRITICAL** (NATS subject routing and RLS context propagation both depend on it; cross-tenant leak risk).
+- Event fields MUST be flat — no nested `payload`, `metadata`, `data`, or `body` wrapper objects = **HIGH**.
+- `createBaseEvent()` factory must be used for constructing events (ensures eventId, timestamp, version, tenantId populated).
+- `AnyPlatformEvent` union must include every event type (missing entry = **HIGH**, creates discriminated-union hole).
+- `aggregateId` + `aggregateType` required for any event that participates in per-entity replay (sensors, batches, subscriptions, etc.).
+
+**Additive-change catalog (non-breaking, no version bump required):**
+- Adding an **optional** field (never required).
+- Adding a new event type to `AnyPlatformEvent`.
+- Widening a numeric range (JSON serialization tolerates this).
+- Adding new enum values when the consumer has an explicit fallback handler.
+- Renaming via a backward-compatible alias (serializer writes both names during the deprecation window).
+
+**Breaking-change catalog (requires version bump + upcaster + consumer migration plan):**
+- **Removing** any field, even one previously marked optional (WCF rule 9: historical events still carry it).
+- **Renaming** a field without a backward-compatible alias.
+- **Narrowing** a field's type (string → UUID, int64 → int32, nullable → non-null).
+- **Re-purposing** an existing field with new semantics.
+- Changing `eventType` casing or string name.
+- Removing an enum value that historical events may carry.
+- Adding a **required** (non-optional) field — breaks every historical event in the store.
+
+**Consumer migration protocol (4 stages):**
+1. **Dual-publish.** Producer emits BOTH shapes for the deprecation window.
+2. **Consumer migration.** Each downstream consumer is updated to handle the new shape.
+3. **Upcaster installation.** Before producer stops dual-publishing, install an upcaster in `libs/event-contracts/src/upcasters/` that transforms historical old-shape events at read time.
+4. **Producer cleanup.** Producer stops emitting the old shape. The upcaster remains permanently.
+
+Deprecation window duration: at least 2x the max NATS stream retention + 1 full consumer redeploy cycle. For infinite-retention streams, the upcaster is permanent.
+
+**Upcaster rules:**
+- Every upcaster must have a test fixture for each source version it transforms. Missing tests = **HIGH**.
+- Upcaster chains (v1→v2→v3→v4) are O(n) per read — chains of 6+ versions begin to show measurable replay latency and indicate design debt.
+- A version bump without a matching upcaster chain entry = **CRITICAL** (stream replay breaks).
+
+**Consumer fail-closed guard:**
+- Every NATS consumer MUST reject inbound events where `tenantId` is missing or does not match the expected tenant context of the subscribing handler. Missing this guard = **CRITICAL** (fail-open tenant leak).
+- Every consumer must be idempotent on `eventId` (at-least-once delivery semantics — duplicate events must not cause duplicate side effects).
+
+**PII in events.** Because events are immutable, any PII (email, phone, full name, national ID) written to an event is in the audit trail forever. Two approved mitigations: (1) store PII outside the event store and reference by ID, or (2) crypto-shred by per-subject key. Writing raw PII into event payloads without mitigation = **HIGH** (GDPR/KVKK compliance risk).
 
 ### Tenant Schema Management (Critical)
 - Schema naming: `tenant_{first16HexOfUUID}` — validated by `TENANT_SCHEMA_REGEX` (`/^tenant_[a-f0-9]{16}$/`)

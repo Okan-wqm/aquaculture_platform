@@ -20,7 +20,7 @@
  * @see Phase B of farm domain real-time visibility plan.
  */
 
-import { Logger, Optional, OnModuleDestroy } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -32,6 +32,11 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import * as promClient from 'prom-client';
+import {
+  buildWsCorsConfig,
+  enforceAccessTokenType,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {
@@ -40,20 +45,22 @@ interface FarmClient {
   userId?: string;
 }
 
-/** Decoded JWT payload with tenant claim. */
+/**
+ * Decoded JWT payload with tenant claim.
+ *
+ * `type` and `jti` are required by `enforceAccessTokenType` from
+ * backend-common — refresh and MFA-challenge tokens carry `type !==
+ * 'access'` and must be rejected at handshake (H-1 fix).
+ */
 interface TokenPayload {
-  sub?: string;
+  sub: string;
   tenantId?: string;
+  type?: string;
+  jti?: string;
   iss?: string;
   aud?: string | string[];
   [key: string]: unknown;
 }
-
-/**
- * Build CORS config at module load time from environment.
- * Identical pattern to SensorReadingsGateway / MessagingGateway so behaviour
- * stays consistent across all WebSocket namespaces.
- */
 /**
  * Prometheus gauges for farm WebSocket operational health. Registered as
  * singletons on the default prom-client registry so multiple replicas and
@@ -82,31 +89,8 @@ const farmWsBroadcasts =
     registers: [promClient.register],
   });
 
-function buildWsCorsConfig(): {
-  origin: string[] | boolean;
-  credentials: boolean;
-  methods?: string[];
-} {
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const raw = process.env['WS_CORS_ORIGINS'] ?? '';
-  const origins = raw
-    ? raw
-        .split(',')
-        .map((o) => o.trim())
-        .filter(Boolean)
-    : [];
-
-  if (origins.length > 0) {
-    return { origin: origins, credentials: true, methods: ['GET', 'POST'] };
-  }
-  if (!isProduction) {
-    return { origin: true, credentials: false, methods: ['GET', 'POST'] };
-  }
-  return { origin: false, credentials: false };
-}
-
 @WebSocketGateway({
-  cors: buildWsCorsConfig(),
+  cors: buildWsCorsConfig('FarmGateway'),
   namespace: '/farms',
   transports: ['websocket', 'polling'],
 })
@@ -122,59 +106,29 @@ export class FarmGateway
 
   private readonly logger = new Logger(FarmGateway.name);
   private clients = new Map<string, FarmClient>();
-  private readonly allowedOrigins: string[];
-  private readonly jwtIssuer: string;
-  private readonly jwtAudience: string[];
+  private readonly isProduction: boolean;
 
+  /**
+   * ConfigService is REQUIRED (no `@Optional()`): the shared
+   * `getJwtVerifyOptions` helper calls `configService.getOrThrow`
+   * for JWT_SECRET, and the platform's ConfigModule is global. A
+   * gateway instantiated without ConfigService is a configuration
+   * error, not a supported deployment mode — fail-fast at
+   * construction time rather than logging warnings at runtime.
+   */
   constructor(
     private readonly jwtService: JwtService,
-    @Optional() private readonly configService?: ConfigService,
+    private readonly configService: ConfigService,
   ) {
-    const originsConfig =
-      this.configService?.get<string>('WS_CORS_ORIGINS', '') ?? '';
-    this.allowedOrigins = originsConfig
-      ? originsConfig
-          .split(',')
-          .map((o) => o.trim())
-          .filter(Boolean)
-      : [];
-
-    this.jwtIssuer =
-      this.configService?.get<string>('JWT_ISSUER', 'aquaculture-platform') ??
-      'aquaculture-platform';
-    this.jwtAudience = (
-      this.configService?.get<string>(
-        'JWT_AUDIENCE',
-        'aquaculture-platform',
-      ) ?? 'aquaculture-platform'
-    ).split(',');
-
-    const isProduction =
-      this.configService?.get<string>('NODE_ENV') === 'production';
-    if (isProduction && this.allowedOrigins.length === 0) {
-      this.logger.error(
-        'SECURITY: WS_CORS_ORIGINS must be configured in production. ' +
-          'Farm WebSocket connections will be rejected.',
-      );
-    }
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
+    // CORS allowlist validity is enforced at module-load time by
+    // `buildWsCorsConfig('FarmGateway')`, which throws in production
+    // if WS_CORS_ORIGINS is missing. No per-instance check needed —
+    // if the process is running, CORS is valid.
   }
 
   afterInit(): void {
-    const isProduction =
-      this.configService?.get<string>('NODE_ENV') === 'production';
-    if (this.allowedOrigins.length > 0) {
-      this.logger.log(
-        `Farm WebSocket CORS configured with origins: ${this.allowedOrigins.join(', ')}`,
-      );
-    } else if (!isProduction) {
-      this.logger.warn(
-        'Farm WebSocket CORS: Development mode — allowing all origins without credentials',
-      );
-    } else {
-      this.logger.error(
-        'Farm WebSocket CORS: Blocking all connections — configure WS_CORS_ORIGINS',
-      );
-    }
     this.logger.log('Farm Gateway initialised on namespace /farms');
   }
 
@@ -381,15 +335,32 @@ export class FarmGateway
   }
 
   /**
-   * Validate a JWT token asynchronously with issuer and audience checks.
-   * Mirrors SensorReadingsGateway.validateToken so all platform gateways
-   * apply the same security policy.
+   * Validate a JWT token asynchronously via the shared platform
+   * verification helpers.
+   *
+   * Uses `getJwtVerifyOptions(configService)` to enforce — at the
+   * jsonwebtoken library level, not by conditional checks — the
+   * HS256 algorithm, the issuer claim, and the audience claim. This
+   * closes the "conditional `if (payload.iss && ...)` bypass" where
+   * tokens without `iss` or `aud` were silently accepted by the
+   * previous inline implementation.
+   *
+   * After verifyAsync succeeds, `enforceAccessTokenType` throws if
+   * `payload.type !== 'access'` — refusing refresh tokens (7-day TTL)
+   * and MFA-challenge tokens (pre-2FA) at the WebSocket handshake.
+   * This is H-1 from the comprehensive review and closes an auth
+   * bypass where long-lived non-access tokens could establish live
+   * event streams.
+   *
+   * Any failure — verification error, wrong token type, missing jti
+   * in production — returns `null` so the caller can cleanly
+   * disconnect the client with a generic error.
    */
   private async validateToken(token: string): Promise<TokenPayload | null> {
     try {
       const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
         token,
-        { algorithms: ['HS256'] },
+        getJwtVerifyOptions(this.configService),
       );
 
       if (typeof result !== 'object' || result === null) return null;
@@ -399,23 +370,22 @@ export class FarmGateway
       ) {
         return null;
       }
-
-      // Validate issuer if present
-      if (result['iss'] && result['iss'] !== this.jwtIssuer) {
-        this.logger.debug('Farm token validation failed: issuer mismatch');
+      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
         return null;
       }
 
-      // Validate audience if present
-      if (result['aud']) {
-        const audiences = Array.isArray(result['aud'])
-          ? (result['aud'] as string[])
-          : [result['aud'] as string];
-        if (!audiences.some((aud) => this.jwtAudience.includes(aud))) {
-          this.logger.debug('Farm token validation failed: audience mismatch');
-          return null;
-        }
-      }
+      // H-1 enforcement: reject refresh + MFA-challenge tokens.
+      // Throws UnauthorizedException on failure — caught and converted
+      // to `null` below so the gateway disconnects gracefully.
+      enforceAccessTokenType(
+        {
+          type: typeof result['type'] === 'string' ? result['type'] : undefined,
+          sub: result['sub'],
+          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
+        },
+        this.logger,
+        this.isProduction,
+      );
 
       return result as TokenPayload;
     } catch (error) {

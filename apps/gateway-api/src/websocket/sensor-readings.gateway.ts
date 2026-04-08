@@ -20,7 +20,13 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
-import { DEVICE_CODE_REGEX, UUID_REGEX } from '@aquaculture/backend-common';
+import {
+  DEVICE_CODE_REGEX,
+  UUID_REGEX,
+  buildWsCorsConfig,
+  enforceAccessTokenType,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common';
 
 import { DeviceOwnershipService } from './services/device-ownership.service';
 
@@ -41,11 +47,19 @@ interface SubscribedClient {
   authorizedSensorIds: Set<string>;
 }
 
-/** Decoded JWT payload with tenant and sensor claims. */
+/**
+ * Decoded JWT payload with tenant and sensor claims.
+ *
+ * `type` and `jti` are required for `enforceAccessTokenType` — refresh
+ * and MFA-challenge tokens carry `type !== 'access'` and must be
+ * rejected at handshake (H-1 fix).
+ */
 interface TokenPayload {
-  sub?: string;
+  sub: string;
   tenantId?: string;
   sensorIds?: string[];
+  type?: string;
+  jti?: string;
   iss?: string;
   aud?: string | string[];
   [key: string]: unknown;
@@ -69,22 +83,8 @@ export interface ISensorAuthorizationService {
 /** Injection token for sensor authorization service. */
 export const SENSOR_AUTH_SERVICE = 'SENSOR_AUTH_SERVICE';
 
-/**
- * Build CORS config at module load time from environment.
- * This is the ONLY effective place to set CORS for Socket.io.
- */
-function buildWsCorsConfig(): { origin: string[] | boolean; credentials: boolean; methods?: string[] } {
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const raw = process.env['WS_CORS_ORIGINS'] ?? '';
-  const origins = raw ? raw.split(',').map((o) => o.trim()).filter(Boolean) : [];
-
-  if (origins.length > 0) return { origin: origins, credentials: true, methods: ['GET', 'POST'] };
-  if (!isProduction) return { origin: true, credentials: false, methods: ['GET', 'POST'] };
-  return { origin: false, credentials: false };
-}
-
 @WebSocketGateway({
-  cors: buildWsCorsConfig(),
+  cors: buildWsCorsConfig('SensorReadingsGateway'),
   namespace: '/sensors',
   transports: ['websocket', 'polling'],
 })
@@ -96,47 +96,31 @@ export class SensorReadingsGateway
 
   private readonly logger = new Logger(SensorReadingsGateway.name);
   private clients = new Map<string, SubscribedClient>();
-  private readonly allowedOrigins: string[];
-  private readonly jwtIssuer: string;
-  private readonly jwtAudience: string[];
+  private readonly isProduction: boolean;
 
+  /**
+   * ConfigService is REQUIRED (no `@Optional()`): `getJwtVerifyOptions`
+   * calls `getOrThrow<string>('JWT_SECRET')` on it. A gateway
+   * instantiated without ConfigService is a configuration error, not
+   * a supported deployment mode — fail-fast at construction time.
+   */
   constructor(
     private readonly jwtService: JwtService,
     private readonly deviceOwnershipService: DeviceOwnershipService,
-    @Optional() private readonly configService?: ConfigService,
+    private readonly configService: ConfigService,
     @Optional() @Inject(SENSOR_AUTH_SERVICE)
     private readonly sensorAuthService?: ISensorAuthorizationService,
   ) {
-    const originsConfig = this.configService?.get<string>('WS_CORS_ORIGINS', '') ?? '';
-    this.allowedOrigins = originsConfig
-      ? originsConfig.split(',').map((o) => o.trim()).filter(Boolean)
-      : [];
-
-    this.jwtIssuer = this.configService?.get<string>(
-      'JWT_ISSUER', 'aquaculture-platform',
-    ) ?? 'aquaculture-platform';
-    this.jwtAudience = (
-      this.configService?.get<string>('JWT_AUDIENCE', 'aquaculture-platform') ?? 'aquaculture-platform'
-    ).split(',');
-
-    const isProduction = this.configService?.get<string>('NODE_ENV') === 'production';
-    if (isProduction && this.allowedOrigins.length === 0) {
-      this.logger.error(
-        'SECURITY: WS_CORS_ORIGINS must be configured in production. WebSocket connections will be rejected.',
-      );
-    }
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
+    // CORS allowlist validity is enforced at module load by
+    // `buildWsCorsConfig('SensorReadingsGateway')`, which throws in
+    // production if WS_CORS_ORIGINS is missing. If the process is
+    // running, CORS is valid — no per-instance check needed.
   }
 
   afterInit(): void {
-    const isProduction = this.configService?.get<string>('NODE_ENV') === 'production';
-    if (this.allowedOrigins.length > 0) {
-      this.logger.log(`WebSocket CORS configured with origins: ${this.allowedOrigins.join(', ')}`);
-    } else if (!isProduction) {
-      this.logger.warn('WebSocket CORS: Development mode - allowing all origins without credentials');
-    } else {
-      this.logger.error('WebSocket CORS: Blocking all connections - configure WS_CORS_ORIGINS');
-    }
-    this.logger.log('WebSocket Gateway initialized');
+    this.logger.log('Sensor Readings WebSocket Gateway initialized on /sensors');
   }
 
   onModuleDestroy(): void {
@@ -379,34 +363,43 @@ export class SensorReadingsGateway
   }
 
   /**
-   * Validate a JWT token asynchronously with issuer and audience checks.
-   * Uses verifyAsync (ONEMLI-04) and validates iss/aud claims (BULGU-5).
+   * Validate a JWT token via the shared platform verification helpers.
+   * See `farm.gateway.ts:validateToken` for the full rationale — this
+   * implementation mirrors it so every gateway applies the same
+   * security policy.
+   *
+   * `getJwtVerifyOptions` enforces HS256 + issuer + audience at the
+   * jsonwebtoken library level (not a conditional check). The
+   * subsequent `enforceAccessTokenType` rejects refresh and
+   * MFA-challenge tokens at handshake (H-1).
    */
   private async validateToken(token: string): Promise<TokenPayload | null> {
     try {
-      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(token, {
-        algorithms: ['HS256'],
-      });
+      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
 
       if (typeof result !== 'object' || result === null) return null;
-      if (typeof result['tenantId'] !== 'string' || result['tenantId'].length === 0) return null;
-
-      // Validate issuer if present
-      if (result['iss'] && result['iss'] !== this.jwtIssuer) {
-        this.logger.debug('Token validation failed: issuer mismatch');
+      if (
+        typeof result['tenantId'] !== 'string' ||
+        result['tenantId'].length === 0
+      ) {
+        return null;
+      }
+      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
         return null;
       }
 
-      // Validate audience if present
-      if (result['aud']) {
-        const audiences = Array.isArray(result['aud'])
-          ? (result['aud'] as string[])
-          : [result['aud'] as string];
-        if (!audiences.some((aud) => this.jwtAudience.includes(aud))) {
-          this.logger.debug('Token validation failed: audience mismatch');
-          return null;
-        }
-      }
+      enforceAccessTokenType(
+        {
+          type: typeof result['type'] === 'string' ? result['type'] : undefined,
+          sub: result['sub'],
+          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
+        },
+        this.logger,
+        this.isProduction,
+      );
 
       return result as TokenPayload;
     } catch (error) {

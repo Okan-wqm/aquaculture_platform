@@ -1,4 +1,4 @@
-import { Logger, Optional } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -10,16 +10,30 @@ import {
   SubscribeMessage,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import {
+  buildWsCorsConfig,
+  enforceAccessTokenType,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Decoded JWT payload for ST language clients.
+ *
+ * `type` and `jti` are required for `enforceAccessTokenType` — refresh
+ * and MFA-challenge tokens carry `type !== 'access'` and must be
+ * rejected at handshake (H-1 fix).
+ */
 interface TokenPayload {
-  sub?: string;
+  sub: string;
   tenantId?: string;
   userId?: string;
   roles?: string[];
+  type?: string;
+  jti?: string;
   [key: string]: unknown;
 }
 
@@ -82,31 +96,11 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_CONNECTIONS_PER_TENANT = 10;
 
 // ---------------------------------------------------------------------------
-// CORS (same pattern as SensorReadingsGateway)
-// ---------------------------------------------------------------------------
-
-function buildWsCorsConfig(): { origin: string[] | boolean; credentials: boolean; methods?: string[] } {
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const originsConfig = process.env['WS_CORS_ORIGINS'] ?? '';
-  const allowedOrigins = originsConfig
-    ? originsConfig.split(',').map((o) => o.trim()).filter(Boolean)
-    : [];
-
-  if (allowedOrigins.length > 0) {
-    return { origin: allowedOrigins, credentials: true, methods: ['GET', 'POST'] };
-  }
-  if (!isProduction) {
-    return { origin: true, credentials: false, methods: ['GET', 'POST'] };
-  }
-  return { origin: false, credentials: false };
-}
-
-// ---------------------------------------------------------------------------
 // Gateway
 // ---------------------------------------------------------------------------
 
 @WebSocketGateway({
-  cors: buildWsCorsConfig(),
+  cors: buildWsCorsConfig('STLanguageGateway'),
   namespace: '/st-language',
   transports: ['websocket', 'polling'],
   maxHttpBufferSize: MAX_MESSAGE_SIZE,
@@ -126,12 +120,18 @@ export class STLanguageGateway
 
   private readonly isProduction: boolean;
 
+  /**
+   * ConfigService is REQUIRED (no `@Optional()`): `getJwtVerifyOptions`
+   * calls `getOrThrow<string>('JWT_SECRET')` on it. A gateway
+   * instantiated without ConfigService is a configuration error, not
+   * a supported deployment mode — fail-fast at construction time.
+   */
   constructor(
     private readonly jwtService: JwtService,
-    @Optional()
-    private readonly configService?: ConfigService,
+    private readonly configService: ConfigService,
   ) {
-    this.isProduction = process.env['NODE_ENV'] === 'production';
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   // -----------------------------------------------------------------------
@@ -152,7 +152,7 @@ export class STLanguageGateway
         return;
       }
 
-      const payload = this.validateToken(token);
+      const payload = await this.validateToken(token);
       if (!payload?.tenantId) {
         this.logger.warn(`Client ${client.id} has invalid token`);
         client.emit('error', { message: 'Invalid token' });
@@ -467,11 +467,40 @@ export class STLanguageGateway
     return null;
   }
 
-  private validateToken(token: string): TokenPayload | null {
+  /**
+   * Validate a JWT token via the shared platform verification helpers.
+   *
+   * Uses `verifyAsync` (async, non-blocking) + `getJwtVerifyOptions`
+   * which enforces HS256 + issuer + audience at the jsonwebtoken
+   * library level, and `enforceAccessTokenType` which rejects refresh
+   * and MFA-challenge tokens at handshake (H-1).
+   *
+   * The previous implementation used sync `verify()` with only
+   * `algorithms: ['HS256']` — no iss, no aud, no type check. All four
+   * gaps are closed by this refactor.
+   */
+  private async validateToken(token: string): Promise<TokenPayload | null> {
     try {
-      const result: unknown = this.jwtService.verify(token, {
-        algorithms: ['HS256'],
-      });
+      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
+
+      if (typeof result !== 'object' || result === null) return null;
+      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
+        return null;
+      }
+
+      enforceAccessTokenType(
+        {
+          type: typeof result['type'] === 'string' ? result['type'] : undefined,
+          sub: result['sub'],
+          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
+        },
+        this.logger,
+        this.isProduction,
+      );
+
       return result as TokenPayload;
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);

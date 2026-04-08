@@ -94,3 +94,6 @@ export * from './bootstrap';
 
 // Monitoring - Legacy token metrics for JWT sunset tracking
 export * from './monitoring';
+
+// WebSocket - Shared CORS config helper with production fail-closed policy
+export * from './websocket';

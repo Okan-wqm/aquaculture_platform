@@ -12,14 +12,28 @@ import {
 import { Server, Socket } from 'socket.io';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
+import {
+  buildWsCorsConfig,
+  enforceAccessTokenType,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common';
 
 // Types
 
+/**
+ * Decoded JWT payload for messaging clients.
+ *
+ * `type` and `jti` are required for `enforceAccessTokenType` — refresh
+ * and MFA-challenge tokens carry `type !== 'access'` and must be
+ * rejected at handshake (H-1 fix).
+ */
 interface TokenPayload {
   sub: string;
   tenantId?: string;
   roles?: string[];
   status?: string;
+  type?: string;
+  jti?: string;
   [key: string]: unknown;
 }
 
@@ -36,24 +50,6 @@ interface JoinChannelPayload { channelId: string }
 interface LeaveChannelPayload { channelId: string }
 interface TypingPayload { channelId: string }
 interface MarkReadPayload { channelId: string; messageId: string }
-
-// CORS Config (reuse pattern from SensorReadingsGateway)
-
-function buildWsCorsConfig(): { origin: string[] | boolean; credentials: boolean; methods?: string[] } {
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const originsConfig = process.env['WS_CORS_ORIGINS'] ?? '';
-  const allowedOrigins = originsConfig
-    ? originsConfig.split(',').map((o) => o.trim()).filter(Boolean)
-    : [];
-
-  if (allowedOrigins.length > 0) {
-    return { origin: allowedOrigins, credentials: true, methods: ['GET', 'POST'] };
-  }
-  if (!isProduction) {
-    return { origin: true, credentials: false, methods: ['GET', 'POST'] };
-  }
-  return { origin: false, credentials: false };
-}
 
 const PRESENCE_TTL_SECONDS = 300;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -72,7 +68,7 @@ const TYPING_THROTTLE_MS = 3_000;
  * - Typing throttle to prevent abuse
  */
 @WebSocketGateway({
-  cors: buildWsCorsConfig(),
+  cors: buildWsCorsConfig('MessagingGateway'),
   namespace: '/messaging',
   transports: ['websocket', 'polling'],
 })
@@ -91,10 +87,22 @@ export class MessagingGateway
   /** Timeout for NATS membership verification requests in ms */
   private static readonly NATS_VERIFY_TIMEOUT_MS = 5_000;
 
+  /**
+   * ConfigService is REQUIRED (no `@Optional()`): `getJwtVerifyOptions`
+   * calls `getOrThrow<string>('JWT_SECRET')` on it, and the platform's
+   * ConfigModule is global. A gateway instantiated without
+   * ConfigService is a configuration error, not a supported deployment
+   * mode — fail-fast at construction time.
+   *
+   * `REDIS_SERVICE` stays optional because it is used for presence TTL
+   * tracking (set/del on a Redis key), which is a graceful-degrade
+   * feature — messaging still works without presence. `NATS_SERVICE`
+   * stays optional for the same reason (channel membership check falls
+   * back to `false` when NATS is unavailable).
+   */
   constructor(
     private readonly jwtService: JwtService,
-    @Optional()
-    private readonly configService?: ConfigService,
+    private readonly configService: ConfigService,
     @Optional()
     @Inject('REDIS_SERVICE')
     private readonly redisService?: { getClient(): { set(key: string, value: string, mode: string, ttl: number): Promise<string>; del(key: string): Promise<number> } },
@@ -102,7 +110,8 @@ export class MessagingGateway
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,
   ) {
-    this.isProduction = process.env['NODE_ENV'] === 'production';
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   /**
@@ -130,7 +139,7 @@ export class MessagingGateway
         return;
       }
 
-      const payload = this.validateToken(token);
+      const payload = await this.validateToken(token);
       if (!payload?.tenantId || !payload.sub) {
         this.logger.warn(`Client ${client.id} has invalid token`);
         client.emit('error', { message: 'Invalid token' });
@@ -349,10 +358,10 @@ export class MessagingGateway
   }
 
   @SubscribeMessage('reAuthResponse')
-  handleReAuthResponse(
+  async handleReAuthResponse(
     client: Socket,
     payload: { token: string },
-  ): { success: boolean } {
+  ): Promise<{ success: boolean }> {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false };
@@ -364,7 +373,7 @@ export class MessagingGateway
       return { success: false };
     }
 
-    const decoded = this.validateToken(payload.token);
+    const decoded = await this.validateToken(payload.token);
     if (!decoded || decoded.sub !== clientData.userId) {
       clientData.reAuthFailures++;
       this.checkReAuthFailures(client.id);
@@ -482,11 +491,40 @@ export class MessagingGateway
     return null;
   }
 
-  private validateToken(token: string): TokenPayload | null {
+  /**
+   * Validate a JWT token via the shared platform verification helpers.
+   *
+   * Uses `verifyAsync` (async, non-blocking) + `getJwtVerifyOptions`
+   * which enforces HS256 + issuer + audience at the jsonwebtoken
+   * library level, and `enforceAccessTokenType` which rejects refresh
+   * and MFA-challenge tokens at handshake (H-1).
+   *
+   * The previous implementation used sync `verify()` with only
+   * `algorithms: ['HS256']` — no iss, no aud, no type check. All four
+   * gaps are closed by this refactor.
+   */
+  private async validateToken(token: string): Promise<TokenPayload | null> {
     try {
-      const result: unknown = this.jwtService.verify(token, {
-        algorithms: ['HS256'],
-      });
+      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
+
+      if (typeof result !== 'object' || result === null) return null;
+      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
+        return null;
+      }
+
+      enforceAccessTokenType(
+        {
+          type: typeof result['type'] === 'string' ? result['type'] : undefined,
+          sub: result['sub'],
+          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
+        },
+        this.logger,
+        this.isProduction,
+      );
+
       return result as TokenPayload;
     } catch (error) {
       this.logger.debug(`Token validation failed: ${(error as Error).message}`);

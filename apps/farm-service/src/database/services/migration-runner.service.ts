@@ -137,26 +137,113 @@ export class MigrationRunnerService implements OnApplicationBootstrap {
         );
       }
 
-      // ── Execute migrations via hand-constructed MigrationExecutor ─────
-      // `new MigrationExecutor(dataSource, queryRunner)` binds the
-      // executor to our controlled queryRunner so every
-      // `migration.up(queryRunner)` call uses the same connection we
-      // just pinned. `transaction: 'each'` wraps each migration in its
-      // own BEGIN/COMMIT, which is safe because search_path persists
-      // across session boundaries.
+      // ── Hand-rolled migration loop with per-migration search_path reset ──
+      // Phase 13.1 — we cannot simply call
+      // `executor.executePendingMigrations()` because an individual
+      // migration is free to `SET search_path TO something_else` during
+      // its own `up()`, and that SET persists on the session-level
+      // connection into the NEXT migration's execution. On 2026-04-07
+      // `AddPurchaseOrders1772000000000` did exactly that at
+      // `apps/farm-service/src/database/migrations/1772000000000-AddPurchaseOrders.ts:95`
+      // (`SET search_path TO public` as a "reset" at the end of up()).
+      // The subsequent `AddWeatherTables` / `AddFeederCalibrations` /
+      // `AddFeederFieldsToExecution` migrations inherited the
+      // contaminated `public` search_path, their unqualified
+      // `ALTER TABLE "daily_feeding_executions"` resolved against
+      // `public.*` where the table never existed, and the whole
+      // farm-service bootstrap crashed with `relation does not exist`.
+      //
+      // The architectural fix is to control the invariant at the
+      // RUNNER layer instead of relying on every migration to clean up
+      // after itself. Before each migration's `up()` call, we
+      // explicitly issue `SET search_path TO "farm", public` on the
+      // shared queryRunner. Whatever the previous migration did to the
+      // session is overwritten, and every migration starts with the
+      // same deterministic initial state — regardless of how careful
+      // or careless its author was about cleanup.
+      //
+      // This also means migrations CAN legitimately manipulate
+      // search_path during their own execution (e.g. to iterate tenant
+      // schemas as AddPurchaseOrders does) without breaking their
+      // neighbours. The runner enforces the contract, not the
+      // migration code.
+      //
+      // We use the MigrationExecutor's helpers (`getAllMigrations` /
+      // `loadExecutedMigrations` / `insertExecutedMigration`) for the
+      // discovery and bookkeeping so the migrations metadata table
+      // stays in sync with TypeORM's expectations — only the per-
+      // migration loop is replaced.
       const executor = new MigrationExecutor(this.dataSource, queryRunner);
       executor.transaction = 'each';
 
-      const applied = await executor.executePendingMigrations();
+      // Ensure the migrations metadata table exists. TypeORM would do
+      // this inside executePendingMigrations; we do it manually so our
+      // custom loop has a place to record execution.
+      // @ts-expect-error — createMigrationsTableIfNotExist is internal
+      // but public enough that TypeORM's type surface tolerates access.
+      await executor.createMigrationsTableIfNotExist(queryRunner);
 
-      if (applied.length > 0) {
-        this.logger.log(
-          `Applied ${applied.length} migration(s): ${applied
-            .map((m) => m.name)
-            .join(', ')}`,
-        );
-      } else {
+      // Discover pending migrations via the executor's public API.
+      // @ts-expect-error — loadExecutedMigrations is internal.
+      const executed: Array<{ name: string }> = await executor.loadExecutedMigrations(
+        queryRunner,
+      );
+      // @ts-expect-error — getMigrations is internal.
+      const allMigrations: Array<{ name: string; instance?: { up: (qr: unknown) => Promise<void> }; transaction?: boolean }> =
+        executor.getMigrations();
+      const pending = allMigrations.filter(
+        (m) => !executed.find((e) => e.name === m.name),
+      );
+
+      if (pending.length === 0) {
         this.logger.log('No pending migrations');
+      } else {
+        this.logger.log(
+          `Executing ${pending.length} pending migration(s) with per-migration search_path re-assertion`,
+        );
+
+        const appliedNames: string[] = [];
+        for (const migration of pending) {
+          if (!migration.instance) {
+            this.logger.warn(
+              `Migration "${migration.name}" has no instance — skipping`,
+            );
+            continue;
+          }
+
+          // Re-assert the farm search_path invariant BEFORE this
+          // migration's up() runs. See the docblock above for the full
+          // incident history behind this line.
+          await queryRunner.query(`SET search_path TO "farm", public`);
+
+          // Each migration runs inside its own BEGIN/COMMIT so a
+          // partial failure only rolls back that single migration's
+          // DDL, matching the previous `transaction: 'each'` behaviour.
+          await queryRunner.startTransaction();
+          try {
+            await migration.instance.up(queryRunner);
+            // @ts-expect-error — insertExecutedMigration is internal.
+            await executor.insertExecutedMigration(queryRunner, migration);
+            await queryRunner.commitTransaction();
+            appliedNames.push(migration.name);
+            this.logger.log(`Migration "${migration.name}" applied successfully`);
+          } catch (migrationErr) {
+            await queryRunner.rollbackTransaction();
+            const msg =
+              migrationErr instanceof Error
+                ? migrationErr.message
+                : String(migrationErr);
+            this.logger.error(
+              `Migration "${migration.name}" failed: ${msg}`,
+              migrationErr instanceof Error ? migrationErr.stack : undefined,
+            );
+            throw migrationErr;
+          }
+        }
+
+        this.logger.log(
+          `Applied ${appliedNames.length} migration(s): ${appliedNames.join(', ')}`,
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -91,8 +91,21 @@ export class AddPurchaseOrders1772000000000 implements MigrationInterface {
       }
     }
 
-    // Reset search_path
-    await queryRunner.query(`SET search_path TO public`);
+    // Phase 13.2 — restore the farm invariant, NOT public. The earlier
+    // `SET search_path TO public` here was the root cause of the
+    // 2026-04-07 farm-service split-brain: it left the shared migration
+    // runner's connection pointing at `public`, so subsequent
+    // migrations (AddWeatherTables, AddFeederCalibrations,
+    // AddFeederFieldsToExecution) ran their unqualified ALTER TABLEs
+    // against `public.*` instead of `farm.*` and crashed with
+    // `relation does not exist`. The runner (Phase 13.1) now
+    // re-asserts search_path before every migration as a runner-level
+    // invariant, so this line is technically unnecessary for
+    // correctness — but leaving it pointing at the right schema keeps
+    // the migration's on-exit state self-consistent and makes any
+    // hand-run / repair invocation of this migration also leave the
+    // session in a sane state.
+    await queryRunner.query(`SET search_path TO "farm", public`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -120,6 +133,8 @@ export class AddPurchaseOrders1772000000000 implements MigrationInterface {
       }
     }
 
-    await queryRunner.query(`SET search_path TO public`);
+    // Phase 13.2 — restore the farm invariant on exit (see up() for
+    // the full incident history behind this pattern).
+    await queryRunner.query(`SET search_path TO "farm", public`);
   }
 }

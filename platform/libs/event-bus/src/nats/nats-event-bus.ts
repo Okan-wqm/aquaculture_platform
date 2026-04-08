@@ -324,9 +324,17 @@ export class NatsEventBus
       const payload = this.serializeEvent(event);
       const subject = this.normalizeSubject(topic);
 
+      // NOTE: Intentionally NO `expect: { lastMsgID: ... }` option here.
+      // `expect.lastMsgID` is a CAS-style assertion — it succeeds only on
+      // the FIRST publish to an empty stream; every subsequent publish
+      // fails with "wrong last msg ID", making publishing impossible in
+      // any real-world workload. Event deduplication is already handled
+      // by the combination of `msgID` (stable per-event) and the stream's
+      // `duplicate_window` — JetStream drops a second publish with the
+      // same msgID within the dedup window, which is exactly the
+      // idempotency guarantee the outbox worker relies on for retries.
       await this.jetStream.publish(subject, this.codec.encode(payload), {
         msgID: event.eventId,
-        expect: { lastMsgID: undefined },
       });
 
       this.logger.debug(`Published event ${event.eventType} to ${subject}`);

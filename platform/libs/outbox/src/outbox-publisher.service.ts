@@ -2,7 +2,11 @@ import { Injectable, Inject, Logger, Type } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import type { BaseEvent } from '@platform/event-contracts';
 import { OutboxEntityBase } from './outbox-entity.base';
-import { OUTBOX_ENTITY_CLASS } from './constants';
+import {
+  OUTBOX_ENTITY_CLASS,
+  OUTBOX_UUID_REGEX,
+  OUTBOX_EVENT_TYPE_REGEX,
+} from './constants';
 
 /**
  * OutboxPublisher
@@ -17,12 +21,40 @@ import { OUTBOX_ENTITY_CLASS } from './constants';
  * path from the network ensures the user-facing request never blocks on
  * NATS availability.
  *
- * Hard-fail boundary: the constructor injection has NO `@Optional()`.
- * If the consuming service has not registered an outbox entity via
- * `OutboxModule.forFeature(...)`, NestJS will throw at startup — not at
- * the moment a user records mortality.
+ * # Hard-fail boundary
  *
- * @see Phase 2 of farm domain real-time visibility plan.
+ * The constructor injection has NO `@Optional()`. If the consuming service
+ * has not registered an outbox entity via `OutboxModule.forFeature(...)`,
+ * NestJS throws at startup — not at the moment a user records mortality.
+ *
+ * # Input validation — tenant isolation enforcement
+ *
+ * `enqueue()` rejects malformed `tenantId` and `eventType` at the publisher
+ * boundary because both values become routing keys downstream:
+ *
+ *   - `tenantId` → NATS subject segment `events.{tenantId}.{eventType}`
+ *     → Socket.IO room key `tenant:{tenantId}`. A tenantId containing `.`
+ *     `*` or `>` would inject NATS wildcards; `\n` would pollute logs;
+ *     an arbitrary string would collide with another tenant's room.
+ *   - `eventType` → same subject segment. A lowercase or punctuated value
+ *     breaks the PascalCase discriminator the bridge switches on.
+ *
+ * Failing closed here keeps all downstream layers honest — by the time a
+ * row lands in the outbox table, its tenant and event type have been
+ * proven valid. Defense in depth still applies at the worker, bridge,
+ * and gateway, but the publisher is the first line.
+ *
+ * # Transactional guarantee
+ *
+ * The `manager` parameter MUST come from an active `queryRunner` so the
+ * outbox INSERT joins the caller's transaction. A manager from the root
+ * data source (`dataSource.manager`) would commit the outbox row in
+ * autocommit mode, silently violating the atomicity contract. The runtime
+ * assertion catches that mistake at the moment it happens, not in
+ * production when an event is mysteriously missing.
+ *
+ * @see Phase 2 of farm domain real-time visibility plan
+ * @see Phase 2 checkpoint — Security CR-2 + Code Quality M-13 hardening
  */
 @Injectable()
 export class OutboxPublisher {
@@ -40,28 +72,71 @@ export class OutboxPublisher {
    * `EntityManager` (`queryRunner.manager`) the handler is using for
    * domain writes — the outbox INSERT joins that transaction.
    *
-   * Validates that `eventType` and `tenantId` are present. Multi-tenant
-   * isolation depends on `tenantId` being set at the BaseEvent level so
-   * downstream consumers (e.g. WebSocket gateway) can route events to
-   * the correct tenant room.
+   * Validates:
+   *  - `event.eventType` is non-empty and PascalCase
+   *  - `event.tenantId` is non-empty and a UUID
+   *  - `manager` is bound to a queryRunner with an active transaction
    *
-   * @throws Error if eventType or tenantId is missing
+   * @throws Error if any validation fails. Callers should NOT catch and
+   *   swallow — a failed validation indicates a contract violation that
+   *   would otherwise produce a cross-tenant leak or a lost event.
    */
   async enqueue(event: BaseEvent, manager: EntityManager): Promise<void> {
+    // ── Event type validation ───────────────────────────────────────
     if (!event.eventType) {
       throw new Error(
         'OutboxPublisher.enqueue: event.eventType is required (got empty string)',
       );
     }
+    if (!OUTBOX_EVENT_TYPE_REGEX.test(event.eventType)) {
+      throw new Error(
+        `OutboxPublisher.enqueue: event.eventType must be PascalCase ` +
+          `(got: ${JSON.stringify(event.eventType)}). The eventType becomes ` +
+          `a NATS subject segment and a discriminator across the bridge + ` +
+          `gateway + frontend — it must match ^[A-Z][A-Za-z0-9]+$.`,
+      );
+    }
+
+    // ── Tenant ID validation — the single most important check ──────
     if (!event.tenantId) {
       throw new Error(
-        `OutboxPublisher.enqueue: event.tenantId is required (event: ${event.eventType})`,
+        `OutboxPublisher.enqueue: event.tenantId is required ` +
+          `(event: ${event.eventType})`,
+      );
+    }
+    if (!OUTBOX_UUID_REGEX.test(event.tenantId)) {
+      throw new Error(
+        `OutboxPublisher.enqueue: event.tenantId must be a UUID ` +
+          `(got: ${JSON.stringify(event.tenantId)}, event: ${event.eventType}). ` +
+          `The tenantId becomes a NATS subject segment AND a Socket.IO ` +
+          `room key downstream — a malformed value could inject NATS ` +
+          `wildcards or cross-tenant leak the event.`,
+      );
+    }
+
+    // ── Transaction assertion ───────────────────────────────────────
+    // The outbox INSERT must join the caller's domain-write transaction
+    // so both commit or neither. A manager without an active queryRunner
+    // transaction would INSERT in autocommit mode, silently violating
+    // the at-least-once guarantee (domain write rolls back → orphan
+    // outbox row lives forever). This check catches the mistake at the
+    // moment it happens rather than in production when an event goes
+    // missing.
+    if (!manager.queryRunner || !manager.queryRunner.isTransactionActive) {
+      throw new Error(
+        `OutboxPublisher.enqueue: manager must be from an active ` +
+          `transaction (event: ${event.eventType}). Pass ` +
+          `queryRunner.manager from inside startTransaction()/` +
+          `commitTransaction(). The outbox row must commit atomically ` +
+          `with the domain write.`,
       );
     }
 
     // Spread into a fresh object so TypeORM does not pollute the caller's
-    // event reference with row metadata. The cast is structurally safe
-    // because BaseEvent has only string keys with serializable values.
+    // event reference with row metadata. The declared type is intentionally
+    // `Record<string, unknown>` because JSONB loses compile-time typing at
+    // the driver boundary anyway — the contract enforcement happens in
+    // the validation above, not in the column type.
     const payload: Record<string, unknown> = { ...event };
 
     await manager.save(this.entityClass, {

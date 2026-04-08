@@ -15,6 +15,30 @@
  * are also delivered to active core subscribers, so a `connection.subscribe`
  * with the wildcard pattern receives them in real time.
  *
+ * # Tenant routing — NATS subject is the SINGLE SOURCE OF TRUTH
+ *
+ * SECURITY: The bridge MUST derive the destination tenant room from
+ * `msg.subject.split('.')[1]`, NOT from `event.tenantId` in the decoded
+ * payload. The subject is stamped by `NatsEventBus.deriveSubject()` at
+ * publish time and propagated by the NATS server as the authoritative
+ * routing key. The payload, by contrast, is controlled end-to-end by the
+ * publisher — trusting it for routing means any service with NATS publish
+ * credentials could publish to its OWN subject but set
+ * `payload.tenantId = <victim>` and fan the event out into the victim's
+ * Socket.IO room, triggering false compliance signals (CR-1, CVSS 9.1).
+ *
+ * The fix is NOT a cross-check ("accept only when subject matches payload")
+ * — that still carries two sources of truth and requires correct reconciliation
+ * forever after. The fix is to make the subject the ONLY source. The payload
+ * `tenantId` is informational for downstream consumers; the bridge never reads
+ * it for routing. The attack vector is eliminated by construction, not detected
+ * and rejected.
+ *
+ * Defense in depth: the subject tenant token is additionally validated as a
+ * canonical UUID before use (`TENANT_ID_REGEX` from backend-common). A
+ * malformed or wildcard-like token is dropped — it cannot become a Socket.IO
+ * room key or a log line.
+ *
  * # Queue group
  *
  * All subscriptions use queue group `gateway-farm` so that when multiple
@@ -49,7 +73,10 @@ import {
   StringCodec,
   ConnectionOptions,
 } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import {
+  buildNatsConnectionOptions,
+  TENANT_ID_REGEX,
+} from '@aquaculture/backend-common';
 
 import { FarmGateway } from './farm.gateway';
 
@@ -161,6 +188,25 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
     if (!this.connection) return;
 
     for (const subject of FARM_SUBJECTS) {
+      // ── Subscription-time known event type ──────────────────────────
+      // The subscription pattern is `events.*.{EventType}` — every message
+      // delivered on this subscription has that exact event type as its
+      // third subject token. We capture it here and use it as the dispatch
+      // key, rather than reading `event.eventType` from the payload. This
+      // keeps the routing decision anchored to the NATS subject, so a
+      // publisher cannot misrepresent its event type to reach a different
+      // broadcast method.
+      const [, , expectedEventType] = subject.split('.');
+      if (!expectedEventType) {
+        // FARM_SUBJECTS is hard-coded above as `events.*.X` — this branch
+        // can only fire if someone edits the constant to a malformed
+        // entry, which the check catches at startup time.
+        this.logger.error(
+          `Malformed FARM_SUBJECTS entry: ${subject} — expected three tokens`,
+        );
+        continue;
+      }
+
       const sub = this.connection.subscribe(subject, {
         queue: FARM_QUEUE_GROUP,
       });
@@ -172,6 +218,49 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
       (async () => {
         for await (const msg of sub) {
           try {
+            // ── Parse subject — the routing source of truth ─────────
+            // The subject is stamped by the NATS server, not the client.
+            // Extract tenantId from token 1 and use it as the destination
+            // tenant room key. `event.tenantId` is NEVER used for routing
+            // in this bridge (see class-level doc block for the rationale
+            // and the CR-1 attack scenario that motivates this design).
+            const subjectTokens = msg.subject.split('.');
+            const [eventsPrefix, routingTenantId, subjectEventType] =
+              subjectTokens;
+            if (
+              subjectTokens.length !== 3 ||
+              eventsPrefix !== 'events' ||
+              !routingTenantId ||
+              !subjectEventType
+            ) {
+              this.logger.warn(
+                `Dropping event with malformed NATS subject: ${msg.subject}`,
+              );
+              continue;
+            }
+
+            // Subject tenantId must be a canonical UUID. A malformed token
+            // cannot become a Socket.IO room key or a log line — dropping
+            // is the only safe option because there is no tenant to notify
+            // without a valid tenantId.
+            if (!TENANT_ID_REGEX.test(routingTenantId)) {
+              this.logger.warn(
+                `Dropping event with invalid tenantId token in subject ${msg.subject}: ${JSON.stringify(routingTenantId)}`,
+              );
+              continue;
+            }
+
+            // Defensive: NATS subscription guarantees the third token
+            // equals the subscription suffix, so this is an invariant
+            // check rather than an expected branch. Catches broker bugs
+            // or test-harness mis-routes.
+            if (subjectEventType !== expectedEventType) {
+              this.logger.warn(
+                `Subject eventType mismatch on ${subject}: got ${subjectEventType}`,
+              );
+              continue;
+            }
+
             const data = this.sc.decode(msg.data);
             const event = JSON.parse(data) as FarmDomainEvent;
 
@@ -182,7 +271,10 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
               continue;
             }
 
-            this.handleEvent(event);
+            // Dispatch with the subject-derived tenantId and eventType.
+            // The event payload is forwarded verbatim to the gateway,
+            // but the routing key comes exclusively from the subject.
+            this.handleEvent(routingTenantId, expectedEventType, event);
           } catch (error) {
             this.logger.warn(
               `Failed to process ${subject}: ${(error as Error).message}`,
@@ -199,45 +291,64 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Route a validated farm event to the matching FarmGateway broadcast
-   * method. Unknown event types are logged and dropped — the bridge does
-   * not silently forward arbitrary events because that would let an
-   * attacker who can publish to NATS spoof arbitrary Socket.IO events.
+   * method. Both routing inputs come from the NATS subject, NOT the event
+   * payload — see class-level doc block for the architectural rationale.
+   *
+   * @param routingTenantId Tenant UUID extracted from `msg.subject` token 1,
+   *   already UUID-validated. This is the destination tenant room key.
+   * @param routingEventType Event type from `msg.subject` token 2, equal
+   *   to the subscription suffix. This is the dispatch key.
+   * @param event The decoded event payload, forwarded verbatim to the
+   *   broadcast method. The bridge does NOT read `event.tenantId` or
+   *   `event.eventType` for routing — those fields are informational only
+   *   and flow through to consumers unchanged.
+   *
+   * Unknown event types are logged and dropped — the bridge does not
+   * silently forward arbitrary events because that would let an attacker
+   * who can publish to NATS spoof arbitrary Socket.IO event names.
    */
-  private handleEvent(event: FarmDomainEvent): void {
-    switch (event.eventType) {
+  private handleEvent(
+    routingTenantId: string,
+    routingEventType: string,
+    event: FarmDomainEvent,
+  ): void {
+    switch (routingEventType) {
       case 'BatchCreated':
-        this.farmGateway.broadcastBatchCreated(event.tenantId, event);
+        this.farmGateway.broadcastBatchCreated(routingTenantId, event);
         break;
       case 'BatchHarvested':
-        this.farmGateway.broadcastBatchHarvested(event.tenantId, event);
+        this.farmGateway.broadcastBatchHarvested(routingTenantId, event);
         break;
       case 'BatchTransferred':
-        this.farmGateway.broadcastBatchTransferred(event.tenantId, event);
+        this.farmGateway.broadcastBatchTransferred(routingTenantId, event);
         break;
       case 'BatchStatusChanged':
-        this.farmGateway.broadcastBatchStatusChanged(event.tenantId, event);
+        this.farmGateway.broadcastBatchStatusChanged(routingTenantId, event);
         break;
       case 'BatchClosed':
-        this.farmGateway.broadcastBatchClosed(event.tenantId, event);
+        this.farmGateway.broadcastBatchClosed(routingTenantId, event);
         break;
       case 'BatchAllocatedToTank':
-        this.farmGateway.broadcastBatchAllocatedToTank(event.tenantId, event);
+        this.farmGateway.broadcastBatchAllocatedToTank(
+          routingTenantId,
+          event,
+        );
         break;
       case 'MortalityRecorded':
-        this.farmGateway.broadcastMortalityRecorded(event.tenantId, event);
+        this.farmGateway.broadcastMortalityRecorded(routingTenantId, event);
         break;
       case 'CullRecorded':
-        this.farmGateway.broadcastCullRecorded(event.tenantId, event);
+        this.farmGateway.broadcastCullRecorded(routingTenantId, event);
         break;
       case 'FeedingRecorded':
-        this.farmGateway.broadcastFeedingRecorded(event.tenantId, event);
+        this.farmGateway.broadcastFeedingRecorded(routingTenantId, event);
         break;
       case 'FeedInventoryLow':
-        this.farmGateway.broadcastFeedInventoryLow(event.tenantId, event);
+        this.farmGateway.broadcastFeedInventoryLow(routingTenantId, event);
         break;
       default:
         this.logger.debug(
-          `Unhandled farm event type: ${event.eventType} (eventId=${event.eventId})`,
+          `Unhandled farm event type: ${routingEventType} (eventId=${event.eventId})`,
         );
     }
   }
@@ -320,9 +431,15 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Validate that an inbound event has the minimum required structure.
-   * Drops events missing tenantId — they cannot be routed to a tenant room
-   * and would represent a contract violation by the publisher.
+   * Validate that an inbound event has the minimum BaseEvent structure so
+   * downstream consumers that read payload fields (eventId, timestamp,
+   * tenantId for display/logging) do not crash on malformed input.
+   *
+   * Note: the bridge no longer trusts `event.tenantId` for ROUTING — that
+   * decision is made from the NATS subject before this validator runs.
+   * Validating `tenantId` here is a contract check on the publisher, not
+   * a security control: an event without a tenantId breaks downstream
+   * consumers but cannot cause a cross-tenant fan-out.
    */
   private isValidEvent(event: FarmDomainEvent | null | undefined): boolean {
     if (typeof event !== 'object' || event === null) return false;

@@ -38,44 +38,90 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 ## Domain Rules
 
 ### Transactional Outbox (Critical)
-- Every state-changing operation MUST use transactional outbox: message INSERT + outbox INSERT in same DB transaction
-- Events MUST NEVER be published directly to NATS from command handlers — always through outbox
-- Outbox worker handles NATS unavailability without losing events
-- Dead-lettered events (retryCount ≥ 5) must be monitored via Prometheus metrics
-- Event ordering within a channel preserved (outbox polls by `createdAt ASC`)
+- Every state-changing operation MUST use transactional outbox: message INSERT + outbox INSERT in same DB transaction (atomicity invariant — no second network call while the transaction is open)
+- Events MUST NEVER be published directly to NATS from command handlers — the only permitted publisher is `OutboxPublisherService`
+- Outbox poller MUST use `SELECT ... FOR UPDATE SKIP LOCKED` with bounded batch size (100–500) so multiple poller replicas can run concurrently without head-of-line blocking
+- Outbox row MUST carry `tenantId` (NOT NULL), `aggregateId` (channelId), `eventType`, `payload` (JSONB BaseEvent-compliant), `retry_count`, `next_attempt_at`, `created_at`, and a monotonic `seq` secondary sort key for ties on `created_at`
+- Outbox row ID MUST be UUID v4/v7 (never BIGSERIAL — collision risk across replicas after crash)
+- `Nats-Msg-Id` header MUST equal `outbox.id` to leverage JetStream duplicate window (default 2 minutes, configurable per stream); without it the publisher cannot benefit from broker-side dedup on retry
+- Per-channel ordering MUST be preserved by hash-partitioning poller work on `channel_id` (`hashtext(channel_id) % N = worker_index`) OR by serializing outbox writes per channel with a `FOR UPDATE` row lock on the channel row during INSERT — parallel pollers using `SKIP LOCKED` alone may reorder within a channel
+- Outbox table MUST have a partial index on `WHERE status = 'PENDING'` (hot path); composite index `(tenant_id, aggregate_id, created_at)` for intra-aggregate ordering
+- Exponential backoff for retries: capped (e.g., `min(60 * 2^attempt, 600)` seconds); never tight-loop on broker errors
+- Dead-lettered events (`retryCount >= 5`) MUST be Prometheus-metric'd (`outbox_dead_lettered_total{tenant, event_type}`) AND structured-log alerted; manual replay requires TENANT_ADMIN and an audit-log entry
+- Outbox backlog age gauge (`outbox_backlog_age_seconds`) MUST be alertable with a 5-minute threshold — earliest signal of NATS outage or schema drift
+- Published rows MUST be garbage-collected by a chunked retention sweeper (`<= 7 day` retention) to bound table size and PII footprint
+- Outbox payload MUST NOT contain raw secrets, passwords, or bearer tokens — only reference IDs (`userId` not full user object)
+- Research: docs/research/messaging-expert/2026-04-08-transactional-outbox-postgres-nats.md
 
 ### Message Partitioning (Critical)
-- `messages`, `message_receipts`, `compliance_audit_log` are monthly RANGE partitioned
-- All queries on partitioned tables MUST include partition key (`createdAt` / `receipt_created_at`) in WHERE for partition pruning
-- TypeORM `synchronize: false` mandatory for partitioned tables — schema changes via migrations only
-- Composite PKs and FKs must include partition key column
-- `PartitionManagerService` creates current + next 2-3 months proactively
+- `messages`, `message_receipts`, `compliance_audit_log` are monthly RANGE partitioned by `created_at` / `receipt_created_at`
+- Partition key column MUST be immutable once written and server-assigned (server `now()` or service `new Date()`); client-supplied `createdAt` MUST be rejected — UPDATE on the partition key forces costly cross-partition row migration and breaks FK integrity
+- All queries on partitioned tables MUST include the partition key in the WHERE clause using direct comparison operators (`>=`, `<`, `BETWEEN`) — NEVER `DATE_TRUNC()` or expressions, which defeat partition pruning
+- TypeORM `synchronize: false` mandatory on every DataSource that touches a partitioned table — TypeORM schema sync has no concept of partitions and will DROP/CREATE the table destroying all child partitions
+- Composite primary keys MUST include the partition key column: `messages.PK = (id, created_at)`, `message_receipts.PK = (id, receipt_created_at)` — PostgreSQL cannot enforce a global unique index across partitions
+- Foreign keys pointing INTO partitioned tables MUST reference the full composite PK; child tables (`message_attachments`, `message_reactions`, `message_analysis`, `pinned_messages`) MUST carry a denormalized `message_created_at` column
+- `PartitionManagerService` MUST proactively create current month + next 3 months and expose a Prometheus gauge (`partition_coverage_months`) alerting if coverage < 2 months
+- Use the two-phase ATTACH pattern (`CREATE TABLE LIKE`, `ADD CONSTRAINT CHECK`, `ALTER TABLE ATTACH PARTITION`) to take only `SHARE UPDATE EXCLUSIVE` lock for zero-downtime partition addition
+- Partition retention cleanup MUST DROP whole partitions (O(1)) rather than DELETE rows (O(n)) when compliant with retention policy AND ONLY AFTER legal-hold check (see Legal Hold rules)
+- Partition DROPs MUST be audit-logged with `tenantId`, `partitionName`, `rowCount`, `oldestCreatedAt`, `newestCreatedAt` BEFORE the DROP executes
+- DEFAULT partition MUST NOT be created for `messages` — missing coverage should fail loudly, not silently land in DEFAULT
+- Migration index builds on partitioned tables MUST use per-partition `CREATE INDEX CONCURRENTLY` then `ALTER INDEX ... ATTACH PARTITION` — never parent-level blocking index builds
+- Research: docs/research/messaging-expert/2026-04-08-postgres-monthly-range-partitioning.md
 
 ### Message Deduplication
-- Redis SET NX with TTL for idempotency (`msg:{tenantId}:idem:{key}`)
-- Redis failure MUST NOT block message delivery — graceful degradation (allow potential duplicates)
-- Idempotency keys scoped by tenantId to prevent cross-tenant collisions
+- All Redis keys MUST be tenant-scoped: `msg:{tenantId}:idem:{idempotencyKey}` — no exception. Missing tenant prefix = cross-tenant collision risk.
+- Idempotency MUST use atomic `SET key value NX EX <ttl>` (single command); never `SETEX` followed by `EXPIRE` (race window)
+- Idempotency layer MUST cache the response payload alongside the lock so duplicate requests REPLAY the original response — duplicate requests must return 200 with original message ID, not "duplicate" 4xx
+- TTL MUST cover the producer's retry window plus the longest realistic processing delay (5–10 minutes typical for chat send)
+- Redis idempotency layer MUST be backed by a Postgres unique constraint (e.g., `UNIQUE(tenant_id, channel_id, client_msg_id)`) so a Redis outage cannot produce persisted duplicates — Redis is an optimization, Postgres is the safety net
+- Redis failure on idempotency path MUST fail-OPEN: message delivery proceeds with structured-log warning + Prometheus counter; duplicates blocked by the Postgres unique constraint
+- Circuit breaker MUST wrap the Redis client to prevent slowdown propagation when Redis is degraded
+- Redis MUST be configured with bounded `maxmemory` and `allkeys-lru` eviction policy
+- Research: docs/research/messaging-expert/2026-04-08-realtime-messaging-presence-dedup-redis.md
 
 ### Legal Hold Immutability (Critical)
-- Active legal hold BLOCKS ALL deletion: GDPR anonymize, retention cleanup, manual delete
-- Legal hold activation/release MUST be audit-logged
-- Legal hold check occurs BEFORE any destructive operation, never after
-- Tenant-wide holds take precedence over channel-scoped holds
+- Active legal hold BLOCKS ALL destructive operations: GDPR anonymize, retention cleanup, manual delete, partition DROP
+- Lawful basis: GDPR Article 17(3)(e) — retention is permitted when "necessary for the establishment, exercise or defence of legal claims." Every active hold MUST carry `legalMatterId` (or equivalent reference); NULL is forbidden — proportionality requires a documented basis
+- Required execution order in EVERY destructive code path: (1) legal hold check -> (2) retention policy check -> (3) consent state check -> (4) execute deletion -> (5) write `ComplianceAuditLog` — reversal is CRITICAL
+- Legal hold check MUST run inside a `SERIALIZABLE` transaction OR take `SELECT ... FOR UPDATE` row locks on matching `LegalHold` rows to prevent TOCTOU race (hold created between check and delete)
+- Hold precedence: tenant-wide > channel-scoped > user-scoped — ANY matching active hold blocks the operation (logical OR over scopes)
+- Hold creation, activation, release, and expiry MUST themselves be `ComplianceAuditLog` entries
+- `compliance_audit_log` MUST be locked at the DB layer: revoke `UPDATE`/`DELETE` from the application DB role AND install a `BEFORE UPDATE OR DELETE` trigger that raises an exception (belt-and-braces — app role revocation alone is bypassed by direct DB access)
+- Hash-chaining (each row contains SHA-256 of previous row) is RECOMMENDED for tamper evidence on the audit log
+- Direct `DELETE FROM messages` / `DELETE FROM compliance_audit_log` privileges MUST be revoked from the application role; deletes are routed through stored procedures or service-layer methods that enforce the hold check
+- Active-hold state MUST be cached in Redis with short TTL (< 60s) plus invalidation on hold changes — full table scan on every delete is unacceptable
+- Research: docs/research/messaging-expert/2026-04-08-legal-hold-immutability-gdpr.md
 
 ### Retention Policy Enforcement
-- Nightly cleanup (02:00 UTC) checks legal hold before deleting
-- Channel-level overrides tenant-level defaults
+- Nightly cleanup (02:00 UTC) MUST check legal hold per partition/channel BEFORE any deletion (see Legal Hold rules for execution order)
+- Channel-level retention overrides tenant-level defaults (channel > tenant)
 - `retentionDays = -1` means indefinite (skip cleanup)
 - All retention operations use transactions with rollback on failure
 - Allowed values: 90, 365, 1095, -1 days
+- Whole-partition DROP is preferred over row-level DELETE when the entire partition's `created_at` window is older than the retention threshold AND no row in the partition is under legal hold — DROP is O(1), DELETE is O(n) with massive WAL pressure
+- Partition DROP MUST write a high-level audit entry (`tenantId`, `partitionName`, `rowCount`, `oldestCreatedAt`, `newestCreatedAt`) BEFORE the DROP executes, providing forensic evidence of what was removed
+- Per-channel anonymization fan-out MUST be chunked (process N channels per transaction) to avoid long-running locks; resume mechanism on failure
+- Retention cleanup metric (`retention_cleanup_blocked_by_hold_total{tenant}`) MUST exist so the hold-block rate is observable
+- Research: docs/research/messaging-expert/2026-04-08-legal-hold-immutability-gdpr.md
 
 ### AI Safety (Critical)
-- AI-generated content treated as untrusted input — sanitize before persistence
-- AI responses persisted as system messages with metadata flagging as AI-generated
-- Dual consent required (tenant-level TenantAiSetting + user-level UserAiConsent) before ANY AI analysis
-- AI service unavailability MUST NOT block normal messaging (graceful degradation)
-- Custom MCP server URLs must pass SSRF validation (HTTPS-only, no private IPs, no localhost)
+- AI-generated content is untrusted (OWASP LLM01:2025) — sanitize for HTML/markdown injection BEFORE persistence and tag with `isAiGenerated=true` so downstream consumers render with reduced trust
+- AI responses persisted as system messages with `kind = 'system_ai'` so retention, search, and access control rules may differ from user messages
+- Indirect prompt injection is the dominant attack class — ALL retrieved content (RAG documents, MCP tool descriptions, web fetches) MUST be treated as adversarial; segregate from system prompts; validate model output structure (JSON schema) and proposed tool calls (action allowlist) before execution
+- Dual consent (`TenantAiSetting` AND `UserAiConsent`, both `true`) MUST be checked at EVERY AI call site, not only at config save; consent cache TTL <= 60s with explicit invalidation on consent change
+- Consent cache MUST fail-CLOSED on Redis+Postgres unavailability — never default to "consent granted" on cache miss with DB unreachable
+- AI service unavailability MUST degrade gracefully: messages still flow, AI annotations flagged `aiPending=true`, sentiment alerts default to NO-ALERT (never block-message). Synchronous AI dependency in the message-send hot path is FORBIDDEN
+- Every AI call MUST be wrapped in a bounded timeout (chat 5s, sentiment 1s, embedding 30s) AND a per-feature circuit breaker
+- Custom MCP server URLs MUST pass ALL of: HTTPS-only scheme allowlist; hostname allowlist OR post-DNS IP-range blocklist covering RFC1918 (10/8, 172.16/12, 192.168/16), 127.0.0.0/8 (loopback), 169.254.0.0/16 (link-local incl. AWS IMDS), 100.64.0.0/10 (CGNAT), IPv6 equivalents (`::1`, `fc00::/7`, `fe80::/10`), `.internal`/`.local`/`.localhost` TLDs; redirect disabling; full URL decoding (percent, IDN, dotted-octal); connect-time IP re-validation (DNS rebinding defense)
+- Allowlist beats blocklist — bypasses like `127.0.0.1.nip.io` defeat naive hostname blocklists
+- MCP tool descriptions MUST be scanned for prompt-injection markers and treated as untrusted content before injection into the model context (real-world: MCP Atlassian SSRF CVE-2026-27826)
+- Tool execution privilege MUST be minimized: destructive tools (`delete_*`, `transfer_*`) require explicit out-of-band user confirmation, not just an LLM-generated tool call
+- AI-emitted URLs MUST be validated against an allowlist before being rendered as clickable; the agent MUST NEVER auto-fetch URLs it generated (open redirect / SSRF chain)
+- Per-tenant cost cap on `TenantAgentConfig` MUST be enforced before each LLM call; cap exceeded -> AI disabled until next billing window with audit log entry (defends against prompt-injection cost amplification attacks)
+- `ToolExecutionAudit` MUST be written for every tool call with `parameters`, `resultHash`, `latencyMs`, `costUsd`, `outcome` — no exceptions
+- Anomaly metrics MUST exist for tool-call frequency, token usage per tenant, MCP server latency, and consecutive AI failures
 - Consecutive negative sentiment (3+) triggers SentimentAlert event
+- Research: docs/research/messaging-expert/2026-04-08-ai-safety-untrusted-content-mcp-ssrf.md
 
 ### Embedding Pipeline
 - Cron every 5 minutes, batch 100 messages, privacy gate (dual consent)

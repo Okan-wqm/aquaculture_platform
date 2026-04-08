@@ -135,10 +135,16 @@ Research: `docs/research/hr-expert/2026-04-08-workforce-scheduling-conflict-dete
 
 Research: `docs/research/hr-expert/2026-04-08-aquaculture-offshore-rotation-safety.md`
 
-### Multi-Tenancy (Critical)
-- Every query scoped by tenantId or search_path
-- Employee data strictly isolated between tenants
-- No cross-tenant employee data access (even for SUPER_ADMIN without explicit impersonation)
+### Multi-Tenancy (HR-Specific Domain Rules)
+
+Cross-cutting tenant isolation (DB `search_path`, RLS, Redis namespacing, NATS subject scoping, X-Act-As-Tenant impersonation, schema validation) is the **primary ownership of `multi-tenant-saas-expert`**. Delegate generic tenant-isolation findings there. This subsection covers only HR-domain-specific tenant rules:
+
+- Employee PII (names, SSNs, bank details, medical records) MUST NEVER cross tenant boundaries — even SUPER_ADMIN access without an active impersonation session with dual-identity audit = CRITICAL compliance failure.
+- GDPR Art. 15 data access requests MUST be scoped to the requesting tenant; cross-tenant employee search in admin tools = CRITICAL.
+- PII event payloads (HR NATS events) MUST NOT contain raw PII fields — reference employee by `employeeId` only; raw PII in event payloads = HIGH (immutable audit trail leak across tenant boundary on replay).
+- Offshore rotation crew assignments cross vessel/site boundaries but MUST NOT cross tenant boundaries.
+
+For all other tenant-isolation concerns → delegate to `multi-tenant-saas-expert`.
 
 ### CQRS Compliance
 - Command handlers: validate → open transaction → persist → commit → publish event AFTER commit

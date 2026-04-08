@@ -118,19 +118,16 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Outbox table MUST have a pruning policy (published rows older than N days removed). Unbounded growth = MEDIUM initially, HIGH after ~30 days.
 - Research: `docs/research/farm-expert/2026-04-08-nestjs-cqrs-transactional-outbox.md`, `docs/research/farm-expert/2026-04-08-nats-jetstream-exactly-once-semantics.md`
 
-### Multi-Tenancy (Critical)
-- Every query scoped by `tenantId` or `search_path` (`tenant_{id}`, `farm`, `public`). Missing either = CRITICAL.
-- `search_path` MUST be set with `SET LOCAL` inside the transaction (compatible with PgBouncer transaction pooling). Session-level `SET search_path` is CRITICAL under a transaction pooler — next transaction on the same server connection inherits the previous tenant's search_path, resulting in full cross-tenant data leak.
-- Schema name interpolation in raw SQL MUST be validated against `TENANT_SCHEMA_REGEX` (`^tenant_[a-f0-9]{16}$`) before use. Unvalidated interpolation = CRITICAL (SQL injection + tenant leak combined).
-- Raw SQL MUST NOT hardcode schema names.
-- Every repository access on tenant data MUST go through `getScopedRepository()`. Direct `getRepository()` on tenant entities = HIGH (may bypass tenant filter).
-- Application connection role MUST NOT have `SUPERUSER` or `BYPASSRLS` privilege — these bypass RLS policies silently. Privileged role = CRITICAL.
-- `CrossTenantProbe` watchdog MUST run on schedule and fail-closed on isolation breach. Missing watchdog = HIGH.
-- Redis keys namespaced by tenant via `TenantRedisService`. Direct Redis access without tenant prefix = CRITICAL.
-- NATS events include `tenantId` AND NATS subjects tenant-scoped (prefixed `tenants/{tenantId}/...`). Untenanted subjects on tenant data = CRITICAL.
-- IDOR prevention: verify entity ownership against requesting tenant on every query that accepts an ID from a client.
-- SUPER_ADMIN impersonation via `X-Act-As-Tenant` header MUST be audit-logged with `recordAwait()` (guaranteed persistence before response). Async/fire-and-forget audit log = CRITICAL compliance gap.
-- Research: `docs/research/farm-expert/2026-04-08-postgresql-search-path-pooler-pitfalls.md`
+### Multi-Tenancy (Farm-Specific Domain Rules)
+
+Cross-cutting tenant isolation, tenant schema validation, `SET LOCAL search_path`, `TenantRedisService`, NATS tenant-scoped subjects, `X-Act-As-Tenant` impersonation audit, RLS/BYPASSRLS discipline, and `CrossTenantProbe` watchdog are the **primary ownership of `multi-tenant-saas-expert`**. Delegate all generic tenant-isolation findings there. This subsection covers only the farm-domain-specific tenant rules that do not belong in the generic catalog:
+
+- IDOR prevention on farm entity IDs (batch, tank, site, department, equipment, feed lot, harvest record): every fetch-by-ID MUST verify the entity's tenantId against the requesting tenant context. Missing tenant check on fetch-by-ID = CRITICAL (IDOR class leak).
+- Sentinel Hub OAuth token cache MUST be tenant-scoped when tenants hold separate Sentinel Hub accounts (covered in detail under the Sentinel Hub Security subsection).
+- Farm NATS events (batch lifecycle, sensor readings, feeding) MUST include `tenantId` in the envelope per the BaseEvent contract — cross-reference to `multi-tenant-saas-expert` tenant isolation rules for NATS subject scoping.
+- Weather and Sentinel Hub API credentials stored in tenant-scoped vault entries — per-tenant key isolation so a compromise in one tenant does not expose another.
+
+For all other tenant-isolation concerns → delegate to `multi-tenant-saas-expert`.
 
 ## Review Checklist
 

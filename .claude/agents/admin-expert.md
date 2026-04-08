@@ -65,7 +65,10 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - `information_schema` queries from the explorer MUST be tenant-scoped; returning cross-tenant schema listings is a CRITICAL finding
 - Research: `docs/research/admin-expert/2026-04-08-database-management-safety-readonly.md`
 
-### Tenant Lifecycle
+### Tenant Lifecycle (Admin UI Surface)
+
+**Scope boundary:** `admin-expert` covers the admin-UI surface for tenant operations — admin dashboard visibility, debug tools, impersonation UI, backup/restore UI, support workflows. `multi-tenant-saas-expert` is **primary owner** of the underlying lifecycle saga architecture (state machine, compensation, idempotency, plan gating, quota enforcement). For architectural questions on the saga itself, delegate to `multi-tenant-saas-expert`. The rules below cover the saga mechanics admin-expert has historically reviewed; going forward, new cross-cutting tenant lifecycle rules should be added to `multi-tenant-saas-expert` as the canonical source, and admin-expert references them.
+
 - Provisioning saga: create tenant → create schema → seed data → assign modules → create admin user → billing subscription → notifications
 - Every saga step MUST be classified as `COMPENSABLE | PIVOT | RETRYABLE`; unclassified steps are HIGH findings
 - Each compensable step MUST have a paired, idempotent compensation handler that undoes exactly what that step's saga instance created (matched by saga instance ID, not resource name)

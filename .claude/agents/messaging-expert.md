@@ -155,13 +155,18 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Audit queries enforce TENANT_ADMIN role requirement
 - Research: docs/research/messaging-expert/2026-04-08-legal-hold-immutability-gdpr.md
 
-### Multi-Tenancy
-- Every query scoped by tenantId or search_path
-- All Redis keys MUST be tenant-scoped: `{type}:{tenantId}:...` — no exception (cross-tenant collision = data leak)
-- Every NATS subject in messaging fanout MUST include `tenantId` in the subject hierarchy (e.g., `messaging.tenant.{tenantId}.channel.{channelId}.{eventType}`)
-- Channel membership validation MUST run on every operation that reads or writes channel data (send, history, presence, attachments) — `SISMEMBER chan:{tenantId}:{channelId}:members {userId}` cache pattern with O(1) check
-- Membership cache TTL <= 5 minutes with explicit invalidation on `ChannelMember` add/remove events — stale TTL > 5 min is unacceptable (security boundary)
-- Membership validation MUST fail-CLOSED on Redis+Postgres unavailability — never default to "member" on cache miss with DB unreachable
+### Multi-Tenancy (Messaging-Specific Domain Rules)
+
+Cross-cutting tenant isolation (DB `search_path`, generic Redis namespacing, schema validation, X-Act-As-Tenant impersonation, CrossTenantProbe) is the **primary ownership of `multi-tenant-saas-expert`**. Delegate generic findings there. This subsection covers only messaging-domain-specific tenant rules:
+
+- Every NATS subject in messaging fanout MUST include `tenantId` in the subject hierarchy (e.g., `messaging.tenant.{tenantId}.channel.{channelId}.{eventType}`). Untenanted messaging subject = CRITICAL.
+- Channel membership validation MUST run on every operation that reads or writes channel data (send, history, presence, attachments) — `SISMEMBER chan:{tenantId}:{channelId}:members {userId}` cache pattern with O(1) check.
+- Membership cache TTL ≤ 5 minutes with explicit invalidation on `ChannelMember` add/remove events — stale TTL > 5 min is unacceptable (security boundary).
+- Membership validation MUST fail-CLOSED on Redis+Postgres unavailability — never default to "member" on cache miss with DB unreachable. Fail-open = CRITICAL.
+- Partitioned messaging tables (`messages`, `message_receipts`, `compliance_audit_log`) MUST carry `tenantId` in composite PK AND in every query's WHERE clause alongside the partition key.
+- pgvector HNSW semantic search queries MUST include a `tenantId` filter — shared-table vector search without tenant predicate = CRITICAL (embedding-inversion cross-tenant leak).
+
+For all other tenant-isolation concerns → delegate to `multi-tenant-saas-expert`.
 
 ### Real-Time Messaging, Presence, and Fanout
 - Presence MUST use Redis sorted sets keyed by tenant + optional channel: `presence:{tenantId}` (members=userId, scores=last-heartbeat unix ts); per-channel sets `presence:{tenantId}:{channelId}` for "who is in this channel right now"

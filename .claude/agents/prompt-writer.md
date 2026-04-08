@@ -149,4 +149,5 @@ All agents use `opus` (Claude Opus 4.6) with `effort: max` per platform policy.
 | test-runner | ALL test files — build and test quality gate |
 | context-manager | `docs/reviews/*/`, `.full-review/` — meta-reviewer for report compaction, cross-domain dependency graph, systemic pattern detection |
 | architectural-arbiter | `docs/reviews/*/`, source code (read-only) — cross-agent conflict resolution, ADR authoring |
+| multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
 | prompt-writer | `.claude/agents/*.md` — agent definition generation (this agent) |

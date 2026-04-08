@@ -65,6 +65,7 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 - If any schema file, migration, or `*.entity.ts` changes → also invoke `database-reviewer` for schema-state audit (parallel to `data-expert`'s delta review)
 - If 3+ expert agents are dispatched OR total report corpus may exceed ~50K tokens → Phase 3.5 will auto-invoke `context-manager` for compaction and dependency graph resolution
 - If any two agents produce contradictory recommendations in the same cycle OR any recommendation would break another agent's domain invariant → invoke `architectural-arbiter` after Phase 3.5 to resolve the conflict before Phase 5
+- If ANY tenant-related concern is in scope (tenant isolation, tenant lifecycle/provisioning, plan tier/module gating, per-tenant quota, noisy-neighbor isolation, cross-tenant impersonation, tenant portability/GDPR Art 20, per-tenant observability, tenant onboarding/offboarding) → invoke `multi-tenant-saas-expert` as the primary reviewer for those concerns. Domain experts delegate generic tenant findings to this agent rather than duplicating rules.
 
 ### Phase 2: Parallel Dispatch
 
@@ -194,6 +195,7 @@ All agents use `opus` (Claude Opus 4.6) with `effort: max` per platform policy.
 | test-runner | ALL test files — build and test quality gate |
 | context-manager | docs/reviews/*/, .full-review/ — meta-reviewer for Phase 3.5 (report compaction, dependency graph, systemic patterns) |
 | architectural-arbiter | docs/reviews/*/ + source code (read-only) — cross-agent conflict resolution, ADR authoring |
+| multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
 | prompt-writer | .claude/agents/*.md — agent definition generation |
 
 ## Invocation Examples

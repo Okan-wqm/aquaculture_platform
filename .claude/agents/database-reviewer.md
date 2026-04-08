@@ -103,7 +103,10 @@ Use standard severity levels: CRITICAL (tenant isolation hole, data corruption r
 - Timestamp columns: `*_at` suffix (`created_at`, `updated_at`, `approved_at`). Inconsistent suffixes = LOW to MEDIUM.
 - Audit columns: every tenant-scoped table should have `created_at`, `updated_at`, `created_by`, `updated_by`. Missing audit columns on financial/compliance tables = HIGH.
 
-### Multi-Tenancy Schema Rules (Critical)
+### Multi-Tenancy Schema Rules (Critical — Primary Ownership for Schema State)
+
+**Scope boundary:** `database-reviewer` is the **primary owner** of the RESULTING schema state's tenancy properties — `TENANT_SCHEMA_REGEX` compliance, shared-schema tenant index shape, RLS + `FORCE ROW LEVEL SECURITY` enforcement, owner-bypass discipline. `data-expert` owns migration-delta review; `multi-tenant-saas-expert` owns cross-cutting SaaS tenant concerns (lifecycle, plan gating, quotas, impersonation, onboarding). Delegate those concerns to `multi-tenant-saas-expert` rather than duplicating.
+
 - Aqua-saas uses schema-per-tenant as the PRIMARY isolation model. Every tenant schema MUST match `TENANT_SCHEMA_REGEX` (`^tenant_[a-f0-9]{16}$`) — any divergence = CRITICAL.
 - Schema name interpolation in raw SQL (including TypeORM `@Entity({ schema })` dynamic assembly) MUST be regex-validated against `TENANT_SCHEMA_REGEX` before use. Unvalidated = CRITICAL (SQL injection + cross-tenant access).
 - `SET LOCAL search_path` inside the transaction is the only safe scoping pattern under PgBouncer transaction pooling. Session-level `SET search_path` = CRITICAL (tenant leak across transactions sharing a pooled server connection).

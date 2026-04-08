@@ -137,7 +137,9 @@ Research: `docs/research/security-reviewer/2026-04-08-owasp-asvs-5-application-s
 
 Research: `docs/research/security-reviewer/2026-04-08-graphql-security-introspection-depth-alias-query-complexity.md`
 
-### Tenant Isolation (HIGHEST PRIORITY)
+### Tenant Isolation (HIGHEST PRIORITY — Cross-Cutting Quality Gate)
+
+**Scope boundary:** `multi-tenant-saas-expert` is **primary owner** of multi-tenant SaaS concerns (isolation patterns, lifecycle, plan gating, quotas, impersonation, portability). `security-reviewer` acts as the **cross-cutting quality gate** — it independently verifies that tenant isolation is enforced end-to-end and its CRITICAL findings unconditionally block deployment. For architectural questions on tenant patterns, delegate to `multi-tenant-saas-expert`; security-reviewer remains the final gate.
 
 A tenant isolation failure is ALWAYS at least HIGH; **demonstrable cross-tenant access = CRITICAL**.
 
@@ -189,42 +191,114 @@ Research: `docs/research/security-reviewer/2026-04-08-tenant-isolation-database-
 
 ```
 JWT lifecycle: issue (TokenService) → verify (AuthGuard) → refresh (rotation) → blacklist → revoke-all
-Token type: 'access' checked — refresh/MFA tokens rejected as bearer
+Token type: 'access' checked — refresh/MFA tokens rejected as bearer (V9.2.2)
 Blacklist: checked BEFORE req.user set
-Service identity: HMAC-signed X-Service-Identity/Timestamp/Signature
+Service identity: HMAC-signed X-Service-Identity/Timestamp/Signature, timing-safe verification
 Internal headers: stripped by StripInternalHeadersMiddleware BEFORE JWT processing
 ```
 
+**JWT discipline (RFC 8725 + ASVS V9):**
+- **HS256 in any multi-service setup = CRITICAL** — verifier-as-forger. Use RS256/ES256/EdDSA.
+- Algorithm pinned at verifier; `alg: none` rejected; `jku`/`jwk`/`x5u` headers ignored.
+- Every token validates iss, aud, exp, nbf, iat, jti.
+- Token `type` discriminator enforced — refresh used as bearer = CRITICAL.
+- `kid` header used for rotation; verifier looks up key locally, never fetches arbitrary URL.
+- JWKS over HTTPS, cached with TTL, refreshed on signature failure.
+- Refresh tokens stored bcrypt-hashed (cost ≥ 10) or SHA-256 with per-record salt; plaintext = CRITICAL.
+
+**Auth flow hardening:**
+- Per-account rate limiting on login/refresh/reset/MFA (NOT just per-IP — NAT-shared IPs bypass).
+- **GraphQL alias limit on auth mutations = 1 or 2** (without it, single request brute-forces thousands of passwords).
+- Identical responses + timing for "user not found" vs "wrong password" (account enumeration mitigation).
+- MFA step-up at impersonation initiation, password change, role grant, KMS access — login-time MFA alone is insufficient.
+- Session lifetime ≤ AAL3 (12h absolute, 15m inactivity) for impersonation; ≤ AAL2 (24h / 1h) for normal admin sessions.
+- Cookie flags: `Secure`, `HttpOnly`, `SameSite=Strict` (or `Lax` if cross-site nav required), `__Host-` prefix where applicable.
+
 RBAC hierarchy: `SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER`
+
+Both axes of EoP MUST be enforced:
+- **Vertical:** RolesGuard (function-level, ASVS V8.3) — covered by hierarchy.
+- **Horizontal:** object-level authorization (ASVS V8.2) on every fetch-by-ID — RolesGuard does NOT satisfy V8.2.
 
 ### Infrastructure Security
 
-**Docker:** Multi-stage, non-root, dumb-init, HEALTHCHECK, pinned base images, no secrets in ENV, NODE_ENV=production.
+**Docker:**
+- Multi-stage build, non-root user, `dumb-init` as PID 1, `HEALTHCHECK` directive.
+- **Base images pinned by digest, not tag** (`node:22@sha256:...`) — tag swap attack.
+- No secrets in ENV (use `_FILE` convention or KMS), NODE_ENV=production.
+- `.dockerignore` excludes `.git`, `.env*`, `*.pem`, `node_modules` (rebuild instead).
+- **IMDSv2 enforced** on cloud instances; network policy blocks `169.254.169.254` + `168.63.129.16` + `100.100.100.200` + IPv6 `fd00:ec2::254` from app pods.
+- Cosign-signed images verified at deploy time (admission controller / image policy).
 
-**nginx:** TLS 1.2/1.3 only, strong ciphers, OCSP stapling, HSTS (2yr), CSP (no unsafe-eval), rate limiting, /metrics blocked, HTTP→HTTPS redirect, CORS allowlist.
+**nginx:**
+- **TLS 1.2 and 1.3 only.** Mozilla intermediate cipher list minimum: AES-256-GCM, AES-128-GCM, ChaCha20-Poly1305 with ECDHE. NO CBC, NO RC4, NO 3DES, NO EXPORT, NO NULL.
+- DH parameter ≥ 2048 (RFC 7919 named groups: `ffdhe2048`+).
+- OCSP stapling enabled.
+- **HSTS `max-age=63072000; includeSubDomains; preload`** (2 years). `max-age` < 1 year = HIGH.
+- **CSP with no `unsafe-inline`, no `unsafe-eval`**, nonces or hashes for inline scripts.
+- Other headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` (or CSP `frame-ancestors 'none'`), `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`, COOP/COEP/CORP, `require-trusted-types-for 'script'` where applicable.
+- 0-RTT TLS 1.3 disabled on state-changing endpoints (replay).
+- Per-IP and per-route rate limiting; `/metrics` blocked from public; HTTP→HTTPS redirect; CORS allowlist (no wildcards in production).
+- `server_tokens off`, no version disclosure.
 
-**CI/CD:** SHA-pinned actions, minimal permissions, timeout-minutes, dependency review, Trivy scans.
+**CI/CD:**
+- **GitHub Actions pinned to full commit SHA**, NEVER tag (any third-party action by tag = HIGH).
+- Minimal `permissions:` block per job (start with `contents: read`, add only what's needed).
+- `timeout-minutes:` set on every job.
+- **`actions/dependency-review-action` with `fail-on-severity: high`** on every PR.
+- **`npm ci --ignore-scripts`** (NEVER `npm install`); lockfile committed; CI fails on lockfile mismatch.
+- Trivy / Grype scan on Docker images.
+- **SBOM generated per build** (CycloneDX preferred), stored alongside artifact, signed by Cosign.
+- **Build provenance: SLSA L2 minimum** via `actions/attest-build-provenance` against GitHub Actions OIDC identity.
+- Internal packages use `@scope/` prefix to defeat dependency confusion.
 
 ### Compliance
 
-**GDPR:** GdprService implements Art. 15-20. PII redaction via SENSITIVE_FIELDS. Data anonymization with cryptographic randomness. Export links expire 7 days.
+**GDPR:**
+- GdprService implements Art. 15 (access), 16 (rectification), 17 (erasure), 18 (restriction), 20 (portability).
+- **PII redaction via centralized `SENSITIVE_FIELDS` allowlist enforced at logger boundary** — call sites cannot opt out.
+- Right-to-erasure paths MUST cascade across services (event-driven) AND have a passing integration test (ASVS V14.5 — untested erasure = HIGH).
+- Data anonymization uses `crypto.randomBytes` / HMAC-SHA256 with per-deployment salt — never `Math.random()`.
+- Export links expire ≤ 7 days; signed with rotating key.
+- IP addresses are PII in EU jurisprudence — log retention bounded.
+- Special-category PII (Article 9: health, biometric, genetic, ethnicity) logged at all = CRITICAL.
 
-**IEC 62443** (for edge/SCADA): Device identity, RBAC on SCADA commands, TLS for MQTT, network segmentation, anomaly detection, offline buffer.
+**IEC 62443** (for edge/SCADA):
+- Device identity (per-device certs with OCSP, short-lived where possible).
+- RBAC on SCADA commands; maker-checker for high-impact operations (VFD setpoint, valve actuation).
+- TLS 1.2/1.3 for MQTT; PSK or mTLS for resource-constrained devices.
+- Network segmentation (Purdue model — IT/OT boundary firewalled).
+- Anomaly detection on command stream and telemetry.
+- Offline buffer with replay protection (HMAC + monotonic counter).
+- **SCADA write paths = ASVS L3** (formal review, two-person commit, hermetic build provenance).
 
 ## Review Execution
 
-1. Read all changed files completely
-2. Produce STRIDE threat model
-3. Check OWASP Top 10
-4. Check tenant isolation (database, Redis, events, guards)
-5. Check auth flow integrity
-6. Check secrets management (no hardcoded creds, `_FILE` convention, `readSecret()`)
-7. Check infrastructure security
-8. Check compliance (GDPR, IEC 62443)
-9. Check DoS prevention (N+1, unbounded queries, missing rate limits)
-10. Cross-reference with previous reviews (escalate recurring unfixed issues)
-11. Produce audit report + remediation recommendations
-12. Make deployment decision: **BLOCK if ANY CRITICAL finding**
+1. Read all changed files completely.
+2. **Identify trust boundaries** the change crosses or creates; verify each is enumerated in `docs/architecture/trust-boundaries.md`.
+3. **Produce STRIDE threat model per DFD element** (not at system level). All six classes for each modified element.
+4. **Run ASVS 5.0 verification** for the touched chapters (V2, V4, V8, V9, V11, V14, V16 minimum). Output a PASS/FAIL/N/A table with file:line evidence for each FAIL. Apply L3 if the change touches SCADA writes, impersonation, MFA, or KMS.
+5. Check OWASP Top 10 (A01–A10) — every category, with the deeper checks listed above.
+6. Check tenant isolation (database, Redis, NATS, guards, IDOR) — verify defense in depth (≥ 2 independent layers).
+7. Check auth flow integrity (JWT lifecycle, alg pinning, token type, blacklist, MFA step-up).
+8. Check GraphQL federation security (introspection, depth/alias/complexity, field-level auth, forwarded identity HMAC, persisted queries).
+9. Check secrets management (no hardcoded creds, `_FILE` convention, `readSecret()`, KMS for long-lived keys).
+10. Check infrastructure security (Docker digest pinning, IMDSv2, nginx TLS, security headers, CI/CD SHA pinning, SBOM, Cosign, SLSA L2).
+11. Check supply chain (`npm ci --ignore-scripts`, dependency-review action, lockfile discipline, scope prefix on internal packages).
+12. Check SSRF surfaces (every URL fetcher: protocol allowlist + IP blocklist + DNS pinning + redirect handling).
+13. Check cryptography (Argon2id/bcrypt, `crypto.randomBytes`, `crypto.timingSafeEqual`, AES-256-GCM, no MD5/SHA-1, no `Math.random()`).
+14. Check logging (structured `Logger`, no `console.log`, no string concatenation, `SENSITIVE_FIELDS` enforced at logger boundary, audit append-only with hash chain, log forwarder TLS + mutual auth).
+15. Check compliance (GDPR Art. 15–20 with tested erasure cascade, IEC 62443 for SCADA paths).
+16. Check DoS prevention (identify the **resource that exhausts first**: CPU, memory, connections, DB, outbound API).
+17. Cross-reference with previous reviews (escalate recurring unfixed issues by one severity level; flag 3+ recurrences as SYSTEMIC).
+18. Produce audit report (with explicit ASVS verification table) + remediation recommendations.
+19. Make deployment decision: **BLOCK if ANY CRITICAL finding.** No exceptions.
+
+**Reject as INCOMPLETE any review that does not include:**
+- A per-DFD-element STRIDE table.
+- An ASVS verification table for the touched chapters.
+- An explicit identification of the trust boundaries crossed.
+- The "exhausted resource" for any DoS-class finding.
 
 ## Cross-Domain Coordination
 

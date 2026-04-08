@@ -182,10 +182,37 @@ Baseline: WCAG 2.1 AA (enterprise mandate). Success criteria explicitly enforced
 - **MUST** wrap post-`await` state updates in a nested `startTransition` if they should remain transitions. Only synchronous updates inside the callback are marked = MEDIUM
 - **MUST** React.lazy routes have a meaningful Suspense fallback AND prefer route prefetching on hover / nav intent to prevent fallback flash under ~300ms
 
-### Multi-Tenancy
-- Tenant context from JWT, propagated via `TenantContext`
-- Never store tenant-specific data in shared browser storage without tenant key prefix
-- Cross-tenant data leak via shared caches = CRITICAL
+### Multi-Tenancy (Frontend-Specific Domain Rules)
+
+Cross-cutting tenant isolation (backend enforcement via JWT, DB `search_path`, NATS subject scoping, CrossTenantProbe) is the **primary ownership of `multi-tenant-saas-expert`**. This subsection covers only frontend-domain-specific tenant rules — browser storage, cache scoping, MFE-wide tenant propagation:
+
+- Tenant context from JWT, propagated via `TenantContext` (memoized value — see Performance).
+- **MUST** prefix EVERY tenant-scoped TanStack Query key with `['tenant', tenantId, ...]` as the FIRST segment. Prefix-based matching enables single-call invalidation via `invalidateQueries({ queryKey: ['tenant', oldTenantId] })`. Non-prefixed = CRITICAL (guaranteed cross-tenant leak on tenant switch).
+- **MUST** centralize query keys in a typed factory (`queryKeys.ts`). Inline keys = HIGH (impossible to audit / refactor).
+- **MUST** on tenant switch, execute strictly in order: (1) `queryClient.cancelQueries()` to cancel in-flight, (2) `queryClient.clear()`, (3) swap tenant context atomically, (4) resume UI. Partial approach = CRITICAL (stale data visible, in-flight responses populate wrong-tenant cache post-swap).
+- **MUST** on logout, synchronously `queryClient.clear()` BEFORE navigation. Async fire-and-forget = HIGH.
+- **MUST** if `persistQueryClient` is used: either tenant-key the storage (separate storage per tenant) OR explicitly filter tenant-scoped queries out via `meta: { persist: false }`. AND `await persister.removeClient()` on logout. Missing = CRITICAL.
+- **MUST** prefix every tenant-scoped browser storage key (localStorage, sessionStorage, IndexedDB, Cache Storage) with the tenant ID. Missing prefix = CRITICAL.
+- **MUST** include tenant ID in Workbox cache key for any tenant-scoped resource (see Offline-First rules). Missing = CRITICAL.
+- Cross-tenant data leak via shared frontend caches = CRITICAL (TanStack Query, Workbox, IndexedDB, localStorage, Zustand persisted middleware all covered).
+- Research: `docs/research/frontend-expert/2026-04-08-tanstack-query-v5-cache-scoping-tenancy.md`, `docs/research/frontend-expert/2026-04-08-offline-first-indexeddb-aes-gcm-workbox.md`
+
+For backend tenant isolation, plan tier gating, quotas, impersonation, and all non-frontend tenant concerns → delegate to `multi-tenant-saas-expert`.
+
+### CSP Hardening & XSS Prevention (Critical)
+Research: `docs/research/frontend-expert/2026-04-08-csp-hardening-xss-prevention.md`
+
+The shell MUST serve a strict Content Security Policy in production. React 18 does not require `unsafe-eval` in production builds — any `unsafe-eval` in prod CSP indicates build contamination.
+
+- **MUST** `script-src 'nonce-{random}' 'strict-dynamic'` (preferred) OR hash-based equivalent. Nonce = cryptographically random, ≥128 bits, per-response from CSPRNG. `'unsafe-inline'`/`'unsafe-eval'` in prod script-src = CRITICAL
+- **MUST** `object-src 'none'`; `base-uri 'none'`; `frame-ancestors 'none'` (or explicit tight allowlist). Missing = HIGH
+- **MUST** `require-trusted-types-for 'script'` + `trusted-types <named-policies>`. No `default` catch-all policy. Missing Trusted Types = HIGH; catch-all default = CRITICAL
+- **MUST** ENFORCE in production — never stay in `Content-Security-Policy-Report-Only` indefinitely. Report-only = visibility without protection = CRITICAL in prod beyond rollout window
+- **MUST** wrap EVERY `dangerouslySetInnerHTML` through DOMPurify via a named `TrustedTypePolicy` (e.g. `trustedTypes.createPolicy('react-html', { createHTML: DOMPurify.sanitize })`). Raw string = CRITICAL
+- **MUST** ban DOM sink patterns in lint/review: `innerHTML =`, `outerHTML =`, `document.write`, `eval(`, `new Function(`, string-arg `setTimeout`/`setInterval`, `location.href =` / `location.replace(` with variables, `window.open(` with variables
+- **MUST** accompany CSP with: `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` (or `no-referrer`), `Permissions-Policy` (least privilege: `camera=(), microphone=(), geolocation=(self)`), `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: same-site`. Missing any = HIGH
+- **MUST** ensure the MF shell entry is nonce'd so `'strict-dynamic'` propagates to dynamically-loaded remote entries. Missing nonce on MF host = CRITICAL (remotes blocked or requires unsafe policy)
+- **MUST** configure `report-to` / `report-uri` to an active aggregator and monitor the violation stream
 
 ## Cross-Domain Dependencies
 

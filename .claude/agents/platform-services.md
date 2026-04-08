@@ -82,45 +82,118 @@ Use standard severity levels: CRITICAL (billing accuracy/security/data integrity
 - GraphQL: depth limit 10, batch requests disabled, playground/introspection disabled in production
 
 ### Notification Delivery (Critical)
-- SSRF prevention: BLOCKED_HOSTS (localhost, 127.0.0.1, 0.0.0.0, ::1, 169.254.169.254, metadata.google.internal), BLOCKED_IP_PATTERNS (10.x, 172.16-31.x, 192.168.x, 100.64-127.x CGNAT, fc00: IPv6 ULA, fe80: link-local)
-- Webhook URL encryption: AES-256-GCM, `WEBHOOK_ENCRYPTION_KEY` env var REQUIRED in production
-- Email CRLF injection sanitization
-- Email length validation (RFC 5321: 254 chars)
-- Rate limiting: 100/min/tenant (Redis-backed with in-memory fallback)
-- Concurrency limiter: MAX_CONCURRENCY=10
-- Deduplication by channel+recipient+alertId
-- PII masking in all notification logs
-- Dead letter queue: 3-retry max, full event payload preserved for replay
+
+**Webhook SSRF prevention (OWASP / RFC 1918 / RFC 6598 / RFC 4193):**
+- **[CRITICAL]** The `WebhookDispatcher` MUST execute 12 validation steps in order on every dispatch and every redirect target: URL parse → scheme (HTTPS-only prod) → hostname normalize → hostname denylist → IP literal normalize (via `ipaddr.js`, covering decimal/octal/hex/IPv4-mapped IPv6/compressed) → IP denylist → port denylist → DNS resolve (all addresses) → each resolved IP rechecked → dial by pinned IP (not hostname) with custom HTTP agent → `maxRedirects: 0` → per-destination Redis rate limit. Skipping any step is a blocking review failure.
+- **[CRITICAL]** IP denylist MUST cover: IPv4 (`0/8`, `10/8`, `100.64/10` CGNAT per RFC 6598, `127/8`, `169.254/16` link-local & cloud metadata, `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, `224/4`, `240/4`) and IPv6 (`::/128`, `::1/128`, `::ffff:0:0/96` IPv4-mapped, `100::/64`, `2001:db8::/32`, `fc00::/7` ULA per RFC 4193, `fe80::/10` link-local per RFC 4291, `fec0::/10`, `ff00::/8`).
+- **[CRITICAL]** Hostname denylist MUST cover `localhost`, `metadata`, `metadata.google.internal`, `metadata.azure.com`, `*.internal`, `*.local`, `*.cluster.local`, `*.svc`, `kubernetes.default*`, and aqua-saas internal service names. Cloud IMDS (`169.254.169.254`) is a full-account-takeover vector.
+- **[CRITICAL]** DNS rebinding (TOCTOU) MUST be mitigated by pinning the validated IP at dial time via a custom HTTP agent whose `lookup()` returns the pre-validated IP. Dialing by hostname after validating by hostname is a blocking review failure.
+- **[CRITICAL]** HTTP redirects MUST be disabled (`maxRedirects: 0`). Following `Location: http://169.254.169.254/` bypasses every filter.
+- **[CRITICAL]** Webhook URL columns MUST be encrypted at rest with AES-256-GCM, 96-bit random IV per encryption, 128-bit auth tag, **tenant ID bound as AAD**, `ENC_V1:` prefix. `WEBHOOK_ENCRYPTION_KEY` MUST come from a secrets manager in production (not `.env`).
+- **[HIGH]** HTTPS-only in production. Plaintext `http://` rejected on save.
+- **[HIGH]** Outbound webhook ports MUST be restricted to `{80, 443, 8080, 8443}`. Other ports (22, 25, 3306, 5432, 6379, 9200, 11211, 27017) are attack surfaces.
+- **[HIGH]** AES-GCM IV reuse with the same key is catastrophic — every encryption MUST call `crypto.randomBytes(12)`.
+- **[MEDIUM]** Per-destination-host rate limit (100 req/min per external host) via Redis token bucket.
+- **[MEDIUM]** Global webhook dispatch timeout 10s, `maxContentLength` 1MB.
+- Research: `docs/research/platform-services/2026-04-08-webhook-ssrf-prevention-blocked-hosts-cidr.md`
+
+**DLQ, retry, rate limiting & PII masking (NATS / Twilio / Firebase / OWASP):**
+- **[CRITICAL]** Retry policy: exactly 3 retries max, exponential backoff with **jitter** (full or decorrelated). Backoff without jitter is a blocking review failure (thundering herd per AWS guidance).
+- **[CRITICAL]** Total retry age MUST be capped (e.g., 30 minutes; Firebase suggests ≤ 60 min). After cap, move to DLQ regardless of attempts remaining.
+- **[CRITICAL]** `Retry-After` header from downstream providers (Twilio, Firebase) MUST be respected. Blindly applying the local backoff curve on top of a 429 is a blocking review failure.
+- **[CRITICAL]** Rate limiter MUST NOT fail-open on Redis unavailability. Fail to a local in-memory token bucket with WARN log; re-sync on Redis recovery. Fail-open is a blocking review failure.
+- **[CRITICAL]** Deduplication MUST run *before* rate-limit check. Dedupe key = `{tenantId}:{channel}:{recipientCanonical}:{eventKey}` in Redis with 5-15 min TTL.
+- **[CRITICAL]** Multi-channel fan-out MUST use `Promise.allSettled` — never `Promise.all`. One channel failure cannot cancel others.
+- **[CRITICAL]** PII (email, phone, push token, webhook URL, message body) in logs MUST be masked via a centralized `PiiRedactorLogger` or pino-redact. Ad-hoc `.replace()` at log sites is a blocking review failure.
+- **[CRITICAL]** DLQ access MUST be gated by `NOTIFICATION_DLQ_READ` RBAC. Unrestricted DLQ read endpoints leak PII across tenants.
+- **[HIGH]** NATS JetStream consumer MUST declare explicit `MaxDeliver: 3` and `BackOff: [1s, 4s, 16s]` (or similar). Default `AckWait` behavior (immediate retries) is a HIGH finding.
+- **[HIGH]** Concurrency limiter semaphore (MAX_CONCURRENCY=10) per channel-provider bounds in-flight dispatches to protect the Node HTTP agent socket pool.
+- **[HIGH]** DLQ entries MUST preserve the full dispatch envelope (payload with PII encrypted/hashed, error category, attempt history, first-seen-at, correlation ID) for replay.
+- **[HIGH]** Invalid-message channel MUST be distinct from delivery DLQ (per Hohpe/Fowler EIP). Parse failures ≠ delivery failures.
+- **[MEDIUM]** Rate limit keys MUST be per-tenant AND per-channel where applicable (SMS more expensive than email).
+- **[MEDIUM]** Provider quota awareness: FCM 600k/min, Twilio 1 msg/sec per long-code. Alert at 80% of known quota.
+- **[MEDIUM]** Email CRLF injection sanitization; email length validation (RFC 5321: 254 chars).
+- Research: `docs/research/platform-services/2026-04-08-notification-dlq-retry-exponential-backoff-redis.md`
 
 ### Config Service Security
-- Secret values encrypted with AES-256-GCM (`ENC_V1:` prefix, scrypt key derivation)
+
+**AES-256-GCM encryption, scrypt KDF, ENC_V1 envelope, cache invalidation (NIST SP 800-38D / RFC 7914 / OWASP Cryptographic Storage):**
+- **[CRITICAL]** `secret`-typed config values MUST be encrypted with AES-256-GCM. 96-bit random IV per encryption, 128-bit auth tag, `ENC_V1:` version prefix, AAD binding `{tenantId, configKey}`. Tag-verification failure MUST throw — no silent fallback to plaintext.
+- **[CRITICAL]** The master key MUST be derived from `CONFIG_SECRET_MASTER_PASSWORD` via scrypt (RFC 7914) with `N ≥ 2^14`, `r = 8`, `p = 1`, `maxmem` raised to 64MB. Raw password used as key is a blocking review failure.
+- **[CRITICAL]** `CONFIG_SECRET_MASTER_PASSWORD` MUST come from a secrets manager (AWS Secrets Manager, GCP Secret Manager, Vault) or boot-time env — never hardcoded, never in Git, never logged. Missing at startup MUST fail-fast.
+- **[CRITICAL]** `ConfigChangeHistory` previous/new values for `secret`-type entries MUST be re-encrypted under the current key. Plaintext secret history is a blocking review failure.
+- **[CRITICAL]** GraphQL/REST responses MUST redact `secret`-type values unless the caller holds `CONFIG_SECRET_READ`. Default is `***REDACTED***`.
+- **[HIGH]** AAD MUST bind `tenantId` to prevent cross-tenant ciphertext swap. AAD that binds only `configKey` is a HIGH finding.
+- **[HIGH]** LRU cache invalidation MUST fan out across replicas via NATS `ConfigValueChanged` event. Local-only invalidation leaves sibling replicas serving stale secrets for up to TTL.
+- **[HIGH]** Decrypt code MUST dispatch on the `ENC_V1:` prefix and reject unknown versions. Treating unknown-prefix as plaintext is a HIGH finding.
+- **[HIGH]** `secret`-type changes MUST carry a `changeReason`. Missing reason rejects the command.
+- **[MEDIUM]** LRU cache entries MUST have an absolute max age (e.g., 300s) in addition to TTL, forcing periodic re-decrypt to pick up silent rotations.
+- **[MEDIUM]** `ConfigChangeHistory` for `secret`-type rows retained ≥ 5 years; non-secret rows ≥ 1 year. Partition monthly.
+- **[MEDIUM]** Scrypt master-key derivation MUST happen once at bootstrap. Per-request re-derivation is a performance failure and a DoS vector.
 - Config types: string, number, boolean, json, secret — `secret` type always encrypted
-- LRU cache invalidation on config update
-- Configuration history audit trail (previousValue/newValue/changedBy/changeReason)
-- Tenant+global fallback: tenant-specific config takes priority over global defaults
+- Tenant+global fallback: tenant-specific config takes priority over global defaults; cache lookup chain mirrors DB lookup chain
+- Research: `docs/research/platform-services/2026-04-08-config-service-aes-gcm-scrypt-secret.md`
 
 ### Event Store Integrity (Critical)
-- Events are IMMUTABLE — no UPDATE or DELETE on StoredEvent
-- Optimistic concurrency: expectedVersion check on write (prevents lost updates)
-- PostgreSQL sequence for monotonically increasing global ordering
-- Snapshots for read optimization — must not affect event integrity
-- Projection checkpoints for idempotent replay
+
+**Immutability, optimistic concurrency, projections, snapshots (Martin Fowler / Microsoft Learn / PostgreSQL):**
+- **[CRITICAL]** `stored_event` table MUST enforce append-only at DB level via `REVOKE UPDATE, DELETE` or a BEFORE UPDATE/DELETE trigger raising an exception. Application convention alone is insufficient. Any migration that UPDATEs or DELETEs a stored event is a blocking review failure.
+- **[CRITICAL]** Every append MUST carry `expectedVersion` and MUST translate unique-violation on `UNIQUE(tenant_id, stream_id, version)` into a `ConcurrencyConflictError` that the command handler retries. Appending without version check is a blocking review failure (lost updates, split-brain state).
+- **[CRITICAL]** Projection consumers MUST use a safe-tail window (`committed_at < now() - '1 second'::interval` grace period OR `xmin`-based filtering) to avoid out-of-order-commit event skip. PostgreSQL sequences are NOT gapless — naive `global_position > checkpoint` silently loses events whose writer transaction committed out-of-order.
+- **[CRITICAL]** Every `stored_event` query in projection handlers MUST include `WHERE tenant_id = $1`. Cross-tenant leakage is a blocking review failure.
+- **[CRITICAL]** Projection apply + checkpoint advance MUST happen in a single DB transaction on the read-model side. Split transactions cause phantom replay (crash between apply and checkpoint) or phantom skip.
+- **[HIGH]** Snapshot loader MUST fall back to full replay if the stored snapshot's `schema_version` does not match the current aggregate schema. Snapshots are optimization — the event stream remains source of truth (Microsoft Learn).
+- **[HIGH]** PII fields in event payloads MUST be crypto-shredding-capable (encrypted with a per-subject key stored separately). A plaintext email/phone in an immutable event store is a GDPR right-to-erasure blocker.
+- **[HIGH]** Projection handlers MUST be idempotent. Re-applying the same event must not corrupt the read model. Test with deliberate double-application.
+- **[MEDIUM]** Projection lag MUST be exposed as a Prometheus gauge `projection_lag_seconds` with alert threshold `> 300s` (tunable per projection).
+- **[MEDIUM]** Snapshot strategy (every N events) documented per aggregate; default N = 100.
+- **[MEDIUM]** Event upcasting chain MUST be pure functions with unit tests loading historical-schema fixtures. No in-place DB upgrades.
+- Research: `docs/research/platform-services/2026-04-08-event-store-immutability-optimistic-concurrency.md`
 
 ### Observability
-- Prometheus metrics must cover: request count, latency histogram, error rate per service
-- Security events consumed from NATS must be aggregated without exposing PII
-- W3C traceparent propagation for distributed tracing
-- Health probes must check all dependencies (DB, Redis, NATS)
+
+**Prometheus metrics, W3C Trace Context, security event aggregation:**
+- **[HIGH]** Prometheus metrics MUST cover per service: `http_requests_total{method, route, status}` counter, `http_request_duration_seconds` histogram with standard bucket set, `errors_total{type}` counter, plus domain-specific metrics (`billing_invoices_created_total`, `notification_dispatches_total{channel, outcome}`, `projection_lag_seconds`, `event_store_append_conflicts_total`).
+- **[HIGH]** Label cardinality: per Prometheus best-practices, keep label cardinality below 10 distinct values per label across your whole system. Do NOT use unbounded labels (`user_id`, `email`, `tenant_name`, `correlation_id`) on metrics — tenant-aggregated metrics use a hashed tenant ID with a capped cardinality or a tiered label (`tenant_tier`).
+- **[HIGH]** Histograms are preferred over Summaries for aggregatable latency quantiles (`histogram_quantile()` across pods). The reserved labels `le` (Histogram) and `quantile` (Summary) MUST NOT be redefined.
+- **[HIGH]** W3C `traceparent` header format: `version-traceid-parentid-traceflags` per [w3.org/TR/trace-context](https://www.w3.org/TR/trace-context/). Version `00` (current), trace-id 32 hex, parent-id 16 hex, flags 8 bits hex-encoded (`01` = sampled). The header MUST be propagated across every service-to-service HTTP call, NATS publish (as a message header), and scheduled job invocation.
+- **[HIGH]** `tracestate` header carries vendor-specific extensions alongside `traceparent` — MUST be preserved end-to-end; services may append, MUST NOT overwrite.
+- **[HIGH]** Security events consumed from NATS MUST be aggregated without exposing PII. Raw event payloads containing email/phone/IP MUST pass through a `PiiRedactorLogger` before emission to metrics or logs. IP addresses in security events are hashed (SHA-256 with a rotating salt) for correlation without identification.
+- **[CRITICAL]** Health probes MUST check all dependencies (DB via `SELECT 1`, Redis via `PING`, NATS via connection state, config-service via a cheap read). A liveness probe that returns healthy while the DB is unreachable causes cascading failures.
+- **[HIGH]** Cross-schema queries in `observability-service` MUST be read-only and MUST use the `observability_reader` role with SELECT-only grants. A bug that writes via a cross-schema query is a CRITICAL integrity risk.
+- **[MEDIUM]** Request count + latency histogram + error rate (the "RED method") is the minimum viable metric set for every HTTP endpoint. Missing any of the three = incomplete instrumentation.
+- **[MEDIUM]** Trace sampling: head-based sampling at ingress (e.g., 10% of requests + 100% of errors via dynamic downgrade) with `traceparent.flags` carrying the decision forward. Never re-sample mid-trace — one trace is either fully sampled or fully not.
 
 ### Hydroponics Calculations
-- Nutrient calculations must use precise decimal arithmetic
-- PID simulator parameters (Kp, Ki, Kd) must be validated for stability
-- Ion balance calculations must sum to near-zero (cation-anion balance)
 
-### Multi-Tenancy (All Services)
-- Every query scoped by tenantId or search_path
-- Billing data strictly isolated — no cross-tenant invoice/subscription visibility
-- Notification dispatch scoped to tenant
+**PID controller stability, anti-windup, ion balance, fertilizer allocation (Åström & Murray / Scilab / Penn State / Eurofins / HydroBuddy):**
+- **[LIFE-SAFETY / CRITICAL]** PID controller MUST implement anti-windup (conditional integration or back-calculation per Scilab / Åström & Murray). Raw `integral += error * T` without saturation awareness causes pH/EC oscillation and plant-kill and is a blocking review failure.
+- **[LIFE-SAFETY / CRITICAL]** Hard safety interlocks (pH 4.0-7.5 bounds, EC upper bound per crop type, dual-acid/base-dose prevention) MUST run in a separate code path from the PID loop and MUST NOT be disable-able via setpoint or tuning changes. Interlocks override PID output.
+- **[LIFE-SAFETY / CRITICAL]** PID controller MUST pause on sensor timeout (> 300s stale measurement) and emit a `DosingUnavailable` alert. Running the PID on stale data is a blocking review failure.
+- **[LIFE-SAFETY / CRITICAL]** `Kp`, `Ki`, `Kd` tuning changes MUST be permission-gated (`HYDROPONICS_TUNING_WRITE`), audited, and bounded by hardcoded caps (`0 ≤ Kp ≤ 10`, `0 ≤ Ki ≤ 1`, `0 ≤ Kd ≤ 1`).
+- **[CRITICAL]** All nutrient math MUST use `Decimal` (decimal.js) or fixed-point integer representations (micromoles). Native JS `number` for sub-ppm concentrations with cumulative rounding is a blocking review failure.
+- **[CRITICAL]** Ion balance validation MUST run on every nutrient recipe save: `|Σ (cation_mmol × charge) − Σ (anion_mmol × |charge|)| ≤ 0.5 meq/L` (per Cropaia / Eurofins / Penn State). Recipes outside tolerance rejected with a structured error listing the imbalance.
+- **[CRITICAL]** Derivative term MUST be computed on the measurement (`-d(measurement)/dt`), not on the error — avoids setpoint-change derivative kicks. Derivative-on-error is a blocking review failure.
+- **[CRITICAL]** Sensor measurements MUST pass through a first-order low-pass filter (α ≈ 0.1-0.3) before entering the PID. Raw-noise PID with `Kd > 0` amplifies high-frequency noise into wild dosing commands.
+- **[HIGH]** PID internal state (`integral`, `lastError`, `lastMeasurement`, `saturatedAt`) MUST be persisted to `PidControllerState` every cycle for restart continuity and debug visibility. Stale checkpoint (> 10 min) resets to zero on restart.
+- **[HIGH]** Setpoint changes MUST be rate-limited (max 1 per 10s) and MUST emit a `PidSetpointChanged` audit event.
+- **[HIGH]** EC-only control is insufficient for long-term recipes — EC is a proxy for total dissolved salts, not element-specific. The system MUST track element-level depletion via drain-sample analysis or ISE sensors and alert on recipe drift.
+- **[HIGH]** Unipolar actuators (acid-only pump, base-only pump) MUST be declared in the controller config and the PID bipolar output mapped asymmetrically. Commanding a non-existent base pump is a blocking review failure.
+- **[MEDIUM]** Ziegler-Nichols tuning values are a starting point, not final configuration. Re-validate after any physical change (tank volume, pump rate, sensor replacement). Fruiting crops prefer lower-overshoot rules (Tyreus-Luyben / Skogestad IMC).
+- **[MEDIUM]** Recommended default: PI controller (`Kd = 0`) for pH with α = 0.2 low-pass filter.
+- **[MEDIUM]** Unit tests MUST cover: step response overshoot, sustained saturation anti-windup, sensor dropout pause, ion balance acceptance/rejection, hard interlock firing at pH 3.9, simultaneous dual-dose prevention.
+- Research: `docs/research/platform-services/2026-04-08-hydroponics-pid-controller-stability-ion-balance.md`
+
+### Multi-Tenancy (Platform-Services-Specific Domain Rules)
+
+Cross-cutting tenant isolation (DB `search_path`, RLS, Redis namespacing, NATS subject scoping, schema validation, CrossTenantProbe) is the **primary ownership of `multi-tenant-saas-expert`**. Delegate generic findings there. This subsection covers only platform-services-domain-specific tenant rules:
+
+- Billing data (Subscription, Invoice, Payment, Plan, UsageMetrics) MUST be strictly isolated between tenants. Any cross-tenant invoice/subscription visibility = CRITICAL compliance failure (SOC2, PCI DSS scope breach).
+- Notification dispatch MUST be scoped to the recipient's tenant. Cross-tenant notification leakage (tenant A receiving tenant B's alerts) = CRITICAL.
+- Event store projections (`StoredEvent`) MUST carry `tenantId` in the projection key to prevent cross-tenant replay contamination.
+- Config service `secret` values MUST be scoped per-tenant when they contain tenant-specific credentials (Stripe secret key, webhook endpoint, etc.). Global plaintext shared secrets across tenants = CRITICAL.
+
+For plan tier gating, per-tenant quota/metering, and billing-usage attribution to tenant → delegate to `multi-tenant-saas-expert` as the **primary owner** of plan/quota/billing-coupling concerns.
 
 ## Cross-Domain Dependencies
 

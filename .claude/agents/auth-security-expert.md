@@ -77,7 +77,10 @@ StripInternalHeadersMiddleware (remove x-user-payload from external requests)
 - Research: `docs/research/auth-security-expert/2026-04-08-jwt-rs256-hs256-algorithm-validation-audience.md`
 - Research: `docs/research/auth-security-expert/2026-04-08-refresh-token-rotation-bcrypt-storage-blacklist.md`
 
-### Tenant Isolation (Critical)
+### Tenant Isolation (Critical — Primary Ownership: Auth Pipeline)
+
+**Scope boundary:** `auth-security-expert` is the **primary owner** of tenant-isolation enforcement at the auth-pipeline layer — JWT tenantId claim extraction, TenantGuard, `X-Act-As-Tenant` impersonation handshake, MFA step-up for cross-tenant, `StripInternalHeadersMiddleware`. `multi-tenant-saas-expert` owns the higher-level SaaS tenant concerns (lifecycle, plan gating, quotas, noisy neighbor, portability, observability). Delegate non-auth tenant concerns to `multi-tenant-saas-expert`.
+
 - Regular users: tenant ID from JWT `tenantId` claim EXCLUSIVELY — never from headers, query params, or body (C-04). Any code path that reads `tenantId` from request body/query/header (outside SUPER_ADMIN impersonation) is CRITICAL.
 - **SUPER_ADMIN impersonation (CRITICAL):** ONLY via `X-Act-As-Tenant` header, UUID-validated, audit-logged with `recordAwait()` (guaranteed persistence — H-13), MFA step-up REQUIRED (`MFA_REQUIRED_FOR_CROSS_TENANT=true` in production). No other cross-tenant path allowed.
 - **Schema name interpolation (CRITICAL):** MUST validate against `TENANT_SCHEMA_REGEX` / `SAFE_SQL_IDENTIFIER` before any `SET search_path` or query interpolation (SEC-M13). Unvalidated interpolation = SQL injection via schema name.

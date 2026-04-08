@@ -124,10 +124,16 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - `CredentialVaultModule` is `@Global`, encrypts credentials at rest
 - Protocol adapter credentials (OPC UA certs, Modbus passwords) stored in vault, never in entity columns or config files
 
-### Multi-Tenancy
-- Every query scoped by tenantId or search_path
-- MQTT topics include tenantId for isolation
-- Redis cache keys namespaced by tenant
+### Multi-Tenancy (Sensor-Specific Domain Rules)
+
+Cross-cutting tenant isolation (DB `search_path`, RLS, Redis namespacing, NATS subject scoping, X-Act-As-Tenant impersonation, `CrossTenantProbe`, schema validation) is the **primary ownership of `multi-tenant-saas-expert`**. Delegate generic tenant-isolation findings there. This subsection covers only sensor-domain-specific tenant rules:
+
+- MQTT topic format MUST encode tenant scope as `tenants/{tenantId}/devices/{deviceId}/{subtopic}` — legacy `edge/`, `sensors/` prefixes are deprecated. Untenanted MQTT topic on tenant data = CRITICAL.
+- Topic-level ACL enforcement in Mosquitto: cross-tenant subscribe/publish attempts rejected at broker; verify `acl_file` discipline per tenant.
+- Device provisioning keys are tenant-scoped with expiration dates. Revoked or expired keys MUST be rejected at MQTT auth.
+- Sensor reading hypertable (`sensor_metrics`) queries MUST include `tenantId` composite index column in addition to time range — covered in detail under the TimescaleDB subsection.
+
+For all other tenant-isolation concerns → delegate to `multi-tenant-saas-expert`.
 
 ## Cross-Domain Dependencies
 

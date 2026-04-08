@@ -36,11 +36,15 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 ## Domain Rules
 
 ### Batch Lifecycle (Critical)
-- State transitions: `QUARANTINE → ACTIVE → HARVESTING → CLOSED` (or `ACTIVE → CLOSED` direct)
-- Mortality/cull requires active batch with fish in the specified tank
-- Transfers: validate source has sufficient quantity AND destination has capacity
-- Close: must calculate final FCR, mortality rate, days in production
+- State transitions enforced strictly: `QUARANTINE → ACTIVE → HARVESTING → CLOSED`. Direct `ACTIVE → CLOSED` permitted only when a final harvest event accounts for all remaining biomass. Transitions out of this order = CRITICAL data integrity violation.
+- Mortality/cull requires active batch with fish in the specified tank, AND the mortality event MUST decrement both quantity and biomass atomically within the same transaction. Non-atomic mortality = HIGH (artificially inflates FCR).
+- Transfers: validate source has sufficient quantity AND destination has capacity against BOTH `maxBiomass` AND `maxDensity`. Validating only one constraint = HIGH.
+- Close-batch command MUST compute final FCR, mortality rate, days-in-production before marking CLOSED. Missing any of these final metrics = HIGH (missing audit data).
 - Biomass formula: `biomassKg = (quantity * avgWeightG) / 1000`
+- SGR formula: `SGR = (ln(weight_end) - ln(weight_start)) / days * 100`. Linear percent SGR without natural log = MEDIUM (incorrect math) unless explicitly documented as a UI-only simplification.
+- Growth variance `(actual - theoretical) / theoretical` > 15% MUST trigger a batch-level alert — disease, malnutrition, or stock count error indicator.
+- Mixed-batch tanks: `batchDetails` array tracks per-batch proportions; FCR attribution without per-batch proportions on a shared tank = HIGH.
+- Research: `docs/research/farm-expert/2026-04-08-aquaculture-ras-batch-lifecycle.md`
 
 ### Tank Capacity & Density
 - Every allocation/transfer MUST check `maxBiomass` and `maxDensity`
@@ -60,10 +64,15 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Performance classification: excellent (≥+10%), good (+0-10%), average (-5-0%), below_average (-15 to -5%), poor (<-15%)
 
 ### Sentinel Hub Security (SEC-C14)
-- OAuth tokens MUST NEVER be exposed to frontend
-- All calls proxied through `SentinelHubProxyController`
-- `@HideField()` on `accessToken` in all GraphQL types
-- Client secrets encrypted at rest in database
+- OAuth tokens MUST NEVER be exposed to frontend — client-credentials flow must live server-side.
+- All calls proxied through `SentinelHubProxyController`.
+- `@HideField()` on `accessToken`, `clientSecret`, and any derived token fields in all GraphQL types. Missing `@HideField()` = HIGH.
+- Client secrets MUST be encrypted at rest (AES-256-GCM) OR loaded from a secrets manager. Plaintext secrets in DB columns or config files = CRITICAL.
+- Token cache MUST be tenant-scoped when tenants hold separate Sentinel Hub accounts. Global cache across tenants with separate credentials = CRITICAL (cross-tenant quota exhaustion and imagery leakage).
+- Token refresh MUST be deduplicated via a shared in-flight promise. Concurrent refresh without dedup = MEDIUM (quota waste).
+- Proxy endpoints MUST enforce per-tenant rate limiting to prevent quota-based DoS between tenants. Missing per-tenant rate limit = HIGH.
+- Any user-controlled URL passed through the Sentinel Hub proxy MUST be validated against a strict allowlist (SSRF prevention). Missing allowlist = HIGH.
+- Research: `docs/research/farm-expert/2026-04-08-sentinel-hub-oauth-proxy-security.md`
 
 ### Storage & Inventory
 - Stock movements tracked with lot traceability
@@ -82,19 +91,46 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Equipment-parameter mappings link sensors to WQ parameters
 - Templates provide bulk creation of standard parameter sets
 
+### GraphQL Federation v2 (Critical)
+- Subgraphs MUST NOT be directly reachable from the public internet — router-only access via network policy or mTLS. Direct public reachability = CRITICAL (bypasses router auth, rate limiting, complexity limits).
+- Every subgraph resolver MUST independently verify authorization against the forwarded identity header — trusting the router blindly = CRITICAL (privilege escalation via forged header).
+- `__resolveReference` handlers MUST use request-scoped DataLoader for batched entity lookups. Missing DataLoader = HIGH (N+1 avalanche: one DB query per referenced entity).
+- `@ResolveField()` decorators that access the database MUST use DataLoader. Missing DataLoader on DB-accessing resolvers = HIGH (nested N+1).
+- DataLoader instances MUST be request-scoped (`Scope.REQUEST`) to prevent cross-tenant cache leakage. Singleton DataLoader on tenant data = CRITICAL.
+- GraphQL introspection MUST be disabled in production. Enabled introspection = HIGH (schema leakage).
+- Query complexity and depth limits MUST be enforced at both router and subgraph levels (defense in depth). Missing either = HIGH (DoS vector).
+- Alias limit plugin MUST be active on sensitive mutations (login, refresh, reset, MFA verify). Missing = HIGH (brute-force amplification).
+- Missing pagination on list resolvers returning tenant data = HIGH (unbounded result set).
+- Research: `docs/research/farm-expert/2026-04-08-graphql-federation-v2-subgraph-security.md`
+
 ### CQRS Compliance
-- Command handlers MUST: validate → open transaction → persist → commit → publish event AFTER commit
-- Event published inside transaction = CRITICAL violation (fires even on rollback)
-- Missing `@Optional() @Inject('EVENT_BUS')` pattern = violation
-- Events must extend `BaseEvent`, flat fields (no payload wrapper), `tenantId` mandatory, new fields optional (non-breaking)
-- Removing/renaming event fields = BREAKING CHANGE requiring version bump
+- Command handlers MUST: validate → open transaction → persist aggregate → persist outbox row in the SAME transaction → commit → background publisher polls outbox → publishes to NATS → marks outbox row as published.
+- Direct NATS publication from command handlers (bypassing outbox) = CRITICAL — events lost on crash between commit and publish.
+- Event published inside transaction (before `commit()`) = CRITICAL violation — fires even on rollback, consumers see phantom state.
+- Missing `@Optional() @Inject('EVENT_BUS')` pattern = HIGH violation.
+- Events MUST extend `BaseEvent`, flat fields (no payload wrapper), `tenantId` mandatory, new fields optional (non-breaking, additive).
+- Removing/renaming event fields = BREAKING CHANGE requiring version bump + consumer migration plan + deprecation period.
+- Publishes MUST set `Nats-Msg-Id` header to the outbox row ID (or domain event ID) for broker-level deduplication. Missing header = HIGH (loses exactly-once safety).
+- Streams carrying critical events MUST have a DLQ configured with monitoring on DLQ depth, retry count, and age of oldest unpublished row. Missing DLQ = HIGH (silent data loss on poison messages).
+- Consumers MUST be idempotent at the application level using natural keys or message IDs — broker-level exactly-once is not sufficient alone. Missing consumer-side idempotency = HIGH.
+- Consumers MUST use durable names and `MaxAckPending` tuned to their throughput. Non-durable consumers on critical event streams = HIGH.
+- NATS TLS mandatory in production; plaintext NATS = CRITICAL.
+- Outbox table MUST have a pruning policy (published rows older than N days removed). Unbounded growth = MEDIUM initially, HIGH after ~30 days.
+- Research: `docs/research/farm-expert/2026-04-08-nestjs-cqrs-transactional-outbox.md`, `docs/research/farm-expert/2026-04-08-nats-jetstream-exactly-once-semantics.md`
 
 ### Multi-Tenancy (Critical)
-- Every query scoped by `tenantId` or `search_path` (`tenant_{id}`, `farm`, `public`)
-- Raw SQL MUST NOT hardcode schema names
-- Redis keys namespaced by tenant
-- NATS events include `tenantId`
-- IDOR prevention: verify entity ownership against requesting tenant
+- Every query scoped by `tenantId` or `search_path` (`tenant_{id}`, `farm`, `public`). Missing either = CRITICAL.
+- `search_path` MUST be set with `SET LOCAL` inside the transaction (compatible with PgBouncer transaction pooling). Session-level `SET search_path` is CRITICAL under a transaction pooler — next transaction on the same server connection inherits the previous tenant's search_path, resulting in full cross-tenant data leak.
+- Schema name interpolation in raw SQL MUST be validated against `TENANT_SCHEMA_REGEX` (`^tenant_[a-f0-9]{16}$`) before use. Unvalidated interpolation = CRITICAL (SQL injection + tenant leak combined).
+- Raw SQL MUST NOT hardcode schema names.
+- Every repository access on tenant data MUST go through `getScopedRepository()`. Direct `getRepository()` on tenant entities = HIGH (may bypass tenant filter).
+- Application connection role MUST NOT have `SUPERUSER` or `BYPASSRLS` privilege — these bypass RLS policies silently. Privileged role = CRITICAL.
+- `CrossTenantProbe` watchdog MUST run on schedule and fail-closed on isolation breach. Missing watchdog = HIGH.
+- Redis keys namespaced by tenant via `TenantRedisService`. Direct Redis access without tenant prefix = CRITICAL.
+- NATS events include `tenantId` AND NATS subjects tenant-scoped (prefixed `tenants/{tenantId}/...`). Untenanted subjects on tenant data = CRITICAL.
+- IDOR prevention: verify entity ownership against requesting tenant on every query that accepts an ID from a client.
+- SUPER_ADMIN impersonation via `X-Act-As-Tenant` header MUST be audit-logged with `recordAwait()` (guaranteed persistence before response). Async/fire-and-forget audit log = CRITICAL compliance gap.
+- Research: `docs/research/farm-expert/2026-04-08-postgresql-search-path-pooler-pitfalls.md`
 
 ## Review Checklist
 

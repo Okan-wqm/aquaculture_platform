@@ -37,38 +37,89 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 
 ### Impersonation Security (Critical)
 - SUPER_ADMIN impersonation MUST create an `ImpersonationSession` audit record
-- Every action during impersonation MUST be logged with both real and impersonated identity
-- Impersonation sessions MUST have a time limit (configurable, default 1 hour)
-- MFA step-up REQUIRED before initiating impersonation
-- Debug tools/sessions MUST be SUPER_ADMIN only with mandatory audit logging
-- `debug-tools.controller.ts`: cache inspector, API call inspector, query inspector — all read-only with audit
+- Every action during impersonation MUST be logged with BOTH real and impersonated identity (dual-identity audit); single-identity rows during an active session are CRITICAL findings
+- Impersonation sessions MUST honor an absolute TTL ≤ 1h AND an inactivity TTL ≤ 15min, BOTH enforced server-side (client UI timers are insufficient)
+- MFA step-up MUST be verified at the impersonation-initiation endpoint, NOT at login; login-time MFA is stale and insufficient
+- Business justification (support ticket ID or structured reason) MUST be a required, validated, non-empty field at impersonation start
+- Sessions default to READ-ONLY mode; write mode requires an explicit toggle that is itself audited AND alerted (Slack/PagerDuty)
+- Impersonation tokens MUST NOT be silently refreshable — a new window requires a new MFA step-up
+- Any SUPER_ADMIN MUST be able to list and terminate active impersonation sessions from an admin dashboard; termination MUST propagate to in-flight requests
+- IP/device fingerprint change during an active session SHOULD terminate the session and emit a security event
+- Impersonation events (start, terminate, write-toggle) MUST emit a NATS security event for downstream alerting
+- `ImpersonationSession` entity must persist: real_user_id, impersonated_user_id, impersonated_tenant_id, mfa_challenge_id, reason, ip_address, user_agent, initiated_at, expires_at, terminated_at, termination_reason — all non-nullable except termination fields
+- Debug tools/sessions MUST be SUPER_ADMIN only AND MUST reject requests whose caller is currently impersonating any user
+- `debug-tools.controller.ts`: cache inspector, API call inspector, query inspector — all read-only with audit; MUST NOT expose tokens, session secrets, JWT signing keys, or raw password hashes
+- Research: `docs/research/admin-expert/2026-04-08-impersonation-security-mfa-audit.md`
 
 ### Database Management Safety (Critical)
-- Schema/migration/backup operations MUST be SUPER_ADMIN only
-- Database explorer MUST be read-only in production (no write queries)
-- Backup/restore operations MUST log who initiated and what was affected
-- Migration operations MUST validate against known migration list (no arbitrary SQL)
-- Schema operations MUST respect tenant isolation boundaries
+- Schema/migration/backup operations MUST be SUPER_ADMIN only AND rejected if the caller is inside an active impersonation session
+- Database explorer MUST run under a dedicated PostgreSQL role with only CONNECT/USAGE/SELECT grants (e.g., `pg_read_all_data` membership); the application service role MUST NOT be reused
+- Read-only enforcement MUST use defense-in-depth across SEVEN layers: (1) SQL parser top-level command validation, (2) multi-statement rejection, (3) CTE write rejection (no `WITH ... INSERT/UPDATE/DELETE/MERGE`), (4) `SET TRANSACTION READ ONLY`, (5) underlying role has no write grants, (6) `statement_timeout` cap (e.g., 5s), (7) row-limit wrapper (e.g., `LIMIT 1000`). Missing any layer is a CRITICAL finding
+- Migration endpoints MUST select from a deploy-time allowlist of known migration identifiers; accepting arbitrary SQL input is a CRITICAL finding
+- Migration operations MUST resolve target schema from tenant UUID via the tenant registry; accepting schema names directly from requests is a CRITICAL finding; `public` is never a valid target
+- Backup/restore operations MUST log initiator, scope, result, byte count; restore to production MUST require dual SUPER_ADMIN control; restores default to a staging DB
+- Schema operations (CREATE/DROP/ALTER) MUST be audited as CRITICAL severity events
+- `pg_read_server_files`, `pg_execute_server_program`, `pg_write_server_files` MUST NEVER be granted to any admin-tool role (they bypass DB permission checks and enable superuser escalation)
+- Identifier substitutions (table/column/schema) MUST be validated against `information_schema` allowlists; string concatenation into quoted identifiers is forbidden
+- DB explorer query logs MUST redact bind parameters before persistence; raw WHERE-clause values with PII are log-injection/PII-leak findings
+- `information_schema` queries from the explorer MUST be tenant-scoped; returning cross-tenant schema listings is a CRITICAL finding
+- Research: `docs/research/admin-expert/2026-04-08-database-management-safety-readonly.md`
 
 ### Tenant Lifecycle
-- Provisioning saga: create tenant → create schema → seed data → assign modules → create admin user
-- Each step must be idempotent with rollback capability (`provisioning-saga.service.ts`)
-- Tenant status transitions: `PENDING → ACTIVE → SUSPENDED → ARCHIVED`
-- Tenant deletion/archival must cascade correctly with data retention compliance
+- Provisioning saga: create tenant → create schema → seed data → assign modules → create admin user → billing subscription → notifications
+- Every saga step MUST be classified as `COMPENSABLE | PIVOT | RETRYABLE`; unclassified steps are HIGH findings
+- Each compensable step MUST have a paired, idempotent compensation handler that undoes exactly what that step's saga instance created (matched by saga instance ID, not resource name)
+- Each step MUST use a persisted per-step idempotency key (`(tenant_id, step_name)`); retrying a completed step MUST NOT produce side effects
+- Compensation failures MUST be retried with exponential backoff and, after exhaustion, MUST enqueue a `RequiresManualReconciliation` alert visible in the admin dashboard
+- Billing compensation MUST void the Stripe subscription created by the pivot and verify the void succeeded before marking the saga failed
+- Tenant lifecycle states MUST include a distinct `PURGED` terminal state separate from `ARCHIVED`; transition from `ARCHIVED → PURGED` MUST be scheduled automatically per a documented retention policy
+- Tenant status transitions: `PENDING → ACTIVE → SUSPENDED → ARCHIVED → PURGED` (with failure and provisioning states visible in admin UI)
+- Tenant deletion/archival must cascade correctly with data retention compliance; retention policy config MUST match the platform's RoPA documentation (GDPR Article 30), drift is an auditable finding
+- Tenant purge operations MUST emit an immutable, hash-signed `TenantPurged` audit event as a certificate of destruction (GDPR/SOC2 evidence)
+- Partial-provisioning (saga failed) tenants MUST be visibly flagged; silent intermediate states are HIGH findings
+- The saga orchestrator MUST be the only code path mutating tenant lifecycle states; direct writes from controllers/services are CRITICAL findings
+- Tenant provisioning endpoints MUST be asynchronous (`202 Accepted` + job ID), never synchronously waiting on the saga to complete
+- Tenant row MUST carry a semantic lock (`status = PROVISIONING`) that other services honor until the saga reaches a terminal state
 - Tenant activity tracking via `tenant-activity.service.ts`
+- Research: `docs/research/admin-expert/2026-04-08-tenant-lifecycle-saga-rollback.md`
 
 ### Cross-Tenant Access Controls (Critical)
-- SUPER_ADMIN accesses any tenant via `X-Act-As-Tenant` header — MUST be UUID-validated and audit-logged
+- Only SUPER_ADMIN JWTs may present `X-Act-As-Tenant`; any other role presenting it MUST receive a 403 and emit a security audit row
+- `X-Act-As-Tenant` header parsing MUST live in a dedicated guard/middleware, never inline in controllers
+- Header values MUST be regex-validated as canonical UUIDs AND looked up in the tenants registry; non-existent or PURGED tenants return 403 (NOT 404 — prevents tenant enumeration)
+- `X-Act-As-Tenant` MUST set a distinct `req.tenantScope` field; rewriting `req.user` or `req.principal` based on the header is a CRITICAL finding (conflating act-as-tenant with impersonation is the #1 multi-tenant SaaS security bug)
+- Cross-tenant audit writes MUST use the awaited `recordAwait` pattern (blocking append before action); a failed audit write MUST fail the request — fire-and-forget cross-tenant audit is a CRITICAL finding
+- Audit rows for cross-tenant actions MUST include: actor_user_id, actor_home_tenant_id, acted_on_tenant_id, endpoint, http_method, resource_type, resource_id, justification (required for writes), ip, user_agent, request_id, result
+- TENANT_ADMIN controllers MUST derive tenant ID from the JWT only; reading `X-Act-As-Tenant` from a TENANT_ADMIN request is a CRITICAL finding
+- Background jobs enqueued during a cross-tenant request MUST serialize tenant scope into the job payload; reading tenant scope from CLS/AsyncLocalStorage in a worker is a CRITICAL finding (leads to wrong-tenant execution)
+- Cross-tenant requests MUST be rate-limited per SUPER_ADMIN (e.g., max 10 distinct tenant IDs per minute); anomalies (one admin touching > N tenants per session) MUST alert
+- Response caches and Prometheus labels MUST NOT use raw tenant UUIDs that would enable cross-tenant cache hits or high-cardinality metric blowup
+- Tenant enumeration via differentiated error responses is a HIGH finding; non-SUPER_ADMIN responses MUST be identical whether the tenant exists or not
 - TENANT_ADMIN operations MUST be scoped to their own tenant only
 - Never expose one tenant's data in another tenant's admin panel
-- Role hierarchy enforcement: SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER
+- Role hierarchy enforcement: SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER; role MUST be read from the JWT's signed claims after full verification, never from a mutable/ambient source
+- Research: `docs/research/admin-expert/2026-04-08-cross-tenant-access-control-x-act-as-tenant.md`
 
 ### Billing Admin
-- Plan changes must validate module dependencies
+- Stripe webhook endpoint MUST mount with `express.raw({ type: 'application/json' })` and verify via `stripe.webhooks.constructEvent`; custom signature logic is a CRITICAL finding; body-parser middleware running before webhook route breaks verification
+- Webhook handler MUST dedupe on `event.id` using a dedicated `stripe_webhook_events` table (states `PROCESSING` / `PROCESSED` / `FAILED`); first-write-wins via unique constraint
+- Webhook idempotency state transitions and side effects MUST be atomic via the transactional outbox; fire-and-forget side effects after webhook receipt are CRITICAL findings
+- Webhook handler MUST return 2xx within 5 seconds; long-running work MUST be queued via NATS or the outbox
+- Outgoing Stripe API calls for refunds, voids, and subscription mutations MUST pass an `Idempotency-Key` header keyed to the logical admin operation (prevents double-click double refunds)
+- Plan changes MUST be modeled as a saga with an explicit pivot transaction (the Stripe subscription update) and compensations for pre-pivot steps
+- Plan downgrade MUST validate the module dependency graph and reject or require explicit acknowledgment before proceeding (prevents revenue leaks)
+- Refund and void operations MUST log initiator, target (tenant/invoice/customer), amount, currency, reason (required, non-empty), pre/post Stripe state
+- Refunds above a configurable threshold (e.g., $10,000) MUST require dual SUPER_ADMIN approval AND emit real-time alerts on initiation and completion
+- Subscription status transitions from webhooks MUST propagate to tenant module access via the saga orchestrator; direct writes from webhook handlers to module grants are CRITICAL findings
+- A scheduled reconciliation job MUST pull Stripe events since the last watermark to cover webhook delivery gaps beyond Stripe's 3-day retry window
+- Stripe event payload logs MUST redact customer PII (email, name, partial card data) before persistence
+- Webhook signature verification failures MUST NOT include the webhook secret in logs or error responses
+- Orphaned webhooks (customer.id with no tenant mapping) MUST be parked in a dead-letter queue with alerting, not silently dropped
 - Subscription status changes cascade to tenant module access
-- Invoice void/refund must create audit trail
 - Usage metrics read-only from admin perspective (sourced from billing-service)
 - Pricing calculator, discount codes, custom plans — all SUPER_ADMIN gated
+- Voided invoices MUST remain visible with a voided flag, never deleted (append-only billing audit)
+- Research: `docs/research/admin-expert/2026-04-08-billing-admin-webhook-stripe-idempotency.md`
 
 ### Security Monitoring
 - Security dashboard aggregates events from auth-service, gateway-api

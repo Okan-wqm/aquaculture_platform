@@ -1,3 +1,4 @@
+import * as os from 'os';
 import {
   Injectable,
   Inject,
@@ -8,10 +9,12 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   DataSource,
+  EntityManager,
   Repository,
   IsNull,
   LessThan,
   MoreThanOrEqual,
+  In,
 } from 'typeorm';
 import type { IEventBus, IEvent } from '@platform/event-bus';
 import { OutboxEntityBase } from './outbox-entity.base';
@@ -21,6 +24,8 @@ import {
   OUTBOX_BATCH_SIZE,
   OUTBOX_MAX_RETRIES,
   OUTBOX_LAST_ERROR_MAX_LENGTH,
+  OUTBOX_LEASE_DURATION_MS,
+  OUTBOX_PUBLISH_CONCURRENCY,
 } from './constants';
 
 /**
@@ -38,14 +43,47 @@ import {
  *   with the same wire format the rest of the platform uses, so the
  *   gateway-api WebSocket bridge can subscribe to a single wildcard.
  *
- * Concurrency model:
- *   Multiple service replicas each run their own worker. NATS JetStream
- *   `duplicate_window` (2 min) handles dedup via `eventId` so concurrent
- *   workers publishing the same row are idempotent at the broker level.
- *   The DB UPDATE on `publishedAt` is single-row and atomic; the second
- *   replica's UPDATE simply overwrites with the same `publishedAt` value.
+ * # Concurrency model — row leases via SKIP LOCKED
  *
- * @see Phase 2 of farm domain real-time visibility plan.
+ * Multiple service replicas each run their own worker. Each cycle
+ * claims rows atomically via `FOR UPDATE SKIP LOCKED` inside a brief
+ * transaction that only tags the rows (`leasedAt`, `leasedBy`) — the
+ * transaction commits BEFORE the NATS publish begins, so the database
+ * lock is held for only milliseconds regardless of publish latency.
+ *
+ * Other replicas scanning the table see the fresh `leasedAt` and skip
+ * the row via the polling predicate, without needing a lock. Work
+ * shards linearly across replicas: N replicas ≈ N× throughput.
+ *
+ * If a holder crashes mid-publish, its lease stays fresh for
+ * `OUTBOX_LEASE_DURATION_MS` (default 5 minutes). After that window,
+ * the next polling worker re-claims the row. At most one duplicate
+ * publish can occur per crash, absorbed by NATS
+ * `msgID + duplicate_window`.
+ *
+ * NATS JetStream `duplicate_window` (2 min) is still the final
+ * idempotency backstop for any race condition the lease pattern
+ * cannot prevent (for example, a re-lease that happens exactly
+ * between publish-send and lease-clear).
+ *
+ * # Bounded publish concurrency
+ *
+ * Within a single worker cycle, rows are published in parallel with a
+ * bounded concurrency of `OUTBOX_PUBLISH_CONCURRENCY` (default 20).
+ * This transforms a 500ms serial batch into a ~25ms concurrent batch,
+ * unblocking the next poll cycle and reducing p99 latency under burst
+ * load. The NATS client multiplexes all 20 publishes over a single
+ * TCP connection, so this does not increase connection pressure.
+ *
+ * # Batched status UPDATE
+ *
+ * After the publish phase, successful row IDs are committed to
+ * `publishedAt = NOW()` via a single `UPDATE ... WHERE id IN (...)`
+ * statement instead of N individual updates. A 100-row batch becomes
+ * 1 DB round-trip for the success path (from 100).
+ *
+ * @see Phase 2 checkpoint — C2/P-H1 horizontal-scale fix,
+ *      P-H2 throughput fix, P-M2 round-trip consolidation.
  */
 @Injectable()
 export class OutboxWorkerService implements OnApplicationBootstrap {
@@ -54,6 +92,12 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
   private processing = false;
   /** Prometheus `service` label derived from the consuming entity class name. */
   private readonly metricsLabel: string;
+  /**
+   * Stable worker identity written to `leasedBy` for debuggability.
+   * `${hostname}-${pid}` so operators can correlate a stuck row with
+   * the exact pod holding its lease.
+   */
+  private readonly workerId: string;
 
   constructor(
     @Inject(OUTBOX_ENTITY_CLASS)
@@ -67,6 +111,11 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     this.metricsLabel = entityClass.name
       .replace(/([a-z])([A-Z])/g, '$1_$2')
       .toLowerCase();
+
+    // Worker identity. Truncated to 128 chars to match the `leasedBy`
+    // column constraint — hostname + pid will always fit, but the slice
+    // is defensive against exotic container runtimes.
+    this.workerId = `${os.hostname()}-${process.pid}`.slice(0, 128);
   }
 
   async onApplicationBootstrap(): Promise<void> {
@@ -124,17 +173,31 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
 
       if (pendingCount === 0) return;
 
-      const events = await this.repo.find({
-        where: {
-          publishedAt: IsNull(),
-          retryCount: LessThan(OUTBOX_MAX_RETRIES),
-        },
-        order: { createdAt: 'ASC' },
-        take: OUTBOX_BATCH_SIZE,
-      });
+      // ── Phase 1: Acquire leases ───────────────────────────────────
+      // Claim up to OUTBOX_BATCH_SIZE rows by tagging them with
+      // (leasedAt, leasedBy) inside a short transaction. The SELECT
+      // uses FOR UPDATE SKIP LOCKED so concurrent workers atomically
+      // shard the work instead of contending over the same rows.
+      const leasedRows = await this.acquireLease();
+      if (leasedRows.length === 0) return;
 
-      for (const row of events) {
-        await this.publishOne(row);
+      // ── Phase 2: Publish with bounded concurrency ─────────────────
+      // Lease has been committed — the DB lock is released, other
+      // workers can pick up subsequent batches in parallel. This phase
+      // runs OUTSIDE any transaction so publish latency does not
+      // translate into row-lock hold time.
+      const { successIds, failures } = await this.publishLeasedBatch(
+        leasedRows,
+      );
+
+      // ── Phase 3: Commit outcomes ──────────────────────────────────
+      // Batched UPDATE for successes (single round trip) and per-row
+      // UPDATE for failures (each carries a distinct error message).
+      if (successIds.length > 0) {
+        await this.markPublished(successIds);
+      }
+      for (const failure of failures) {
+        await this.markFailed(failure);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -144,51 +207,183 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
     }
   }
 
-  private async publishOne(row: OutboxEntityBase): Promise<void> {
-    try {
-      // Reconstruct the IEvent from the JSONB payload. The cast is safe
-      // because OutboxPublisher only enqueues full BaseEvent objects.
-      const event = row.payload as unknown as IEvent;
-      await this.eventBus.publish(event);
+  /**
+   * Atomically lease up to `OUTBOX_BATCH_SIZE` pending rows for this
+   * worker. The lock is held only for the duration of the SELECT + UPDATE
+   * inside the transaction — commit releases it immediately, and the
+   * `leasedAt` tag then guards the rows from other workers via the
+   * polling predicate.
+   *
+   * The lease-aware WHERE clause is:
+   *   publishedAt IS NULL
+   *   AND retryCount < MAX_RETRIES
+   *   AND (leasedAt IS NULL OR leasedAt < NOW() - OUTBOX_LEASE_DURATION_MS)
+   *
+   * The lease expiry window is computed in JavaScript (not in SQL with
+   * `NOW() - INTERVAL`) so the query plan remains index-friendly: the
+   * partial index `idx_<service>_outbox_poll` already filters on
+   * `publishedAt IS NULL`, and the remaining predicate is evaluated
+   * row-by-row on the narrowed set.
+   */
+  private async acquireLease(): Promise<OutboxEntityBase[]> {
+    const tableName = this.repo.metadata.tableName;
+    const leaseCutoff = new Date(Date.now() - OUTBOX_LEASE_DURATION_MS);
+    const now = new Date();
 
-      const publishedAt = new Date();
-      await this.repo.update(row.id, { publishedAt });
-
-      // Latency from enqueue (createdAt) to successful publish, in seconds.
-      // This is the most important operational signal for the outbox:
-      // a rising p99 means the worker is falling behind real-time writes.
-      const latencySeconds =
-        (publishedAt.getTime() - new Date(row.createdAt).getTime()) / 1000;
-      this.metrics.recordPublishSuccess(
-        this.metricsLabel,
-        row.eventType,
-        latencySeconds,
+    return this.dataSource.transaction(async (manager: EntityManager) => {
+      // Raw query — TypeORM's QueryBuilder support for SKIP LOCKED with
+      // parameterized WHERE clauses has been inconsistent across driver
+      // versions. A parameterized raw query is the simplest correct form.
+      const rows: OutboxEntityBase[] = await manager.query(
+        `SELECT * FROM "${tableName}"
+         WHERE "publishedAt" IS NULL
+           AND "retryCount" < $1
+           AND ("leasedAt" IS NULL OR "leasedAt" < $2)
+         ORDER BY "createdAt" ASC
+         LIMIT $3
+         FOR UPDATE SKIP LOCKED`,
+        [OUTBOX_MAX_RETRIES, leaseCutoff, OUTBOX_BATCH_SIZE],
       );
 
-      this.logger.debug(
-        `Published outbox row ${row.id} (${row.eventType}) to NATS in ${latencySeconds.toFixed(3)}s`,
+      if (rows.length === 0) return [];
+
+      const ids = rows.map((row) => row.id);
+
+      // Tag the claimed rows. The UPDATE joins the same transaction so
+      // the lock remains valid throughout; other workers' SELECTs will
+      // skip these rows as soon as the transaction commits.
+      await manager.update(
+        this.entityClass,
+        { id: In(ids) },
+        { leasedAt: now, leasedBy: this.workerId },
       );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const newRetryCount = row.retryCount + 1;
 
-      this.metrics.recordPublishFailure(this.metricsLabel, row.eventType);
-
-      if (newRetryCount >= OUTBOX_MAX_RETRIES) {
-        this.logger.error(
-          `Outbox row ${row.id} (${row.eventType}) DEAD-LETTERED after ${newRetryCount} attempts: ${message}`,
-        );
-      } else {
-        this.logger.warn(
-          `Outbox row ${row.id} (${row.eventType}) publish failed (attempt ${newRetryCount}/${OUTBOX_MAX_RETRIES}): ${message}`,
-        );
+      // Reflect the new lease state onto the in-memory rows so the
+      // caller's logic sees a consistent view without an extra SELECT.
+      for (const row of rows) {
+        row.leasedAt = now;
+        row.leasedBy = this.workerId;
       }
 
-      await this.repo.update(row.id, {
-        retryCount: newRetryCount,
-        lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
-      });
+      return rows;
+    });
+  }
+
+  /**
+   * Publish each leased row to NATS with bounded concurrency. Returns
+   * arrays of success IDs and failure descriptors — the caller performs
+   * the status UPDATEs after all publishes have settled.
+   *
+   * The concurrency cap is `OUTBOX_PUBLISH_CONCURRENCY`. A single in-flight
+   * pool is used (not per-row promises) so memory and event-loop pressure
+   * stay bounded even for very large batches.
+   */
+  private async publishLeasedBatch(
+    rows: OutboxEntityBase[],
+  ): Promise<{
+    successIds: string[];
+    failures: Array<{ row: OutboxEntityBase; error: Error }>;
+  }> {
+    const successIds: string[] = [];
+    const failures: Array<{ row: OutboxEntityBase; error: Error }> = [];
+
+    await runWithConcurrency(
+      rows,
+      OUTBOX_PUBLISH_CONCURRENCY,
+      async (row) => {
+        try {
+          // The payload was validated at enqueue time
+          // (OutboxPublisher.enqueue); the cast is safe because only
+          // validated BaseEvent objects can reach this column.
+          const event = row.payload as unknown as IEvent;
+          await this.eventBus.publish(event);
+
+          successIds.push(row.id);
+
+          // Latency from enqueue (createdAt) to successful publish.
+          // Record immediately so the histogram reflects per-event
+          // latency even within a batch that has mixed outcomes.
+          const publishedAt = Date.now();
+          const latencySeconds =
+            (publishedAt - new Date(row.createdAt).getTime()) / 1000;
+          this.metrics.recordPublishSuccess(
+            this.metricsLabel,
+            row.eventType,
+            latencySeconds,
+          );
+
+          this.logger.debug(
+            `Published outbox row ${row.id} (${row.eventType}) to NATS in ${latencySeconds.toFixed(3)}s`,
+          );
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          failures.push({ row, error: err });
+          this.metrics.recordPublishFailure(
+            this.metricsLabel,
+            row.eventType,
+          );
+        }
+      },
+    );
+
+    return { successIds, failures };
+  }
+
+  /**
+   * Mark a batch of successfully-published rows as published in a single
+   * UPDATE. Also clears `leasedAt` / `leasedBy` so the row is visibly
+   * terminal in operator tooling — a published row should never appear
+   * "leased" to a worker.
+   */
+  private async markPublished(ids: string[]): Promise<void> {
+    const publishedAt = new Date();
+    await this.repo.update(
+      { id: In(ids) },
+      {
+        publishedAt,
+        leasedAt: null,
+        leasedBy: null,
+      },
+    );
+  }
+
+  /**
+   * Record a failed publish attempt on a single row: bump `retryCount`,
+   * truncate and persist the error message, and clear the lease so a
+   * subsequent poll can re-attempt without waiting for lease expiry.
+   *
+   * Dead-lettering is implicit — when `retryCount` crosses
+   * `OUTBOX_MAX_RETRIES`, the polling predicate stops selecting the row
+   * and it drops out of the `outbox_pending` gauge into
+   * `outbox_dead_letter_count` automatically.
+   */
+  private async markFailed(failure: {
+    row: OutboxEntityBase;
+    error: Error;
+  }): Promise<void> {
+    const { row, error } = failure;
+    const newRetryCount = row.retryCount + 1;
+    const message = error.message;
+
+    if (newRetryCount >= OUTBOX_MAX_RETRIES) {
+      this.logger.error(
+        `Outbox row ${row.id} (${row.eventType}) DEAD-LETTERED after ${newRetryCount} attempts: ${message}`,
+      );
+    } else {
+      this.logger.warn(
+        `Outbox row ${row.id} (${row.eventType}) publish failed (attempt ${newRetryCount}/${OUTBOX_MAX_RETRIES}): ${message}`,
+      );
     }
+
+    await this.repo.update(row.id, {
+      retryCount: newRetryCount,
+      lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
+      // Release the lease so a subsequent cycle can retry immediately.
+      // If the cause is transient (NATS blip) the next cycle has the
+      // best chance of success before the incident window closes.
+      leasedAt: null,
+      leasedBy: null,
+    });
   }
 
   /**
@@ -217,4 +412,50 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       this.logger.error(`Outbox cleanup failed: ${message}`);
     }
   }
+}
+
+/**
+ * Bounded-concurrency executor.
+ *
+ * Runs `task(item)` for every item in `items`, keeping at most `limit`
+ * invocations in flight at any time. Resolves when every task has
+ * settled (success or failure — individual task errors are handled by
+ * the caller's task body, this helper never throws).
+ *
+ * Implementation notes:
+ *   - One in-flight set, not per-item promises: bounded memory.
+ *   - `Promise.race` is used to await the next slot opening; the
+ *     finished promise's `.finally` removes itself from the set.
+ *   - Returns `Promise<void>`: all state flows through the task body's
+ *     side-effects (caller accumulates results in closed-over arrays).
+ *
+ * This is a private helper rather than a published utility because the
+ * outbox worker is its only consumer inside this library. Promoting it
+ * to a shared utility would require test coverage for a range of edge
+ * cases (rejected tasks, zero-length input, limit ≥ items.length) that
+ * are not relevant to our single in-house call site.
+ */
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  const effectiveLimit = Math.max(1, Math.min(limit, items.length));
+  const inFlight = new Set<Promise<void>>();
+
+  for (const item of items) {
+    const p = task(item).finally(() => {
+      inFlight.delete(p);
+    });
+    inFlight.add(p);
+    if (inFlight.size >= effectiveLimit) {
+      // Wait for SOMETHING to finish before starting the next task.
+      // Errors inside `task` are caught by the caller's body — this
+      // race only cares about settlement, not outcome.
+      await Promise.race(inFlight);
+    }
+  }
+
+  await Promise.all(inFlight);
 }

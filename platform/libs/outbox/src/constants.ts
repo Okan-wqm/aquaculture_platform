@@ -23,6 +23,48 @@ export const OUTBOX_MAX_RETRIES = 5;
 export const OUTBOX_LAST_ERROR_MAX_LENGTH = 2000;
 
 /**
+ * Lease duration — a row leased by a worker is skipped by every other
+ * worker for this long. After the window expires, a new worker may
+ * re-claim the row (treating the original holder as crashed).
+ *
+ * # Sizing rationale
+ *
+ * 5 minutes is deliberately generous vs. typical publish latency
+ * (sub-100ms). A tight window (e.g. 30s) would cause false re-leases
+ * during temporary NATS slowdowns — every re-lease becomes a duplicate
+ * publish that NATS `duplicate_window` must absorb. A longer window
+ * trades worst-case stuck-event latency for a quieter dedup cache
+ * and is the correct default for at-least-once semantics.
+ *
+ * Worst-case stuck-event latency on pod crash = this value. Operators
+ * observing a row with `leasedAt > NOW() - 4 minutes` should consult
+ * `leasedBy` to identify the crashed worker before manual intervention.
+ */
+export const OUTBOX_LEASE_DURATION_MS = 5 * 60 * 1000;
+
+/**
+ * Maximum number of concurrent NATS publishes per worker per poll cycle.
+ *
+ * # Sizing rationale
+ *
+ * The NATS client multiplexes publishes over a single TCP connection,
+ * so concurrency is bounded by the client's internal flush pipeline
+ * rather than connection count. 20 is well below the point where the
+ * pipeline becomes a bottleneck.
+ *
+ * 20 × ~5ms per publish ≈ 25ms for a 100-row batch, which leaves the
+ * majority of the 1-second cron budget free for the next batch.
+ * Higher values give diminishing returns because the next gate is
+ * the single DB UPDATE at the end of the cycle.
+ *
+ * Lowering this value is safe (caps in-flight work); raising it is
+ * safe up to the NATS server's per-connection throttle, beyond which
+ * publishes queue inside the client and latency grows. Do not tune
+ * this without an observability baseline — measured, not guessed.
+ */
+export const OUTBOX_PUBLISH_CONCURRENCY = 20;
+
+/**
  * UUID v4 validation regex — defined locally rather than imported from
  * `@aquaculture/backend-common` so the outbox library stays at a lower
  * dependency level and can be consumed by any service without pulling

@@ -137,96 +137,93 @@ export class MigrationRunnerService implements OnApplicationBootstrap {
         );
       }
 
-      // ── Hand-rolled migration loop with per-migration search_path reset ──
-      // Phase 13.1 — we cannot simply call
-      // `executor.executePendingMigrations()` because an individual
-      // migration is free to `SET search_path TO something_else` during
-      // its own `up()`, and that SET persists on the session-level
-      // connection into the NEXT migration's execution. On 2026-04-07
-      // `AddPurchaseOrders1772000000000` did exactly that at
-      // `apps/farm-service/src/database/migrations/1772000000000-AddPurchaseOrders.ts:95`
-      // (`SET search_path TO public` as a "reset" at the end of up()).
-      // The subsequent `AddWeatherTables` / `AddFeederCalibrations` /
-      // `AddFeederFieldsToExecution` migrations inherited the
-      // contaminated `public` search_path, their unqualified
-      // `ALTER TABLE "daily_feeding_executions"` resolved against
-      // `public.*` where the table never existed, and the whole
-      // farm-service bootstrap crashed with `relation does not exist`.
+      // ── Execute migrations with a runner-enforced search_path invariant ──
+      // We do NOT call `executor.executePendingMigrations()` because it
+      // provides no hook between migrations, and any single migration
+      // that mutates `search_path` during its own `up()` contaminates
+      // the next migration's execution — a contract violation that is
+      // impossible to prevent at the migration layer (see the 2026-04-07
+      // incident notes below).
       //
-      // The architectural fix is to control the invariant at the
-      // RUNNER layer instead of relying on every migration to clean up
-      // after itself. Before each migration's `up()` call, we
-      // explicitly issue `SET search_path TO "farm", public` on the
-      // shared queryRunner. Whatever the previous migration did to the
-      // session is overwritten, and every migration starts with the
-      // same deterministic initial state — regardless of how careful
-      // or careless its author was about cleanup.
+      // Instead we use TypeORM's PUBLIC `MigrationExecutor` API —
+      // `getPendingMigrations()` to discover the list and
+      // `executeMigration(migration)` to run a single migration and
+      // record it in the metadata table — and wrap each call with:
       //
-      // This also means migrations CAN legitimately manipulate
-      // search_path during their own execution (e.g. to iterate tenant
-      // schemas as AddPurchaseOrders does) without breaking their
-      // neighbours. The runner enforces the contract, not the
-      // migration code.
+      //   1. `SET search_path TO "farm", public` — runner-enforced
+      //      invariant. Whatever the previous migration left the
+      //      session-level search_path as, this resets it to the
+      //      canonical farm-schema default.
       //
-      // We use the MigrationExecutor's helpers (`getAllMigrations` /
-      // `loadExecutedMigrations` / `insertExecutedMigration`) for the
-      // discovery and bookkeeping so the migrations metadata table
-      // stays in sync with TypeORM's expectations — only the per-
-      // migration loop is replaced.
+      //   2. `startTransaction` / `commitTransaction` — per-migration
+      //      isolation so a partial failure in migration N does not
+      //      leak uncommitted DDL into migration N+1.
+      //
+      // `executeMigration` (public, see
+      // node_modules/typeorm/migration/MigrationExecutor.d.ts) runs a
+      // single migration's `up()` on our queryRunner and inserts the
+      // metadata row. It does NOT start its own transaction, so the
+      // outer transaction we started here covers both the migration
+      // DDL AND the metadata insert — atomicity is preserved.
+      //
+      // # The 2026-04-07 incident this runner-level enforcement closes
+      //
+      // `AddPurchaseOrders1772000000000.up()` ran `SET search_path TO
+      // public` at the end of its execution as a "cleanup" (fixed in
+      // Phase 13.2 of this series). Because `SET search_path` without
+      // `LOCAL` is a SESSION-level setting on the PostgreSQL
+      // connection, that "cleanup" persisted into every subsequent
+      // migration. `AddWeatherTables`, `AddFeederCalibrations`, and
+      // `AddFeederFieldsToExecution` all inherited
+      // `search_path = public`, so their unqualified
+      // `ALTER TABLE "daily_feeding_executions"` statements resolved
+      // against `public.*` instead of `farm.*` and crashed the whole
+      // farm-service bootstrap with `relation does not exist`.
+      //
+      // The fix cannot be per-migration defensiveness alone — we
+      // cannot audit every present and future migration to make sure
+      // it sets search_path correctly. The correct architectural
+      // answer is runner-level enforcement: the MigrationRunnerService
+      // owns the contract, and every migration starts from the same
+      // deterministic state regardless of how it, or its predecessor,
+      // treated search_path internally. This matches the
+      // Single Responsibility Principle: search-path management is an
+      // infrastructure concern belonging to the runner, not to
+      // individual migration classes.
       const executor = new MigrationExecutor(this.dataSource, queryRunner);
       executor.transaction = 'each';
 
-      // Ensure the migrations metadata table exists. TypeORM would do
-      // this inside executePendingMigrations; we do it manually so our
-      // custom loop has a place to record execution.
-      // @ts-expect-error — createMigrationsTableIfNotExist is internal
-      // but public enough that TypeORM's type surface tolerates access.
-      await executor.createMigrationsTableIfNotExist(queryRunner);
-
-      // Discover pending migrations via the executor's public API.
-      // @ts-expect-error — loadExecutedMigrations is internal.
-      const executed: Array<{ name: string }> = await executor.loadExecutedMigrations(
-        queryRunner,
-      );
-      // @ts-expect-error — getMigrations is internal.
-      const allMigrations: Array<{ name: string; instance?: { up: (qr: unknown) => Promise<void> }; transaction?: boolean }> =
-        executor.getMigrations();
-      const pending = allMigrations.filter(
-        (m) => !executed.find((e) => e.name === m.name),
-      );
+      const pending = await executor.getPendingMigrations();
 
       if (pending.length === 0) {
         this.logger.log('No pending migrations');
       } else {
         this.logger.log(
-          `Executing ${pending.length} pending migration(s) with per-migration search_path re-assertion`,
+          `Executing ${pending.length} pending migration(s) with runner-enforced search_path invariant`,
         );
 
         const appliedNames: string[] = [];
         for (const migration of pending) {
-          if (!migration.instance) {
-            this.logger.warn(
-              `Migration "${migration.name}" has no instance — skipping`,
-            );
-            continue;
-          }
-
-          // Re-assert the farm search_path invariant BEFORE this
-          // migration's up() runs. See the docblock above for the full
-          // incident history behind this line.
+          // ── Runner-enforced invariant ──
+          // Re-assert the farm search_path before every migration's
+          // up() runs, regardless of what the previous migration left
+          // the session state as. This is the single architectural
+          // control point that replaces the previously-distributed
+          // per-migration cleanup contract.
           await queryRunner.query(`SET search_path TO "farm", public`);
 
           // Each migration runs inside its own BEGIN/COMMIT so a
-          // partial failure only rolls back that single migration's
-          // DDL, matching the previous `transaction: 'each'` behaviour.
+          // partial failure rolls back only that migration's DDL AND
+          // its metadata insert, matching the previous
+          // `transaction: 'each'` behaviour exactly.
           await queryRunner.startTransaction();
           try {
-            await migration.instance.up(queryRunner);
-            // @ts-expect-error — insertExecutedMigration is internal.
-            await executor.insertExecutedMigration(queryRunner, migration);
+            await executor.executeMigration(migration);
             await queryRunner.commitTransaction();
             appliedNames.push(migration.name);
-            this.logger.log(`Migration "${migration.name}" applied successfully`);
+            this.logger.log(
+              `Migration "${migration.name}" applied successfully`,
+            );
           } catch (migrationErr) {
             await queryRunner.rollbackTransaction();
             const msg =
@@ -235,14 +232,18 @@ export class MigrationRunnerService implements OnApplicationBootstrap {
                 : String(migrationErr);
             this.logger.error(
               `Migration "${migration.name}" failed: ${msg}`,
-              migrationErr instanceof Error ? migrationErr.stack : undefined,
+              migrationErr instanceof Error
+                ? migrationErr.stack
+                : undefined,
             );
             throw migrationErr;
           }
         }
 
         this.logger.log(
-          `Applied ${appliedNames.length} migration(s): ${appliedNames.join(', ')}`,
+          `Applied ${appliedNames.length} migration(s): ${appliedNames.join(
+            ', ',
+          )}`,
         );
       }
     } catch (error) {

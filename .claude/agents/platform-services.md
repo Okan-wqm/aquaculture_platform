@@ -44,14 +44,40 @@ Use standard severity levels: CRITICAL (billing accuracy/security/data integrity
 ## Domain Rules
 
 ### Billing Accuracy (Critical)
-- All monetary calculations MUST use decimal arithmetic (never floating point)
+
+**Decimal arithmetic and currency (Stripe / PostgreSQL / Tax law compliance):**
+- **[CRITICAL]** Every money column MUST be `@Column({ type: 'numeric', precision: 19, scale: 4 })` with an explicit Decimal transformer. `number`, `float`, `double precision`, `real`, `money`, or `bigint` on a money field is a blocking review failure.
+- **[CRITICAL]** TypeScript billing code MUST use `Decimal` (decimal.js or equivalent) for arithmetic on money. `parseFloat`, `Number()`, `+`, `-`, `*`, `/` operators on money variables are blocking review failures. A `Money` value object pairing `Decimal` + ISO-4217 `currencyCode` is the only sanctioned money type.
+- **[CRITICAL]** Conversion to Stripe minor units MUST go through `CurrencyScaleService` with per-currency scale lookup (JPY/KRW/VND = 0, BHD/JOD/KWD = 3, most = 2). Hardcoded `* 100` is a blocking review failure.
+- **[CRITICAL]** Invoice mutation after `status >= sent` MUST be rejected by domain invariant. Corrections are issued as `CreditNote` rows referencing the original. Mutating a sent invoice is a blocking review failure and a compliance risk.
+- **[CRITICAL]** Every command handler mutating Invoice / Payment / Subscription / Refund / Plan MUST carry `@BillingAudit({ resource, action })` and emit a `BillingAuditEntry` row in the *same* DB transaction as the mutation. Split-transaction audits lose records on crash and are non-repudiable.
+- **[HIGH]** `TaxRoundingMode` MUST be resolved from config-service per `{tenantId, jurisdictionCode}` (UK arithmetic-up per HMRC VATREC12030, EU half-up or half-even per CJEU C-484/06 and local rules, US state-specific) and MUST be recorded in every `BillingAuditEntry`. Hardcoded rounding mode is a HIGH finding.
+- **[HIGH]** Every `Invoice` row MUST persist `currencyCode`, `baseCurrencyCode`, `exchangeRate`, `exchangeRateSource`, `exchangeRateAt`. Re-deriving the exchange rate at display time breaks closed-period immutability.
+- **[HIGH]** Reconciliation invariant: `SUM(Payment.amount WHERE invoiceId = X) == Invoice.total` when `Invoice.status = paid`. Drift → CRITICAL alert.
+- **[MEDIUM]** Money aggregation MUST use SQL `SUM(column)` — never read rows into application code and sum.
+- **[MEDIUM]** `BillingAuditEntry` MUST be partitioned monthly and retained ≥ 7 years (tenant-jurisdiction minimum).
+- Research: `docs/research/platform-services/2026-04-08-billing-decimal-arithmetic-currency-financial.md`
+
+**Stripe webhook signature, idempotency & replay protection:**
+- **[CRITICAL]** Stripe webhook routes MUST receive the raw HTTP body as `Buffer` — any global JSON parser running before signature verification is a blocking review failure. Document the raw-body registration in `main.ts` with a `// SECURITY: raw body required for Stripe HMAC verification` marker.
+- **[CRITICAL]** Signature comparison MUST use `crypto.timingSafeEqual`. `===`, `Buffer.compare`, `==`, or any string equality on HMAC digests is a blocking review failure (timing side-channel).
+- **[CRITICAL]** Timestamp tolerance MUST be > 0 and ≤ 300 seconds (Stripe default is 5 minutes). Tolerance = 0 disables recency enforcement — forbidden.
+- **[CRITICAL]** Every webhook handler MUST dedupe by `stripe_event_id` via `ProcessedWebhookEvent` with `UNIQUE(tenant_id, stripe_event_id)` and `INSERT ON CONFLICT DO NOTHING`. Business logic runs only if the insert succeeded.
+- **[CRITICAL]** Every outbound Stripe SDK write call (`create`, `update`, `cancel`, `refund`) MUST pass an explicit `idempotencyKey` deterministically derived from the domain command ID. Missing key on a refund is a double-money bug.
+- **[CRITICAL]** Stripe webhook signing secrets MUST live in config-service as `secret`-typed ENC_V1 values. Hardcoded `whsec_` in code or unencrypted env files is a blocking review failure.
+- **[HIGH]** `pdfUrl` validation MUST allowlist `https://pay.stripe.com/`, `https://invoice.stripe.com/`, and tenant-owned S3/GCS/Azure Blob HTTPS origins. Accepting arbitrary URLs is a phishing/SSRF vector.
+- **[HIGH]** Webhook handlers MUST return 200 for permanent business errors (with DLQ logging) and 5xx only for transient infrastructure faults. Returning 500 on `TenantNotFound` triggers a 3-day retry storm.
+- **[HIGH]** PCI scope containment: the billing-service MUST NOT accept raw PAN, CVV, or full card data on any endpoint. All card entry is client-side via Stripe.js / Elements. New fields named `cardNumber`, `pan`, `cvv`, or `cvc` are blocking review failures.
+- **[MEDIUM]** `ProcessedWebhookEvent` retention ≥ 90 days with partial index on `(tenant_id, created_at DESC)`.
+- **[MEDIUM]** Webhook body logging MUST mask PII (email, name, phone, billing address) via `PiiRedactorLogger`.
+- Research: `docs/research/platform-services/2026-04-08-stripe-webhook-signature-idempotency-handling.md`
+
+**State machines and role model:**
 - Subscription status machine: `trial → active → past_due → cancelled/suspended/expired`
 - Invoice status machine: `draft → pending → sent → paid/partially_paid/overdue/void/refunded`
 - Payment status machine: `pending → processing → succeeded/failed/cancelled/refunded/partially_refunded`
 - Plan tier hierarchy: starter < professional < enterprise < custom
-- Stripe webhook signature verification MUST be validated before processing
 - UUID format validation on all ID arguments
-- `pdfUrl` validation: allowlist S3/GCS/Azure Blob HTTPS origins only
 - Billing role arrays (SUBSCRIPTION_WRITE, INVOICE_WRITE, PAYMENT_WRITE, REFUND_WRITE, PLAN_ADMIN, BILLING_READ, PLAN_CHANGE) enforce least privilege
 - GraphQL: depth limit 10, batch requests disabled, playground/introspection disabled in production
 

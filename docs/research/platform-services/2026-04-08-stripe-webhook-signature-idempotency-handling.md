@@ -1,0 +1,77 @@
+# Research: Stripe Webhook Signature Verification, Idempotency & Replay Protection
+
+**Topic:** Verifying Stripe webhook signatures before any processing, idempotent event handling, replay attack protection, PCI scope boundaries, and pdfUrl S3 origin allowlist
+**Date:** 2026-04-08
+**Agent:** platform-services
+
+## Sources
+- [Stripe Docs - Receive Stripe events in your webhook endpoint](https://docs.stripe.com/webhooks)
+- [Stripe Docs - Verify webhook signatures manually](https://docs.stripe.com/webhooks.md?verify=verify-manually)
+- [Stripe Docs - Resolve webhook signature verification errors](https://docs.stripe.com/webhooks/signature)
+- [Stripe Docs - Idempotent requests](https://docs.stripe.com/api/idempotent_requests)
+- [Stripe Blog - Designing robust and predictable APIs with idempotency](https://stripe.com/blog/idempotency)
+- [Stripe Docs - Handle payment events with webhooks](https://docs.stripe.com/webhooks/handling-payment-events)
+- [OWASP - REST Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html)
+- [OWASP - Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+- [PCI SSC Glossary - Cardholder Data Environment](https://www.pcisecuritystandards.org/glossary/)
+
+## Key Findings
+
+1. **Raw-body requirement is absolute.** Stripe signs the exact bytes of the HTTP body. Any JSON re-serialization, BOM stripping, whitespace normalization, or middleware that re-parses and re-emits the body will invalidate the HMAC. NestJS pipelines that use `@Body()` with a global JSON parser must be bypassed for webhook routes — the handler must receive `rawBody: Buffer` directly (via `app.useBodyParser('json', { verify })` or a route-scoped raw-body interceptor). This is the single most common webhook integration bug.
+2. **Signature header structure.** `Stripe-Signature: t=<timestamp>,v1=<sig>,v1=<sig>` carries a Unix timestamp (seconds) and one or more HMAC-SHA256 signatures hex-encoded. Multiple `v1` values exist during secret rotation — the verifier must accept the request if *any* candidate signature matches, so rolling secrets is a zero-downtime operation.
+3. **HMAC computation.** `signed_payload = timestamp + "." + raw_body`, then `HMAC-SHA256(signing_secret, signed_payload)`. Compare against each candidate using **constant-time comparison** (`crypto.timingSafeEqual` in Node; never `===`). Timing-leak equality on a webhook handler is a HIGH severity finding because an attacker who can observe latency can forge signatures byte-by-byte.
+4. **Replay protection via timestamp tolerance.** Stripe's default tolerance is 5 minutes (300 seconds) between the header timestamp and the server's current time. The check is `abs(now - t) <= tolerance`. **Tolerance = 0 disables recency enforcement** — explicitly forbidden. In production, clock skew across replicas must be bounded to <60s (via chrony/ntpd) for 300s tolerance to be safe. A second-layer defense is storing `(endpoint_id, event_id)` of the last N processed events and rejecting replays even within the 5-minute window.
+5. **Idempotency is a *receiver* property.** The Stripe Event ID (`evt_...`) is stable across retries. Stripe retries webhook deliveries for up to 3 days on 5xx/timeouts with exponential backoff. The receiver must dedupe by Event ID *before* the business logic runs. Using a Postgres UNIQUE constraint on `(tenant_id, stripe_event_id)` in a `ProcessedWebhookEvent` table with an `INSERT ... ON CONFLICT DO NOTHING` check is the canonical pattern — if the insert affects zero rows, return 200 immediately without re-executing side effects.
+6. **Idempotency key discipline on *outbound* Stripe API calls.** Every `POST` to Stripe (`PaymentIntents.create`, `Refunds.create`, `Subscriptions.update`, etc.) must carry an `Idempotency-Key` header. Stripe recommends v4 UUID or `{tenant}-{domain-id}-{intent}` concatenations. Stripe caches the response for at least 24 hours and replies `Idempotent-Replayed: true` on repeat calls. Never reuse a key across semantically different requests — Stripe returns the *cached first response*, which may be wrong. On 4xx errors, generate a fresh key; on 5xx/network errors, reuse the same key to safely retry.
+7. **Webhook event ordering is NOT guaranteed.** Stripe may deliver `invoice.payment_succeeded` before `invoice.created` due to parallel workers. Receivers must be idempotent *and* commutative — the final state must be independent of delivery order. This is why the `InvoiceProjection` must use `UPSERT` semantics keyed on the Stripe object ID, and state-machine transitions must accept any "forward" event from any prior state (e.g., an out-of-order `paid` event while still in `draft` must be held or must promote directly).
+8. **The 200-response contract.** Stripe considers any 2xx a successful delivery and stops retrying. A handler that returns 200 *before* persisting the side-effect (fire-and-forget background job) silently loses events on process crash between ACK and DB write. The handler must persist the event durably (at minimum, an `inbox` row committed in the same transaction as the ACK) before returning 200. Alternatively, delegate to a transactional outbox/inbox pattern where the HTTP ACK is sent only after the inbox row is committed.
+9. **PCI DSS scope containment.** Per PCI SSC, the cardholder data environment (CDE) includes any system that stores, processes, or transmits PAN, cardholder name + PAN, expiration date + PAN, or service code + PAN. A webhook receiver that only handles Stripe Event objects (which contain masked PAN last-4 only, Stripe IDs, and tokenized sources) is **not** in the CDE — but it *is* a "connected-to" system and inherits scoped requirements (logging, access control, change management). Storing the full raw webhook payload in Postgres is safe *only* if Stripe's payload itself never contains the full PAN, which is true for the modern Event API. Any plan to proxy card entry (e.g., creating PaymentMethods server-side from raw PAN) drops the entire billing-service into full PCI DSS Level 1 scope and is architecturally forbidden for aqua-saas — card entry must stay on Stripe.js / Elements in the browser.
+10. **pdfUrl origin allowlist.** Stripe hosts invoice PDFs at `https://pay.stripe.com/invoice/...` and hosted receipt URLs at `https://invoice.stripe.com/...`. An Invoice entity's `pdfUrl` column must be validated on write against an allowlist of known S3/GCS/Azure Blob origins *plus* Stripe-hosted origins. Accepting arbitrary URLs exposes the tenant portal to phishing (attacker-controlled domain serving a malicious PDF) and exposes the backend to SSRF (if any service fetches the PDF server-side for archival). Scheme must be HTTPS only; IP literals and private hostnames rejected (see SSRF research).
+11. **Scheduled billing lifecycle and webhook coupling.** The `billing-scheduler.service.ts` that runs trial-expiry, overdue detection, and auto-invoice jobs MUST NOT assume the Stripe webhook has already arrived. Reconciliation logic must tolerate both orderings: (a) scheduler fires first, polls Stripe API, observes paid state, and updates local projection; (b) webhook arrives first, updates projection, scheduler observes terminal state and no-ops. The rule is "webhook and scheduler converge on the same state from the same Stripe source-of-truth API object, never mutate state based on local-clock assumption alone".
+12. **Webhook secret storage.** The `whsec_...` signing secret is a bearer credential. It must live in the config-service as a `secret`-typed encrypted value (ENC_V1 prefix), never in `.env` committed to Git, never logged, never exposed through a GraphQL field. Secret rotation requires a migration that accepts both old and new secrets for a grace window (which is why Stripe issues multiple `v1=` values during rotation).
+
+## Security Concerns
+
+- **CRITICAL:** Any `express.json()` or NestJS global JSON body parser applied before the Stripe webhook route will corrupt the raw body and cause verification to fail. If "fixing" this corruption by stripping signature verification or falling back to unauthenticated processing, the billing-service becomes a zero-auth state mutation endpoint that any attacker can invoke with a crafted JSON to create refunds or cancel subscriptions.
+- **CRITICAL:** Using `===` or `Buffer.compare` (not `timingSafeEqual`) for signature equality leaks signature bytes via timing side-channel. Over enough requests, an attacker forges a valid signature.
+- **CRITICAL:** Deduping on `(object_id, status)` instead of `stripe_event_id` misses replays of the *same* event that carry identical `data.object` — the handler re-runs side effects (double refunds, double credit).
+- **CRITICAL:** Calling `Stripe.refunds.create()` without an `Idempotency-Key` and retrying on network error can refund the same charge twice. This is a double-money bug.
+- **HIGH:** Storing the webhook signing secret in plaintext in a Git-tracked env file. Secret rotation becomes a blast-radius incident.
+- **HIGH:** Logging the full webhook body at INFO level. Stripe Event payloads contain customer email, billing address, and invoice line items — PII per GDPR and leakage per SOC 2 CC6.1. Mask or redact at the logging boundary.
+- **HIGH:** Accepting arbitrary `pdfUrl` from webhook payload without origin validation. Stripe's `hosted_invoice_url` is the only trusted source; `invoice_pdf` must match `^https://pay\.stripe\.com/` or a tenant-owned S3 bucket.
+- **MEDIUM:** Returning 500 on a business-logic error (e.g., tenant not found) causes Stripe to retry the event for 3 days, generating alert noise and re-processing load. Return 200 for permanent errors (after logging to a DLQ table) and 5xx only for transient infrastructure faults.
+- **MEDIUM:** Accepting `Stripe-Signature` from untrusted reverse proxies that rewrite headers. The raw header must survive the entire proxy chain untouched.
+
+## Performance Concerns
+
+- The `ProcessedWebhookEvent` dedupe table grows monotonically. Add a partial index on `(tenant_id, created_at)` and a daily partition or time-based cleanup job (retain 90 days, matching Stripe's max retry window + audit grace).
+- Signature verification is CPU-bound HMAC — cheap per request, but calling it on unauthenticated traffic is DoS-amplification. Gate the route with a lightweight `Content-Type` and `Stripe-Signature` presence check before entering HMAC.
+- Database writes inside the webhook transaction must be bounded — a long-running handler exceeds Stripe's 30s timeout and causes retry storms. Publish internal events to an outbox and return 200 within <2s; process projections asynchronously.
+
+## Architectural Implications for platform-services reviews
+
+- Every Stripe webhook handler in `apps/billing-service/src/billing/controllers/` must receive `rawBody: Buffer` (not a parsed object). The NestJS setup in `main.ts` must register a raw-body parser scoped to `/webhooks/stripe` *before* any global JSON parser.
+- Signature verification must run inside a single `StripeWebhookGuard` or equivalent pipe, *before* the controller method body executes. The guard owns: (1) header parsing, (2) HMAC computation, (3) `timingSafeEqual`, (4) timestamp tolerance check, (5) attach verified `Stripe.Event` to the request. No controller logic runs until the guard passes.
+- A `ProcessedWebhookEvent` entity with `UNIQUE(tenant_id, stripe_event_id)` is mandatory. Every handler performs `INSERT ON CONFLICT DO NOTHING` and short-circuits on zero rows affected.
+- All outbound Stripe SDK calls must pass `{ idempotencyKey }` in the request options. A wrapper `StripeClientService` should enforce this by type (method signatures that require `IdempotencyContext`).
+- `pdfUrl` validation lives in a shared `UrlOriginValidator` with an explicit allowlist constant: `['https://pay.stripe.com/', 'https://invoice.stripe.com/', TENANT_S3_BUCKET_PREFIX]`.
+- The billing-service must declare PCI scope boundary in its module-level documentation: "no raw PAN ever touches this service; all card entry is client-side via Stripe Elements; this service is connected-to, not CDE." Any future PR that adds a `cardNumber` field is a blocking review failure.
+- Webhook signing secrets must be fetched from config-service at startup and cached, with a refresh hook on config change events (see `config-service-aes-gcm-scrypt-secret` research).
+- The `billing-scheduler.service.ts` reconciliation commands must always re-read the Stripe object via API (`stripe.invoices.retrieve()`) before mutating local state — never trust a locally computed `dueAt < now` alone.
+- Integration tests must cover: (a) valid signature + fresh timestamp → 200, (b) valid signature + 10-min-old timestamp → 400, (c) invalid signature → 400, (d) duplicate event ID → 200 with no side effects, (e) out-of-order `paid` before `created` → both reach the same final state.
+
+## Domain Rule Additions for platform-services (Billing Accuracy subsection)
+
+- **[CRITICAL]** Stripe webhook routes MUST receive the raw HTTP body as `Buffer`. Any JSON parser that runs before signature verification is a blocking review failure. Document the raw-body registration in `main.ts` with a marker comment: `// SECURITY: raw body required for Stripe HMAC verification`.
+- **[CRITICAL]** Signature comparison MUST use `crypto.timingSafeEqual`. `===`, `Buffer.compare`, `==`, or any string equality on HMAC digests is a blocking review failure.
+- **[CRITICAL]** Timestamp tolerance MUST be > 0 and <= 300 seconds. A tolerance of 0 or absence of the check is a blocking review failure.
+- **[CRITICAL]** Every Stripe webhook handler MUST dedupe by `stripe_event_id` via `ProcessedWebhookEvent` with a UNIQUE constraint. Business logic runs only if the insert succeeds (rowCount > 0).
+- **[CRITICAL]** Every outbound Stripe SDK write call (`create`, `update`, `cancel`, `refund`) MUST pass an explicit `idempotencyKey` deterministically derived from the domain command ID. A `create` call without an idempotency key is a blocking review failure.
+- **[CRITICAL]** Stripe webhook signing secrets MUST be stored in config-service as `secret`-typed ENC_V1 values. Hardcoded `whsec_` in code or unencrypted env files is a blocking review failure.
+- **[HIGH]** `pdfUrl` on Invoice entities MUST pass through `UrlOriginValidator` with an explicit allowlist (Stripe-hosted + tenant-owned S3/GCS/Azure Blob HTTPS origins). Accepting user-supplied `pdfUrl` without origin validation is a HIGH finding.
+- **[HIGH]** Webhook handlers MUST return 200 for permanent business errors (with DLQ logging) and only 5xx for transient infrastructure faults. Returning 500 on `TenantNotFound` causes a 3-day retry storm.
+- **[HIGH]** PCI scope: the billing-service MUST NOT accept raw PAN, CVV, or full card data on any endpoint. All card entry is client-side via Stripe.js / Elements. Any new field named `cardNumber`, `pan`, `cvv`, or `cvc` is a blocking review failure.
+- **[MEDIUM]** `ProcessedWebhookEvent` table MUST have a retention policy (>= 90 days) and a partial index on `(tenant_id, created_at DESC)` to bound storage.
+- **[MEDIUM]** Webhook body logging MUST mask PII fields (`email`, `name`, `billing_details.address`, `phone`) before emission. Structured logging only — no full-body `JSON.stringify` at INFO or above.
+
+Research: `docs/research/platform-services/2026-04-08-stripe-webhook-signature-idempotency-handling.md`

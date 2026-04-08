@@ -116,8 +116,11 @@ export async function updateTankBiomass(
 
 /**
  * Adapt a Tank entity to an Equipment-like object for uniform handling.
+ * Exported so bulk-fetch call sites (e.g. CreateBatchHandler after the
+ * P-H3 N+1 fix) can reuse the same adaptation logic without duplicating
+ * the legacy compatibility mapping.
  */
-function adaptTankToEquipment(tank: Tank): Equipment {
+export function adaptTankToEquipment(tank: Tank): Equipment {
   const adapted = new Equipment();
   adapted.id = tank.id;
   adapted.tenantId = tank.tenantId;

@@ -1,0 +1,175 @@
+import Ajv, {
+  type AnySchema,
+  type ErrorObject,
+  type ValidateFunction,
+} from 'ajv';
+import addFormats from 'ajv-formats';
+import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
+
+/**
+ * @module EventContractsValidator
+ *
+ * AJV-backed runtime validation for domain events crossing a trust
+ * boundary (outbox publisher, NATS bridge, external adapters). The
+ * validator is built once at module load and returns per-event-type
+ * compiled functions so hot paths amortise the schema compilation
+ * across every event.
+ *
+ * # Design constraints
+ *
+ * 1. **Compile once, run many.** `FarmNatsBridgeService` evaluates this
+ *    function on every single NATS message. A fresh `ajv.compile(...)`
+ *    per call would dominate the bridge CPU profile. Caching per
+ *    event type amortises the cost to the first event only.
+ *
+ * 2. **Strict mode off, add formats on.** `strict: false` is necessary
+ *    because `JSONSchemaType<T>` emits `nullable: true` on optional
+ *    fields, which AJV's strict mode flags as ambiguous. Disabling
+ *    strict keeps the `nullable` semantics the TypeScript generic
+ *    expects. `ajv-formats` provides the `date-time` format that
+ *    `common.schema.ts` references for ISO timestamps.
+ *
+ * 3. **Do NOT removeAdditional.** We want to REJECT events with extra
+ *    fields — `additionalProperties: false` in every schema already
+ *    does this. Enabling `removeAdditional` would silently strip
+ *    extra fields and accept the event, which is the exact behaviour
+ *    we're trying to close (H-3 footgun).
+ *
+ * 4. **allErrors: false.** The bridge does not need to report every
+ *    failing field; it only needs a yes/no decision and a first-error
+ *    string for operator logging. `false` makes AJV return on the
+ *    first failing keyword, which is ~3x faster on invalid input.
+ *
+ * @see farm-events.schema.ts for the schema catalogue
+ */
+
+/**
+ * Shared AJV instance. A single instance is correct because each
+ * `ajv.compile()` call produces an independent closed-over
+ * `ValidateFunction` — the compiled validators do not share mutable
+ * state. Keeping one instance avoids redundant meta-schema loading.
+ *
+ * `strict: false` — see class-level doc for rationale.
+ * `allErrors: false` — first-error-only for hot-path speed.
+ */
+const ajv = new Ajv({
+  strict: false,
+  allErrors: false,
+  removeAdditional: false,
+});
+addFormats(ajv);
+
+/**
+ * Compiled validator cache keyed by event type. Populated at module
+ * load — see immediately-invoked loop below.
+ */
+const farmValidators = new Map<FarmEventType, ValidateFunction>();
+
+for (const [eventType, schema] of Object.entries(FARM_EVENT_SCHEMAS)) {
+  // The schema map carries values typed as plain `object` (see
+  // farm-events.schema.ts for the rationale — deep inference would
+  // trip TS7056). AJV's compile signature expects `AnySchema`; the
+  // cast is safe because every value in the map was built via
+  // `JSONSchemaType<T>` at its definition site, which AJV treats as
+  // structurally compatible with `AnySchema` at runtime.
+  const validator = ajv.compile(schema as AnySchema);
+  farmValidators.set(eventType as FarmEventType, validator);
+}
+
+/**
+ * Result of a farm event validation call.
+ *
+ *   - `{ valid: true }` — payload conforms to the schema for the
+ *     requested event type. The bridge may forward it to the gateway.
+ *   - `{ valid: false, errors: string }` — payload does not conform,
+ *     or the event type has no registered schema. The bridge MUST
+ *     drop the event. `errors` is a short human-readable summary
+ *     suitable for a single-line warn log.
+ */
+export type FarmEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
+/**
+ * Validate a decoded NATS payload against the farm event schema for
+ * the given event type. Returns a discriminated result so the caller
+ * can branch cleanly without touching AJV internals.
+ *
+ * # Behaviour
+ *
+ *   - If `eventType` has no registered schema, the call returns
+ *     `{ valid: false }` with a descriptive error. The bridge uses
+ *     this branch to drop events it was not told to expect —
+ *     defense in depth beyond the subscription-pattern filter.
+ *
+ *   - If `payload` is not an object, the call returns `{ valid: false }`
+ *     without invoking the compiled validator (which would otherwise
+ *     throw). This guards against `JSON.parse` results that are
+ *     legitimately a number, null, or array at the top level.
+ *
+ *   - If the compiled validator rejects, the result carries a
+ *     compact error string built from the first failing keyword.
+ *     The full `ajv.errors` array is intentionally not surfaced
+ *     because the bridge logs a single line per drop — more detail
+ *     would push operational noise into the log pipeline without
+ *     helping triage.
+ *
+ * @param eventType Discriminator from the NATS subject (already
+ *   trusted after CR-1 subject parsing) or from the decoded payload.
+ *   Using the subject-derived version is strongly recommended so
+ *   validation is anchored to the server-stamped routing key.
+ * @param payload Decoded JSON value from the NATS message body.
+ *
+ * @see FarmNatsBridgeService — the primary caller.
+ */
+export function validateFarmEvent(
+  eventType: string,
+  payload: unknown,
+): FarmEventValidationResult {
+  const validator = farmValidators.get(eventType as FarmEventType);
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown farm event type: ${eventType}`,
+    };
+  }
+
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Format the first AJV error into a one-line string safe for a warn
+ * log. Intentionally drops the full error list — if deeper debugging
+ * is needed, raise the log level and re-validate in isolation with
+ * `allErrors: true`.
+ *
+ * Format: `<instancePath> <message>` e.g. `/reason must be equal to
+ * one of the allowed values`. Falls back to a generic message if
+ * `errors` is null or empty.
+ */
+function formatFirstError(
+  errors: ErrorObject[] | null | undefined,
+): string {
+  if (!errors || errors.length === 0) {
+    return 'validation failed (no error detail available)';
+  }
+  const first = errors[0];
+  if (!first) return 'validation failed (first error missing)';
+  const path = first.instancePath || '(root)';
+  return `${path} ${first.message ?? 'failed validation'}`;
+}

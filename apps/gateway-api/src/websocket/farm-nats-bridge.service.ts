@@ -77,6 +77,7 @@ import {
   buildNatsConnectionOptions,
   TENANT_ID_REGEX,
 } from '@aquaculture/backend-common';
+import { validateFarmEvent } from '@platform/event-contracts';
 
 import { FarmGateway } from './farm.gateway';
 
@@ -262,14 +263,47 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
             }
 
             const data = this.sc.decode(msg.data);
-            const event = JSON.parse(data) as FarmDomainEvent;
+            const parsed: unknown = JSON.parse(data);
 
-            if (!this.isValidEvent(event)) {
+            // ── H-3: Strict JSON Schema validation ─────────────────
+            // Validate the decoded payload against the per-event-type
+            // schema compiled once at module load. Schemas declare
+            // `additionalProperties: false`, cap free-text fields at
+            // MAX_FREE_TEXT_LENGTH, and constrain enum-valued fields
+            // (reason codes, status codes) to their canonical lists.
+            //
+            // This closes the footgun described in the comprehensive
+            // review: event payloads reflected into the React Query
+            // cache on the frontend, where a future hook that renders
+            // free-text fields as HTML would become a trusted-source
+            // XSS sink. Failing-closed at the bridge keeps the unsafe
+            // shape away from every downstream consumer.
+            //
+            // The dispatch key is `expectedEventType` from the
+            // subscription pattern — NOT `parsed.eventType` — so a
+            // publisher cannot pick a different schema than the
+            // subject it published to. Any mismatch between
+            // `parsed.eventType` and `expectedEventType` is caught
+            // by the schema's `eventType: { const: '...' }` clause.
+            const validation = validateFarmEvent(expectedEventType, parsed);
+            if (!validation.valid) {
+              const preview =
+                typeof parsed === 'object' &&
+                parsed !== null &&
+                'eventId' in parsed
+                  ? `eventId=${String((parsed as Record<string, unknown>).eventId)}`
+                  : 'eventId=missing';
               this.logger.warn(
-                `Invalid farm NATS event on ${subject}, dropping (eventId=${event?.eventId ?? 'missing'})`,
+                `Dropping ${expectedEventType} on ${subject} — schema validation failed (${validation.errors}, ${preview})`,
               );
               continue;
             }
+
+            // Schema passed: the payload is structurally a BaseEvent
+            // with the farm-event extensions the gateway expects.
+            // Narrow via assertion — the runtime guarantee is now
+            // stronger than the compile-time type.
+            const event = parsed as FarmDomainEvent;
 
             // Dispatch with the subject-derived tenantId and eventType.
             // The event payload is forwarded verbatim to the gateway,
@@ -428,34 +462,6 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         this.connection = null;
       }
     }
-  }
-
-  /**
-   * Validate that an inbound event has the minimum BaseEvent structure so
-   * downstream consumers that read payload fields (eventId, timestamp,
-   * tenantId for display/logging) do not crash on malformed input.
-   *
-   * Note: the bridge no longer trusts `event.tenantId` for ROUTING — that
-   * decision is made from the NATS subject before this validator runs.
-   * Validating `tenantId` here is a contract check on the publisher, not
-   * a security control: an event without a tenantId breaks downstream
-   * consumers but cannot cause a cross-tenant fan-out.
-   */
-  private isValidEvent(event: FarmDomainEvent | null | undefined): boolean {
-    if (typeof event !== 'object' || event === null) return false;
-    if (typeof event.eventType !== 'string' || event.eventType.length === 0) {
-      return false;
-    }
-    if (typeof event.tenantId !== 'string' || event.tenantId.length === 0) {
-      return false;
-    }
-    if (
-      typeof event.timestamp !== 'string' &&
-      !(event.timestamp instanceof Date)
-    ) {
-      return false;
-    }
-    return true;
   }
 
   /** Health probe — true when the bridge holds an open NATS connection. */

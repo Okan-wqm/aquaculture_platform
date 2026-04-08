@@ -24,6 +24,9 @@ export * from './security';
 // Event upcasters (v1 → v2 schema migration at deserialization time)
 export * from './upcasters';
 
+// Runtime JSON Schema validators for trust-boundary crossing (H-3)
+export * from './schemas';
+
 // Re-export all domain union types for convenience
 import type { AuthEvent } from './auth-events';
 import type { TenantEvent } from './tenant-events';

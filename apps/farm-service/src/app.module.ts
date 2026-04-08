@@ -138,6 +138,13 @@ import { AddTenantActivePartialIndexes1781800000000 } from './database/migration
 // so any new entity that uses the bare @CreateDateColumn() decorator is
 // picked up automatically without amending this list.
 import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
+// C2/P-H1 fix: add leasedAt/leasedBy columns to farm_outbox so the
+// OutboxWorkerService can claim rows atomically across replicas via
+// SELECT ... FOR UPDATE SKIP LOCKED. Unblocks horizontal scaling of
+// farm-service — before this migration, multi-replica deploys caused
+// every replica to publish every event, relying on NATS dedup to
+// absorb the duplicates.
+import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/1782000000000-AddFarmOutboxLeaseColumns';
 
 @Module({
   imports: [

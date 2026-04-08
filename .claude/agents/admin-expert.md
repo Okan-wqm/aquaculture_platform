@@ -122,9 +122,23 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Research: `docs/research/admin-expert/2026-04-08-billing-admin-webhook-stripe-idempotency.md`
 
 ### Security Monitoring
+- Audit tables MUST enforce append-only via `BEFORE UPDATE` and `BEFORE DELETE` triggers that `RAISE EXCEPTION`; UPDATE/DELETE from application code is a CRITICAL finding
+- The application service role MUST have INSERT-only privileges on audit tables; SELECT MUST be granted via a separate role used by a dedicated audit-read path
+- User-supplied values MUST be passed as structured metadata to the NestJS `Logger`, NEVER interpolated into the log message template (CRLF log injection prevention — CWE-117)
+- A central log sanitizer MUST strip passwords, tokens, session IDs, JWTs, webhook secrets, and API keys from all log output AND mask PII (email hashed, phone masked, names redacted)
+- Audit records MUST include: actor_user_id, actor_role, tenant_id (or `_PLATFORM_`), event_type, resource_type, resource_id, ip, user_agent, request_id, server_timestamp_utc, result
+- Reading the audit log MUST emit a meta-audit row ("who watches the watchers"); mandatory for SOC2/ISO27001 access reviews
+- TENANT_ADMIN audit-read queries MUST be scoped at the query-builder level to their own tenant; cross-tenant filters from client input are CRITICAL findings
+- Audit retention pruning MUST honor a `legal_hold` flag, archive to immutable storage before deletion, and audit its own operation
+- Audit tables MUST be partitioned by month with BRIN indexes on timestamp for query performance
+- Alert rules MUST exist for: failed-auth bursts, SUPER_ADMIN cross-tenant anomalies, write-mode impersonation off-hours, audit write failures, and audit tamper attempts (UPDATE/DELETE on audit tables)
+- Server-generated UTC timestamps MUST be the canonical audit time; client timestamps are optional metadata only
+- Retention window MUST be at least 13 months online plus 7 years archived unless superseded by stricter tenant-specific requirements (covers HIPAA 6y + SOC2 12mo with margin)
+- Non-negotiable audit event coverage: authentication (success/failure, MFA, password change, session termination); impersonation (start/terminate/toggle + every action dual-identity); cross-tenant access; tenant lifecycle transitions; billing (plan change, refund, void, subscription status); database DDL/migration/backup/restore/explorer queries (metadata only); user/role/permission changes; configuration changes; audit-log access
+- All database and application nodes MUST sync to the same authoritative NTP source (NIST SP 800-53 AU-8); clock drift invalidates audit evidence
 - Security dashboard aggregates events from auth-service, gateway-api
-- Activity logging must include IP address, user agent, tenant context
 - Compliance reports must be complete and non-editable after generation
+- Research: `docs/research/admin-expert/2026-04-08-audit-log-immutability-compliance.md`
 
 ## Cross-Domain Dependencies
 

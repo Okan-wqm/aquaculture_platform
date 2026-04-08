@@ -101,37 +101,89 @@ Research: `docs/research/security-reviewer/2026-04-08-owasp-asvs-5-application-s
 
 ### OWASP Top 10 (2021)
 
-**A01 Broken Access Control:** Missing `@UseGuards(TenantGuard, RolesGuard)` on tenant endpoints. Missing `@UseGuards(ServiceIdentityGuard)` on subgraph resolvers. Overly permissive `@Roles()`. Missing IDOR protection. `@Public()` on sensitive endpoints. Horizontal/vertical privilege escalation. Missing MFA step-up for cross-tenant.
+**A01 Broken Access Control:** Missing `@UseGuards(TenantGuard, RolesGuard)` on tenant endpoints. Missing `@UseGuards(ServiceIdentityGuard)` on subgraph resolvers. Overly permissive `@Roles()`. Missing IDOR protection on every fetch-by-ID handler. `@Public()` on sensitive endpoints. Horizontal AND vertical privilege escalation (both axes MUST be checked). Missing MFA step-up for cross-tenant. Field-level authorization returning null instead of rejecting query (= ASVS V8.2 violation). Object-level authorization scattered across controllers (no central mechanism = brittle). Auto-incrementing integer IDs in URLs without object-level auth (IDOR enumeration). RolesGuard alone satisfies V8.3 (function-level) but NOT V8.2 (object-level) — both required.
 
-**A02 Cryptographic Failures:** JWT secret < 32 chars. Missing RS256 when HS256 fallback used. Refresh tokens in plaintext (must be bcrypt-hashed). MFA secrets without AES-256-GCM encryption. Missing timing-safe comparison for HMAC/TOTP. Password hashing < 10 bcrypt rounds. Missing HSTS or insufficient max-age. Recovery codes not SHA-256 hashed.
+**A02 Cryptographic Failures:** JWT secret < 32 chars. **HS256 in any multi-service architecture = CRITICAL** (verifier-as-forger — every service that holds the secret can forge tokens). Use RS256/ES256/EdDSA. Verifier MUST pin algorithm, reject `alg: none`, reject `jku`/`jwk`/`x5u` headers (key injection). Refresh tokens / MFA secrets / recovery codes / password reset tokens in plaintext = CRITICAL (must be bcrypt/Argon2id hashed or AES-256-GCM encrypted). Missing timing-safe comparison (`crypto.timingSafeEqual` on equal-length hashed values) for HMAC/TOTP/MFA = HIGH (timing oracle). Password hashing weaker than bcrypt cost 10 / Argon2id default = CRITICAL. **`Math.random()` for any security-sensitive value = HIGH** (CRITICAL for tokens — use `crypto.randomBytes` / `crypto.randomUUID`). MD5/SHA-1 in any security role = CRITICAL. AES-CBC for column encryption (no AEAD) = HIGH. AES-GCM with reused nonce = CRITICAL. Missing HSTS or `max-age` < 1 year = HIGH. Long-lived secret in env var instead of KMS = HIGH. 0-RTT TLS 1.3 enabled on state-changing endpoints = HIGH (replay). Research: `docs/research/security-reviewer/2026-04-08-cryptographic-failures-a02-hashing-random-tls.md`
 
-**A03 Injection:** Raw SQL with string concatenation containing user input. Schema name interpolation without `TENANT_SCHEMA_REGEX` validation. Missing parameterized queries. Command injection via exec(). Path traversal without `sanitizePath()`. Log injection. MQTT topic injection. Header injection.
+**A03 Injection:** Raw SQL with string concatenation containing user input = CRITICAL. **Schema name interpolation without `TENANT_SCHEMA_REGEX` validation = CRITICAL** (search_path injection / DDL injection — cross-tenant breach). Missing parameterized queries. Command injection via `exec()`/`spawn()`. Path traversal without `sanitizePath()`. **Log injection: `Logger.log(\`x: ${y}\`)` string concatenation = HIGH** (CRLF injection — use structured logging). MQTT topic injection. Header injection. NoSQL injection (Mongo `$where`, Redis Lua scripts). LDAP injection. Template injection (Handlebars/EJS with user input). XML/XXE on any XML parser. ReDoS via user-controlled regex.
 
-**A04 Insecure Design:** Missing rate limiting on auth endpoints. Session without concurrent limits. Token refresh without rotation. Password reset without expiry. Account enumeration via different error messages. Missing brute-force protection on MFA. Missing JWT `type` discriminator check.
+**A04 Insecure Design:** Missing rate limiting on auth endpoints (per-account AND per-IP — per-IP alone fails behind NAT). Session without concurrent limits. Token refresh without rotation. Password reset without expiry. Account enumeration via different error messages OR timing differences. Missing brute-force protection on MFA. **Missing JWT `type` discriminator check (refresh/MFA tokens accepted as bearer access tokens) = CRITICAL**. Feature spec without abuse cases = REJECT. Trust boundary not explicitly enumerated = HIGH (architectural drift). "Internal service trusts internal service" assumption = CRITICAL design flaw.
 
-**A05 Security Misconfiguration:** GraphQL playground/introspection in production. CORS wildcard in production. `unsafe-eval` in CSP. Docker containers as root. Missing `server_tokens off`. `INTERNAL_SERVICE_SECRET` not set. `DATABASE_SYNC=true` in production. Stack traces in error responses.
+**A05 Security Misconfiguration:** **GraphQL introspection in production at router OR ANY subgraph = HIGH** (schema leak). CORS wildcard in production. **CSP with `unsafe-inline` or `unsafe-eval` = HIGH**. Missing security headers: X-Content-Type-Options, X-Frame-Options (or CSP `frame-ancestors`), Referrer-Policy, Permissions-Policy, COOP/COEP/CORP, Trusted Types. Docker containers as root. Missing `server_tokens off`. `INTERNAL_SERVICE_SECRET` not set. `DATABASE_SYNC=true` in production. Stack traces in error responses. Production `LOG_LEVEL` set to debug or trace = HIGH. **Subgraph publicly reachable from internet = CRITICAL** (bypasses router auth, complexity limits, persisted queries). GET method allowed on GraphQL mutation endpoints = CRITICAL (CSRF).
 
-**A06 Vulnerable Components:** GitHub Actions not SHA-pinned. Dependencies with HIGH/CRITICAL CVEs. `@latest` in Dockerfiles. `npm install` without `--ignore-scripts` in CI.
+**A06 Vulnerable Components:** GitHub Actions referencing tag instead of full commit SHA (any third-party action) = HIGH (moveable tag attack). Dependencies with HIGH/CRITICAL CVEs. `@latest` in Dockerfiles. **`npm install` (not `npm ci`) OR missing `--ignore-scripts` in CI = HIGH** (arbitrary code execution at install). Lockfile not committed OR CI not enforcing match = HIGH. Missing `actions/dependency-review-action` with `fail-on-severity: high` = HIGH. Production deps with floating version (`^`/`~`) = MEDIUM. Internal package without `@scope/` prefix = HIGH (dependency confusion). Docker base image by tag instead of digest = MEDIUM. **No SBOM generated in CI = HIGH** (incident response blind spot — cannot answer "are we affected by CVE-X?"). Build artifacts not Cosign-signed = HIGH. Build does not produce SLSA L2 provenance = HIGH. Cargo `git = "..."` without explicit SHA = HIGH. Lessons from xz (CVE-2024-3094): build-time code is execution; test fixtures are code; maintainer trust does not survive social engineering at scale. Research: `docs/research/security-reviewer/2026-04-08-supply-chain-attacks-xz-event-stream-dependency-review.md`
 
-**A07 Auth Failures:** Missing JWT iss/aud/exp validation. Missing algorithm restriction. Refresh token without expiry. Missing blacklist check. Missing `jti`. Plaintext passwords. Session fixation. Missing cookie flags.
+**A07 Auth Failures:** Missing JWT iss/aud/exp/nbf/iat/jti validation = HIGH. Missing algorithm restriction = CRITICAL (algorithm confusion). Refresh token without expiry. Missing blacklist check (must run BEFORE `req.user` is set). Missing `jti`. Plaintext passwords = CRITICAL. Session fixation. Missing cookie flags (`Secure`, `HttpOnly`, `SameSite=Strict` or `Lax`). MFA step-up not enforced at high-risk operations (impersonation, password change, role change). Login latency / response variance enabling enumeration. Per-IP rate limiting only (NAT-shared IPs bypass).
 
-**A08 Data Integrity:** CI/CD modifications without review. Missing dependency-review workflow. Unsigned Docker images. Missing `.dockerignore`.
+**A08 Data Integrity:** CI/CD modifications without review. Missing dependency-review workflow. **Unsigned Docker images / npm packages (no Sigstore Cosign signature) = HIGH**. Missing `.dockerignore`. Build provenance not generated (SLSA L2 floor). Deployment not verifying image signatures (admission controller / image policy). Audit table with UPDATE/DELETE GRANTed to application user = CRITICAL. Audit rows missing hash chain or signature = HIGH. Hash chain break detection without alerting = HIGH.
 
-**A09 Logging Failures:** Auth events not logged. Authorization failures not logged. Cross-tenant attempts not logged. PII in logs. Missing structured logging context.
+**A09 Logging Failures:** Auth events not logged. Authorization failures not logged. Cross-tenant attempts not logged. **PII in logs unmasked (email, phone, name, IBAN, card, full address) = HIGH** (GDPR breach). **Authentication secrets (passwords, tokens, MFA codes, session IDs) logged in any form = CRITICAL**. Special-category PII (health, biometric, genetic, ethnicity) logged = CRITICAL. Missing structured logging context (no `service.name`, `trace.id`, `tenant.id`, `event.outcome`). `console.log` instead of structured `Logger` = HIGH. **String concatenation in log calls (CRLF injection class) = HIGH**. `SENSITIVE_FIELDS` allowlist not enforced at logger boundary (call sites can bypass) = HIGH. Audit log forwarder hop without TLS + mutual auth = HIGH. Audit log forwarder accepting upstream-controlled timestamp without bounds check = HIGH. Application and audit logs sharing retention / access controls = HIGH (forensic blind spot). OWASP "must-log" event missing (login success/failure, MFA challenge, role change, data export, account delete) = HIGH. Research: `docs/research/security-reviewer/2026-04-08-log-injection-crlf-pii-structured-logging.md`
 
-**A10 SSRF:** User-controlled URLs without allowlist. DNS rebinding. Internal service URLs exposed to client input.
+**A10 SSRF:** **ANY user-controlled URL fetch missing ALL FOUR of (protocol allowlist, IP blocklist, DNS-pinning, redirect handling) = CRITICAL**. URL validation via string match instead of parsed URL + DNS resolution = CRITICAL (trivially bypassed by `0177.0.0.1`, `[::1]`, `2130706433`, `attacker.com@169.254.169.254`). Webhook delivery from same network namespace as internal services = HIGH. **IMDSv1 enabled OR IMDSv2 not enforced on any container issuing outbound HTTP = HIGH** (Capital One class breach). Missing network policy blocking metadata CIDR (`169.254.169.254`, `168.63.129.16` Azure Wireserver, `100.100.100.200` Alibaba, IPv6 `fd00:ec2::254`) = HIGH. Full blocklist must reject RFC 1918 + RFC 3927 link-local (`169.254.0.0/16`) + loopback + IPv6 unique-local + multicast + broadcast. HTTP redirect followed without re-validation = HIGH (DNS rebinding via redirect). Open redirect endpoint without allowlist or signed token = HIGH. Image proxy / favicon / OG-card / PDF generator (headless Chrome / wkhtmltopdf) accepting arbitrary URLs without full filter = CRITICAL. Connect timeout > 5s OR total timeout > 30s on a webhook fetcher = MEDIUM (DoS amplifier). Research: `docs/research/security-reviewer/2026-04-08-ssrf-taxonomy-dns-rebinding-metadata-cloud.md`
+
+### GraphQL Federation Security (Apollo Router + Subgraphs)
+
+**Defense in depth at BOTH router and subgraph** — router-only enforcement is bypassed by direct subgraph access (network compromise, lateral movement).
+
+- **Introspection disabled in production at router AND every subgraph.** Verify by sending `__schema` query to each subgraph internal endpoint.
+- **Operation limits at router:** `max_depth` (10–15), `max_aliases` (30 default, **1–2 for auth mutations**), `max_root_fields` (10), query complexity / cost analysis with per-role budgets.
+- **Auth mutation alias limit = CRITICAL** (login, refresh, password reset, MFA verify) — without per-mutation alias cap, a single GraphQL request can execute thousands of password guesses (OWASP API #8). Per-IP rate limiting at nginx counts this as ONE request and lets it through.
+- **Field-level authorization MUST reject the entire query** on unauthorized fields, NEVER return null (ASVS V8.2 violation; null masking enables enumeration).
+- **Forwarded identity headers from router MUST be HMAC-signed** AND verified at the subgraph. Trusting headers because "subgraph is on internal network" = CRITICAL.
+- **CSRF prevention enabled on Apollo Router:** reject GET on mutations, require preflight-forcing Content-Type.
+- **Error responses sanitized in production** — strip `extensions.exception`, use opaque error IDs, no schema/SQL/hostname leakage.
+- **DataLoader is request-scoped (`Scope.REQUEST`)** on every nested resolver and `__resolveReference`. Singleton DataLoader on tenant data = CRITICAL (cross-tenant cache leak).
+- **Persisted query safelisting** preferred for B2B-only client surfaces.
+
+Research: `docs/research/security-reviewer/2026-04-08-graphql-security-introspection-depth-alias-query-complexity.md`
 
 ### Tenant Isolation (HIGHEST PRIORITY)
 
-A tenant isolation failure is ALWAYS CRITICAL.
+A tenant isolation failure is ALWAYS at least HIGH; **demonstrable cross-tenant access = CRITICAL**.
 
-**Database:** Every query on tenant data MUST use `search_path` OR explicit `WHERE tenantId = $1`. Raw SQL MUST validate schema names against `SCHEMA_NAME_REGEX`/`TENANT_SCHEMA_REGEX`. `CrossTenantProbe` watchdog must be scheduled. No cross-schema queries without justification.
+**Defense in depth — AT LEAST TWO independent layers MUST protect every tenant data path:**
 
-**Redis:** ALL tenant keys via `TenantRedisService` (prefix `tenant:{uuid}:`). UUID validation on tenantId. `deletePattern()` scoped to tenant prefix.
+| Layer | Mechanism | Failure mode if alone |
+|-------|-----------|----------------------|
+| 1 | TenantGuard at controller (JWT.tenantId vs resource) | Bypassed by missing decorator |
+| 2 | TypeORM `search_path` set per request, re-asserted before every query | Bypassed by raw SQL or wrong schema name |
+| 3 | Postgres RLS policy on every tenant table | Catches bypass of layers 1 and 2 |
+| 4 | Explicit `WHERE tenant_id = $1` in repository | Catches bypass of layer 3 |
+| 5 | CrossTenantProbe watchdog (continuous canary check) | Detects layer 4 misconfig in production |
 
-**Events:** ALL NATS events include `tenantId` in BaseEvent. Consumers validate tenantId. No broadcast events leaking cross-tenant data.
+Single-layer isolation = HIGH (CRITICAL if that layer can be bypassed by another code path).
 
-**Guards:** TenantGuard on every tenant endpoint. Regular user tenantId from JWT only — never headers/body. SUPER_ADMIN impersonation via `X-Act-As-Tenant` with UUID validation and audit logging.
+**Database:**
+- Every query on tenant data MUST use `search_path` AND/OR explicit `WHERE tenantId = $1`.
+- **`search_path` MUST be re-asserted before every query in a pooled connection** (the recent farm-service migration runner fix is exactly this pattern). Connection pool inheriting prior tenant's `search_path` = CRITICAL.
+- Raw SQL MUST validate schema names against `SCHEMA_NAME_REGEX`/`TENANT_SCHEMA_REGEX`. Schema name interpolation = CRITICAL.
+- **Postgres RLS enabled on every tenant table; application user has NO `BYPASSRLS` attribute** (= CRITICAL if granted).
+- **`SECURITY DEFINER` functions MUST explicitly check tenant context** — they bypass RLS otherwise.
+- `CrossTenantProbe` watchdog scheduled and alerting (writes canary in tenant A, attempts read from tenant B; success = breach).
+- `getRepository()` BANNED → `getScopedRepository()` only.
+
+**Redis:**
+- ALL tenant keys via `TenantRedisService` (prefix `tenant:{uuid}:`).
+- UUID validation on tenantId BEFORE constructing key.
+- `deletePattern()` scoped to tenant prefix.
+- **Redis ACL restricts application user from `FLUSHDB`, `FLUSHALL`, `KEYS`, `CONFIG`, `DEBUG`, `SCRIPT FLUSH`** = HIGH if not enforced.
+- Lua scripts reviewed for tenant scope (Lua can access any key).
+- Pub/sub channels follow same prefix discipline.
+
+**Events (NATS):**
+- ALL NATS events include `tenantId` in BaseEvent (subject AND payload — defense in depth).
+- Consumers re-validate tenantId on receipt.
+- **Wildcard subscriptions (`tenant.*.event-name`) MUST be explicitly justified** AND the consumer MUST handle tenant routing on receipt.
+- JetStream consumers scope `filter_subject` to tenant prefix when consuming tenant-bound streams.
+- No broadcast events leaking cross-tenant data.
+
+**Guards:**
+- TenantGuard on every tenant endpoint.
+- **Regular user tenantId from JWT ONLY — never `X-Tenant-Id` header, never body `tenantId`** (= CRITICAL).
+- SUPER_ADMIN impersonation via `X-Act-As-Tenant`: UUID-validated AND active ImpersonationSession required AND dual-identity audit logged. `X-Act-As-Tenant` accepted without ImpersonationSession = CRITICAL.
+- Object-level authorization MUST be a centralized mechanism, not per-controller ad-hoc.
+
+Research: `docs/research/security-reviewer/2026-04-08-tenant-isolation-database-redis-nats-guards.md`
 
 ### Authentication Flow Integrity
 

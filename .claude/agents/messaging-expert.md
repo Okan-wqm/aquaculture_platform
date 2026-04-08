@@ -124,22 +124,53 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 - Research: docs/research/messaging-expert/2026-04-08-ai-safety-untrusted-content-mcp-ssrf.md
 
 ### Embedding Pipeline
-- Cron every 5 minutes, batch 100 messages, privacy gate (dual consent)
-- NATS request-reply to ai-service, writes VECTOR(384) to messages table
-- AI embeddings MUST be invalidated/deleted when source messages are anonymized
+- Cron every 5 minutes, batch 100 messages, dual-consent privacy gate
+- NATS request-reply to ai-service, writes `vector(384)` (sentence-transformer dim) to `messages.embedding`
+- HNSW index uses `vector_cosine_ops` with `m=16`, `ef_construction=128` as defaults — deviations require benchmarked justification; mismatched ops class falls back to sequential scan (CRITICAL perf cliff)
+- Every semantic-search query MUST filter on `tenant_id` AND include a `created_at` partition bound — without these, search runs across the global index (privacy + perf disaster)
+- HNSW indexes on partitioned `messages` MUST be created per-partition with `CREATE INDEX CONCURRENTLY` then attached to a parent index — never parent-level blocking builds
+- `maintenance_work_mem` MUST be raised (multi-GB) before bulk index builds; default 64MB causes 10-100x slowdown when graph spills to disk
+- Worker MUST verify dual consent at SELECT-time (filter candidates) AND re-verify at WRITE-time (defense against race with consent withdrawal)
+- Worker MUST use `SELECT ... FOR UPDATE SKIP LOCKED` for horizontal scalability without double-processing
+- Per-message ai-service timeout <= 5 seconds with circuit breaker; partial-batch failure MUST write the successful subset and requeue the failures (no all-or-nothing rollback)
+- Embedding generation MUST NEVER block the message INSERT path — synchronous embedding in send path is FORBIDDEN
+- AI embeddings MUST be invalidated/deleted when source messages are anonymized — same DB transaction as message-body anonymization, OR via compensating saga with explicit replay on failure
+- **CRITICAL — embedding inversion attack:** a 384-dim vector is a high-fidelity representation of original text; an attacker who guesses candidate text can compute its embedding and find a near-neighbor in the index, recovering "anonymized" content. Failing to delete embeddings on anonymization is a re-identification vulnerability
+- Withdrawal of `UserAiConsent` or `TenantAiSetting.embeddingsEnabled` MUST trigger a sweep job that deletes existing embeddings within 24 hours (GDPR Article 17(1)(b))
+- Embedding column MUST have a CHECK constraint or column-type assertion locking dimension at 384; arbitrary-dimension writes MUST fail loudly
+- Raw embedding vectors MUST NEVER be exposed via any client-facing API (federation field, REST, GraphQL) — model leak + side channel
+- Research: docs/research/messaging-expert/2026-04-08-pgvector-hnsw-semantic-search-embeddings.md
 
 ### GDPR Compliance (Critical)
 - Export: chunked pagination, rate-limited 1/24h per user
-- Anonymization: password confirmation via auth-service NATS, transactional, legal hold check per channel
-- ComplianceAuditLog entries are IMMUTABLE — no UPDATE or DELETE ever
+- Anonymization: password confirmation via auth-service NATS, transactional, legal hold check per channel (see Legal Hold execution order)
+- Anonymization MUST cascade to ALL of: source messages (body + senderUserId hashed/tombstoned), receipts (userId), attachments (MinIO blobs unless under hold), embeddings (pgvector rows), `KnowledgeEntry` rows derived from the user, `MessageAnalysis` rows, and `AgentConversation` JSONB messages — all within one transaction or saga with compensating actions
+- Anonymization MUST publish `UserDataAnonymized` via outbox to satisfy Article 19 (notification to recipients) downstream cascade
+- Erasure request MUST be acted on within one month of receipt (Article 12(3)); track `requestReceivedAt`. Prometheus metric `gdpr_erasure_age_days` MUST alert when any pending request exceeds 25 days
+- Withdrawal of `UserAiConsent` triggers Article 17(1)(b) erasure of AI-derived data (embeddings, sentiment annotations, knowledge entries) — separate from full Article 17 erasure, different lawful basis
+- ComplianceAuditLog entries are IMMUTABLE — no UPDATE or DELETE ever; enforced at DB layer (revoke privileges + trigger), not just at app layer
+- Audit log row reuses Article 17(3)(b) compliance-with-legal-obligation exception — audit row about a deletion is NOT itself erasable (would defeat its purpose)
+- Simply nulling `senderUserId` while preserving message content can re-identify via writing style or unique facts; high-risk classes require body-content NER PII removal in addition to ID anonymization
 - 11 action types tracked in audit trail
 - Audit queries enforce TENANT_ADMIN role requirement
+- Research: docs/research/messaging-expert/2026-04-08-legal-hold-immutability-gdpr.md
 
 ### Multi-Tenancy
 - Every query scoped by tenantId or search_path
-- Redis keys namespaced by tenant
-- NATS events include tenantId
-- Channel membership validated before any message access
+- All Redis keys MUST be tenant-scoped: `{type}:{tenantId}:...` — no exception (cross-tenant collision = data leak)
+- Every NATS subject in messaging fanout MUST include `tenantId` in the subject hierarchy (e.g., `messaging.tenant.{tenantId}.channel.{channelId}.{eventType}`)
+- Channel membership validation MUST run on every operation that reads or writes channel data (send, history, presence, attachments) — `SISMEMBER chan:{tenantId}:{channelId}:members {userId}` cache pattern with O(1) check
+- Membership cache TTL <= 5 minutes with explicit invalidation on `ChannelMember` add/remove events — stale TTL > 5 min is unacceptable (security boundary)
+- Membership validation MUST fail-CLOSED on Redis+Postgres unavailability — never default to "member" on cache miss with DB unreachable
+
+### Real-Time Messaging, Presence, and Fanout
+- Presence MUST use Redis sorted sets keyed by tenant + optional channel: `presence:{tenantId}` (members=userId, scores=last-heartbeat unix ts); per-channel sets `presence:{tenantId}:{channelId}` for "who is in this channel right now"
+- Periodic cleanup job MUST remove entries older than 5 minutes (`ZREMRANGEBYSCORE` ... 300s) to bound memory growth
+- Per-channel fanout strategy MUST be chosen by channel type: PUSH at write-time for small channels (`direct`, `group`, ≤1000 members) writing one `message_receipt` row per member in a single bulk INSERT; PULL at read-time for `broadcast` channels — never one-size-fits-all
+- Server-assigned monotonic `seq` (BIGSERIAL or per-channel sequence) MUST be the authoritative ordering field; client-supplied `clientSeq` is debugging metadata only
+- Presence data leak: revealing online state to users not in the relevant channel/tenant is a privacy violation — always validate scope before returning presence
+- Rate-limit subsystems MUST be classified: fail-OPEN for non-security limits (chat send), fail-CLOSED for security-critical limits (login attempts, anonymization rate limit) — document the policy per limiter
+- Research: docs/research/messaging-expert/2026-04-08-realtime-messaging-presence-dedup-redis.md
 
 ## Cross-Domain Dependencies
 

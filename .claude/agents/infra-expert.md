@@ -45,63 +45,131 @@ Use standard severity levels: CRITICAL (security/production outage risk — bloc
 ## Domain Rules
 
 ### Docker (Critical)
-- Multi-stage builds with separate `prod-deps` stage (no devDependencies in production)
-- Non-root user (`USER nestjs` with `addgroup`/`adduser`) — root containers = CRITICAL
-- `dumb-init` for proper signal handling (PID 1 reaping)
-- `HEALTHCHECK` instruction present in every Dockerfile
-- Base images pinned to exact version (e.g., `node:22.12.0-alpine3.20`) — no `latest` tags
+- Multi-stage builds with separate `prod-deps` stage (no devDependencies in production) — shipping devDependencies to runtime = HIGH
+- Non-root user (`USER nestjs` with `addgroup`/`adduser`, explicit UID ≥ 1000) — root containers = CRITICAL (NIST SP 800-190 §4.4.4, CIS Docker Benchmark 4.1)
+- `dumb-init` (or `tini`) as PID 1 via JSON-form `ENTRYPOINT ["dumb-init", "--"]` — shell-form ENTRYPOINT breaks signal propagation and graceful shutdown = HIGH
+- `HEALTHCHECK` instruction present in every Dockerfile with `--interval`, `--timeout`, `--start-period`, `--retries`; missing = HIGH
+- Base images pinned to exact version + digest (`node:22.12.0-alpine3.20@sha256:<64-hex>`) — floating tags or `latest` = CRITICAL
 - No `COPY . .` in production stage (only built artifacts and prod deps)
-- `--chown=nestjs:nodejs` on COPY instructions
-- No `ENV` with secret values — use runtime env vars or Docker Secrets
-- `NODE_ENV=production` set in production stage
-- `.dockerignore` must exclude `.env`, `node_modules`, `.git`, `coverage/`
+- `--chown=nestjs:nodejs` on all COPY instructions; missing = MEDIUM
+- No `ENV` or `ARG` with secret values — they persist in `docker history` = CRITICAL; use runtime env vars, Docker Secrets, or external secrets manager
+- `NODE_ENV=production` set explicitly in production stage
+- `.dockerignore` MUST exclude `.env*`, `node_modules`, `.git`, `coverage/`, test files; missing = CRITICAL (risk of baking `.env` into image)
+- Production Compose services SHOULD set `read_only: true`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`; missing = HIGH for prod compose
+- Every pushed image MUST be scanned (Trivy/Grype) with fail-on HIGH/CRITICAL; unscanned image in production = HIGH
+
+**Research:** `docs/research/infra-expert/2026-04-08-docker-multi-stage-hardening-non-root-dumb-init.md`
+
+### NATS / Mosquitto (Critical)
+- **NATS:** Client port (4222) MUST use TLS with `verify: true` (mTLS); plaintext or missing verify = CRITICAL
+- **NATS:** Multi-tenant workloads MUST use distinct accounts with isolated subject namespaces; single account for multiple tenants = HIGH
+- **NATS:** User permissions MUST use explicit `allow` lists (least privilege); wildcard-without-deny = HIGH
+- **NATS:** Passwords MUST be bcrypt-hashed (`$2a$`); plaintext in config = CRITICAL
+- **NATS:** Monitoring port (8222) MUST bind to localhost/internal only; `0.0.0.0` = HIGH
+- **NATS:** Cluster and leafnode ports MUST use TLS; plaintext inter-node = CRITICAL
+- **NATS:** JetStream storage MUST be on a persistent volume; ephemeral = CRITICAL (data loss on restart)
+- **NATS:** Each account MUST declare JetStream quotas (`max_mem`, `max_file`, `max_streams`); missing = HIGH
+- **NATS:** `system_account` MUST be declared to isolate `$SYS` traffic
+- **Mosquitto:** `allow_anonymous false` in production; anonymous = CRITICAL
+- **Mosquitto:** Plaintext port 1883 closed externally; only TLS 8883 exposed = CRITICAL if violated
+- **Mosquitto:** Password file MUST use `$7$` PBKDF2-SHA512 with high iteration count; older DES/MD5 = CRITICAL
+- **Mosquitto:** `acl_file` MUST enforce per-user / per-tenant topic restrictions; missing = CRITICAL (cross-tenant leakage)
+- **Mosquitto:** `/mosquitto/data` and `/mosquitto/log` MUST be mounted as persistent volumes; missing data volume = HIGH
+- **Mosquitto:** Docker `healthcheck` probing the broker MUST be set; missing = MEDIUM
+- **Mosquitto:** `persistence true` + `autosave_interval` MUST be set; missing = HIGH
+- **Mosquitto:** `max_connections`, `max_inflight_messages`, `message_size_limit` MUST be bounded; unbounded = HIGH
+- **Mosquitto:** Credentials MUST come from mounted secrets, NEVER baked into the image = CRITICAL
+
+**Research:** `docs/research/infra-expert/2026-04-08-nats-mosquitto-docker-config-security.md`
 
 ### nginx (Critical)
-- TLS 1.2 and 1.3 only (`ssl_protocols TLSv1.2 TLSv1.3`)
-- Strong cipher suite (ECDHE-ECDSA/RSA-AES128/256-GCM-SHA256/384)
-- OCSP stapling enabled
-- `server_tokens off` (hide version)
-- HSTS with `includeSubDomains; preload`, `max-age ≥ 63072000` (2 years)
-- CSP without `unsafe-eval` in `script-src` for production
-- `client_max_body_size` limited (10m)
-- Rate limiting zones on `/graphql` and `/api/`
-- `/metrics` blocked from public access (`deny all; return 403`)
-- HTTP → HTTPS redirect on port 80
-- WebSocket upgrade handling (map-based `$connection_upgrade`)
-- CORS origin allowlist (not wildcard) via `$cors_origin` map
-- No `unsafe-inline` in production CSP `script-src`
+- TLS 1.2 and 1.3 only (`ssl_protocols TLSv1.2 TLSv1.3`); TLS 1.0/1.1 = CRITICAL (RFC 8996 deprecated)
+- Strong cipher suite: ECDHE-based AEAD only (GCM/CHACHA20-POLY1305); any RC4/3DES/CBC/RSA key exchange = CRITICAL
+- OCSP stapling enabled (`ssl_stapling on; ssl_stapling_verify on;` + `ssl_trusted_certificate` + `resolver`); missing = MEDIUM
+- `server_tokens off;` at http-level (hide nginx version)
+- HSTS with `includeSubDomains; preload; max-age=63072000` (2 years — hstspreload.org minimum); missing or weaker = HIGH
+- CSP without `unsafe-eval` in `script-src`; `*` wildcard in `script-src`/`connect-src` = HIGH; minimal `unsafe-inline` only via nonce
+- Additional security headers required: `X-Content-Type-Options nosniff`, `X-Frame-Options DENY`, `Referrer-Policy strict-origin-when-cross-origin`, `Permissions-Policy`, `Cross-Origin-Opener-Policy same-origin`
+- `client_max_body_size` set explicitly (typically `10m`); unlimited = HIGH (DoS vector)
+- Rate limit zones on `/api/`, `/graphql`, `/auth/login` with `limit_req_zone` + `limit_req burst= nodelay`; missing on auth/graphql = HIGH (brute-force exposure)
+- `/metrics` IP-restricted (`allow <internal CIDR>; deny all;`); public = HIGH
+- HTTP port 80 MUST 301-redirect to HTTPS (except `/.well-known/acme-challenge/`); missing = HIGH
+- WebSocket proxying MUST use `map $http_upgrade $connection_upgrade` and `proxy_http_version 1.1`; raw `Connection: upgrade` pass-through breaks in production
+- CORS origin MUST come from a `map $http_origin $cors_origin` allowlist; `Access-Control-Allow-Origin: *` combined with `Allow-Credentials: true` = CRITICAL (spec violation + credential leak)
+- `ssl_session_cache shared:SSL:10m; ssl_session_timeout 1d;` for session resumption performance
+- `http2` (ideally `http3/QUIC`) enabled on `listen 443 ssl;`
+- Upstream keepalive (`keepalive 32;`) in upstream blocks to avoid connection churn
+
+**Research:** `docs/research/infra-expert/2026-04-08-nginx-tls-hsts-csp-rate-limit-production.md`
 
 ### CI/CD (Critical)
-- All GitHub Actions SHA-pinned (not tag references like `@v4`) — mutable tags = supply chain risk
-- Minimal permissions (`contents: read`, `security-events: write` only where needed)
-- `timeout-minutes` set on all jobs
-- No secrets in workflow logs (use `::add-mask::`)
-- Dependency review on all PRs (`dependency-review.yml`, `fail-on-severity: moderate`)
-- Trivy filesystem scan on push to main, image scan weekly with `exit-code: 1` on HIGH/CRITICAL
-- `npm ci --ignore-scripts` in CI to prevent malicious post-install scripts
-- `package-lock.json` committed for deterministic builds
+- Every `uses:` reference MUST pin to a full 40-char commit SHA with a version comment (`@<sha> # v4.2.2`); tag references (`@v4`, `@main`) = CRITICAL. The March 2026 `aquasecurity/trivy-action` compromise force-pushed 75 of 76 tags to malicious commits — tags are mutable, only SHAs are immutable.
+- Every workflow MUST declare `permissions:` at the top-level (`contents: read` default) and expand only per-job where needed; missing = HIGH
+- Every job MUST set `timeout-minutes` (build: 20, test: 30, deploy: 45); default is 360 minutes = MEDIUM to leave missing
+- No secrets in workflow logs; runtime-derived secrets MUST be masked with `::add-mask::`; unmasked = CRITICAL
+- Dependency review on all PRs (`actions/dependency-review-action@<sha>`, `fail-on-severity: moderate`); missing = HIGH
+- Trivy filesystem scan on push to main, image scan weekly with `exit-code: '1'`, `severity: 'CRITICAL,HIGH'`, `ignore-unfixed: true`; non-gating scan = HIGH
+- CI MUST use `npm ci --ignore-scripts` (or equivalent for pnpm/yarn); `npm install` in CI or missing `--ignore-scripts` = HIGH
+- `package-lock.json` committed for deterministic builds; missing = HIGH
+- `actions/checkout` MUST set `persist-credentials: false` on jobs that don't push; default-true on non-push = MEDIUM
+- `pull_request_target` with checkout of untrusted fork code = CRITICAL (write token exposure)
+- Dependabot config for `github-actions` ecosystem MUST be present for sustainable SHA rotation; missing = MEDIUM
+
+**Research:** `docs/research/infra-expert/2026-04-08-github-actions-supply-chain-sha-pinning-trivy.md`
 
 ### Kubernetes
-- Resource requests AND limits on all containers
-- Liveness, readiness, and startup probes configured
-- Pod disruption budgets for critical services
-- Network policies for inter-service communication
-- Secrets via Kubernetes Secrets or external secrets operator — not ConfigMaps
-- No `latest` image tags — use exact SHA or semver
-- HPA configured for auto-scaling critical services
+- Every production namespace MUST carry `pod-security.kubernetes.io/enforce: restricted` labels (+ `enforce-version`, `audit`, `warn`); missing = CRITICAL. Default is `privileged`.
+- Every container MUST set Restricted-profile security context: `runAsNonRoot: true`, `runAsUser: <non-zero>`, `allowPrivilegeEscalation: false`, `capabilities: { drop: [ALL] }`, `readOnlyRootFilesystem: true`, `seccompProfile: { type: RuntimeDefault }`; missing each = HIGH
+- Resource `requests` AND `limits` for CPU and memory on every container; missing memory limit = CRITICAL (node OOM), missing requests = HIGH
+- Readiness AND liveness probes on every container; slow-start services (NestJS with heavy DI) MUST also have a startup probe; missing = HIGH
+- Probe endpoints MUST be lightweight (`/health/live`, `/health/ready`) and not execute heavy middleware (no DB queries) — using `/` = HIGH (cascading failures)
+- Pod Disruption Budget for every deployment with `replicas >= 2`; missing = HIGH
+- Default-deny NetworkPolicy in every production namespace + explicit allow rules for legitimate peers; missing = HIGH
+- Secrets MUST come from External Secrets Operator (AWS SM / Vault / GCP SM / Azure KV); secrets in ConfigMap or plain YAML = CRITICAL
+- No `latest` or floating image tags; use semver + digest and `imagePullPolicy: IfNotPresent`; `latest` = CRITICAL
+- Every workload MUST have a dedicated ServiceAccount with `automountServiceAccountToken: false` unless the pod calls the API server
+- HPA configured for user-facing stateless services with CPU + memory metrics; missing = MEDIUM
+- `topologySpreadConstraints` across zones for HA workloads; missing = MEDIUM
+- `terminationGracePeriodSeconds` tuned to match in-flight work duration; default 30s with long-running requests = MEDIUM
+- `hostNetwork`, `hostPID`, `hostIPC`, `hostPath` forbidden in app pods = CRITICAL
+
+**Research:** `docs/research/infra-expert/2026-04-08-kubernetes-pod-security-standards-network-policy.md`
 
 ### Terraform
-- State stored in remote backend (S3 + DynamoDB locking)
-- Sensitive values marked with `sensitive = true`
-- Module versioning with explicit source references
-- Environment-specific variable files (dev, production)
-- No hardcoded credentials in `.tf` files
+- Remote backend with encryption (`encrypt = true`) + KMS + locking (`use_lockfile = true` for Terraform 1.11+/AWS provider 5.x, or DynamoDB for legacy) is MANDATORY; local state or missing encryption/locking = CRITICAL
+- State bucket MUST have: versioning enabled, public access blocked (all 4 settings), bucket policy denying non-TLS (`aws:SecureTransport`), CloudTrail data events on GetObject/PutObject, cross-region replication for DR; missing each = HIGH
+- Each environment and component gets its own state file (`env/prod/network.tfstate`, `env/prod/eks.tfstate`, …); monolithic state = HIGH (blast radius)
+- Every secret variable AND output MUST be marked `sensitive = true`; redacted in CLI but still cleartext in state file — hence encryption mandatory; missing = HIGH
+- Credentials MUST come from environment, OIDC (GitHub Actions trust), or IRSA — NEVER hardcoded in `.tf` or committed `.tfvars`; hardcoded = CRITICAL
+- Module sources MUST pin `version` (registry) or `?ref=<commit-sha>` (git); unpinned = HIGH
+- Provider blocks MUST have version constraints with upper bound (`~> 5.80`); missing upper bound = MEDIUM
+- `.terraform.lock.hcl` MUST be committed to Git (tracks provider checksums); missing = HIGH
+- CI Terraform runners MUST use short-lived credentials via OIDC/IRSA; static IAM user keys = HIGH
+- Production applies MUST go through PR review with a plan attached; direct apply on main = HIGH
+- Environment-specific variable files (`environments/dev.tfvars`, `environments/prod.tfvars`); secrets MUST NOT live in committed `.tfvars` = CRITICAL
+- Weekly drift detection SHOULD run against production with alerting on non-empty diff; missing = MEDIUM
+
+**Research:** `docs/research/infra-expert/2026-04-08-terraform-state-remote-backend-encryption.md`
 
 ### Monitoring
-- Prometheus alert rules for: service down, high error rate, high latency, disk/memory pressure
-- Grafana dashboards for: API latency, error rates, resource usage per service
-- Loki for centralized log aggregation
-- Alert notification channels configured (PagerDuty/Slack/email)
+- Every production service MUST expose the Four Golden Signals (Google SRE): latency histogram, request rate, error rate, saturation metrics; missing any = HIGH
+- Standard alert rules MUST exist for every production service: `ServiceDown` (up == 0), `HighErrorRate` (5xx rate > 5%), `HighLatencyP99` (p99 > SLO target), `HighMemoryPressure` (working_set / limit > 0.9), `DiskPressure` (used / total > 0.85), `HighCPU`; missing = HIGH
+- User-facing services SHOULD define SLOs with multi-burn-rate alerts (fast burn: 1h/5m window, slow burn: 6h/30m window) instead of simple threshold alerts; missing = MEDIUM
+- Prometheus metric labels MUST be low cardinality; high-cardinality labels (user_id, request_id, IP, email) = CRITICAL (OOM risk)
+- Histogram buckets MUST include values near the SLO latency target; wrong bucket distribution renders `histogram_quantile` useless = HIGH
+- Every alert MUST carry a `severity` label and a `runbook_url` annotation; missing = MEDIUM
+- Alertmanager MUST route by severity: critical → PagerDuty (`group_wait: 0s`), high → Slack oncall, medium → Slack dev; missing severity routing = MEDIUM
+- Dead-man's switch alert MUST always fire (silence = monitoring itself is broken); missing = MEDIUM
+- Inhibit rules MUST prevent double-paging on cascading failures (e.g., `ServiceDown` inhibits `HighErrorRate` for the same service); missing = LOW
+- Loki labels MUST be low cardinality (`{app, namespace, container, level}`); trace_id / user_id as Loki labels = CRITICAL (index explosion)
+- Logs MUST be emitted as structured JSON for LogQL filtering; unstructured only = MEDIUM
+- Prometheus `/metrics` endpoint MUST be IP-restricted or auth-protected; public = HIGH (info disclosure + SSRF pivot)
+- Grafana MUST NOT use default credentials; MUST integrate with SSO/OIDC for prod; default creds = CRITICAL
+- Long-term metric storage (Mimir/Thanos/Cortex) SHOULD be configured for > 30-day retention; missing = MEDIUM
+- Expensive dashboard queries (> 1s) MUST be converted to recording rules; missing = MEDIUM
+- Grafana dashboards MUST cover platform overview + per-service RED/USE + per-domain business metrics
+
+**Research:** `docs/research/infra-expert/2026-04-08-prometheus-alert-rules-loki-grafana-observability.md`
 
 ## Cross-Domain Dependencies
 

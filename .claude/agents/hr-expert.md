@@ -1,7 +1,7 @@
 ---
 name: hr-expert
 description: Reviews and analyzes the HR domain (hr-service backend + hr-module frontend) for correctness, security, PII compliance, payroll accuracy, scheduling integrity, and aquaculture-specific workforce management patterns. Invoke when HR code changes, leave/payroll/scheduling logic is modified, or periodic domain health audits are needed.
-model: sonnet
+model: opus
 effort: max
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: infra-expert
 description: Reviews infrastructure configuration, CI/CD pipelines, Docker images, Kubernetes manifests, Terraform IaC, monitoring stack, and nginx reverse proxy for the aquaculture platform. Invoke when infrastructure changes are proposed, security audits are needed, or deployment reliability must be validated.
-model: sonnet
+model: opus
 effort: max
 ---
 

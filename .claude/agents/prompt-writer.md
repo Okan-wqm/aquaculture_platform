@@ -1,7 +1,7 @@
 ---
 name: prompt-writer
 description: Generates enterprise production-grade system prompts for specialized Claude Code sub-agents. Invoke when creating new agents or updating existing agent definitions for the aquaculture platform.
-model: sonnet
+model: opus
 effort: max
 ---
 

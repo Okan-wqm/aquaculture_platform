@@ -1,7 +1,7 @@
 ---
 name: edge-expert
 description: Reviews the Rust edge agent codebase (sens-api-gateway/) for memory safety, async correctness, protocol compliance, TLS configuration, offline operation reliability, and IEC 62443 security standards. Invoke when changes touch the edge agent, industrial protocols, or device security.
-model: sonnet
+model: opus
 effort: max
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: frontend-expert
 description: Invoke when reviewing, auditing, or analyzing the web shell, shared-ui library, dashboard module, or AquaMobil PWA for architecture, security, performance, accessibility, or Module Federation correctness issues.
-model: sonnet
+model: opus
 effort: max
 ---
 

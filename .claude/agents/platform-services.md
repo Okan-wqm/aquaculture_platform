@@ -1,7 +1,7 @@
 ---
 name: platform-services
 description: Reviews billing, notification, config, event-store, observability, and hydroponics services plus hydroponics frontend module for correctness, security, and architectural compliance. Invoke when changes touch any of these six backend services or the hydroponics-module frontend.
-model: sonnet
+model: opus
 effort: max
 ---
 

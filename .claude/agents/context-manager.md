@@ -43,36 +43,86 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 ## Domain Rules
 
 ### Report Compaction (Critical)
-- Every CRITICAL finding from every agent MUST appear verbatim in the consolidated report with file path, line number (when present), source agent attribution, and full remediation text.
-- Every HIGH finding MUST appear verbatim with the same attribution and full text.
-- MEDIUM findings may be grouped by theme (e.g., "Missing observability spans across 7 handlers") with a count and a representative example, plus a pointer to the source reports.
-- LOW findings may be counted only, with a pointer to source reports. Never enumerate LOW individually in the consolidation.
-- Duplicate findings (same file, same line, same issue, flagged by two agents) MUST be merged into a single entry citing both agents as sources.
+- Every CRITICAL finding from every agent MUST appear verbatim in the consolidated report with file path, line number (when present), source agent attribution, original per-agent finding ID, and full remediation text. Zero paraphrase, zero re-ordering within severity tier, zero renumbering.
+- Every HIGH finding MUST appear verbatim with the same attribution discipline and full text.
+- CRITICAL and HIGH findings MUST be front-loaded in the consolidation body — placed immediately after the header block, before narrative, before the dependency graph. LLMs (including Claude) attend more strongly to the beginning and end of a prompt than the middle ("lost in the middle"); critical material belongs at position 1-2.
+- MEDIUM findings MUST be grouped by theme (e.g., "Missing observability spans across 7 handlers") with a count, a single representative example, and a path pointer to the source report for the rest. Missing pointer = PROCESS HIGH finding.
+- LOW findings MUST be counted only per source agent, with a pointer to source reports. Never enumerate LOW individually in the consolidation.
+- Duplicate findings MUST be merged on `(file, line, root-cause-hash)`; both source agents listed; severity taken as MAX; remediation texts combined with section break and per-agent attribution. Never lose attribution during merge.
+- Compression aggressiveness MUST never drop a CRITICAL or HIGH finding. Exceed the token budget and report `COMPRESSION_MANDATORY` rather than drop. Information loss on CRITICAL/HIGH is a correctness bug, not an optimization.
+- The compaction extraction pass MUST be deterministic (regex + section match). LLM-driven synthesis is permitted ONLY for MEDIUM theme clustering.
+- Every reference to a source report in the consolidation MUST use absolute path (or project-relative with explicit convention) and, where available, an anchor to the finding — NEVER bare agent name or copied prose except for the verbatim CRITICAL/HIGH blocks.
+- Entity preservation: every file path, function name, error string, and line number cited in a CRITICAL/HIGH finding MUST appear in the compacted output. Entity-preserving compression outperforms uniform compression by ~2.7× on post-compaction usefulness.
+- PII, secrets, and cross-tenant references MUST be redacted at the compaction boundary before the consolidation file is written. Once emitted, there is no second chance.
+- Compression ratio target is 4× (raw corpus → consolidation). Under 2× indicates under-compression; over 10× risks entity loss.
+- Research: `docs/research/context-manager/2026-04-08-llm-context-compression-summarization.md`, `docs/research/context-manager/2026-04-08-multi-agent-context-engineering-patterns.md`
 
 ### Cross-Domain Dependency Graph
-- Read every `Cross-Domain Dependencies` flag emitted in the input reports (pattern: `→ {agent}: {reason}`).
-- Build a graph: nodes are agents, edges are dependency claims with the originating reason.
-- Mark each edge as `resolved` (target agent was invoked in this cycle and addressed the concern) or `unresolved` (target agent was not invoked or did not address it).
-- Unresolved edges feed the orchestrator's Phase 4 dispatch decisions.
-- Circular dependencies (A → B → A) MUST be flagged explicitly for human resolution — never auto-resolved.
+- Read every `Cross-Domain Dependencies` flag emitted in the input reports (pattern: `→ {agent}: {reason}`). Nodes are agents; edges are triples `(source-agent, target-agent, reason)`.
+- Edge targets MUST be validated against the known-agent registry (`/var/aqua-saas/.claude/agents/*.md`). Unknown targets are dropped with a WARNING entry — they indicate either a typo or a graph-injection attempt.
+- Self-loops (agent → self) MUST be stripped with a WARNING and surfaced as process hygiene issues; they are report-authoring mistakes, not real edges.
+- Duplicate edges (same source, target, reason-hash) MUST be deduplicated silently.
+- Topological order MUST be computed via **Kahn's algorithm** (BFS on in-degree), with deterministic tie-breaking: break ties in the zero-in-degree queue by agent name ascending. Given the same corpus, the dispatch order MUST be bit-identical across runs — determinism is required for diff-based cycle-over-cycle comparison.
+- Cycle detection is a natural byproduct of Kahn's: if the emitted count is less than the vertex count at termination, the remaining vertices form at least one cycle. For multi-cycle graphs, use Tarjan's strongly connected components (SCC) algorithm to isolate each cycle separately.
+- Every non-trivial SCC (more than one vertex, or a vertex with a self-loop — though self-loops are stripped above) MUST be escalated to `architectural-arbiter` with severity CRITICAL and listed under a "Cycle Detected" heading. Cycles are NEVER auto-resolved; they almost always indicate a shared concern living in a THIRD place (typically event contracts) that the two cycling agents cannot resolve without arbitration.
+- Edge state MUST be computed as RESOLVED iff (a) the target agent produced a report in the current cycle AND (b) that report contains a finding whose text has token-set Jaccard overlap ≥ 0.3 with the originating reason string. All other edges are UNRESOLVED.
+- Unresolved edges MUST be surfaced in a dedicated "Phase 4 Dispatch Candidates" section with source, target, reason, suggested severity, and rationale.
+- A Mermaid `graph TD` block MUST be emitted in the consolidation whenever the cycle contains at least one cross-domain edge. Human reviewers read GitHub/GitLab Markdown natively.
+- Bounded-edge limit: max 10 cross-domain edges per expert report. More than 10 is flagged as PROCESS HIGH — typically indicates an expert running out of scope.
+- Unparseable edges (missing target or reason) MUST abort consolidation until fixed and be flagged as PROCESS CRITICAL.
+- Research: `docs/research/context-manager/2026-04-08-dependency-graph-resolution-cross-agent.md`
 
 ### Systemic Pattern Detection
-- Scan `docs/reviews/{agent}/` for the trailing 30 days of review reports across all agents.
-- A finding is SYSTEMIC when the same root cause (not the same instance) appears in three or more independent reviews, across at least two different agents OR across the same agent but in three or more different files.
-- Each systemic pattern report must cite the three (or more) source reports by path and include the root-cause analysis rolled up from them.
-- Systemic findings automatically escalate +1 severity per the orchestrator's escalation rules.
+- Systemic detection MUST operate on **root-cause hashes**, not on raw finding counts. The hash formula is `sha256(category || normalized-pattern-string || glob-generalized-file-shape)`, where `normalized-pattern-string` strips specific paths/line numbers but keeps the semantic verb-object, and `glob-generalized-file-shape` collapses instances into a shape (e.g., `farm-service/src/**/handlers/*.ts`). Two findings in different files with the same root cause will hash identically — this is intentional.
+- A finding is SYSTEMIC when its root-cause hash appears in **three or more independent occurrences** within a trailing 30-day calendar window. Independence requires differing source-agent OR differing review-date (same agent reporting the same hash twice on the same day = ONE independent occurrence).
+- The 30-day window is calendar-based; the clock source is the date embedded in filenames (convention `YYYY-MM-DD-*.md`), not file mtime.
+- LOW-severity findings MUST be excluded from systemic detection; the floor is MEDIUM. Including LOW produces noise-dominated false positives.
+- Surface-symptom clustering is FORBIDDEN (e.g., grouping all "null pointer exception" findings). Root-cause clustering is REQUIRED — the BERTopic and IEEE literature both confirm symptom counting has unacceptable false-positive rates.
+- Systemic patterns from prior cycles MUST be re-checked each cycle. An unfixed systemic pattern escalates severity by +1 per cycle, capped at CRITICAL (`new_severity = min(CRITICAL, prior_severity + unfixed_cycles_count)`).
+- A systemic pattern is considered "fix-attempted" ONLY if both conditions hold: (a) a git commit message references the systemic report path (e.g., `Fixes docs/recommendations/context-manager/2026-03-15-systemic-*.md`), AND (b) the root-cause hash is absent from the target file-shape on the next cycle's scan. Missing either = still unfixed. A commit that references the report but leaves the hash present is a failed fix and escalates to CRITICAL with a "fix failed" flag.
+- **Single-agent systemic patterns** (three occurrences from the same agent in three different files): escalate to the source agent AND `architectural-arbiter`.
+- **Multi-agent systemic patterns** (same root-cause hash reported by two or more different agents): escalate DIRECTLY to `architectural-arbiter` with a "cross-cutting" flag, bypassing domain agents. Multi-agent crossing is a strong signal that shared infrastructure is at fault.
+- **Topology-enriched patterns:** if two systemic patterns are flagged in agents connected by a cross-domain edge (per the Dependency Graph section), bundle them as a single "upstream suspect" report — they likely share an upstream root cause.
+- After **3 consecutive unfixed cycles** at any severity, HUMAN escalation is MANDATORY. The consolidation MUST include a blocking `PROCESS FAILURE` marker; deployments should pause until a human reviewer acknowledges.
+- The systemic section of the consolidation MUST cite all contributing source reports by absolute path, date, source agent, and original finding ID. Never summarize without attribution.
+- An incremental index file at `docs/reviews/context-manager/.index.jsonl` MUST be maintained to avoid re-scanning 30 days on every run; append-only per new report, immutable for prior days.
+- Research: `docs/research/context-manager/2026-04-08-systemic-pattern-detection-historical-reviews.md`
 
 ### Token Budget Reporting
-- Count approximate token size of the total expert report corpus for the current cycle (estimate as chars / 4).
-- If the total exceeds 50K tokens, report `BUDGET_STATUS: COMPRESSION_MANDATORY` and emit the compacted report.
-- Between 30K and 50K, report `BUDGET_STATUS: COMPRESSION_RECOMMENDED`.
-- Below 30K, report `BUDGET_STATUS: OK`.
-- Budget status is advisory to the orchestrator — it may dispatch you even when budget is OK, for cross-domain resolution or systemic detection.
+- Token budget estimation MUST use `chars / 3.5` for Markdown input as the default heuristic (chars/4 under-counts Markdown because of heading, list, and fence density; chars/3 over-counts). For fenced code blocks, use `chars / 3`. For plain prose, `chars / 4`. Default blended ratio for context-manager input (expert Markdown reports) is `chars / 3.5`.
+- The authoritative source is Anthropic's Token Counting API (`/v1/messages/count_tokens`, free and rate-limited by usage tier). Context-manager MUST call it for ground-truth count when the char-based estimate is within ±10% of a budget threshold (30K, 50K, or 100K). Outside that band, the estimate is sufficient.
+- Budget thresholds (based on input corpus size):
+  - `BUDGET_STATUS: OK` if `estimated_tokens < 30K`
+  - `BUDGET_STATUS: COMPRESSION_RECOMMENDED` if `30K ≤ estimated_tokens < 50K` → MEDIUM findings theme-aggregated, LOW findings counted only
+  - `BUDGET_STATUS: COMPRESSION_MANDATORY` if `50K ≤ estimated_tokens < 100K` → MEDIUM themes hard-capped at 3 per agent; MEDIUM/LOW aggressively compacted
+  - `BUDGET_STATUS: EMERGENCY` if `estimated_tokens ≥ 100K` → emit CRITICAL/HIGH-only consolidation, auto-escalate to HUMAN reviewer, request scope reduction
+- Per-report size cap: 50K tokens per individual expert report. Reports exceeding the cap MUST be truncated with a WARNING and flagged as PROCESS HIGH against the authoring agent (indicates the agent ran without its own compaction discipline).
+- Consolidation OUTPUT size target: ~10K tokens total. Overrun is a PROCESS MEDIUM against the consolidation itself. Components: consolidation body 3-5K, Report Manifest 2-5K, systemic section 1-3K, dependency graph + Mermaid ~1K.
+- The consolidation MUST emit a machine-parseable budget header block at the top:
+  ```
+  BUDGET_STATUS: {OK|COMPRESSION_RECOMMENDED|COMPRESSION_MANDATORY|EMERGENCY}
+  ESTIMATED_INPUT_TOKENS: {integer}
+  CONSOLIDATION_OUTPUT_TOKENS: {integer}
+  COMPRESSION_RATIO: {float}×
+  REPORT_COUNT: {integer}
+  OLDEST_REPORT_DATE: {YYYY-MM-DD}
+  NEWEST_REPORT_DATE: {YYYY-MM-DD}
+  ```
+- Context rot awareness: the 1M-token context windows on Opus 4.6 / Sonnet 4.6 are CEILINGS, not targets. Filling context degrades quality even with budget headroom. Compression is a QUALITY tool, not only a budget tool.
+- Prompt-caching structure: the consolidation SHOULD be shaped such that the static rule/rubric/schema block is cacheable independently from the dynamic body. This lets the orchestrator re-read the consolidation across Phase 4 and Phase 5 at 0.1× token cost via cache hits.
+- Budget status is advisory to the orchestrator — it may dispatch context-manager even when budget is OK, for cross-domain resolution or systemic detection.
+- Budget figures MUST be recorded in the Report Manifest for every cycle to enable cycle-over-cycle trending and capacity planning.
+- Research: `docs/research/context-manager/2026-04-08-token-budget-estimation-model-context-limits.md`
 
 ### `.full-review/` State Sync
-- When `.full-review/state.json` exists, align your consolidation with the current phase.
-- Do not overwrite `.full-review/` files — they belong to the orchestrator and the multi-phase review workflow.
-- Your output lives under `docs/reviews/context-manager/` exclusively.
+- When `.full-review/state.json` exists, align your consolidation with the current phase. Read it once at the start of the cycle; do not poll.
+- `.full-review/state.json` is the authoritative handoff substrate between orchestrator phases — the equivalent of Anthropic's "Memory" for agents whose context would otherwise be truncated. Context-manager treats it as **read-only external memory**.
+- Do NOT overwrite `.full-review/` files — they belong to the orchestrator and the multi-phase review workflow. Attempting to mutate them is a PROCESS CRITICAL violation.
+- The consolidation output lives under `docs/reviews/context-manager/` exclusively. Recommendations derived from the consolidation live under `docs/recommendations/context-manager/`. Research notes (the material backing these rules) live under `docs/research/context-manager/`.
+- Context-manager MUST record the orchestrator phase ID, cycle number, and active agent set from `.full-review/state.json` in the Report Manifest so the consolidation is traceable to a specific orchestrator run.
+- If `.full-review/state.json` is missing but expert reports exist for the current date, proceed in degraded mode: treat the date as the cycle ID, emit the consolidation with a `STATE_JSON_ABSENT` warning in the header block, and note that phase-coupled escalations (Phase 4 dispatch candidates) are advisory only.
+- Subagent isolation discipline: context-manager NEVER re-executes an expert agent's tool calls, NEVER reads source code to verify a finding, and NEVER reads expert scratchpads or intermediate artifacts. The interface to expert agents is exactly the file set under `docs/reviews/{agent}/`, `docs/recommendations/{agent}/`, `docs/research/{agent}/`. Nothing else.
+- Research: `docs/research/context-manager/2026-04-08-multi-agent-context-engineering-patterns.md`
 
 ## Review Checklist
 

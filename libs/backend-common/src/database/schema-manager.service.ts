@@ -20,6 +20,46 @@ export interface ModuleSchema {
   sourceSchema: string;
   /** Tables containing reference/lookup data to copy into new tenant schemas */
   referenceDataTables?: string[];
+  /**
+   * Tables that legitimately live in the source schema but are NOT
+   * per-tenant copied. These are service-infrastructure tables:
+   * TypeORM's `migrations` bookkeeping, the service's outbox table,
+   * any runtime bootstrap tracking tables. They are excluded from
+   * `tables` (which drives `CREATE TABLE LIKE`-based tenant
+   * provisioning) because copying them per-tenant is nonsensical —
+   * each service owns one shared outbox, one migrations ledger, etc.
+   *
+   * Used by `SourceSchemaBootstrapService.dropOrphanTables()` as part
+   * of the legitimate-tables set when `strictOwnership` is enabled:
+   * a table present in the source schema is an orphan only if it is
+   * NOT in `tables`, NOT in `referenceDataTables`, and NOT in
+   * `infrastructureTables`.
+   */
+  infrastructureTables?: string[];
+  /**
+   * When `true`, `SourceSchemaBootstrapService` enforces that the
+   * source schema contains ONLY tables declared by this module entry
+   * (`tables` ∪ `referenceDataTables` ∪ `infrastructureTables`).
+   * Any other table found in the schema is an orphan and gets
+   * `DROP TABLE … CASCADE`ed on every startup. This closes the
+   * cross-module contamination failure mode observed on 2026-04-07/08
+   * in farm-service: the farm source schema had accumulated four
+   * tables owned by OTHER services (`audit_logs`, `user_consents`,
+   * `gdpr_data_requests` from backend-common, `employees` from hr)
+   * via a historical transitive-import path that's since been
+   * removed. The tables persisted on disk after the import was
+   * removed, polluting the farm RLS discovery query and crashing the
+   * RLS migration with `operator does not exist: character varying = uuid`
+   * because those foreign entities declared `tenantId` as varchar(255).
+   *
+   * Defaults to `false` (lenient — existing services' behaviour is
+   * unchanged). Enabling it on a module is an ARCHITECTURAL DECISION:
+   * it makes this list the single authoritative source of truth for
+   * the module's schema surface, and requires whoever adds a new
+   * entity to also add its table name to this list or the deploy
+   * will DROP the newly-created table.
+   */
+  strictOwnership?: boolean;
 }
 
 /**
@@ -100,6 +140,33 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'farm',
     sourceSchema: 'farm', // Tables are in farm schema, will be copied to tenant schema
+    // ── Phase 14: strict ownership ────────────────────────────────────
+    // Farm was the first module to hit cross-module contamination in
+    // its source schema (historical transitive imports of
+    // backend-common's AuditLogEntity / UserConsent / GdprDataRequest
+    // and hr's Employee entity had synchronized their tables into
+    // `farm.*` on old deploys, and the tables persisted on disk after
+    // those imports were removed). Enabling strictOwnership makes
+    // SourceSchemaBootstrapService DROP any table in the farm schema
+    // that isn't declared below as owned by the farm module, on every
+    // startup. This is the architectural fix for the "orphan table"
+    // failure mode — see source-schema-bootstrap.service.ts for the
+    // enforcement logic and the 2026-04-08 incident notes behind it.
+    strictOwnership: true,
+    // Infrastructure tables that live in farm schema but are NOT
+    // per-tenant copied. The `tables` array drives tenant provisioning
+    // via CREATE TABLE LIKE INCLUDING ALL, and these must be excluded:
+    //   - `migrations`        — TypeORM's migration metadata ledger.
+    //   - `farm_outbox`       — Phase D transactional outbox pattern.
+    //                           Shared across tenants, partitioned
+    //                           internally by tenantId; never copied.
+    // If the service ever adds another runtime-only infrastructure
+    // table (bootstrap tracking, rate-limit counters, etc.), add it
+    // here so the strict-ownership enforcement doesn't drop it.
+    infrastructureTables: [
+      'migrations',
+      'farm_outbox',
+    ],
     // Reference tables are exempt from SourceSchemaWriteGuardService so that
     // seed services (FarmSeedService) can write global/template rows that
     // subsequently get copied into each tenant schema on provisioning via

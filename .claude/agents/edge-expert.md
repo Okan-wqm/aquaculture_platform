@@ -39,18 +39,28 @@ Use standard severity levels: CRITICAL (security/memory safety — blocks deploy
 ## Domain Rules
 
 ### Rust Memory Safety (Critical)
-- `unsafe` blocks require explicit justification comment and audit
-- No `unwrap()` on user-controlled input or I/O results — use `?` or explicit error handling
-- Bounded collections (`bounded.rs`) must be used for all buffers receiving external data
-- String interning (`interning.rs`) for memory efficiency on repeated topic/tag strings
-- No `Box::leak` or `mem::forget` without documented justification
+- `unsafe` blocks require explicit `// SAFETY:` comment (std-dev-guide policy) stating which invariants are upheld; missing comment is a CRITICAL finding
+- Crate root MUST carry a lint wall: `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing, clippy::unreachable, unsafe_op_in_unsafe_fn)]` with `#[cfg_attr(test, allow(...))]` for test modules
+- No `unwrap()` / `expect()` on I/O, deserialization, config parse, MQTT events, Modbus responses, or user-controlled input; `unwrap_or`/`unwrap_or_else`/`unwrap_or_default` are permitted
+- Bounded collections (`bounded.rs`) and `tokio::sync::mpsc::channel(capacity)` on all external-input paths; `unbounded_channel` FORBIDDEN on attacker-reachable paths
+- String interning (`interning.rs`, lasso) only for bounded-cardinality domains; interning MQTT topics from untrusted publishers is FORBIDDEN (memory-exhaustion primitive)
+- `Box::leak` and `mem::forget` require a `// WHY-LEAK:` comment naming the external owner; `ManuallyDrop` is the preferred primitive for FFI ownership transfer (prevents double-free; `mem::forget` does not)
+- All credential-bearing structs use `zeroize::Zeroize` / `ZeroizeOnDrop`; `mem::forget` on a secret is CRITICAL
+- `Cargo.toml` release profile: `panic = "abort"` paired with systemd `Restart=always` and boot-time safe-state
+- Research: `/var/aqua-saas/docs/research/edge-expert/2026-04-08-rust-memory-safety-unsafe-unwrap.md`
 
 ### Async Correctness (Critical)
-- No blocking I/O in async context — use `tokio::task::spawn_blocking` for sync operations
-- Tokio runtime configuration must match workload (multi-thread for I/O, current-thread for constrained devices)
-- All `async fn` must be cancellation-safe — no state corruption on `.await` cancellation
-- `shutdown.rs` uses broadcast channel for coordinated graceful shutdown — all tasks must respect shutdown signal
-- Mutex usage: prefer `tokio::sync::Mutex` for async contexts, `std::sync::Mutex` only for short synchronous sections
+- Every `tokio::select!` branch must resolve a future that is on the documented cancel-safe list (tokio.rs / docs.rs), OR the future must be wrapped in `tokio::spawn` and the branch awaits the `JoinHandle`. Raw `mpsc::Sender::send`, `AsyncReadExt::read_exact`/`read_to_end`/`read_line`, and hand-written multi-step state machines inside a `select!` branch are FORBIDDEN
+- `mpsc::Sender::send` inside `select!` is FORBIDDEN — use `Sender::reserve()` → `Permit::send()` to split the awaitable wait from the infallible send and preserve queue position
+- **Default to `std::sync::Mutex`** for short, non-async critical sections; `tokio::sync::Mutex` is only permitted with a comment proving the guard must cross an `.await`. `clippy::await_holding_lock` set to `deny` in CI
+- No blocking I/O in async context: `tokio::task::spawn_blocking` for *bounded* sync work (SQLCipher queries, gzip backup, rppal register reads, crypto/KDF); long-lived hardware poll loops use `std::thread::spawn` + mpsc bridge — NOT `spawn_blocking` (tokio.rs: "long-lived tasks reduce pool capacity")
+- `spawn_blocking` tasks cannot be aborted — runtime shutdown waits indefinitely; pair callsites with a `Semaphore` and configure `RuntimeBuilder::max_blocking_threads()` explicitly (512 default is DoS-hostile)
+- `block_in_place` is FORBIDDEN on `current_thread`; DISCOURAGED on `multi_thread` — justify in comments
+- Runtime configuration matches workload: `multi_thread` for I/O-heavy gateways; `current_thread` + `LocalSet` for constrained RPi Zero / RevPi Compact targets. Tight compute loops inside `async fn` must call `tokio::task::yield_now()` or move to `spawn_blocking` to avoid cooperative-yield starvation
+- `shutdown.rs` uses `tokio_util::sync::CancellationToken` + `tokio_util::task::TaskTracker` (or `JoinSet`); ad-hoc `AtomicBool` shutdown flags FORBIDDEN
+- Shutdown stages MUST execute in order: (1) stop new intake, (2) scripting safe-state (all outputs to configured fail-safe values per IEC 61131-3), (3) offline queue flush + fsync, (4) MQTT drain (respect QoS 1/2 in-flight), (5) Modbus disconnect, (6) `runtime.shutdown_timeout()`. Any reordering is a CRITICAL finding
+- Every `JoinHandle` / `JoinSet::join_next` must inspect `JoinError::is_panic()` and propagate to telemetry; silently ignored panics FORBIDDEN
+- Research: `/var/aqua-saas/docs/research/edge-expert/2026-04-08-rust-tokio-async-cancellation-safety.md`
 
 ### TLS Configuration (Critical)
 - MQTT connections MUST use TLS in production (rumqttc TLS options)

@@ -181,6 +181,7 @@ Use standard severity levels: CRITICAL (tenant isolation hole, data corruption r
 - RLS policy changes → `auth-security-expert` (RLS bypass is a security concern)
 - Tenant isolation holes → `security-reviewer` (CRITICAL quality gate)
 - Backup/replication / PostgreSQL tuning → `infra-expert`
+- Cross-cutting SaaS tenancy (lifecycle, plan gating, per-tenant quota, portability) → `multi-tenant-saas-expert`. database-reviewer remains primary owner of schema-state tenancy properties (RLS enforcement, BYPASSRLS discipline, schema regex compliance); multi-tenant-saas-expert owns the SaaS-level concerns.
 - Cross-agent recommendation conflicts → `architectural-arbiter`
 - Multi-agent audit coordination → `context-manager`
 

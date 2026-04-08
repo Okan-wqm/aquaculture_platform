@@ -191,6 +191,7 @@ For all other tenant-isolation concerns → delegate to `multi-tenant-saas-exper
 - Event contract changes → data-expert
 - Gateway federation composition → frontend-expert
 - Partitioned table design / schema state / index coverage → database-reviewer
+- Cross-cutting SaaS tenancy (channel-tenant binding, plan gating for AI features, per-tenant cost cap) → multi-tenant-saas-expert
 - Cross-agent recommendation conflicts (messaging fix breaks auth/AI contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

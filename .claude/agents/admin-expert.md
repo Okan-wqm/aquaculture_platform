@@ -167,6 +167,7 @@ The `web/modules/admin-panel/` (SUPER_ADMIN) and `web/modules/tenant-admin/` (TE
 - Security monitoring data → auth-security-expert (security events)
 - Impersonation audit → security-reviewer (security quality gate)
 - Schema state / cross-tenant table design concerns → database-reviewer
+- Cross-cutting SaaS tenancy architecture (lifecycle saga internals, plan gating, per-tenant quota, impersonation patterns) → multi-tenant-saas-expert (admin-expert covers admin UI surface, multi-tenant-saas-expert owns the architectural patterns themselves)
 - Cross-agent recommendation conflicts (admin fix breaks auth/billing contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

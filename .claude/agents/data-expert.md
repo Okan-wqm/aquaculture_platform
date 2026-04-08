@@ -394,6 +394,7 @@ This agent coordinates with ALL domain experts since it owns the cross-cutting d
 - Migration safety → infra-expert for deployment sequencing
 - Watchdog findings → security-reviewer for isolation verification
 - Schema state health (cross-service naming, index coverage, normalization, row-level integrity) → database-reviewer. **data-expert is primary for migration/delta review; database-reviewer is primary for schema-state audit.**
+- Cross-cutting SaaS tenancy (lifecycle, plan gating, per-tenant quota, portability) → multi-tenant-saas-expert. data-expert remains primary owner of DB-level multi-tenant infrastructure (schema-per-tenant, RLS, search_path, NATS routing); multi-tenant-saas-expert owns the higher-level SaaS concerns.
 - Cross-agent recommendation conflicts (data-expert suggestion breaks a domain contract) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

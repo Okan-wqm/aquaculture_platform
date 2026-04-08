@@ -88,13 +88,13 @@ Before writing or updating any agent definition, conduct **deep targeted researc
 docs/research/{agent-name}/{YYYY-MM-DD}-{topic-slug}.md
 ```
 
-`{topic-slug}` is a short kebab-case label for the SINGLE topic the file covers. One topic per file. Examples:
-- `docs/research/farm-expert/2026-04-08-nestjs-cqrs-production-patterns.md`
-- `docs/research/farm-expert/2026-04-08-postgresql-search-path-pitfalls.md`
-- `docs/research/farm-expert/2026-04-08-timescaledb-hypertable-optimization.md`
-- `docs/research/farm-expert/2026-04-08-aquaculture-batch-lifecycle.md`
-- `docs/research/sensor-expert/2026-04-08-mqtt-broker-failover-patterns.md`
-- `docs/research/sensor-expert/2026-04-08-iec-61131-3-st-language-safety.md`
+`{topic-slug}` is a short kebab-case label for the SINGLE topic the file covers. One topic per file. Examples (real files in this repo):
+- `docs/research/farm-expert/2026-04-08-nestjs-cqrs-transactional-outbox.md`
+- `docs/research/farm-expert/2026-04-08-postgresql-search-path-pooler-pitfalls.md`
+- `docs/research/sensor-expert/2026-04-08-timescaledb-hypertable-continuous-aggregates.md`
+- `docs/research/farm-expert/2026-04-08-aquaculture-ras-batch-lifecycle.md`
+- `docs/research/sensor-expert/2026-04-08-mqtt-tls-mosquitto-pbkdf2.md`
+- `docs/research/sensor-expert/2026-04-08-iec-61131-3-structured-text-safety.md`
 
 ### Research file structure
 Every research file must contain:

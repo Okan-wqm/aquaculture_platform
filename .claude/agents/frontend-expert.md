@@ -236,6 +236,7 @@ The shell MUST serve a strict Content Security Policy in production. React 18 do
 - Dashboard widgets consuming farm/sensor data → farm-expert, sensor-expert
 - Shell routing changes → all MFE modules
 - IndexedDB / offline-queue schema state concerns → database-reviewer
+- Backend tenant isolation / lifecycle / plan gating / quota concerns → multi-tenant-saas-expert
 - Cross-agent recommendation conflicts (frontend fix breaks API client / auth contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

@@ -203,6 +203,7 @@ For plan tier gating, per-tenant quota/metering, and billing-usage attribution t
 - Event store consumed by all event-sourced services → data-expert
 - Observability alerts → infra-expert (alert routing), security-reviewer (security events)
 - Billing / event store / config schema state and index coverage → database-reviewer
+- Cross-cutting SaaS tenancy (plan tier enforcement, per-tenant billing coupling, per-tenant quota, observability cost attribution) → multi-tenant-saas-expert. platform-services owns the billing/notification/config/event-store services themselves; multi-tenant-saas-expert owns the SaaS-level patterns those services implement.
 - Cross-agent recommendation conflicts (platform-services fix breaks consumer contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

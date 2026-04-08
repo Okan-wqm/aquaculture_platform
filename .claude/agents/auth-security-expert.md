@@ -198,6 +198,7 @@ StripInternalHeadersMiddleware (remove x-user-payload from external requests)
 - Security events → platform-services (observability), security-reviewer
 - Rate limiting changes → infra-expert (nginx rate limiting coordination)
 - Auth entity schema state / user table column design / index coverage → database-reviewer
+- SaaS tenant lifecycle, plan gating, per-tenant quota (non-auth-pipeline surface) → multi-tenant-saas-expert
 - Cross-agent recommendation conflicts (security fix breaks domain contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

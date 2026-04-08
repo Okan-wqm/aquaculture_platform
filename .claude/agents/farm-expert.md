@@ -150,6 +150,7 @@ When farm changes require updates in other domains, flag explicitly:
 - Edge device integration → edge-expert
 - Sentinel Hub proxy endpoints → auth-security-expert (gateway routing)
 - Schema state / table-column / index design concerns → database-reviewer
+- Cross-cutting SaaS tenancy (isolation patterns, lifecycle, plan gating, per-tenant quota, impersonation, portability) → multi-tenant-saas-expert
 - Cross-agent recommendation conflicts (farm fix breaks sensor contract, etc.) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

@@ -152,6 +152,7 @@ Target security capability is **SL 2 minimum** per ISASecure guidance for shippe
 - Edge device lifecycle events consumed by admin-panel → admin-expert
 - IEC 62443 compliance audit → security-reviewer
 - SQLite offline queue / SQLCipher schema state concerns → database-reviewer
+- Cross-cutting SaaS tenancy (per-tenant edge device fleet, plan gating for edge features) → multi-tenant-saas-expert (edge-expert owns the Rust agent itself; multi-tenant-saas-expert owns the SaaS-level patterns that scope it)
 - Cross-agent recommendation conflicts (edge fix breaks sensor protocol contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

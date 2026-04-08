@@ -143,6 +143,7 @@ For all other tenant-isolation concerns → delegate to `multi-tenant-saas-exper
 - Sensor event contract changes → data-expert
 - MQTT/SCADA security concerns → security-reviewer
 - Schema state / table-column / index design concerns → database-reviewer
+- Cross-cutting SaaS tenancy (isolation patterns, lifecycle, plan gating, per-tenant quota, impersonation) → multi-tenant-saas-expert
 - Cross-agent recommendation conflicts (sensor fix breaks farm/edge contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

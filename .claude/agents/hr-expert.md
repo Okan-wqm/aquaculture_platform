@@ -187,6 +187,7 @@ Research: `docs/research/hr-expert/2026-04-08-cqrs-audit-log-interceptor-payroll
 - Auth/role changes for HR users → auth-security-expert
 - Entity migrations → data-expert
 - Schema state / table-column / PII column design concerns → database-reviewer
+- Cross-cutting SaaS tenancy (PII tenant isolation patterns, plan gating, per-tenant quota, lifecycle) → multi-tenant-saas-expert
 - Cross-agent recommendation conflicts (HR fix breaks auth/admin contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 

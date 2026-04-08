@@ -52,12 +52,18 @@ Use standard severity levels: CRITICAL (tenant isolation hole, data corruption r
 - Never recommend writing migrations directly — that is a code action, and all agents are reviewers.
 
 ### Column Type Discipline (Critical)
-- Monetary / decimal / precision columns MUST use `DECIMAL(p,s)` with explicit precision, NEVER `FLOAT` / `REAL` / `DOUBLE PRECISION` / `NUMERIC` without scale. Floating-point money = CRITICAL.
-- Identifiers: UUID (`uuid` type with `uuid_generate_v4()` or `gen_random_uuid()` default) over `SERIAL` / `BIGSERIAL` for cross-service references. SERIAL leaks row counts and complicates cross-schema joins.
-- Timestamps: `TIMESTAMPTZ` (timestamp with time zone) always, never `TIMESTAMP` without timezone. Raw `TIMESTAMP` = CRITICAL for audit/compliance columns.
-- Text: `TEXT` for unbounded content, `VARCHAR(n)` only when n is a hard business limit. Never `VARCHAR(255)` as a default — it is arbitrary and misleading.
-- PII (email, phone, SSN, bank): columns must be encrypted at rest OR marked for `pgcrypto` usage. Plain `TEXT` for SSN / bank account = CRITICAL.
-- JSONB over JSON. Raw `JSON` = MEDIUM (no indexing support).
+- Monetary / precision columns (money, weight, pH, DO, temperature, dosing) MUST use `NUMERIC(p,s)` with EXPLICIT precision AND scale. `FLOAT` / `REAL` / `DOUBLE PRECISION` / bare `NUMERIC` / PostgreSQL `money` type on any such column = CRITICAL. The floating-point rounding drift accumulates silently across a year of transactions and corrupts financial reconciliation and compliance reporting.
+- PostgreSQL `money` type is BANNED — locale-dependent (mutates silently on `lc_monetary` change), no sub-cent precision, ambiguous rounding. Any occurrence = HIGH, recommend migration to `NUMERIC(p,s)` or integer cents + explicit currency column.
+- Integer cents (`BIGINT`) + separate `currency` column is an acceptable alternative to `NUMERIC(p,s)` when sub-cent precision is not required and the currency is fixed per table. Mixing both patterns within the same domain = MEDIUM (schema debt).
+- Timestamps: `TIMESTAMPTZ` always, never `TIMESTAMP WITHOUT TIME ZONE`. Both are 8 bytes, so the "size" argument is void. `TIMESTAMP` on audit / compliance columns = CRITICAL (audit trail ambiguity across multi-timezone fleet, regulatory non-conformance). `TIMESTAMP` arithmetic silently breaks across DST.
+- Identifiers: UUID (`gen_random_uuid()` default, PostgreSQL 13+) over `SERIAL` / `BIGSERIAL` for any column that is referenced across services (event contracts, federated GraphQL, cross-schema joins). `SERIAL` on a cross-service identifier = HIGH (sequences are database-local, leak row counts, cannot survive sharding).
+- Random UUIDv4 on write-heavy hot tables causes B-tree bloat and cache churn. UUIDv7 (time-ordered) preserves temporal locality — prefer it when cross-service identity is required and write volume is high. Pure intra-service PKs can use `GENERATED ALWAYS AS IDENTITY` instead of `SERIAL` (modern, SQL-standard).
+- Text: `TEXT` is the default for unbounded user content. `VARCHAR(n)` is only valid when `n` is an externally-defined hard limit (ISO 3166 country code, E.164 phone, IBAN, ISBN). `VARCHAR(255)` or other arbitrary caps = MEDIUM (schema debt, rejects legitimate data, forces widening migrations). PostgreSQL has NO performance advantage for `VARCHAR(n)` over `TEXT` — they share storage and TOAST behavior.
+- `CHAR(n)` is BANNED except for genuinely fixed-width encoded data (country code, language code). PostgreSQL `CHAR(n)` pads with spaces and is SLOWER than `VARCHAR` / `TEXT` due to padding overhead.
+- PII discipline: columns storing SSN, national ID, passport, bank account, genetic data, or health records MUST be encrypted using `pgcrypto` (`pgp_sym_encrypt` or AES) or client-side encryption with keys outside the database. Plain `TEXT` for any of these = CRITICAL (GDPR Article 32, HIPAA, PCI DSS violation on backup theft).
+- PII columns that need equality lookup MUST use a companion HMAC / deterministic hash column with a unique index on the hash, never an index on the ciphertext directly. Lookup on ciphertext = HIGH (full scan).
+- Encryption keys for `pgcrypto` MUST live in AWS Secrets Manager / Google Secret Manager / HashiCorp Vault, not in application environment variables. Key in same process memory as decrypted values with no rotation = HIGH.
+- JSONB over JSON. `JSON` column = MEDIUM — no GIN index support, re-parses on every access. Recommend migration to `JSONB`.
 
 ### Index Coverage (Critical)
 - Every foreign key column MUST have an index (PostgreSQL does not auto-index FKs). Missing FK index on a high-traffic table = HIGH.

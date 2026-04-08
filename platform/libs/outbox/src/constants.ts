@@ -43,6 +43,38 @@ export const OUTBOX_LAST_ERROR_MAX_LENGTH = 2000;
 export const OUTBOX_LEASE_DURATION_MS = 5 * 60 * 1000;
 
 /**
+ * Debounce window applied to incoming `pg_notify` wake signals before
+ * the listener invokes `pollAndPublish()`. A high-write burst (e.g.
+ * 100 rows inserted in <100ms) produces 100 NOTIFY events; the listener
+ * collapses them into a single worker cycle so the outbox does not
+ * trash CPU or DB round-trips on a per-insert basis.
+ *
+ * 100ms is short enough that the user-observable latency penalty is
+ * invisible (median NATS publish is already 5-30ms) and long enough
+ * to absorb realistic handler bursts.
+ */
+export const OUTBOX_NOTIFY_DEBOUNCE_MS = 100;
+
+/**
+ * Initial backoff used by the LISTEN client when its dedicated pg
+ * connection drops (network blip, PG restart, etc.). The listener
+ * doubles the delay on each failed reconnect attempt up to
+ * `OUTBOX_NOTIFY_RECONNECT_MAX_MS`. The cron safety net in the worker
+ * continues to drain the outbox at a slower cadence during any
+ * reconnect window, so event delivery is never stalled — only the
+ * near-real-time latency is temporarily degraded.
+ */
+export const OUTBOX_NOTIFY_RECONNECT_INITIAL_MS = 1000;
+
+/**
+ * Upper bound on the LISTEN client reconnect backoff. Once this value
+ * is reached, subsequent retries repeat at the same cadence instead
+ * of growing unbounded. 30 seconds is the standard "patient but not
+ * forgotten" setting used across the platform's reconnect loops.
+ */
+export const OUTBOX_NOTIFY_RECONNECT_MAX_MS = 30_000;
+
+/**
  * Maximum number of concurrent NATS publishes per worker per poll cycle.
  *
  * # Sizing rationale

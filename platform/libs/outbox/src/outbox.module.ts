@@ -5,6 +5,7 @@ import { OutboxEntityBase } from './outbox-entity.base';
 import { OutboxPublisher } from './outbox-publisher.service';
 import { OutboxWorkerService } from './outbox-worker.service';
 import { OutboxMetricsService } from './outbox-metrics.service';
+import { OutboxNotifyListener } from './outbox-notify-listener.service';
 import { OUTBOX_ENTITY_CLASS } from './constants';
 
 /**
@@ -54,6 +55,12 @@ export class OutboxModule {
         OutboxMetricsService,
         OutboxPublisher,
         OutboxWorkerService,
+        // P-C1: Long-lived pg.Client LISTEN session that wakes the
+        // worker immediately on every new outbox row. Drops median
+        // publish latency from ~500ms (cron cadence) to ~5ms. The
+        // worker's cron safety net runs in parallel at a slower
+        // cadence so no event is lost if the listener session drops.
+        OutboxNotifyListener,
       ],
       exports: [OutboxPublisher, OutboxMetricsService],
     };

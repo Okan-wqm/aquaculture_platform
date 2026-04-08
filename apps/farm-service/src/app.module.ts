@@ -145,6 +145,12 @@ import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrat
 // every replica to publish every event, relying on NATS dedup to
 // absorb the duplicates.
 import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/1782000000000-AddFarmOutboxLeaseColumns';
+// P-C1 fix: AFTER INSERT trigger on farm_outbox that fires
+// pg_notify('farm_outbox_notify', ''), paired with the shared
+// OutboxNotifyListener to wake the worker immediately on every new
+// row. Drops median enqueue-to-publish latency from ~500ms (cron
+// cadence) to ~5ms.
+import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
 
 @Module({
   imports: [
@@ -211,6 +217,8 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
           ConvertFarmOutboxToIdentity1781200000000,
           AddTenantActivePartialIndexes1781800000000,
           ConvertAuditColumnsToTimestamptz1781900000000,
+          AddFarmOutboxLeaseColumns1782000000000,
+          AddFarmOutboxNotifyTrigger1782100000000,
         ],
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         // SECURITY: SSL configuration with proper certificate validation

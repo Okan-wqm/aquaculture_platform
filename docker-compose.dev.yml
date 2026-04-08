@@ -115,6 +115,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
+      # P-M6: Socket.IO Redis adapter needs a single URL form. Production
+      # (droplet compose) already sets REDIS_URL; adding it here keeps
+      # dev/prod symmetric so the app-level RedisIoAdapter activates in
+      # both environments and developers catch multi-pod broadcast bugs
+      # locally instead of discovering them post-deploy.
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"

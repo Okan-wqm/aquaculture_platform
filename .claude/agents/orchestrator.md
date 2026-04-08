@@ -169,6 +169,28 @@ Produce a unified report combining all agent findings:
 
 Save this report to `docs/reviews/orchestrator/{YYYY-MM-DD}-{topic}.md`.
 
+### Phase 6: Implementation Packaging (conditional)
+
+Trigger conditions (any ONE is sufficient):
+- Finding count across the unified report ≥ 10
+- Total review corpus (including synthesized context-manager output) > ~50K tokens
+- Multiple agents produced CRITICAL or HIGH findings that require coordinated fixes
+- The reviewer explicitly requests an implementation plan
+
+Actions:
+1. Dispatch `Agent(implementation-planner)` with:
+   - Path to the unified report from Phase 5
+   - Path to the context-manager compaction from Phase 3.5 (when present)
+   - Path to any `architectural-arbiter` arbitration decisions (authoritative over individual expert recommendations on conflicting points)
+2. `implementation-planner` produces `docs/plans/{YYYY-MM-DD}-{topic}/` tree:
+   - `plan.md` — index with checkboxes, topologically-sorted package list, dependency graph link
+   - `packages/NN-{slug}.md` — self-contained per-package files (findings verbatim, affected files, atomic commit plan, test plan, verification command, rollback plan)
+   - `dependency-graph.md` — Mermaid DAG of package prerequisites
+   - `verification-log.md` — append-only execution log scaffold (populated by the executor, not the planner)
+3. The package plan is what a human reviewer or executor agent consumes to implement fixes in a **fresh bounded context per package**. Context resets between packages keep the LLM within safe budget, enabling reliable execution of large review outputs on the 1M Claude Opus 4.6 context.
+4. implementation-planner is REVIEWER ONLY — it writes plans under `docs/plans/`, never source code.
+5. Packaging cycles (rare) in the package DAG → escalate to `architectural-arbiter` per the implementation-planner's domain rules.
+
 ## Decision Rules
 
 - **ANY CRITICAL finding from ANY agent → BLOCK deployment**
@@ -200,6 +222,7 @@ All agents use `opus` (Claude Opus 4.6) with `effort: max` per platform policy.
 | context-manager | docs/reviews/*/, .full-review/ — meta-reviewer for Phase 3.5 (report compaction, dependency graph, systemic patterns) |
 | architectural-arbiter | docs/reviews/*/ + source code (read-only) — cross-agent conflict resolution, ADR authoring |
 | multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
+| implementation-planner | `docs/reviews/*/` → `docs/plans/` — Phase 6 bridge: reads unified review + context-manager compaction + architectural-arbiter arbitration, produces topologically-sorted work packages sized for bounded single-session LLM execution. REVIEWER ONLY |
 | prompt-writer | .claude/agents/*.md — agent definition generation |
 
 ## Invocation Examples

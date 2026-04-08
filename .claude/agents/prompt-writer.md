@@ -150,4 +150,5 @@ All agents use `opus` (Claude Opus 4.6) with `effort: max` per platform policy.
 | context-manager | `docs/reviews/*/`, `.full-review/` — meta-reviewer for report compaction, cross-domain dependency graph, systemic pattern detection |
 | architectural-arbiter | `docs/reviews/*/`, source code (read-only) — cross-agent conflict resolution, ADR authoring |
 | multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
+| implementation-planner | `docs/reviews/*/` → `docs/plans/` — Phase 6 bridge: reads unified review + context-manager compaction + architectural-arbiter arbitration, produces topologically-sorted work packages sized for bounded single-session LLM execution. REVIEWER ONLY |
 | prompt-writer | `.claude/agents/*.md` — agent definition generation (this agent) |

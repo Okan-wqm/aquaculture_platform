@@ -36,43 +36,83 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 ## Domain Rules
 
 ### TimescaleDB & Time-Series Data (Critical)
-- All queries on `sensor_metrics` hypertable MUST include time-range filter (`WHERE time >= ... AND time < ...`) for partition pruning. Missing filter = CRITICAL performance violation.
-- Use continuous aggregates for dashboard queries, never raw table scans for historical data
-- Batch INSERT with parameterized queries MANDATORY — string interpolation in SQL = CRITICAL security violation
-- `sensor_metrics` managed by migrations, NOT TypeORM synchronize
-- Compression enabled after 7 days — queries spanning boundary must handle both chunks
+- All queries on `sensor_metrics` hypertable MUST include time-range filter (`WHERE time >= ... AND time < ...`) for partition pruning. Missing filter = CRITICAL performance violation (full scan of every chunk in the retention window).
+- Use continuous aggregates for dashboard queries, never raw table scans for historical data. Dashboard hitting raw hypertable = HIGH.
+- Composite index `(time, tenantId, sensorId)` is mandatory in addition to the auto-created time index. Missing tenant index = HIGH.
+- Batch INSERT with parameterized queries MANDATORY — string interpolation in SQL = CRITICAL security violation (injection on tenant-shared table).
+- Per-reading single-row INSERT on the hot path = HIGH (use multi-row INSERT or COPY).
+- `sensor_metrics` managed by migrations, NOT TypeORM synchronize. `synchronize: true` on hypertable schema = CRITICAL.
+- Compression enabled after 7+ days — queries spanning boundary must handle both compressed and uncompressed chunks. Compression policy that touches actively-written chunks = CRITICAL (write failures).
+- Retention policy MUST be configured; unbounded retention = HIGH (inevitable disk exhaustion).
+- Continuous aggregate refresh lag MUST be monitored. Stale > 10x expected interval = HIGH (dashboards show misleading data).
+- `timescaledb.invalidate_using = 'wal'` (v2.22+) SHOULD be enabled for continuous aggregate performance.
+- Research: `docs/research/sensor-expert/2026-04-08-timescaledb-hypertable-continuous-aggregates.md`
 
 ### MQTT Architecture (Critical)
-- `SharedMqttModule` is `@Global` — never create additional MQTT client instances
-- Topic format: `tenants/{tenantId}/devices/{deviceId}/{subtopic}` (legacy `edge/`, `sensors/` prefixes deprecated)
-- Topic-level ACL for cross-tenant isolation. `MqttAuthService` uses timing-safe comparison
-- Circuit breaker with exponential backoff + jitter for reconnection — do not override with simpler retry
-- QoS 1 for telemetry (at-least-once), QoS 0 for high-frequency non-critical data
+- `SharedMqttModule` is `@Global` — never create additional MQTT client instances.
+- All MQTT connections MUST enforce TLS with CA-validated certificates in production. Plaintext MQTT (port 1883) or `danger_accept_invalid_certs` = CRITICAL.
+- `allow_anonymous false` mandatory in production — default-open broker = CRITICAL.
+- Topic format: `tenants/{tenantId}/devices/{deviceId}/{subtopic}` (legacy `edge/`, `sensors/` prefixes deprecated). Missing tenant prefix on tenant data = CRITICAL.
+- Topic-level ACL MUST prevent cross-tenant publish and subscribe. Missing ACL = CRITICAL.
+- `MqttAuthService` MUST use timing-safe comparison. Non-timing-safe comparison = HIGH (timing attack).
+- Mosquitto password hashes MUST use `$7$` (PBKDF2-SHA512) format with iteration count ≥ platform minimum (600K for HTTP-verified, 101 for file-static per existing convention). Lower iteration / older hash = CRITICAL.
+- Reconnection MUST use exponential backoff with jitter — no simple retry. Ad-hoc retry = HIGH (failover thundering herd).
+- Broker failover state machine MUST handle `connecting → connected → disconnecting → failing_over → reconnecting` explicitly. Missing state machine = HIGH.
+- TLS session resumption SHOULD be enabled on constrained edge devices to reduce reconnect cost.
+- Certificate expiry MUST be monitored (30d warning, 7d critical). Expired cert = CRITICAL outage.
+- Broker credentials MUST come from a secrets manager; hardcoded in config = CRITICAL.
+- QoS 1 for telemetry (at-least-once), QoS 0 for high-frequency non-critical data. QoS 1 on high-frequency non-critical data = MEDIUM (ack overhead).
+- Research: `docs/research/sensor-expert/2026-04-08-mqtt-tls-mosquitto-pbkdf2.md`
 
 ### SCADA Runtime Security (Critical)
-- User scripts execute ONLY in Web Worker sandboxes — never main thread
-- `ScriptExecutor` enforces: 500ms timeout, 4 max workers, code size limits, tag write rate limiting
-- Expression evaluator uses frozen `BUILTIN_FUNCTIONS` registry — runtime extension = CRITICAL violation
-- Property path validation must reject `__proto__`, `constructor`, `prototype` (prototype pollution prevention)
-- Tag value snapshots filtered to current SCADA package's visible tags only — cross-tenant tag access structurally impossible
+- `eval()`, `new Function()`, or any dynamic code execution on user input in the MAIN thread = CRITICAL. User-authored script execution is only safe in a Web Worker with strict limits.
+- `ScriptExecutor` MUST enforce ALL of: 500ms execution timeout per expression, 4 max workers (bounded pool), code size limit at submission time, tag write rate limiting. Missing any = CRITICAL.
+- Expression evaluator uses a FROZEN `BUILTIN_FUNCTIONS` registry. Runtime extension or user-extensible registry = CRITICAL (arbitrary capability).
+- Property path validation MUST reject `__proto__`, `constructor`, `prototype` to prevent prototype pollution. Missing rejection = CRITICAL.
+- Tag value snapshots MUST be STRUCTURALLY filtered to the current SCADA package's visible tags — cross-package/cross-tenant tag access must be impossible by construction, not merely filtered post-hoc. Filter-at-query-time only = HIGH (race condition).
+- Script deployment and execution MUST be audit-logged with user, tenant, and script hash. Missing audit = HIGH (compliance + forensics).
+- CSP in production MUST forbid `unsafe-eval` AND `unsafe-inline` in `script-src`. Either = HIGH.
+- Tag write rate limiter in expression evaluator MUST bound writes per script per second on automation/control tags. Missing = HIGH (potential life-safety on control outputs).
+- Research: `docs/research/sensor-expert/2026-04-08-scada-web-worker-sandbox-expression-security.md`
 
 ### Automation & IEC 61131-3
-- Program lifecycle: `draft → review → approved → deployed`. Deployed programs immutable (new version required)
-- ST compiler (lexer/parser/semantic analyzer) runs in worker threads via `STWorkerPoolService`
-- Programs deployed to edge via MQTT with rollback capability
-- Variable bindings must reference existing entities (sensors, equipment, unified tags)
+- Program lifecycle enforced strictly: `draft → review → approved → deployed`. Deployed programs are IMMUTABLE — any change creates a new version and re-enters draft. In-place edit of a deployed program = CRITICAL compliance violation for safety-critical systems.
+- ST compiler (lexer/parser/semantic analyzer) MUST run in worker threads via `STWorkerPoolService` with an execution time budget. Main-thread compilation = HIGH (DoS via adversarial input).
+- Parser MUST bound recursive depth and backtracking to prevent adversarial resource exhaustion. Missing bounds = HIGH.
+- Variable bindings MUST be resolved at compile time against existing entities (sensors, equipment, unified tags). Dangling binding at deploy time = HIGH.
+- Programs deployed to edge via MQTT MUST support atomic rollback to the previous known-good version. Partial deploy without rollback = HIGH.
+- Output conflict detection MUST run across all parallel programs on the same PLC target BEFORE deploy. Two programs writing the same output = CRITICAL (undefined, potentially life-safety).
+- RETAIN variables MUST persist across PLC restart via non-volatile storage (SQLite with IEC 61131-3 RETAIN semantics). Volatile RETAIN = HIGH (state loss).
+- PID, timer (TON/TOF/TP), counter (CTU/CTD/CTUD), edge-detector (R_TRIG/F_TRIG), and flip-flop (SR/RS) function blocks MUST follow IEC 61131-3 standard semantics exactly. Non-compliant implementation = HIGH (behavioral drift is a safety defect).
+- Research: `docs/research/sensor-expert/2026-04-08-iec-61131-3-structured-text-safety.md`
 
 ### VFD Safety (Critical)
-- Parameter changes use Maker-Checker approval workflow (IEC 62443 SL-2): `creation → risk assessment → approval → scheduled application`
-- `RiskEvaluatorService` assesses change risk — high-risk changes (frequency limits, braking parameters) require additional approval
-- Multi-brand support (Danfoss, ABB, Siemens, Schneider, Yaskawa, Delta, Mitsubishi, Rockwell) — register mappings are brand-specific, MUST NOT be mixed
-- VFD automation rules trigger parameter changes based on sensor events — safety constraint validation required before activation
+- Parameter changes MUST use Maker-Checker approval workflow (IEC 62443 SL-2): `creation → risk evaluation → approval → scheduled application → audit`. Skipping any step on HIGH or CRITICAL tier = CRITICAL compliance violation.
+- `RiskEvaluatorService` MUST tier every parameter change LOW/MEDIUM/HIGH/CRITICAL based on the target register. HIGH and CRITICAL tiers require a SECOND approver (different user from the requester). Same-user dual approval = CRITICAL bypass.
+- CRITICAL-tier parameters (max frequency, braking, STO behavior, current limits, safety input configuration) MUST require an additional approver, explicit safety justification, AND cannot be triggered by automation rules.
+- Multi-brand support (Danfoss, ABB, Siemens, Schneider, Yaskawa, Delta, Mitsubishi, Rockwell) — register tables MUST include a `brand` discriminator column. Interleaving register mappings across brands in a single table = CRITICAL (wrong-register write, potential hardware damage).
+- Modbus TCP in production MUST be tunneled through TLS or equivalent encryption. Plaintext Modbus TCP on a routed network = CRITICAL.
+- Parameter-write failures (timeout, invalid value, safety interlock rejection) MUST trigger atomic rollback and audit log entry. Missing rollback = HIGH.
+- Modbus link MUST have circuit breaker to prevent failed VFD from exhausting request threads. Missing = MEDIUM (availability degradation).
+- Audit trail on parameter changes MUST include: requester, approver, risk tier, old value, new value, scheduled time, actual write time, acknowledgment status. Missing any field = HIGH compliance gap.
+- Automation rules triggering parameter changes MUST validate the resulting tier against a whitelist (LOW/MEDIUM only by default). Automation writing to HIGH/CRITICAL tiers without explicit safety override = CRITICAL bypass of Maker-Checker.
+- Network segmentation between control network (OT) and application network (IT) MUST be enforced at the infrastructure level per IEC 62443-3-3 FR5. Missing segmentation = HIGH.
+- Research: `docs/research/sensor-expert/2026-04-08-vfd-modbus-iec-62443-maker-checker.md`
 
 ### PLC Control
-- Cloud-to-edge pattern: cloud sends PARAMETERS, PLC makes autonomous real-time decisions, PLC sends TELEMETRY back
-- OPC UA connections must validate server certificates and use encrypted sessions in production
-- Feeding parameters are versioned — track which version is active on each PLC
-- Alarm acknowledgment must include user identity and timestamp in audit trail
+- Cloud-to-edge pattern: cloud sends PARAMETERS, PLC makes autonomous real-time decisions, PLC sends TELEMETRY back.
+- **OPC UA SecurityMode MUST be `SignAndEncrypt` in production.** None or Sign-only = CRITICAL (per IEC 62541 / OPC Foundation Part 2).
+- Certificate validation MUST be enforced — no `accept_invalid_certs` or equivalent bypass. Bypass = CRITICAL.
+- Certificate Revocation List (CRL) MUST be checked on SecureChannel establishment and cached with configurable refresh. Missing CRL check = HIGH.
+- Trust list MUST use a company-specific CA for production; self-signed certificates are acceptable only for bootstrap with documented organizational approval. Self-signed in production without approval = HIGH.
+- UserIdentityToken on tenant data MUST be a real user token (username/password or X.509), never anonymous. Anonymous user token on tenant data = CRITICAL.
+- Private keys MUST be stored in an OS-level keystore, HSM, or filesystem with mode 0600. World-readable or repo-committed private keys = CRITICAL.
+- Certificate expiry MUST be monitored (30d warning, 7d critical). Missing monitor = HIGH (certain outage at expiry).
+- SecureChannel lifecycle events (open, close, authentication success/failure, cert validation result) MUST be audit-logged per IEC 62443-3-3 SR 2.8. Missing audit = HIGH.
+- Role-based access control on OPC UA nodes MUST be enforced using the OPC UA 1.05 Role model. Missing role enforcement = HIGH.
+- Feeding parameters are versioned — track which version is active on each PLC.
+- Alarm acknowledgment must include user identity and timestamp in audit trail.
+- Research: `docs/research/sensor-expert/2026-04-08-opc-ua-security-sign-encrypt.md`
 
 ### Edge Device Provisioning
 - Flow: generate provisioning key → device registers with key → device receives MQTT credentials → device connects

@@ -19,7 +19,8 @@ When asked to write a prompt, produce a `.md` file with this structure:
 ---
 name: {agent-name}
 description: {one sentence — when the orchestrator should invoke this agent}
-model: {sonnet | opus}
+model: opus
+effort: max
 ---
 
 # {Title}
@@ -60,8 +61,8 @@ Agent prompts MUST be concise. Follow these rules strictly:
 7. **Target: 80-200 lines per agent.** If an agent prompt exceeds 200 lines, it likely contains generic content that should be removed.
 
 ### Model Selection
-- `opus` — ONLY for security-critical agents (security-reviewer, auth-security-expert) and this prompt-writer
-- `sonnet` — DEFAULT for all domain review agents. Sonnet is excellent for code review, pattern matching, and structured analysis
+- **Platform policy: every agent uses `opus` (Claude Opus 4.6) with `effort: max`.** No cost-based downgrading. Enterprise-grade review quality is the primary concern for every domain, not token efficiency.
+- `effort: max` is mandatory for all agents. Lower effort tiers are only permitted when a documented performance requirement justifies them, and even then never below `high`.
 
 ### Agent Operating Model
 All agents generated are REVIEWERS — they read, analyze, and produce reports. They never edit source code, create migrations, change configs, commit, or push.
@@ -84,19 +85,24 @@ All agents generated are REVIEWERS — they read, analyze, and produce reports. 
 
 ### Agent Roster (existing agents)
 
-| Agent | Domain | Model |
-|-------|--------|-------|
-| farm-expert | apps/farm-service/, web/modules/farm-module/ | sonnet |
-| sensor-expert | apps/sensor-service/, web/modules/sensor-module/ | sonnet |
-| hr-expert | apps/hr-service/, web/modules/hr-module/ | sonnet |
-| admin-expert | apps/admin-api-service/, admin-panel, tenant-admin | sonnet |
-| messaging-expert | apps/messaging-service/, apps/ai-service/ | sonnet |
-| edge-expert | sens-api-gateway/ (Rust) | sonnet |
-| frontend-expert | web/shell/, web/shared-ui/, web/modules/dashboard/, web/apps/aquamobil/ | sonnet |
-| data-expert | libs/event-contracts/, libs/backend-common/database/, migrations | sonnet |
-| infra-expert | infrastructure/, .github/workflows/, nginx/, docker-compose | sonnet |
-| platform-services | billing, notification, config, event-store, observability, hydroponics | sonnet |
-| auth-security-expert | apps/auth-service/, apps/gateway-api/, backend-common guards/security | opus |
-| security-reviewer | ALL files (quality gate, blocks deployment) | opus |
-| test-runner | ALL test files (quality gate) | sonnet |
-| prompt-writer | Agent definition generation (this agent) | sonnet |
+All agents use `opus` (Claude Opus 4.6) with `effort: max` per platform policy.
+
+| Agent | Domain |
+|-------|--------|
+| farm-expert | `apps/farm-service/`, `web/modules/farm-module/` |
+| sensor-expert | `apps/sensor-service/`, `web/modules/sensor-module/` |
+| hr-expert | `apps/hr-service/`, `web/modules/hr-module/` |
+| admin-expert | `apps/admin-api-service/`, `web/modules/admin-panel/`, `web/modules/tenant-admin/` |
+| messaging-expert | `apps/messaging-service/`, `apps/ai-service/` |
+| edge-expert | `sens-api-gateway/` (Rust) |
+| frontend-expert | `web/shell/`, `web/shared-ui/`, `web/modules/dashboard/`, `web/apps/aquamobil/` |
+| data-expert | `libs/event-contracts/`, `libs/backend-common/database/`, `database/migrations/` (migration delta review) |
+| database-reviewer | All schema sources across services — schema state health (tables, columns, indexes, constraints, naming consistency) |
+| infra-expert | `infrastructure/`, `.github/workflows/`, `nginx/`, `docker-compose*`, `Dockerfile*` |
+| platform-services | billing, notification, config, event-store, observability, hydroponics (services + hydroponics-module) |
+| auth-security-expert | `apps/auth-service/`, `apps/gateway-api/`, `libs/backend-common/src/{guards,security,middleware}/` |
+| security-reviewer | ALL files — cross-cutting security quality gate (blocks deployment on CRITICAL) |
+| test-runner | ALL test files — build and test quality gate |
+| context-manager | `docs/reviews/*/`, `.full-review/` — meta-reviewer for report compaction, cross-domain dependency graph, systemic pattern detection |
+| architectural-arbiter | `docs/reviews/*/`, source code (read-only) — cross-agent conflict resolution, ADR authoring |
+| prompt-writer | `.claude/agents/*.md` — agent definition generation (this agent) |

@@ -40,7 +40,7 @@ Use standard severity levels: CRITICAL (tests hiding bugs/security gaps — bloc
 
 **14 backend services, 4 shared libraries, 9+ frontend modules.**
 
-## Review Checklist
+## Domain Rules
 
 ### 1. Build Health
 - Run `npm run build` or `npx nx run-many --target=build --all` — any build failure = CRITICAL
@@ -141,29 +141,6 @@ Use standard severity levels: CRITICAL (tests hiding bugs/security gaps — bloc
 - REQUEST-scoped providers holding tenant context MUST be tested for per-request isolation (no leak between requests on same Node process).
 - Every confirmed tenant leak incident MUST produce a regression test in the cross-tenant probe suite within one sprint. Recurring incidents without regression test = SYSTEMIC.
 - Research: `docs/research/test-runner/2026-04-08-tenant-isolation-test-coverage-multi-tenant.md`
-
-## Report Format
-
-```markdown
-## Test Health Report
-**Date:** {YYYY-MM-DD}
-**Scope:** {what was tested}
-
-### Build Status: PASS/FAIL
-### Test Results
-| Suite | Total | Pass | Fail | Skip | Time |
-|-------|-------|------|------|------|------|
-
-### Coverage Summary
-| Service/Module | Statements | Branches | Functions | Lines |
-|---------------|-----------|----------|-----------|-------|
-
-### Findings
-[Severity-ranked list with file paths and specific issues]
-
-### Recommendations
-[Prioritized list of test improvements]
-```
 
 ## Cross-Domain Dependencies
 

@@ -69,7 +69,7 @@ For each boundary the change touches, run all six STRIDE classes:
 
 Research: `docs/research/security-reviewer/2026-04-08-stride-threat-modeling-enterprise-saas.md`
 
-## Security Checks
+## Domain Rules
 
 ### OWASP ASVS 5.0 — Verification Floor
 
@@ -300,7 +300,7 @@ Both axes of EoP MUST be enforced:
 - An explicit identification of the trust boundaries crossed.
 - The "exhausted resource" for any DoS-class finding.
 
-## Cross-Domain Coordination
+## Cross-Domain Dependencies
 
 This agent has unlimited read scope but coordinates with domain experts for implementation:
 - Auth/security implementation → auth-security-expert

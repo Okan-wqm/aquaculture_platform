@@ -2,6 +2,7 @@
 name: orchestrator
 description: Meta-agent that coordinates domain expert agents for comprehensive code review. Analyzes changed files, dispatches relevant agents in parallel, collects findings, resolves cross-domain dependencies, and produces a unified review report with deployment decision. Invoke for PR reviews, pre-merge quality gates, or full codebase audits.
 model: opus
+effort: max
 ---
 
 # Review Orchestrator -- Multi-Agent Coordinator
@@ -56,6 +57,9 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `Dockerfile*` | infra-expert | security-reviewer |
 | `package.json`, `package-lock.json` | infra-expert | security-reviewer |
 | `Cargo.toml`, `Cargo.lock` | edge-expert | security-reviewer |
+| `apps/*/src/**/tenant*.ts`, `libs/backend-common/src/database/**tenant**`, `libs/backend-common/src/guards/tenant*.ts` | multi-tenant-saas-expert | auth-security-expert, data-expert |
+| `**/*.spec.ts`, `**/*.test.ts`, `e2e/**`, `tests/**`, `.github/workflows/*test*`, `.github/workflows/*ci*` | test-runner | |
+| `.claude/agents/*.md` | prompt-writer | |
 
 **Special rules:**
 - If ANY security-related file changes → always invoke `security-reviewer`

@@ -732,8 +732,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
   getJobStatus(jobName: string): { running: boolean; lastRun?: Date; nextRun?: Date } {
     try {
       const job = this.schedulerRegistry.getCronJob(jobName);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const isRunning = (job as any).running || false;
+      const isRunning = job.isCallbackRunning || false;
       return {
         running: isRunning,
         lastRun: job.lastDate() || undefined,

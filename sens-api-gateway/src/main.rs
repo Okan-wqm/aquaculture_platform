@@ -84,20 +84,20 @@ fn generate_default_config() -> Result<()> {
     // v1.2.3: Log when using default config path
     let config_path = match std::env::var("SUDERRA_CONFIG") {
         Ok(path) => {
-            eprintln!("Using config path from SUDERRA_CONFIG: {}", path);
+            tracing::info!("Using config path from SUDERRA_CONFIG: {}", path);
             path
         }
         Err(_) => {
             let default_path = "/etc/suderra/config.yaml".to_string();
-            eprintln!("SUDERRA_CONFIG not set, using default: {}", default_path);
+            tracing::info!("SUDERRA_CONFIG not set, using default: {}", default_path);
             default_path
         }
     };
 
     // Check if config already exists
     if Path::new(&config_path).exists() {
-        eprintln!("Config file already exists: {}", config_path);
-        eprintln!("Remove it first or use a different path via SUDERRA_CONFIG");
+        tracing::warn!("Config file already exists: {}", config_path);
+        tracing::warn!("Remove it first or use a different path via SUDERRA_CONFIG");
         return Err(anyhow::anyhow!("Config already exists"));
     }
 

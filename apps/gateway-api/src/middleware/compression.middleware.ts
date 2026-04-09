@@ -34,6 +34,7 @@ interface CompressibleResponse extends Response {
   _compressionStream?: zlib.Gzip | zlib.BrotliCompress | zlib.Deflate;
   _chunks?: Buffer[];
   _isCompressing?: boolean;
+  _compressionThreshold?: number;
 }
 
 /**
@@ -136,7 +137,7 @@ export class CompressionMiddleware implements NestMiddleware {
 
       // Check if compression should be applied
       const contentType = res.getHeader('Content-Type') as string || '';
-      const threshold = (res as unknown as { _compressionThreshold?: number })._compressionThreshold || 1024;
+      const threshold = compressibleRes._compressionThreshold || 1024;
       const shouldCompress = body.length >= threshold && isCompressibleType(contentType);
 
       if (!shouldCompress || body.length < 1024) {
@@ -175,8 +176,7 @@ export class CompressionMiddleware implements NestMiddleware {
     };
 
     // Store compression threshold on response
-    (compressibleRes as unknown as { _compressionThreshold: number })._compressionThreshold =
-      this.config.threshold;
+    compressibleRes._compressionThreshold = this.config.threshold;
 
     next();
   }

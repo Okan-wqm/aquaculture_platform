@@ -118,13 +118,14 @@ export class TokenService {
   // AFTER: when the cache reaches capacity, the oldest (least-recently-inserted) entry
   // is evicted before the new one is added. Map preserves insertion order in JS/TS,
   // so keys().next().value is always the oldest entry — O(1) eviction.
-  // Combined with 5-minute TTL (lazy eviction on access), memory is always bounded.
+  // Combined with 60-second TTL (lazy eviction on access), memory is always bounded.
   private static readonly MAX_MODULE_CACHE_SIZE = 5_000;
   private readonly moduleCache = new Map<string, {
     modules: Array<{ code: string; name: string; defaultRoute: string }>;
     cachedAt: number;
   }>();
-  private readonly moduleCacheTtlMs = 5 * 60 * 1000; // 5 minutes
+  // WHY: In-memory cache — stale for up to TTL across pods. Use Redis pub/sub for instant invalidation when multi-pod.
+  private readonly moduleCacheTtlMs = 60 * 1000; // 60 seconds
 
   constructor(
     @InjectRepository(RefreshToken)

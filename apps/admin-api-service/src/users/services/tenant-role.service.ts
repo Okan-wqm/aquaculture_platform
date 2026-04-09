@@ -526,7 +526,7 @@ export class TenantRoleService {
         resourcePermissions: (row.resource_permissions as string[]) || [],
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
-        role: undefined as unknown as TenantRole,
+        role: null!,
       },
     };
   }

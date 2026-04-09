@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { UnifiedTag } from '../../../process/entities/unified-tag.entity';
-import { AutomationProgram } from '../../entities/automation-program.entity';
+import { AutomationProgram, ProgramType } from '../../entities/automation-program.entity';
 import { ProgramVariable } from '../../entities/program-variable.entity';
 import { CompletionEntry } from '../compiler.types';
 
@@ -68,7 +68,7 @@ export class STIntellisenseService {
   async getFBDefinitions(tenantId: string): Promise<CompletionEntry[]> {
     try {
       const fbPrograms = await this.programRepo.find({
-        where: { tenantId, programType: 'FUNCTION_BLOCK' as any },
+        where: { tenantId, programType: ProgramType.FBD },
         select: ['id', 'programCode', 'programName', 'description'],
         take: 100,
       });

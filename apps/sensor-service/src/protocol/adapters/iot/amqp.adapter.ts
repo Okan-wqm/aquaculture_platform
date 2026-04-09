@@ -59,6 +59,7 @@ interface AmqpChannel {
 }
 
 interface AmqpConnection {
+  [key: string]: unknown;
   createChannel: () => Promise<AmqpChannel>;
   close: () => Promise<void>;
 }
@@ -71,7 +72,7 @@ interface AmqpConnectionData {
 }
 
 @Injectable()
-export class AmqpAdapter extends BaseProtocolAdapter {
+export class AmqpAdapter extends BaseProtocolAdapter<AmqpConfiguration> {
   readonly protocolCode = 'AMQP';
   readonly category = ProtocolCategory.IOT;
   readonly subcategory = ProtocolSubcategory.MESSAGE_QUEUE;
@@ -81,8 +82,8 @@ export class AmqpAdapter extends BaseProtocolAdapter {
 
   protected amqpConnections = new Map<string, AmqpConnectionData>();
 
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const amqpConfig = config as unknown as AmqpConfiguration;
+  async connect(config: AmqpConfiguration): Promise<ConnectionHandle> {
+    const amqpConfig = config;
 
     // Dynamic import
     const amqp = await import('amqplib');
@@ -128,7 +129,7 @@ export class AmqpAdapter extends BaseProtocolAdapter {
     }
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(config: AmqpConfiguration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     let handle: ConnectionHandle | null = null;
 

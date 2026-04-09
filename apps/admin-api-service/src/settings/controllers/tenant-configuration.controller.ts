@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
+import { getAuthUserId } from '../../shared/authenticated-request';
 
 import {
   TenantConfigurationService,
@@ -116,7 +117,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateUserLimitsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateUserLimits(tenantId, dto, userId);
   }
@@ -137,7 +138,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateStorageConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateStorageConfig(tenantId, dto, userId);
   }
@@ -167,7 +168,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateApiConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateApiConfig(tenantId, dto, userId);
   }
@@ -272,7 +273,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateBrandingDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateBranding(tenantId, dto, userId);
   }
@@ -293,7 +294,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateTenantSecurityDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateSecurityConfig(tenantId, dto, userId);
   }
@@ -346,7 +347,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateNotificationConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateNotificationConfig(tenantId, dto, userId);
   }
@@ -367,7 +368,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateFeatureFlagsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateFeatureFlags(tenantId, dto, userId);
   }
@@ -404,7 +405,7 @@ export class TenantConfigurationController {
     @Body() dto: UpdateDataRetentionDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.configService.updateDataRetentionConfig(tenantId, dto, userId);
   }

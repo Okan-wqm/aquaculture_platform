@@ -60,7 +60,7 @@ interface OAuth2TokenResponse {
 }
 
 @Injectable()
-export class HttpRestAdapter extends BaseProtocolAdapter {
+export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> {
   readonly protocolCode = 'HTTP_REST';
   readonly category = ProtocolCategory.IOT;
   readonly subcategory = ProtocolSubcategory.REQUEST_RESPONSE;
@@ -71,8 +71,8 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
   private pollingIntervals = new Map<string, NodeJS.Timeout>();
   private oauth2Tokens = new Map<string, { token: string; expiresAt: Date }>();
 
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const httpConfig = config as unknown as HttpRestConfiguration;
+  async connect(config: HttpRestConfiguration): Promise<ConnectionHandle> {
+    const httpConfig = config;
 
     // Test the connection first
     const testResult = await this.testConnection(config);
@@ -103,8 +103,8 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
     this.logConnectionEvent('disconnect', handle);
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
-    const httpConfig = config as unknown as HttpRestConfiguration;
+  async testConnection(config: HttpRestConfiguration): Promise<ConnectionTestResult> {
+    const httpConfig = config;
     const startTime = Date.now();
 
     try {
@@ -141,7 +141,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter {
   }
 
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
-    const config = handle.metadata as unknown as HttpRestConfiguration;
+    const config = handle.metadata as HttpRestConfiguration | undefined;
     if (!config) {
       throw new Error('Configuration not found in handle');
     }

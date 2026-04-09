@@ -19,7 +19,7 @@ export interface ProfinetConfiguration {
 }
 
 @Injectable()
-export class ProfinetAdapter extends BaseProtocolAdapter {
+export class ProfinetAdapter extends BaseProtocolAdapter<ProfinetConfiguration> {
   readonly protocolCode = 'PROFINET';
   readonly category = ProtocolCategory.INDUSTRIAL;
   readonly subcategory = ProtocolSubcategory.ETHERNET_INDUSTRIAL;
@@ -28,9 +28,8 @@ export class ProfinetAdapter extends BaseProtocolAdapter {
   readonly description = 'PROFINET industrial Ethernet standard for automation';
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const cfg = config as unknown as ProfinetConfiguration;
-    return this.createConnectionHandle(cfg.sensorId ?? 'unknown', cfg.tenantId ?? 'unknown', config);
+  async connect(config: ProfinetConfiguration): Promise<ConnectionHandle> {
+    return this.createConnectionHandle(config.sensorId ?? 'unknown', config.tenantId ?? 'unknown', { ...config });
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
@@ -39,7 +38,7 @@ export class ProfinetAdapter extends BaseProtocolAdapter {
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
-  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(_config: ProfinetConfiguration): Promise<ConnectionTestResult> {
     return { success: true, latencyMs: 0 };
   }
 

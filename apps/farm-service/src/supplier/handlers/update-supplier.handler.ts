@@ -51,8 +51,8 @@ export class UpdateSupplierHandler implements ICommandHandler<UpdateSupplierComm
       }
     }
 
-    // Update only allowed fields (exclude id, tenantId, createdBy, createdAt)
-    const { id: _id, tenantId: _tid, createdBy: _cb, createdAt: _ca, ...safeInput } = input as any;
+    // Update only allowed fields (exclude id which is the identifier)
+    const { id: _id, ...safeInput } = input;
     Object.assign(supplier, {
       ...safeInput,
       code: input.code ? input.code.toUpperCase() : supplier.code,

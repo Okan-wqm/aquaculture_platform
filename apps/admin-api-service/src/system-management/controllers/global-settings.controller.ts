@@ -17,6 +17,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Request } from 'express';
+import { getAuthUser } from '../../shared/authenticated-request';
 
 import { Public } from '../../decorators/public.decorator';
 import {
@@ -687,7 +688,7 @@ export class GlobalSettingsController {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Invalid configuration payload');
     }
-    const user = (req as unknown as { user?: { email?: string; id?: string } }).user;
+    const user = getAuthUser(req);
     const updatedBy = user?.email || user?.id || 'admin';
     await this.globalSettingsService.updateProvisioningConfig(body, updatedBy);
     return { success: true };

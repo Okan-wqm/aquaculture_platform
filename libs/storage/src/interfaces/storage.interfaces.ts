@@ -84,6 +84,9 @@ export interface UploadOptions {
  * Storage module async options for dynamic configuration
  */
 export interface StorageModuleAsyncOptions extends Pick<ModuleMetadata, 'imports'> {
-  useFactory: (...args: unknown[]) => Promise<StorageConfig> | StorageConfig;
+  // WHY: NestJS resolves inject[] tokens at runtime and passes them as positional args.
+  // The factory signature must accept any resolved type, matching NestJS's own pattern.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  useFactory: (...args: any[]) => Promise<StorageConfig> | StorageConfig;
   inject?: InjectionToken[];
 }

@@ -180,7 +180,7 @@ export class SystemResolver {
    */
   @ResolveField(() => SiteResponse, { nullable: true })
   async site(@Parent() system: SystemResponse): Promise<SiteResponse | null> {
-    if ((system as any).site) return (system as any).site;
+    if ('site' in system && system.site) return system.site as SiteResponse;
 
     if (!system.siteId || !system.tenantId) return null;
 
@@ -198,7 +198,7 @@ export class SystemResolver {
    */
   @ResolveField(() => DepartmentResponse, { nullable: true })
   async department(@Parent() system: SystemResponse): Promise<DepartmentResponse | null> {
-    if ((system as any).department) return (system as any).department;
+    if ('department' in system && system.department) return system.department as DepartmentResponse;
 
     if (!system.departmentId || !system.tenantId) return null;
 
@@ -216,7 +216,7 @@ export class SystemResolver {
    */
   @ResolveField(() => SystemResponse, { nullable: true })
   async parentSystem(@Parent() system: SystemResponse): Promise<SystemResponse | null> {
-    if ((system as any).parentSystem) return (system as any).parentSystem;
+    if ('parentSystem' in system && system.parentSystem) return system.parentSystem as SystemResponse;
 
     if (!system.parentSystemId || !system.tenantId) return null;
 
@@ -234,7 +234,7 @@ export class SystemResolver {
    */
   @ResolveField(() => [SystemResponse], { nullable: true })
   async childSystemsField(@Parent() system: SystemResponse): Promise<SystemResponse[]> {
-    if ((system as any).childSystems) return (system as any).childSystems;
+    if ('childSystems' in system && system.childSystems) return system.childSystems as SystemResponse[];
 
     if (!system.id || !system.tenantId) return [];
 

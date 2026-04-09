@@ -26,8 +26,8 @@ const NATS_TIMEOUT_MS = 30_000;
  * Message with similarity score for ranked results.
  */
 export interface SimilarMessage {
-  /** The matching message. */
-  message: Message;
+  /** The matching message (partial — only includes fields from the similarity query). */
+  message: Pick<Message, 'id' | 'channelId' | 'senderId' | 'content' | 'contentType' | 'createdAt' | 'isDeleted'>;
   /** Cosine similarity score (0.0 to 1.0, higher = more similar). */
   similarity: number;
 }
@@ -113,10 +113,10 @@ export class SearchSimilarMessagesHandler
         channelId: row.channelId,
         senderId: row.senderId,
         content: row.content,
-        contentType: row.contentType,
+        contentType: row.contentType as Message['contentType'],
         createdAt: row.createdAt,
         isDeleted: row.isDeleted,
-      } as unknown as Message,
+      },
       similarity: parseFloat(String(row.similarity)),
     }));
   }

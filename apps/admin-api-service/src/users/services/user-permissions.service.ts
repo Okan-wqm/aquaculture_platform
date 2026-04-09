@@ -17,7 +17,7 @@ export class UserPermissionsService {
   async createDefaultPermissions(
     userId: string,
     tenantId: string,
-    grantedBy: string,
+    grantedBy?: string,
     isAdmin = false,
   ): Promise<UserPermissions> {
     const permissions = this.permissionsRepository.create({
@@ -108,7 +108,8 @@ export class UserPermissionsService {
     // merged in instead of being discarded.
     for (const [category, perms] of Object.entries(updates)) {
       if (perms && typeof perms === 'object') {
-        const resultRecord = result as unknown as Record<string, Record<string, boolean>>;
+        // PanelPermissions has known categories but new ones can be added dynamically
+        const resultRecord = { ...result } as Record<string, Record<string, boolean>>;
         const existingPerms = resultRecord[category] ?? {};
         resultRecord[category] = {
           ...existingPerms,

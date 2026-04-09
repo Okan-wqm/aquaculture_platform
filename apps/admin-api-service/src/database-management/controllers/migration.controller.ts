@@ -17,6 +17,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { getAuthUser } from '../../shared/authenticated-request';
 import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsOptional, IsBoolean, MaxLength, Matches } from 'class-validator';
 
@@ -122,7 +123,7 @@ export class MigrationController {
       throw new BadRequestException('version is required');
     }
     // Use JWT sub for executedBy — prevents audit trail manipulation via client body
-    const executedBy = (req as unknown as { user?: { sub?: string } }).user?.sub
+    const executedBy = getAuthUser(req)?.sub
       ?? 'unknown-admin';
     return this.migrationService.runMigration(
       tenantId,

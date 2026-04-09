@@ -60,15 +60,12 @@ export class UpdateSubEquipmentHandler implements ICommandHandler<UpdateSubEquip
       }
     }
 
-    // Update fields
+    // Update fields - exclude id to prevent entity identity corruption
+    const { id: _id, ...updateFields } = input;
     Object.assign(subEquipment, {
-      ...input,
+      ...updateFields,
       updatedBy: userId,
     });
-
-    // Remove id from the update since it's the identifier
-    delete (subEquipment as unknown as Record<string, unknown>).id;
-    subEquipment.id = id;
 
     const updatedSubEquipment = await this.subEquipmentRepository.save(subEquipment);
 

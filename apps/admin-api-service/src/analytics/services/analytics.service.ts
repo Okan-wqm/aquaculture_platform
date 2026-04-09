@@ -90,7 +90,8 @@ export class AnalyticsService {
   ): number {
     // Since metrics is a JSONB object, we need to access it dynamically
     // but we ensure type safety by checking if the key exists and is a number
-    const metricsObj = metrics as unknown as Record<string, unknown>;
+    // Metrics is a JSONB object — dynamic key access requires indexable type
+    const metricsObj: Record<string, unknown> = { ...metrics };
     const value = metricsObj[key];
 
     if (typeof value === 'number' && !isNaN(value)) {

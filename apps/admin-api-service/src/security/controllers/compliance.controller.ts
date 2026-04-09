@@ -21,6 +21,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
 import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsIn } from 'class-validator';
+import { getAuthUserId, getAuthUser } from '../../shared/authenticated-request';
 
 import {
   DataRequest,
@@ -217,7 +218,7 @@ export class ComplianceController {
     @Body() dto: CreateDataRequestDto,
     @Req() req: Request,
   ): Promise<DataRequest> {
-    const userId = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.complianceService.createDataRequest({ ...dto, requesterId: userId });
   }
@@ -251,7 +252,7 @@ export class ComplianceController {
       complianceFramework: query.complianceFramework,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
-      overdue: query.overdue === true || query.overdue === 'true' as unknown as boolean,
+      overdue: query.overdue === true || String(query.overdue) === 'true',
     });
   }
 
@@ -265,7 +266,7 @@ export class ComplianceController {
     @Body() dto: UpdateDataRequestDto,
     @Req() req: Request,
   ): Promise<DataRequest> {
-    const userPayload = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user;
+    const userPayload = getAuthUser(req);
     const userId = userPayload?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     const userName = userPayload?.name || userPayload?.email || userId;
@@ -288,7 +289,7 @@ export class ComplianceController {
     @Body() dto: VerifyIdentityDto,
     @Req() req: Request,
   ): Promise<DataRequest> {
-    const userId = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.complianceService.verifyIdentity(
       id,
@@ -308,7 +309,7 @@ export class ComplianceController {
     @Body() dto: CompleteDataRequestDto,
     @Req() req: Request,
   ): Promise<DataRequest> {
-    const userId = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.complianceService.completeDataRequest(id, {
       ...dto,
@@ -367,7 +368,7 @@ export class ComplianceController {
     @Body() dto: GenerateReportDto,
     @Req() req: Request,
   ): Promise<ComplianceReport> {
-    const userPayload = (req as unknown as { user?: { id?: string; name?: string; email?: string } }).user;
+    const userPayload = getAuthUser(req);
     const userId = userPayload?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     const userName = userPayload?.name || userPayload?.email || userId;

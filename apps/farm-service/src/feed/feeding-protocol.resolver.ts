@@ -24,6 +24,7 @@ import { DeleteFeedingProtocolCommand } from './commands/delete-feeding-protocol
 import { GetFeedingProtocolQuery } from './queries/get-feeding-protocol.query';
 import { ListFeedingProtocolsQuery } from './queries/list-feeding-protocols.query';
 import { FeedingProtocol } from './entities/feeding-protocol.entity';
+import { FeedType } from './entities/feed.entity';
 import { FeedResponse } from './dto/feed.response';
 
 @Resolver(() => FeedingProtocolResponse)
@@ -98,7 +99,7 @@ export class FeedingProtocolResolver {
     this.logger.debug(`Getting default feeding protocol for species "${species}" for tenant ${tenantId}`);
     const query = new ListFeedingProtocolsQuery(
       tenantId,
-      { species, stage: stage as any, isDefault: true, isActive: true },
+      { species, stage: stage as FeedType | undefined, isDefault: true, isActive: true },
       { limit: 1 },
     );
     const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedingProtocolResponse>;
@@ -185,7 +186,7 @@ export class FeedingProtocolResolver {
   async feed(@Parent() protocol: FeedingProtocol): Promise<FeedResponse | null> {
     // If the relation was already loaded, return it
     if (protocol.feed) {
-      return protocol.feed as unknown as FeedResponse;
+      return protocol.feed as FeedResponse;
     }
     // Otherwise return null - caller should use dataloader or explicit query
     return null;

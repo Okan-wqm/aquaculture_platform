@@ -578,7 +578,7 @@ export class NatsEventBus
               this.logger.error(`Message processing error on ${subject}`, error);
               // Exponential backoff on NAK: redelivery delay doubles per attempt
               // msg.info.redeliveryCount gives the number of times the message has been delivered
-              const redeliveryCount = (msg as any).info?.redeliveryCount ?? 0;
+              const redeliveryCount = msg.info?.redeliveryCount ?? 0;
               const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
               msg.nak(backoffMs);
             }

@@ -97,6 +97,8 @@ registerEnumType(ParameterStatus, {
  * Su parametreleri
  */
 export interface WaterParameters {
+  /** Index signature: evaluation service iterates parameter keys dynamically */
+  [key: string]: number | string | boolean | undefined;
   // Temel parametreler
   temperature?: number;              // °C
   dissolvedOxygen?: number;          // mg/L (DO)

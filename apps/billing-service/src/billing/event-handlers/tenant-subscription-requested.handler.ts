@@ -578,6 +578,7 @@ export class TenantSubscriptionRequestedHandler
         }
 
         // Reconstruct the event and re-invoke handle()
+        // JSONB column — validated at insert time; safe to cast
         const event = row.event_payload as unknown as TenantSubscriptionRequestedEvent;
         await this.handle(event);
 

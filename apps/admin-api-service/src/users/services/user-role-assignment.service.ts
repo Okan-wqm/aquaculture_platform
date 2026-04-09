@@ -324,7 +324,7 @@ export class UserRoleAssignmentService {
     return {
       roleId: assignment.roleId,
       roleName: assignment.roleName,
-      panelPermissions: { [assignment.roleName]: assignment.panelPermissions } as unknown as Record<string, Record<string, Record<string, boolean>>>,
+      panelPermissions: { [assignment.roleName]: assignment.panelPermissions } as EffectivePermissions['panelPermissions'],
       resourcePermissions: effectiveResourcePermissions,
       overrides: assignment.permissionOverrides,
     };
@@ -444,7 +444,7 @@ export class UserRoleAssignmentService {
       isActive: row.is_active as boolean,
       createdAt: row.created_at as Date,
       updatedAt: row.updated_at as Date,
-      role: undefined as unknown as UserRoleAssignment['role'],
+      role: null!,
       roleName: row.role_name as string,
       roleColor: row.role_color as string,
       roleIcon: row.role_icon as string,

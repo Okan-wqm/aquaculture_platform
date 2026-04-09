@@ -53,6 +53,9 @@ export * from './database';
 // Redis
 export * from './redis';
 
+// Context - Tenant context for non-HTTP paths (MQTT, cron, NATS handlers)
+export { withTenantContext } from './context/with-tenant-context';
+
 // Logging - Structured JSON logger, request context, and middleware
 export * from './logging';
 

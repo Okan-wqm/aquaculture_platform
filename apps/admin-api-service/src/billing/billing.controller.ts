@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
+import { getAuthUserId } from '../shared/authenticated-request';
 
 // Fix: H8 -- per-route throttle for sensitive billing operations
 import { ThrottleSensitive } from '@aquaculture/backend-common';
@@ -142,14 +143,14 @@ export class BillingController {
   @Post('plans')
   async createPlan(@Body() dto: CreatePlanDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.planService.create({ ...dto, createdBy: userId });
   }
 
   @Put('plans/:id')
   async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.planService.update(id, { ...dto, updatedBy: userId });
   }
 
@@ -159,7 +160,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.planService.deprecate(id, userId);
   }
 
@@ -178,7 +179,7 @@ export class BillingController {
   @Post('plans/seed')
   async seedPlans(@Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     await this.planService.seedDefaultPlans(userId);
     return { success: true, message: 'Default plans seeded successfully' };
   }
@@ -226,7 +227,7 @@ export class BillingController {
   @Post('discounts')
   async createDiscountCode(@Body() dto: CreateDiscountCodeDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.discountService.create({ ...dto, createdBy: userId });
   }
 
@@ -237,7 +238,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.discountService.update(id, { ...dto, updatedBy: userId });
   }
 
@@ -247,7 +248,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.discountService.deactivate(id, userId);
   }
 
@@ -264,7 +265,7 @@ export class BillingController {
     @Req() req?: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = req ? getAuthUserId(req) ?? '' : '';
     return this.discountService.applyDiscount(dto.code, dto.tenantId, dto.originalAmount, {
       subscriptionId: dto.subscriptionId,
       invoiceId: dto.invoiceId,
@@ -299,7 +300,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity, review feedback ile eklendi
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     const safeTemplate = { ...dto.template, createdBy: userId };
     const codes = await this.discountService.bulkCreate(dto.count, safeTemplate, dto.codePrefix);
     return { success: true, count: codes.length, codes };
@@ -312,7 +313,7 @@ export class BillingController {
   @Post('subscriptions')
   async createSubscription(@Body() dto: CreateSubscriptionDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.subscriptionService.createSubscription({ ...dto, createdBy: userId });
   }
 
@@ -372,7 +373,7 @@ export class BillingController {
   @Post('subscriptions/change-plan')
   async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.subscriptionService.changePlan({ ...request, changedBy: userId });
   }
 
@@ -385,7 +386,7 @@ export class BillingController {
     @Req() req?: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = req ? getAuthUserId(req) ?? '' : '';
     return this.subscriptionService.cancelSubscription(
       tenantId,
       dto.reason,
@@ -400,7 +401,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.subscriptionService.reactivateSubscription(tenantId, userId);
   }
 
@@ -411,7 +412,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.subscriptionService.extendTrial(tenantId, dto.additionalDays, userId);
   }
 
@@ -559,7 +560,7 @@ export class BillingController {
   @Post('custom-plans')
   async createCustomPlan(@Body() dto: CreateCustomPlanDto, @Req() req: Request) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.customPlanService.createCustomPlan({ ...dto, createdBy: userId });
   }
 
@@ -570,7 +571,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.customPlanService.updateCustomPlan(planId, { ...dto, updatedBy: userId });
   }
 
@@ -585,7 +586,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.customPlanService.approvePlan(planId, userId);
   }
 
@@ -596,7 +597,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.customPlanService.rejectPlan(planId, dto.reason, userId);
   }
 
@@ -684,7 +685,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.invoiceService.markAsPaid(invoiceId, dto.amount, userId);
   }
 
@@ -697,7 +698,7 @@ export class BillingController {
     @Req() req: Request,
   ) {
     // Fix: C6 -- JWT-based identity
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.invoiceService.voidInvoice(invoiceId, dto.reason, userId);
   }
 
@@ -742,14 +743,14 @@ export class BillingController {
   @ThrottleSensitive()
   @Post('payments')
   async recordPayment(@Body() dto: RecordPaymentDto, @Req() req: Request) {
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.paymentService.recordPayment(dto, userId);
   }
 
   @ThrottleSensitive()
   @Post('payments/refund')
   async refundPayment(@Body() dto: RefundPaymentDto, @Req() req: Request) {
-    const userId: string = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const userId: string = getAuthUserId(req) ?? '';
     return this.paymentService.refundPayment(dto, userId);
   }
 

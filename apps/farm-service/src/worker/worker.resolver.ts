@@ -9,6 +9,7 @@ import { CreateWorkerCommand } from './commands/create-worker.command';
 import { UpdateWorkerCommand } from './commands/update-worker.command';
 import { DeleteWorkerCommand } from './commands/delete-worker.command';
 import { ListWorkersQuery } from './queries/list-workers.query';
+import { Worker } from './entities/worker.entity';
 
 @Resolver(() => WorkerResponse)
 @UseGuards(TenantGuard)
@@ -49,7 +50,7 @@ export class WorkerResolver {
   ): Promise<WorkerResponse> {
     this.logger.log(`Creating worker for tenant ${tenantId}`);
     const command = new CreateWorkerCommand(input, tenantId, user.sub);
-    const worker = await this.commandBus.execute(command) as any;
+    const worker = await this.commandBus.execute(command) as Worker;
     return {
       id: worker.id,
       employeeNumber: worker.employeeNumber,
@@ -74,7 +75,7 @@ export class WorkerResolver {
   ): Promise<WorkerResponse> {
     this.logger.log(`Updating worker ${input.id} for tenant ${tenantId}`);
     const command = new UpdateWorkerCommand(input, tenantId, user.sub);
-    const worker = await this.commandBus.execute(command) as any;
+    const worker = await this.commandBus.execute(command) as Worker;
     return {
       id: worker.id,
       employeeNumber: worker.employeeNumber,

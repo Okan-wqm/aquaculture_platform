@@ -146,9 +146,9 @@ export class VfdAutomationResolver {
       {
         name: input.name,
         description: input.description,
-        triggerCondition: input.triggerCondition as unknown as VfdAutomationRule['triggerCondition'],
+        triggerCondition: input.triggerCondition as VfdAutomationRule['triggerCondition'],
         targetVfdDeviceIds: input.targetVfdDeviceIds,
-        parameterChanges: input.parameterChanges as unknown as VfdAutomationRule['parameterChanges'],
+        parameterChanges: input.parameterChanges as VfdAutomationRule['parameterChanges'],
         requiresApproval: input.requiresApproval,
         priority: input.priority,
       },
@@ -170,9 +170,9 @@ export class VfdAutomationResolver {
     return this.automationRuleService.updateRule(id, {
       name: input.name,
       description: input.description,
-      triggerCondition: input.triggerCondition as unknown as VfdAutomationRule['triggerCondition'] | undefined,
+      triggerCondition: input.triggerCondition as VfdAutomationRule['triggerCondition'] | undefined,
       targetVfdDeviceIds: input.targetVfdDeviceIds,
-      parameterChanges: input.parameterChanges as unknown as VfdAutomationRule['parameterChanges'] | undefined,
+      parameterChanges: input.parameterChanges as VfdAutomationRule['parameterChanges'] | undefined,
       requiresApproval: input.requiresApproval,
       priority: input.priority,
     }, tenantId);

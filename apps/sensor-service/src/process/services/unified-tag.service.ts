@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
+import { Repository, FindOptionsWhere, ILike, In, QueryFailedError } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
 
 import { DeviceIoConfig, IoType, IoDataType } from '../../edge-device/entities/device-io-config.entity';
@@ -18,6 +18,8 @@ import {
   TagIoType,
   TagDataType,
   TagDirection,
+  TagSource,
+  TagHierarchy,
 } from '../entities/unified-tag.entity';
 
 @Injectable()
@@ -43,8 +45,8 @@ export class UnifiedTagService {
     });
     try {
       return await this.tagRepository.save(tag);
-    } catch (error: any) {
-      if (error?.code === '23505') {
+    } catch (error) {
+      if (error instanceof QueryFailedError && (error.driverError as { code?: string })?.code === '23505') {
         throw new ConflictException(`Tag with FQN "${input.fqn}" already exists for this tenant`);
       }
       throw error;
@@ -70,8 +72,8 @@ export class UnifiedTagService {
     if (input.alarmL !== undefined) tag.alarmL = input.alarmL;
     if (input.alarmLL !== undefined) tag.alarmLL = input.alarmLL;
     if (input.deadband !== undefined) tag.deadband = input.deadband;
-    if (input.source !== undefined) tag.source = input.source as any;
-    if (input.hierarchy !== undefined) tag.hierarchy = input.hierarchy as any;
+    if (input.source !== undefined) tag.source = input.source as TagSource;
+    if (input.hierarchy !== undefined) tag.hierarchy = input.hierarchy as TagHierarchy;
 
     return this.tagRepository.save(tag);
   }

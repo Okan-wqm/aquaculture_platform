@@ -39,7 +39,7 @@ export class MetricsMiddleware implements NestMiddleware {
     // Extract tenant identifier for per-tenant metrics dimensioning.
     // Platform targets ~100 tenants, so direct tenantId is safe for label cardinality.
     const tenantId =
-      (req as unknown as { tenantId?: string }).tenantId
+      (req as Request & { tenantId?: string }).tenantId
       || (req.headers['x-tenant-id'] as string | undefined)
       || 'system';
 

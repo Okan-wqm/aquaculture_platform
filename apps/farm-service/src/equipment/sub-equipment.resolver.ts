@@ -208,7 +208,7 @@ export class SubEquipmentResolver {
   @ResolveField(() => SubEquipmentTypeResponse, { nullable: true })
   subEquipmentType(@Parent() subEquipment: SubEquipment): SubEquipmentTypeResponse | null {
     if (!subEquipment.subEquipmentType) return null;
-    return subEquipment.subEquipmentType as unknown as SubEquipmentTypeResponse;
+    return subEquipment.subEquipmentType as SubEquipmentTypeResponse;
   }
 
   /**
@@ -217,6 +217,6 @@ export class SubEquipmentResolver {
   @ResolveField(() => EquipmentResponse, { nullable: true })
   parentEquipment(@Parent() subEquipment: SubEquipment): EquipmentResponse | null {
     if (!subEquipment.parentEquipment) return null;
-    return subEquipment.parentEquipment as unknown as EquipmentResponse;
+    return subEquipment.parentEquipment as EquipmentResponse;
   }
 }

@@ -184,7 +184,7 @@ export class FeedingParameter {
 
   @Field({ nullable: true })
   @Column({ nullable: true })
-  errorMessage?: string;
+  errorMessage?: string | null;
 
   // Checksum for integrity verification
   @Field({ nullable: true })

@@ -187,7 +187,7 @@ export class EquipmentResolver {
     // This avoids a separate query that could fail due to search_path race conditions
     if (equipment.department) {
       // Type assertion: Department entity is compatible with DepartmentResponse for GraphQL serialization
-      return equipment.department as unknown as DepartmentResponse;
+      return equipment.department as DepartmentResponse;
     }
 
     // Only make a separate query if department wasn't loaded
@@ -343,7 +343,7 @@ export class EquipmentResolver {
       try {
         if (loaders?.feedSelectionLoader) {
           // Set context for the feed loader before loading
-          (loaders.feedSelectionLoader as any).setContext?.(
+          loaders.feedSelectionLoader.setContext(
             tankBatch.primaryBatchId, avgWeightG, biomassKg,
           );
           const feedResult = await loaders.feedSelectionLoader.load(tankBatch.primaryBatchId);

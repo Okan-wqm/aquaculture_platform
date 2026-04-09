@@ -264,7 +264,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     department: Department,
     systems: System[],
   ): Promise<Equipment> {
-    const specs = (input.specifications || {}) as unknown as TankSpecifications & {
+    const specs = (input.specifications || {}) as TankSpecifications & {
       tankType?: string;
       material?: string;
       waterType?: string;
@@ -444,7 +444,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
       createdAt: tank.createdAt,
       updatedAt: tank.updatedAt,
       createdBy: tank.createdBy,
-    })) as unknown as Equipment['equipmentSystems'];
+    })) as Equipment['equipmentSystems'];
 
     return equipment;
   }

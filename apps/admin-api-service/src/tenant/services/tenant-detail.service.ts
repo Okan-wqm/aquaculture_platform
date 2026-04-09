@@ -80,8 +80,8 @@ export class TenantDetailService {
       region: tenant.region,
 
       // Settings & Limits
-      settings: tenant.settings as any,
-      limits: tenant.limits as any,
+      settings: tenant.settings as TenantDetailDto['settings'],
+      limits: tenant.limits as TenantDetailDto['limits'],
 
       // Statistics
       userStats,

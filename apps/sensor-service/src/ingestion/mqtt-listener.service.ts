@@ -18,6 +18,7 @@ import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from '../edge-devic
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
+import { getTenantSchemaName, withTenantContext } from '@aquaculture/backend-common';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 
@@ -1070,7 +1071,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Lookup io configs (cached)
-      const ioConfigs = await this.getCachedIoConfigs(device.id);
+      const ioConfigs = await this.getCachedIoConfigs(device.id, tenantId);
 
       // Build tag->config map
       const configMap = new Map(ioConfigs.map((c: DeviceIoConfig) => [c.tagName, c]));
@@ -1166,16 +1167,20 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Get active I/O configs for a device from cache or fetch from DB.
+   * SECURITY: Uses withTenantContext in MQTT context where
+   * AsyncLocalStorage has no tenant data (no HTTP request context).
    */
-  private async getCachedIoConfigs(deviceId: string): Promise<DeviceIoConfig[]> {
+  private async getCachedIoConfigs(deviceId: string, tenantId: string): Promise<DeviceIoConfig[]> {
     const cached = this.ioConfigCache.get(deviceId);
     if (cached && cached.expiry > Date.now()) {
       return cached.configs;
     }
 
-    const configs = await this.dataSource
-      .getRepository(DeviceIoConfig)
-      .find({ where: { deviceId, isActive: true } });
+    const configs = await withTenantContext(tenantId, async () => {
+      return this.dataSource
+        .getRepository(DeviceIoConfig)
+        .find({ where: { deviceId, isActive: true } });
+    });
 
     this.ioConfigCache.set(deviceId, { configs, expiry: Date.now() + this.DEVICE_CACHE_TTL_MS });
     return configs;
@@ -1242,8 +1247,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return event;
       });
 
+      // SECURITY: MQTT handlers run outside HTTP request context. Use
+      // withTenantContext to establish AsyncLocalStorage context so the
+      // pool patch sets the correct search_path on connection checkout.
       if (events.length > 0) {
-        await this.dataSource.getRepository(DeviceEvent).save(events);
+        await withTenantContext(tenantId, async () => {
+          await this.dataSource.getRepository(DeviceEvent).save(events);
+        });
       }
     } catch (error) {
       this.logger.error(`Failed to handle alarms from ${deviceCode}: ${(error as Error).message}`);

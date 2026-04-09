@@ -1,5 +1,8 @@
+import { Logger } from '@nestjs/common';
 import { ValueTransformer } from 'typeorm';
 import { CredentialVaultService } from './credential-vault.service';
+
+const logger = new Logger('CredentialVault');
 
 // Static instance set during module init — TypeORM transformers can't use DI
 let vaultInstance: CredentialVaultService | null = null;
@@ -12,7 +15,8 @@ export const EncryptedColumnTransformer: ValueTransformer = {
   to(value: string | null | undefined): string | null | undefined {
     if (!value) return value;
     if (!vaultInstance) {
-      console.error('[CredentialVault] SECURITY: Vault not initialized - refusing to store plaintext credential');
+      // SECURITY: refuse to store plaintext credentials
+      logger.error('Vault not initialized - refusing to store plaintext credential');
       throw new Error('CredentialVault not initialized - cannot store sensitive data');
     }
     if (vaultInstance.isEncrypted(value)) return value;
@@ -27,7 +31,8 @@ export const EncryptedColumnTransformer: ValueTransformer = {
     try {
       return vaultInstance.decrypt(value);
     } catch (err) {
-      console.error(`[CredentialVault] Decryption failed for value starting with "${value.substring(0, 10)}...":`, err);
+      // SECURITY: never log credential content — only log opaque error code
+      logger.error('Decryption failed for stored credential (value redacted)');
       return '[DECRYPTION_FAILED]';
     }
   },

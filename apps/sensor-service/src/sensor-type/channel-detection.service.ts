@@ -19,6 +19,7 @@ import {
  * Channel definition proposed by AI or local fallback analysis
  */
 export interface ProposedChannel {
+  [key: string]: unknown;
   channelKey: string;
   displayLabel: string;
   dataType?: string;
@@ -86,9 +87,9 @@ export class ChannelDetectionService {
     const log = this.logRepo.create({
       sensorId,
       tenantId,
-      rawSample: samples as unknown as Record<string, unknown>,
+      rawSample: samples,
       aiAnalysis,
-      proposedChannels: proposedChannels as unknown as Record<string, unknown>,
+      proposedChannels: proposedChannels as Record<string, unknown>[],
     });
 
     return this.logRepo.save(log);
@@ -119,7 +120,7 @@ export class ChannelDetectionService {
     }
 
     const channelsToCreate: ProposedChannel[] = modifications
-      ?? (proposal.proposedChannels as unknown as ProposedChannel[]);
+      ?? (proposal.proposedChannels as ProposedChannel[]);
 
     // Check for existing channels to avoid duplicates
     const existingChannels = await this.channelRepo.find({
@@ -169,7 +170,7 @@ export class ChannelDetectionService {
 
       // Update proposal with approval
       proposal.userAction = UserAction.APPROVED;
-      proposal.finalChannels = (modifications ?? channelsToCreate) as unknown as Record<string, unknown>;
+      proposal.finalChannels = (modifications ?? channelsToCreate) as Record<string, unknown>[];
       await logRepo.save(proposal);
 
       this.logger.log(

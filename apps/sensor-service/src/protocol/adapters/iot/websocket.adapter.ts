@@ -42,6 +42,7 @@ export interface WebSocketConfiguration {
 }
 
 interface WsInstance {
+  [key: string]: unknown;
   readyState: number;
   close: () => void;
   send: (message: string) => void;
@@ -63,7 +64,7 @@ interface WsConnectOptions {
 }
 
 @Injectable()
-export class WebSocketAdapter extends BaseProtocolAdapter {
+export class WebSocketAdapter extends BaseProtocolAdapter<WebSocketConfiguration> {
   readonly protocolCode = 'WEBSOCKET';
   readonly category = ProtocolCategory.IOT;
   readonly subcategory = ProtocolSubcategory.REALTIME;
@@ -73,8 +74,8 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
 
   private sockets = new Map<string, WsSocketData>();
 
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const wsConfig = config as unknown as WebSocketConfiguration;
+  async connect(config: WebSocketConfiguration): Promise<ConnectionHandle> {
+    const wsConfig = config;
     const WebSocket = (await import('ws')).default;
 
     let url = wsConfig.url;
@@ -160,7 +161,7 @@ export class WebSocketAdapter extends BaseProtocolAdapter {
     return socketData?.ws?.readyState === 1; // WebSocket.OPEN = 1
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(config: WebSocketConfiguration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     let handle: ConnectionHandle | null = null;
 

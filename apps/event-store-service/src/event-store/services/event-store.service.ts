@@ -135,7 +135,7 @@ export class EventStoreService {
       }
 
       // Bulk insert all events
-      const insertResult = await queryRunner.manager.insert(StoredEvent, storedEvents as any);
+      const insertResult = await queryRunner.manager.insert(StoredEvent, storedEvents);
       for (const row of insertResult.identifiers) {
         eventIds.push(row.id);
       }
@@ -386,15 +386,10 @@ export class EventStoreService {
     }
 
     // Atomic upsert instead of delete+insert
+    // TypeORM's QueryDeepPartialEntity doesn't handle Record<string, unknown> for JSONB columns
+    const upsertData = { aggregateType, aggregateId, tenantId, version, state, schemaVersion };
     await this.snapshotRepository.upsert(
-      {
-        aggregateType,
-        aggregateId,
-        tenantId,
-        version,
-        state: state as any,
-        schemaVersion,
-      },
+      upsertData as Parameters<typeof this.snapshotRepository.upsert>[0],
       {
         conflictPaths: ['aggregateType', 'aggregateId', 'tenantId'],
       },

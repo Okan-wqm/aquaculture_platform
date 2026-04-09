@@ -10,6 +10,7 @@ import { Repository, DataSource, In } from 'typeorm';
 
 import {
   TenantSchema,
+  SchemaStatus,
   SchemaMigration,
   MigrationStatus,
   MigrationPlan,
@@ -536,7 +537,7 @@ export class MigrationManagementService {
     this.logger.log(`Running batch migration ${version}, dryRun: ${isDryRun}`);
 
     const activeSchemas = await this.schemaRepository.find({
-      where: { status: 'active' as any },
+      where: { status: 'active' as SchemaStatus },
     });
 
     const results: MigrationResult[] = [];
@@ -581,7 +582,7 @@ export class MigrationManagementService {
     }>;
   }> {
     const activeSchemas = await this.schemaRepository.find({
-      where: { status: 'active' as any },
+      where: { status: 'active' as SchemaStatus },
     });
 
     const migrations = await this.migrationRepository.find({
@@ -828,7 +829,7 @@ export class MigrationManagementService {
   }> {
     const allMigrations = await this.migrationRepository.find();
     const allSchemas = await this.schemaRepository.find({
-      where: { status: 'active' as any },
+      where: { status: 'active' as SchemaStatus },
     });
 
     const latestVersion = MIGRATION_REGISTRY[MIGRATION_REGISTRY.length - 1]?.version || '0.0.0';

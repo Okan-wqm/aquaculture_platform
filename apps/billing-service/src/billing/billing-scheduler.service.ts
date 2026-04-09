@@ -82,7 +82,7 @@ export class BillingSchedulerService {
           if (this.eventBus) {
             try {
               await this.eventBus.publish({
-                ...createBaseEvent('SubscriptionPastDue' as any, sub.tenantId),
+                ...createBaseEvent('SubscriptionPastDue', sub.tenantId),
                 subscriptionId: sub.id,
                 previousStatus: SubscriptionStatus.TRIAL,
                 newStatus: SubscriptionStatus.PAST_DUE,
@@ -155,7 +155,7 @@ export class BillingSchedulerService {
         if (this.eventBus) {
           try {
             await this.eventBus.publish({
-              ...createBaseEvent('SubscriptionExpired' as any, sub.tenantId),
+              ...createBaseEvent('SubscriptionExpired', sub.tenantId),
               subscriptionId: sub.id,
               previousStatus,
               newStatus: SubscriptionStatus.EXPIRED,

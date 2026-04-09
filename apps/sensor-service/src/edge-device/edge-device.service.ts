@@ -944,7 +944,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const device = await this.findByIdOrFail(deviceId, tenantId);
 
     // Build install URL/command — use token if available (not yet activated)
-    const token = (device as any).provisioningToken || undefined;
+    const token = device.provisioningToken || undefined;
     const installUrl = await this.installerScriptService.buildInstallerUrl(device.deviceCode, token);
     const installCommand = await this.installerScriptService.buildInstallerCommand(device.deviceCode, token);
 

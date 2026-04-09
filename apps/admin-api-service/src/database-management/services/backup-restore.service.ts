@@ -21,6 +21,7 @@ const execFileAsync = promisify(execFile);
 
 import {
   TenantSchema,
+  SchemaStatus,
   SchemaBackup,
   SchemaRestore,
   BackupStatus,
@@ -558,7 +559,7 @@ export class BackupRestoreService {
     this.logger.log('Running scheduled daily backups');
 
     const activeSchemas = await this.schemaRepository.find({
-      where: { status: 'active' as any },
+      where: { status: 'active' as SchemaStatus },
     });
 
     for (const schema of activeSchemas) {
@@ -584,7 +585,7 @@ export class BackupRestoreService {
     this.logger.log('Running scheduled weekly full backups');
 
     const activeSchemas = await this.schemaRepository.find({
-      where: { status: 'active' as any },
+      where: { status: 'active' as SchemaStatus },
     });
 
     for (const schema of activeSchemas) {
@@ -654,7 +655,7 @@ export class BackupRestoreService {
   }> {
     const allBackups = await this.backupRepository.find();
     const allSchemas = await this.schemaRepository.find({
-      where: { status: 'active' as any },
+      where: { status: 'active' as SchemaStatus },
     });
 
     const completedBackups = allBackups.filter(b => b.status === 'completed');

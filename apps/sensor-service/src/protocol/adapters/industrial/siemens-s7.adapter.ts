@@ -42,6 +42,7 @@ interface S7ClientData {
 }
 
 interface S7Client {
+  [key: string]: unknown;
   initiateConnection: (params: Record<string, unknown>, callback: (err?: Error) => void) => void;
   dropConnection: () => void;
   setTranslationCB: (cb: (tag: string) => string) => void;
@@ -50,7 +51,7 @@ interface S7Client {
 }
 
 @Injectable()
-export class SiemensS7Adapter extends BaseProtocolAdapter {
+export class SiemensS7Adapter extends BaseProtocolAdapter<SiemensS7Configuration> {
   readonly protocolCode = 'SIEMENS_S7';
   readonly category = ProtocolCategory.INDUSTRIAL;
   readonly subcategory = ProtocolSubcategory.PLC_NATIVE;
@@ -60,8 +61,8 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
 
   private clients = new Map<string, S7ClientData>();
 
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const s7Config = config as unknown as SiemensS7Configuration;
+  async connect(config: SiemensS7Configuration): Promise<ConnectionHandle> {
+    const s7Config = config;
 
     // Dynamic import nodes7 library
     const nodes7 = await import('nodes7');
@@ -105,7 +106,7 @@ export class SiemensS7Adapter extends BaseProtocolAdapter {
     }
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(config: SiemensS7Configuration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     let handle: ConnectionHandle | null = null;
 

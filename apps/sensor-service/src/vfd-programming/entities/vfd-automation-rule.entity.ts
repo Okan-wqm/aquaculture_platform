@@ -13,6 +13,7 @@ import { GraphQLJSON } from 'graphql-scalars';
  * Trigger condition structure for automation rules
  */
 export interface VfdAutomationTriggerCondition {
+  [key: string]: unknown;
   conditions: Array<{
     sensorTag: string;
     operator: '>' | '<' | '>=' | '<=' | '==' | '!=';
@@ -26,6 +27,7 @@ export interface VfdAutomationTriggerCondition {
  * Parameter change instruction for automation rules
  */
 export interface VfdAutomationParameterChange {
+  [key: string]: unknown;
   parameterName: string;
   value: number;
 }

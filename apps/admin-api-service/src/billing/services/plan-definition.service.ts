@@ -204,7 +204,7 @@ export class PlanDefinitionService {
 
     for (const field of simpleFields) {
       if (dto[field] !== undefined) {
-        (plan as unknown as Record<string, unknown>)[field] = dto[field];
+        Object.assign(plan, { [field]: dto[field] });
       }
     }
 

@@ -15,7 +15,7 @@ export class GetSiteHandler implements IQueryHandler<GetSiteQuery> {
     private readonly siteRepository: Repository<Site>,
   ) {}
 
-  async execute(query: GetSiteQuery): Promise<Site> {
+  async execute(query: GetSiteQuery): Promise<Site | null> {
     const { siteId, tenantId, includeRelations } = query;
 
     const site = await this.siteRepository.findOne({
@@ -27,7 +27,7 @@ export class GetSiteHandler implements IQueryHandler<GetSiteQuery> {
     // The site field is nullable, so this is a valid response
     // This handles connection pool race conditions where search_path might be reset
     if (!site) {
-      return null as unknown as Site;
+      return null;
     }
 
     return site;

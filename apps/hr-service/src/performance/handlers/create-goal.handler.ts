@@ -88,13 +88,14 @@ export class CreateGoalHandler implements ICommandHandler<CreateGoalCommand> {
       });
 
       const savedGoal = await goalRepo.save(goal);
-      await queryRunner.commitTransaction();
 
-      // Reload with relations
-      const result = await this.dataSource.getRepository(Goal).findOne({
+      // Reload with relations on the SAME connection before commit
+      const result = await queryRunner.manager.findOne(Goal, {
         where: { id: savedGoal.id, tenantId },
         relations: ['employee', 'parentGoal', 'childGoals'],
       });
+
+      await queryRunner.commitTransaction();
 
       return result!;
     } catch (error) {

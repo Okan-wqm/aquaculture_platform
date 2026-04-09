@@ -1005,7 +1005,7 @@ export class TenantProvisioningService {
       await this.userPermissionsService.createDefaultPermissions(
         result.userId,
         tenantId,
-        null as unknown as string, // grantedBy: null for system provisioning (column is UUID, not VARCHAR)
+        undefined, // grantedBy: omitted for system provisioning (column is nullable UUID)
         true, // isAdmin - true to use TENANT_ADMIN_PERMISSIONS
       );
 

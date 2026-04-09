@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationChannel } from '../database/entities/escalation-policy.entity';
-import { AlertIncident } from '../database/entities/alert-incident.entity';
+import { AlertIncident, IncidentStatus } from '../database/entities/alert-incident.entity';
 import { AlertSeverity } from '../database/entities/alert-rule.entity';
 
 /**
@@ -504,7 +504,7 @@ export class TemplateRendererService {
         id: 'sample-incident-123',
         title: 'Sample Alert - Temperature Threshold Exceeded',
         description: 'Water temperature has exceeded the safe threshold in Tank A.',
-        status: 'NEW' as any,
+        status: IncidentStatus.NEW,
       },
       severity: AlertSeverity.HIGH,
       escalationLevel: 1,

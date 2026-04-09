@@ -22,6 +22,7 @@ const INTERNAL_HEADERS_TO_STRIP = [
   'x-user-payload',
   'x-user-id',
   'x-user-roles',
+  'x-tenant-id',
 ];
 
 @Injectable()

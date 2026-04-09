@@ -88,8 +88,8 @@ export class ListSpeciesHandler
       'updatedAt',
     ];
 
-    const validSortOrders = ['ASC', 'DESC'] as const;
-    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+    const validSortOrders: readonly string[] = ['ASC', 'DESC'];
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() ?? '')
       ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
       : 'ASC';
 

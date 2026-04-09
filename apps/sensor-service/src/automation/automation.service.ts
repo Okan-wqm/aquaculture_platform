@@ -151,7 +151,7 @@ export class AutomationService {
         executionMode: input.executionMode,
         deviceId: input.deviceId,
         processTemplateId: input.processTemplateId,
-        sfcDefinition: input.sfcDefinition ? input.sfcDefinition as unknown as SfcDefinition : undefined,
+        sfcDefinition: input.sfcDefinition ? input.sfcDefinition as SfcDefinition : undefined,
         structuredTextCode: input.structuredTextCode,
         scanCycleMs: input.scanCycleMs || 100,
         priority: input.priority || 5,
@@ -206,7 +206,7 @@ export class AutomationService {
       if (input.programName !== undefined) program.programName = input.programName;
       if (input.description !== undefined) program.description = input.description;
       if (input.executionMode !== undefined) program.executionMode = input.executionMode;
-      if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as unknown as SfcDefinition;
+      if (input.sfcDefinition !== undefined) program.sfcDefinition = input.sfcDefinition as SfcDefinition;
       if (input.structuredTextCode !== undefined) program.structuredTextCode = input.structuredTextCode;
       if (input.scanCycleMs !== undefined) program.scanCycleMs = input.scanCycleMs;
       if (input.priority !== undefined) program.priority = input.priority;
@@ -1379,7 +1379,7 @@ export class AutomationService {
         deviceId,
         commandId,
         version: program.version,
-        edgeScript: (deployCommand as any).params as Record<string, unknown>,
+        edgeScript: deployCommand.params as Record<string, unknown>,
         deployedBy,
       });
     }

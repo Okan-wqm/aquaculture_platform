@@ -84,16 +84,25 @@ export interface ProvisioningStepSnapshot {
  * Tenant Provisioning Failed Event
  * Published when tenant provisioning (schema creation, admin setup) fails.
  *
- * ARCH-C01: steps serialized as JSON string — array of complex objects
- * with variable structure makes flat-field mapping impractical.
- * stepCount provides quick access without deserializing.
+ * Flat-object pattern: individual step statuses represented as flat fields.
+ * Consumers use stepCount + failedStepName + failedStepError for triage.
  */
 export interface TenantProvisioningFailedEvent extends BaseEvent {
   eventType: 'TenantProvisioningFailed';
+  /** Human-readable error message */
   error?: string;
-  stepsJson?: string;
+  /** Total number of provisioning steps attempted */
   stepCount?: number;
-  duration?: number;
+  /** Total provisioning duration in milliseconds */
+  durationMs?: number;
+  /** Name of the step that failed (e.g., 'schema_creation', 'admin_setup') */
+  failedStepName?: string;
+  /** Error message from the failed step */
+  failedStepError?: string;
+  /** Index (0-based) of the failed step in the provisioning sequence */
+  failedStepIndex?: number;
+  /** Number of steps that completed successfully before failure */
+  completedStepCount?: number;
 }
 
 /**
@@ -153,13 +162,14 @@ export interface TenantModulesAssignedEvent extends BaseEvent {
   moduleIds: string[];
   /** Module codes for consumers that need codes rather than IDs */
   moduleCodes?: string[];
-  /** Pricing information if calculated */
-  pricing?: {
-    monthlyTotal: number;
-    annualTotal: number;
-    tier: string;
-    currency: string;
-  };
+  /** Monthly pricing total (flat-object: promoted from nested pricing object) */
+  pricingMonthlyTotal?: number;
+  /** Annual pricing total */
+  pricingAnnualTotal?: number;
+  /** Pricing tier (e.g., 'starter', 'professional', 'enterprise') */
+  pricingTier?: string;
+  /** Pricing currency code (e.g., 'USD', 'EUR', 'TRY') */
+  pricingCurrency?: string;
   /** User who assigned the modules */
   assignedBy: string;
 }

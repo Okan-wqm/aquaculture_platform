@@ -203,7 +203,7 @@ export class AlertTriggeredEventHandler
       // DLQ: Determine whether to retry or dead-letter this event
       try {
         const dlqResult = await this.dlqService.handleFailedEvent(
-          event as unknown as Record<string, unknown>,
+          { ...event },
           error,
         );
 

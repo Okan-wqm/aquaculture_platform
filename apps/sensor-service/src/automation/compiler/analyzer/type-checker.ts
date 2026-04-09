@@ -270,7 +270,7 @@ export class TypeChecker {
   typeToString(dt: DataType): string {
     switch (dt.kind) {
       case 'elementary': return dt.type;
-      case 'array': return `ARRAY[${(dt as any).lowerBound}..${(dt as any).upperBound}] OF ${this.typeToString(dt.elementType)}`;
+      case 'array': return `ARRAY[${dt.lowerBound}..${dt.upperBound}] OF ${this.typeToString(dt.elementType)}`;
       case 'struct': return dt.name;
       case 'enum': return dt.name;
       case 'functionBlock': return dt.name;

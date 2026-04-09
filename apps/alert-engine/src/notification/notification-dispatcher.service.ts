@@ -542,7 +542,7 @@ export class NotificationDispatcherService implements OnModuleInit, OnModuleDest
         id: 'test-incident',
         title: 'Test Notification',
         description: 'This is a test notification.',
-      } as any,
+      },
       severity: AlertSeverity.INFO,
       escalationLevel: 0,
     };

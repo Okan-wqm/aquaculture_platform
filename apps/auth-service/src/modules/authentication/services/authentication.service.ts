@@ -643,6 +643,7 @@ export class AuthenticationService {
         .getMany();
 
       // Find matching token by comparing hashes
+      // SECURITY: bcrypt.compare prevents timing attacks on refresh token validation
       let matchedToken: RefreshToken | null = null;
       for (const storedToken of validTokens) {
         const isMatch = await bcrypt.compare(tokenPart, storedToken.token);

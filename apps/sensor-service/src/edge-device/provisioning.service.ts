@@ -335,7 +335,7 @@ export class ProvisioningService {
 
       // Clear the token from database (single-use)
       // Use null (not undefined) so TypeORM sends SET provisioning_token = NULL
-      (device as any).provisioningToken = null;
+      device.provisioningToken = null;
 
       await transactionalManager.save(device);
 
@@ -468,11 +468,11 @@ export class ProvisioningService {
     await this.deviceRepository.update(device.id, {
       provisioningToken,
       tokenExpiresAt,
-      tokenUsedAt: undefined as any, // TypeORM: sends SET token_used_at = NULL
+      tokenUsedAt: null, // TypeORM: sends SET token_used_at = NULL
       lifecycleState: DeviceLifecycleState.REGISTERED,
-      mqttPasswordHash: undefined as any,
-      fingerprint: undefined as any,
-      agentVersion: undefined as any,
+      mqttPasswordHash: null,
+      fingerprint: null,
+      agentVersion: null,
       isOnline: false,
     });
 

@@ -164,7 +164,7 @@ export class WaterQualityService {
     });
 
     // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
-    const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters as unknown as Record<string, unknown>);
+    const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters);
     if (summary.evaluations.length > 0) {
       measurement.overallStatus = summary.overallStatus;
       measurement.summary = summary;
@@ -274,7 +274,7 @@ export class WaterQualityService {
         measuredAt: input.measuredAt,
         source: input.source,
         measuredBy: userId,
-        parameters: item.dynamicParameters as unknown as Record<string, unknown> as WaterQualityMeasurement['parameters'],
+        parameters: item.dynamicParameters as WaterQualityMeasurement['parameters'],
         notes: item.notes,
         idempotencyKey: item.idempotencyKey,
         overallStatus: WaterQualityStatus.UNKNOWN,
@@ -284,7 +284,7 @@ export class WaterQualityService {
       // Evaluate thresholds
       const summary = await this.evaluationService.evaluate(
         tenantId,
-        item.dynamicParameters as unknown as Record<string, unknown>,
+        item.dynamicParameters as WaterQualityMeasurement['parameters'],
       );
       if (summary.evaluations.length > 0) {
         measurement.overallStatus = summary.overallStatus;
@@ -544,7 +544,7 @@ export class WaterQualityService {
     }
 
     // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
-    const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters as unknown as Record<string, unknown>);
+    const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters);
     if (summary.evaluations.length > 0) {
       measurement.overallStatus = summary.overallStatus;
       measurement.summary = summary;

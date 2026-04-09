@@ -81,6 +81,7 @@ registerEnumType(DeployTarget, {
  * SFC Definition structure stored as JSONB
  */
 export interface SfcDefinition {
+  [key: string]: unknown;
   initialStep: string;
   steps: Record<string, {
     code: string;

@@ -48,9 +48,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * includes userId, sourceTenantId, targetTenantId, endpoint, timestamp, client IP,
  * and user agent. An ephemeral logger.warn() is also emitted for real-time observability.
  *
- * MFA Step-Up: When `MFA_REQUIRED_FOR_CROSS_TENANT=true` environment variable is set,
- * SUPER_ADMIN cross-tenant access requires `mfaVerified: true` in the JWT claims.
- * This is opt-in to avoid breaking existing flows before MFA is configured.
+ * MFA Step-Up: SUPER_ADMIN cross-tenant access requires `mfaVerified: true` in the JWT
+ * claims by default (`MFA_REQUIRED_FOR_CROSS_TENANT` defaults to `'true'`).
+ * Set `MFA_REQUIRED_FOR_CROSS_TENANT=false` to opt out during MFA rollout.
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -67,7 +67,7 @@ export class TenantGuard implements CanActivate {
     @Optional() @Inject(ConfigService) private readonly configService?: ConfigService,
   ) {
     this.mfaRequiredForCrossTenant =
-      this.configService?.get<string>('MFA_REQUIRED_FOR_CROSS_TENANT', 'false') === 'true';
+      this.configService?.get<string>('MFA_REQUIRED_FOR_CROSS_TENANT', 'true') === 'true';
 
     if (!this.auditLogService) {
       this.logger.warn(

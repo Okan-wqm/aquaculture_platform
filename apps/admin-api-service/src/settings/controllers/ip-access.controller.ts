@@ -15,6 +15,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { IsArray, IsIP, IsOptional, IsString, ArrayMaxSize, MaxLength } from 'class-validator';
 import { Request } from 'express';
+import { getAuthUserId } from '../../shared/authenticated-request';
 
 import {
   IpAccessService,
@@ -108,7 +109,7 @@ export class IpAccessController {
     @Body() dto: CreateIpAccessRuleDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -162,7 +163,7 @@ export class IpAccessController {
     @Body() dto: BulkIpDto,
     @Req() req: Request,
   ) {
-    const createdBy = (req as unknown as { user?: { id?: string } }).user?.id;
+    const createdBy = getAuthUserId(req);
     if (!createdBy) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -182,7 +183,7 @@ export class IpAccessController {
     @Body() dto: BulkIpDto,
     @Req() req: Request,
   ) {
-    const createdBy = (req as unknown as { user?: { id?: string } }).user?.id;
+    const createdBy = getAuthUserId(req);
     if (!createdBy) {
       throw new UnauthorizedException('User not authenticated');
     }

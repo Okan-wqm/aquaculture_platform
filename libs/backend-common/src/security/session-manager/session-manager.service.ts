@@ -45,7 +45,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
   private readonly userSessions = new Map<string, Set<string>>();
 
   // Configuration
-  private readonly maxSessionsPerUser: number;
+  private maxSessionsPerUser: number;
   private readonly sessionTtlMs: number;
   private readonly useRedis: boolean;
   private readonly keyPrefix = 'session:';
@@ -281,7 +281,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
    * Update session configuration at runtime
    */
   setMaxSessionsPerUser(limit: number): void {
-    (this as unknown as { maxSessionsPerUser: number }).maxSessionsPerUser = limit;
+    this.maxSessionsPerUser = limit;
     this.logger.log(`Max sessions per user updated to: ${limit}`);
   }
 

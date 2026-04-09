@@ -18,6 +18,8 @@ import {
 import { createModbusClient, ModbusRTUClient } from './types';
 
 export interface ModbusTcpConfiguration {
+  sensorId?: string;
+  tenantId?: string;
   host: string;
   port: number;
   unitId: number;
@@ -47,7 +49,7 @@ export interface ModbusTcpConfiguration {
 }
 
 @Injectable()
-export class ModbusTcpAdapter extends BaseProtocolAdapter {
+export class ModbusTcpAdapter extends BaseProtocolAdapter<ModbusTcpConfiguration> {
   readonly protocolCode = 'MODBUS_TCP';
   readonly category = ProtocolCategory.INDUSTRIAL;
   readonly subcategory = ProtocolSubcategory.MODBUS;
@@ -57,8 +59,8 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
 
   private clients = new Map<string, { client: ModbusRTUClient; config: ModbusTcpConfiguration }>();
 
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const modbusConfig = config as unknown as ModbusTcpConfiguration;
+  async connect(config: ModbusTcpConfiguration): Promise<ConnectionHandle> {
+    const modbusConfig = config;
 
     // Create typed Modbus client
     const client = await createModbusClient();
@@ -73,8 +75,8 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
     client.setTimeout(modbusConfig.timeout || 5000);
 
     const handle = this.createConnectionHandle(
-      config.sensorId as string || 'unknown',
-      config.tenantId as string || 'unknown',
+      modbusConfig.sensorId ?? 'unknown',
+      modbusConfig.tenantId ?? 'unknown',
       { host: modbusConfig.host, port: modbusConfig.port, unitId: modbusConfig.unitId }
     );
 
@@ -103,7 +105,7 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
     return clientData?.client?.isOpen || false;
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(config: ModbusTcpConfiguration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     let handle: ConnectionHandle | null = null;
 
@@ -126,9 +128,9 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter {
         diagnostics: {
           connectionTimeMs: latencyMs,
           deviceInfo: {
-            host: (config as unknown as ModbusTcpConfiguration).host,
-            port: (config as unknown as ModbusTcpConfiguration).port,
-            unitId: (config as unknown as ModbusTcpConfiguration).unitId,
+            host: config.host,
+            port: config.port,
+            unitId: config.unitId,
           },
         },
       };

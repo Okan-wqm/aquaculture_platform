@@ -532,7 +532,7 @@ export class ProjectionsService {
       } catch {
         // OK
       }
-      this.schedulerRegistry.addInterval(intervalName, timeout as unknown as ReturnType<typeof setInterval>);
+      this.schedulerRegistry.addInterval(intervalName, timeout as NodeJS.Timeout);
     };
 
     scheduleNext();

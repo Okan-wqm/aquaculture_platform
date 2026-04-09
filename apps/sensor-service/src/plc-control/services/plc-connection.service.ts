@@ -285,7 +285,7 @@ export class PlcConnectionService {
 
     try {
       const config = buildOpcUaConfig(connection);
-      const result = await this.opcUaAdapter.testConnection(config as unknown as Record<string, unknown>);
+      const result = await this.opcUaAdapter.testConnection(config);
       const latencyMs = Date.now() - startTime;
 
       if (result.success) {
@@ -378,7 +378,7 @@ export class PlcConnectionService {
     let handle;
 
     try {
-      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      handle = await this.opcUaAdapter.connect(config);
       const results = await this.opcUaAdapter.browseNodes(handle, parentNodeId);
       return results;
     } catch (error) {
@@ -545,7 +545,7 @@ export class PlcConnectionService {
     let handle;
 
     try {
-      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      handle = await this.opcUaAdapter.connect(config);
       return await this.opcUaAdapter.readHistoricalData(handle, nodeId, startTime, endTime, maxValues);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -580,7 +580,7 @@ export class PlcConnectionService {
     let handle;
 
     try {
-      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      handle = await this.opcUaAdapter.connect(config);
       return await this.opcUaAdapter.callMethod(handle, objectId, methodId, inputArguments);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -615,7 +615,7 @@ export class PlcConnectionService {
     let handle;
 
     try {
-      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      handle = await this.opcUaAdapter.connect(config);
       await this.opcUaAdapter.writeData(handle, nodeId, value, dataType);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';

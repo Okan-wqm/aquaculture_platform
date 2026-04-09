@@ -546,16 +546,12 @@ export class ModuleAssignmentService {
       timestamp: new Date(),
       tenantId,
       moduleIds,
-      pricing: pricing
-        ? {
-            monthlyTotal: pricing.monthlyTotal,
-            annualTotal: pricing.annualTotal,
-            tier: pricing.tier,
-            currency: pricing.currency,
-          }
-        : undefined,
+      pricingMonthlyTotal: pricing?.monthlyTotal,
+      pricingAnnualTotal: pricing?.annualTotal,
+      pricingTier: pricing?.tier,
+      pricingCurrency: pricing?.currency,
       assignedBy,
-      version: 1,
+      version: 2,
     });
   }
 

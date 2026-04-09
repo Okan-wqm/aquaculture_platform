@@ -150,7 +150,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
         .createQueryBuilder()
         .update(Department)
         .set({
-          siteId: null as unknown as string,
+          siteId: null as string | null,
           updatedBy: userId,
         })
         .where('tenantId = :tenantId', { tenantId })

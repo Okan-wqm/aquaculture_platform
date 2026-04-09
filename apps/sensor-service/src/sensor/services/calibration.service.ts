@@ -174,10 +174,10 @@ export class LookupTableCalibrationStrategy implements ICalibrationStrategy {
 
     // MEDIUM-004: Sort is done once when the table is first used (ascending raw values).
     // The config object is mutated in-place so subsequent calls reuse the sorted array.
-    const configAny = config as unknown as Record<string, unknown>;
-    if (!configAny['_sorted']) {
+    const configWithSortFlag = config as CalibrationConfig & { _sorted?: boolean };
+    if (!configWithSortFlag._sorted) {
       config.lookupTable.sort((a, b) => a.raw - b.raw);
-      configAny['_sorted'] = true;
+      configWithSortFlag._sorted = true;
     }
     const table = config.lookupTable;
 

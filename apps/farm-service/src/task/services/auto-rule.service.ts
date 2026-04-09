@@ -84,7 +84,7 @@ export class AutoRuleService {
     const rule = await this.findById(tenantId, id);
 
     // Strip immutable/system fields to prevent accidental overwrite
-    const { id: _id, tenantId: _tid, createdAt: _ca, updatedAt: _ua, triggerCount: _tc, lastTriggered: _lt, ...safeInput } = input as any;
+    const { id: _id, tenantId: _tid, createdAt: _ca, updatedAt: _ua, triggerCount: _tc, lastTriggered: _lt, ...safeInput } = input;
     Object.assign(rule, safeInput);
 
     return this.autoRuleRepository.save(rule);

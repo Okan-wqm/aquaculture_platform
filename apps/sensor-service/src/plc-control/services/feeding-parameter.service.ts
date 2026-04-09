@@ -270,7 +270,7 @@ export class FeedingParameterService {
 
     // Mark as PENDING before attempting the write
     parameter.status = ParameterStatus.PENDING;
-    parameter.errorMessage = undefined as unknown as string;
+    parameter.errorMessage = null;
     await this.feedingParameterRepository.save(parameter);
 
     let handle: ConnectionHandle | null = null;
@@ -280,7 +280,7 @@ export class FeedingParameterService {
       const config = buildOpcUaConfig(connection);
 
       // Connect to OPC UA server
-      handle = await this.opcUaAdapter.connect(config as unknown as Record<string, unknown>);
+      handle = await this.opcUaAdapter.connect(config);
 
       // Serialize parameter data for PLC write
       const parameterPayload = JSON.stringify({

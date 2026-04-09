@@ -31,7 +31,7 @@ export interface DdsConfiguration {
 }
 
 @Injectable()
-export class DdsAdapter extends BaseProtocolAdapter {
+export class DdsAdapter extends BaseProtocolAdapter<DdsConfiguration> {
   readonly protocolCode = 'DDS';
   readonly category = ProtocolCategory.IOT;
   readonly subcategory = ProtocolSubcategory.REALTIME;
@@ -40,8 +40,8 @@ export class DdsAdapter extends BaseProtocolAdapter {
   readonly description = 'Data Distribution Service - Real-time publish-subscribe middleware';
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const ddsConfig = config as unknown as DdsConfiguration;
+  async connect(config: DdsConfiguration): Promise<ConnectionHandle> {
+    const ddsConfig = config;
 
     // DDS requires specific vendor library (RTI, OpenDDS, etc.)
     // This is a placeholder implementation
@@ -62,7 +62,7 @@ export class DdsAdapter extends BaseProtocolAdapter {
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
-  async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(_config: DdsConfiguration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     const latencyMs = Date.now() - startTime;
 

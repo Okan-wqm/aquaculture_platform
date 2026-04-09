@@ -21,6 +21,7 @@ import { Request } from 'express';
 
 // Fix: MEDIUM-002 -- rate-limit sensitive PUT endpoints
 import { ThrottleSensitive } from '@aquaculture/backend-common';
+import { getAuthUserId } from '../shared/authenticated-request';
 import { SettingCategory } from './entities/system-setting.entity';
 import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
 import {
@@ -118,7 +119,7 @@ export class SettingsController {
     @Body() dto: UpdateSystemSettingDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.updateSetting(key, { ...dto, updatedBy: userId });
   }
@@ -129,7 +130,7 @@ export class SettingsController {
    */
   @Post('key/:key/reset')
   async resetToDefault(@Param('key') key: string, @Req() req: Request) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.resetToDefault(key, userId);
   }
@@ -143,7 +144,7 @@ export class SettingsController {
     @Body() dto: BulkUpdateSettingsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.bulkUpdate(dto.updates, userId);
   }
@@ -169,7 +170,7 @@ export class SettingsController {
     @Body() dto: UpdateEmailConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.updateEmailConfig(dto, userId);
     return this.settingsService.getEmailConfig();
@@ -195,7 +196,7 @@ export class SettingsController {
     @Body() body: UpdateSecurityConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.updateSecurityConfig(body, userId);
     return this.settingsService.getSecurityConfig();
@@ -221,7 +222,7 @@ export class SettingsController {
     @Body() body: UpdateRateLimitConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.updateRateLimitConfig(body, userId);
     return this.settingsService.getRateLimitConfig();
@@ -244,7 +245,7 @@ export class SettingsController {
     @Body() dto: SetMaintenanceModeDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.setMaintenanceMode(
       dto.enabled,
@@ -272,7 +273,7 @@ export class SettingsController {
     @Body() dto: UpdateBillingConfigDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.updateBillingConfig(dto, userId);
     return this.settingsService.getBillingConfig();
@@ -318,7 +319,7 @@ export class SettingsController {
     @Body() dto: ImportSettingsDto,
     @Req() req: Request,
   ) {
-    const userId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.importSettings(dto.data, userId);
   }

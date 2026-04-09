@@ -118,7 +118,7 @@ export class GdprComplianceService {
     if (this.eventBus) {
       try {
         await this.eventBus.publish({
-          ...createBaseEvent('UserDeleted' as any, tenantId, { userId: requestedBy }),
+          ...createBaseEvent('UserDeleted', tenantId, { userId: requestedBy }),
           deletedUserId: userId,
           tenantId,
           erasureType: 'gdpr_right_to_erasure',
@@ -162,11 +162,11 @@ export class GdprComplianceService {
       userId: user.id,
       email: user.email,
       createdAt: user.createdAt,
-      lastLoginAt: (user as unknown as { lastLoginAt?: Date }).lastLoginAt ?? null,
+      lastLoginAt: user.lastLoginAt ?? null,
       activeRefreshTokenCount,
       role: user.role,
       webAuthnCredentialCount: credCount,
-      isActive: (user as unknown as { isActive?: boolean }).isActive ?? true,
+      isActive: user.isActive ?? true,
     };
   }
 }

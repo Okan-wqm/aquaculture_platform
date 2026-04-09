@@ -55,7 +55,7 @@ export class VfdDeviceResolver {
     @Tenant() tenantId: string
   ): Promise<PaginatedVfdDeviceListDto> {
     const result = await this.vfdDeviceService.findAll(tenantId, filter, pagination);
-    return result as any;
+    return result as PaginatedVfdDeviceListDto;
   }
 
   /**
@@ -135,7 +135,7 @@ export class VfdDeviceResolver {
 
       return {
         success: true,
-        vfdDevice: device as any,
+        vfdDevice: device,
         connectionTestPassed,
         latencyMs,
       };

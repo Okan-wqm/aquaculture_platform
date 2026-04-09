@@ -15,7 +15,7 @@ export class GetDepartmentHandler implements IQueryHandler<GetDepartmentQuery> {
     private readonly departmentRepository: Repository<Department>,
   ) {}
 
-  async execute(query: GetDepartmentQuery): Promise<Department> {
+  async execute(query: GetDepartmentQuery): Promise<Department | null> {
     const { departmentId, tenantId, includeRelations } = query;
 
     const relations: string[] = [];
@@ -33,7 +33,7 @@ export class GetDepartmentHandler implements IQueryHandler<GetDepartmentQuery> {
     // The department field is nullable, so this is a valid response
     // This handles connection pool race conditions where search_path might be reset
     if (!department) {
-      return null as unknown as Department;
+      return null;
     }
 
     return department;

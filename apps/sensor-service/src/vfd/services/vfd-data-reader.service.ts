@@ -405,7 +405,7 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
     const connectPromise = (async () => {
       try {
         const adapter = createVfdAdapter(device.protocol);
-        const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
+        const handle = await adapter.connect(device.protocolConfiguration);
 
         this.activeConnections.set(device.id, {
           adapter,

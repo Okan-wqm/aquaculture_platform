@@ -25,7 +25,7 @@ import {
   AlertSettings,
   ScheduleMetrics,
 } from '../entities/maintenance-schedule.entity';
-import { WorkOrder, WorkOrderType, WorkOrderPriority } from '../entities/work-order.entity';
+import { WorkOrder, WorkOrderType, WorkOrderPriority, WorkOrderStatus } from '../entities/work-order.entity';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { CreateMaintenanceScheduleInput } from '../dto/create-maintenance-schedule.dto';
 import {
@@ -627,7 +627,7 @@ export class MaintenanceScheduleService {
       description: schedule.instructions || schedule.description,
       type: WorkOrderType.PREVENTIVE,
       priority: WorkOrderPriority.MEDIUM,
-      status: 'approved' as any,
+      status: WorkOrderStatus.APPROVED,
       assetType: schedule.assetType,
       assetId: schedule.assetId,
       relatedAsset: schedule.assetType
@@ -755,8 +755,8 @@ export class MaintenanceScheduleService {
       activeSchedules: 0,
       overdueSchedules: 0,
       avgComplianceRate: 0,
-      byCategory: {} as any,
-      byAssetType: {} as any,
+      byCategory: {} as Record<MaintenanceCategory, { total: number; complianceRate: number }>,
+      byAssetType: {} as Record<string, { total: number; complianceRate: number }>,
     };
 
     // Initialize category stats

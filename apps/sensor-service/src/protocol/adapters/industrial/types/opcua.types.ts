@@ -7,6 +7,7 @@
  * OPC-UA Client interface
  */
 export interface OPCUAClient {
+  [key: string]: unknown;
   /** Connect to server */
   connect(endpointUrl: string): Promise<void>;
 

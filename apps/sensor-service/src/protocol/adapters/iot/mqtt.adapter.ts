@@ -52,12 +52,16 @@ export interface MqttConfiguration {
 }
 
 interface MqttClientInstance {
+  [key: string]: unknown;
   connected: boolean;
   end: (force: boolean, options: Record<string, unknown>, callback: () => void) => void;
   subscribe: (topic: string, options: { qos: number }, callback: (err: Error | null) => void) => void;
   unsubscribe: (topic: string) => void;
   once: (event: string, handler: (topic: string, message: Buffer) => void) => void;
-  on: (event: string, handler: (topic: string, message: Buffer) => void) => void;
+  on(event: 'error', handler: (error: Error) => void): void;
+  on(event: 'connect', handler: () => void): void;
+  on(event: 'message', handler: (topic: string, message: Buffer) => void): void;
+  on(event: string, handler: (...args: unknown[]) => void): void;
   removeListener: (event: string, handler: (topic: string, message: Buffer) => void) => void;
 }
 
@@ -87,7 +91,7 @@ interface MqttConnectOptions {
 }
 
 @Injectable()
-export class MqttAdapter extends BaseProtocolAdapter {
+export class MqttAdapter extends BaseProtocolAdapter<MqttConfiguration> {
   readonly protocolCode = 'MQTT';
   readonly category = ProtocolCategory.IOT;
   readonly subcategory = ProtocolSubcategory.MESSAGE_QUEUE;
@@ -97,8 +101,8 @@ export class MqttAdapter extends BaseProtocolAdapter {
 
   private clients = new Map<string, MqttClientData>();
 
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const mqttConfig = config as unknown as MqttConfiguration;
+  async connect(config: MqttConfiguration): Promise<ConnectionHandle> {
+    const mqttConfig = config;
 
     // Dynamic import mqtt library
     const mqtt = await import('mqtt');
@@ -158,7 +162,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
         resolve(handle);
       });
 
-      (client as unknown as { on(event: 'error', handler: (error: Error) => void): void }).on('error', (error: Error) => {
+      client.on('error', (error: Error) => {
         clearTimeout(timeout);
         reject(error);
       });
@@ -184,7 +188,7 @@ export class MqttAdapter extends BaseProtocolAdapter {
     return clientData?.client?.connected || false;
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(config: MqttConfiguration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     let handle: ConnectionHandle | null = null;
 

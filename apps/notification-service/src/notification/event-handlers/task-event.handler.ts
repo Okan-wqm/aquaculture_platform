@@ -156,7 +156,7 @@ export class TaskEventHandler
       // DLQ: Determine whether to retry or dead-letter this event
       try {
         const dlqResult = await this.dlqService.handleFailedEvent(
-          event as unknown as Record<string, unknown>,
+          { ...event },
           error,
         );
 
@@ -164,7 +164,7 @@ export class TaskEventHandler
           // Re-publish with incremented retryCount and a fresh eventId
           // to bypass NATS deduplication window
           await this.eventBus.publish({
-            ...(event as any),
+            ...event,
             retryCount: dlqResult.retryCount,
             eventId: crypto.randomUUID(),
           });
@@ -315,7 +315,7 @@ export class TaskEventHandler
    * Handle TaskStatusChanged event - notify assignee about status change
    */
   private async handleTaskStatusChanged(event: TaskStatusChangedEvent): Promise<void> {
-    const taskTitle = (event as any).title || event.taskId.substring(0, 8);
+    const taskTitle = ('title' in event ? String(event.title) : '') || event.taskId.substring(0, 8);
     const title = `G\u00F6rev durumu de\u011Fi\u015Fti: ${taskTitle}`;
     const body = `"${taskTitle}" g\u00F6revinin durumu de\u011Fi\u015Fti: ${event.previousStatus} \u2192 ${event.newStatus}`;
 

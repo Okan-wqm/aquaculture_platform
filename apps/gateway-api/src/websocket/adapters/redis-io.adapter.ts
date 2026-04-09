@@ -232,16 +232,12 @@ export async function registerRedisIoAdapter(
   // servers (which would otherwise try to publish one last disconnect
   // event through an already-closed adapter and log an error).
   app.enableShutdownHooks();
-  const nativeApp = app as unknown as {
-    beforeApplicationShutdown?: (callback: () => Promise<void>) => void;
-  };
 
   // INestApplication does not expose beforeApplicationShutdown as a
   // direct method — the proper hook is an `OnModuleDestroy` provider
   // or a SIGTERM listener. Use a SIGTERM listener here so the teardown
   // works regardless of the NestJS lifecycle internals, and guard
   // against double-wiring by using `once`.
-  void nativeApp; // reserved for future lifecycle hooks
   const teardown = async (): Promise<void> => {
     try {
       await adapter.dispose();

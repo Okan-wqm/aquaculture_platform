@@ -126,7 +126,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
         .createQueryBuilder()
         .update(System)
         .set({
-          departmentId: null as unknown as string,
+          departmentId: null as string | null,
           updatedBy: userId,
         })
         .where('tenantId = :tenantId', { tenantId })

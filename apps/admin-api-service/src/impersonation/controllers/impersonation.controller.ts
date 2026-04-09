@@ -31,6 +31,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Request } from 'express';
+import { getAuthUser } from '../../shared/authenticated-request';
 
 // Fix: H8 -- per-route throttle for sensitive impersonation endpoints
 import { ThrottleSensitive } from '@aquaculture/backend-common';
@@ -296,7 +297,7 @@ export class ImpersonationController {
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
-    const user = (req as unknown as { user?: { id?: string } }).user;
+    const user = getAuthUser(req);
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -338,7 +339,7 @@ export class ImpersonationController {
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin identity from verified JWT token, not client-supplied headers
-    const user = (req as unknown as { user?: { id?: string; email?: string } }).user;
+    const user = getAuthUser(req);
     // H-08: email PII removed from JWT — only id (sub) is guaranteed present.
     // superAdminEmail is optional in StartImpersonationRequest post H-08.
     if (!user?.id) {
@@ -365,7 +366,7 @@ export class ImpersonationController {
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
-    const user = (req as unknown as { user?: { id?: string } }).user;
+    const user = getAuthUser(req);
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -381,7 +382,7 @@ export class ImpersonationController {
     @Req() req: Request,
   ) {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
-    const user = (req as unknown as { user?: { id?: string } }).user;
+    const user = getAuthUser(req);
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -396,7 +397,7 @@ export class ImpersonationController {
     @Body() dto: ExtendSessionDto,
     @Req() req: Request,
   ) {
-    const user = (req as unknown as { user?: { id?: string } }).user;
+    const user = getAuthUser(req);
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }

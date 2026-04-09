@@ -489,8 +489,6 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     StorageModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      // @ts-expect-error NestJS factory parameter types are checked at runtime via inject[]
       useFactory: (configService: ConfigService): StorageConfig => {
         const nodeEnv = configService.get<string>('NODE_ENV', 'development');
         const isProduction = nodeEnv === 'production';

@@ -47,7 +47,7 @@ export class ConsumableResolver {
   ): Promise<ConsumableResponse> {
     this.logger.log(`Updating consumable ${input.id} for tenant ${tenantId}`);
     const { id, ...updateData } = input;
-    const command = new UpdateConsumableCommand(id, updateData as any, tenantId, user.sub);
+    const command = new UpdateConsumableCommand(id, updateData, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
 

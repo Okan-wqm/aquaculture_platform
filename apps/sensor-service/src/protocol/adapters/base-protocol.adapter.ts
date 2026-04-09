@@ -102,7 +102,7 @@ export type ErrorCallback = (error: Error) => void;
 /**
  * Protocol adapter interface - all protocol adapters must implement this
  */
-export interface ProtocolAdapter {
+export interface ProtocolAdapter<TConfig = Record<string, unknown>> {
   /**
    * Unique protocol code (e.g., 'MQTT', 'MODBUS_TCP')
    */
@@ -138,7 +138,7 @@ export interface ProtocolAdapter {
    * @param config Protocol-specific configuration
    * @returns Connection handle
    */
-  connect(config: Record<string, unknown>): Promise<ConnectionHandle>;
+  connect(config: TConfig): Promise<ConnectionHandle>;
 
   /**
    * Disconnect from a sensor device
@@ -157,7 +157,7 @@ export interface ProtocolAdapter {
    * @param config Protocol-specific configuration
    * @returns Test result with diagnostics
    */
-  testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult>;
+  testConnection(config: TConfig): Promise<ConnectionTestResult>;
 
   /**
    * Read data from a connected sensor
@@ -265,7 +265,7 @@ export interface DiscoveredDevice {
  * Abstract base class for protocol adapters
  * Provides common functionality and utilities
  */
-export abstract class BaseProtocolAdapter implements ProtocolAdapter {
+export abstract class BaseProtocolAdapter<TConfig = Record<string, unknown>> implements ProtocolAdapter<TConfig> {
   abstract readonly protocolCode: string;
   abstract readonly category: ProtocolCategory;
   abstract readonly subcategory?: ProtocolSubcategory;
@@ -280,9 +280,9 @@ export abstract class BaseProtocolAdapter implements ProtocolAdapter {
     this.logger = new Logger(this.constructor.name);
   }
 
-  abstract connect(config: Record<string, unknown>): Promise<ConnectionHandle>;
+  abstract connect(config: TConfig): Promise<ConnectionHandle>;
   abstract disconnect(handle: ConnectionHandle): Promise<void>;
-  abstract testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult>;
+  abstract testConnection(config: TConfig): Promise<ConnectionTestResult>;
   abstract readData(handle: ConnectionHandle): Promise<SensorReadingData>;
   abstract validateConfiguration(config: unknown): ValidationResult;
   abstract getConfigurationSchema(): ProtocolConfigurationSchema;

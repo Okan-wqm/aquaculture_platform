@@ -11,7 +11,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
-import { HealthEvent } from '../entities/health-event.entity';
+import { HealthEvent, TreatmentDetails } from '../entities/health-event.entity';
 import { HealthEventService, HealthEventStats } from '../services/health-event.service';
 import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
@@ -189,7 +189,7 @@ export class HealthEventResolver {
     @Args('treatment') treatment: TreatmentDetailsInput,
   ): Promise<HealthEvent> {
     this.logger.log(`Starting treatment for health event ${id}`);
-    return this.healthEventService.startTreatment(tenantId, id, treatment as any, user.sub);
+    return this.healthEventService.startTreatment(tenantId, id, treatment as TreatmentDetails, user.sub);
   }
 
   /**

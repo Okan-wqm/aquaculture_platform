@@ -33,6 +33,7 @@ import {
   SymbolTable,
   Symbol,
   DataType,
+  ElementaryType,
   elementary,
   VariableScope,
   FunctionParameter,
@@ -1133,7 +1134,7 @@ export class SemanticAnalyzer {
     ]);
 
     if (elementaryTypes.has(upper)) {
-      return elementary(upper as any);
+      return elementary(upper as ElementaryType);
     }
 
     // Check if it's a known FB type

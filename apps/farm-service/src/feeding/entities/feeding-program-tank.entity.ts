@@ -360,7 +360,7 @@ export class FeedingProgramTank {
    */
   reactivate(): void {
     this.isActive = true;
-    this.removedAt = null as unknown as Date | undefined;  // Set to null for proper DB storage
+    this.removedAt = undefined;  // Clear removal date for reactivation
   }
 
   /**

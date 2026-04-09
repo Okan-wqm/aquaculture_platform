@@ -174,18 +174,18 @@ export class EdgeDevice {
 
   // Provisioning
   @Column({ name: 'provisioning_token', length: 64, nullable: true })
-  provisioningToken?: string;
+  provisioningToken?: string | null;
 
   @Field({ nullable: true })
   @Column({ name: 'token_expires_at', type: 'timestamptz', nullable: true })
   tokenExpiresAt?: Date;
 
   @Column({ name: 'token_used_at', type: 'timestamptz', nullable: true })
-  tokenUsedAt?: Date;
+  tokenUsedAt?: Date | null;
 
   // MQTT Credentials (password hash stored, never exposed via GraphQL)
   @Column({ name: 'mqtt_password_hash', length: 128, nullable: true })
-  mqttPasswordHash?: string;
+  mqttPasswordHash?: string | null;
 
   // Device Fingerprint (collected during activation)
   @Field(() => GraphQLJSON, { nullable: true })
@@ -195,12 +195,12 @@ export class EdgeDevice {
     macAddresses?: string[];
     machineId?: string;
     hostname?: string;
-  };
+  } | null;
 
   // Agent Version
   @Field({ nullable: true })
   @Column({ name: 'agent_version', length: 30, nullable: true })
-  agentVersion?: string;
+  agentVersion?: string | null;
 
   // Connection
   @Field({ nullable: true })

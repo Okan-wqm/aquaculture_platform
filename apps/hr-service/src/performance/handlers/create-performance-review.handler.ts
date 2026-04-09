@@ -56,13 +56,14 @@ export class CreatePerformanceReviewHandler implements ICommandHandler<CreatePer
       });
 
       const savedReview = await reviewRepo.save(review);
-      await queryRunner.commitTransaction();
 
-      // Reload with relations
-      const result = await this.dataSource.getRepository(PerformanceReview).findOne({
+      // Reload with relations on the SAME connection before commit
+      const result = await queryRunner.manager.findOne(PerformanceReview, {
         where: { id: savedReview.id, tenantId },
         relations: ['employee', 'reviewer'],
       });
+
+      await queryRunner.commitTransaction();
 
       return result!;
     } catch (error) {

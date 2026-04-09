@@ -122,8 +122,8 @@ export class ListBatchesHandler implements IQueryHandler<ListBatchesQuery, Pagin
     // Sorting
     const validSortFields = ['stockedAt', 'batchNumber', 'currentQuantity', 'status', 'createdAt'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'stockedAt';
-    const validSortOrders = ['ASC', 'DESC'] as const;
-    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() as any)
+    const validSortOrders: readonly string[] = ['ASC', 'DESC'];
+    const safeSortOrder = validSortOrders.includes(sortOrder?.toUpperCase() ?? '')
       ? (sortOrder.toUpperCase() as 'ASC' | 'DESC')
       : 'DESC';
     queryBuilder.orderBy(`batch.${sortField}`, safeSortOrder);

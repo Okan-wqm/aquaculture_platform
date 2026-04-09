@@ -6,7 +6,7 @@
  */
 import DataLoader from 'dataloader';
 import { Repository } from 'typeorm';
-import { FeedSelectionRow } from '../../common/types/graphql-context.types';
+import { FeedSelectionRow, FeedSelectionDataLoader } from '../../common/types/graphql-context.types';
 
 interface BatchFeedContext {
   batchId: string;
@@ -23,7 +23,7 @@ export function createFeedSelectionLoader(
   repo: Repository<any>,
   tenantId: string,
   schema: string,
-): DataLoader<string, FeedSelectionRow | null> {
+): FeedSelectionDataLoader {
   // Store batch context for weight/biomass lookup
   const contextMap = new Map<string, BatchFeedContext>();
 
@@ -109,10 +109,10 @@ export function createFeedSelectionLoader(
     });
   };
 
-  const loader = new DataLoader(batchFn, { maxBatchSize: 100 });
+  const loader = new DataLoader(batchFn, { maxBatchSize: 100 }) as FeedSelectionDataLoader;
 
   // Expose method to set batch context before loading
-  (loader as any).setContext = (batchId: string, avgWeightG: number, biomassKg: number) => {
+  loader.setContext = (batchId: string, avgWeightG: number, biomassKg: number) => {
     contextMap.set(batchId, { batchId, avgWeightG, biomassKg });
   };
 

@@ -64,7 +64,7 @@ export class VfdParameterWriterService {
     }
 
     const adapter = createVfdAdapter(device.protocol);
-    const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
+    const handle = await adapter.connect(device.protocolConfiguration);
 
     try {
       const sortedItems = [...changeSet.items].sort((a, b) =>
@@ -187,7 +187,7 @@ export class VfdParameterWriterService {
   ): Promise<T> {
     const device = await this.vfdDeviceService.findById(deviceId, tenantId);
     const adapter = createVfdAdapter(device.protocol);
-    const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
+    const handle = await adapter.connect(device.protocolConfiguration);
     try {
       return await fn(adapter, handle);
     } finally {
@@ -213,7 +213,7 @@ export class VfdParameterWriterService {
       return false;
     }
     const adapter = createVfdAdapter(device.protocol);
-    const handle = await adapter.connect(device.protocolConfiguration as unknown as Record<string, unknown>);
+    const handle = await adapter.connect(device.protocolConfiguration);
     try {
       const buf = await adapter.readRegister(handle, mapping.registerAddress, mapping.registerCount || 1, mapping.functionCode || 3);
       return Boolean(buf.readUInt16BE(0) & 0x0004);

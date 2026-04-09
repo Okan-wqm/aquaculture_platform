@@ -274,7 +274,7 @@ export class MessagingService {
     if (!input.isInternal) {
       updateData.lastMessage = input.content;
     }
-    await this.threadRepository.update(thread.id, updateData as any);
+    await this.threadRepository.update(thread.id, updateData as Parameters<typeof this.threadRepository.update>[1]);
 
     if (!input.isInternal) {
       if (isSuperAdmin) {

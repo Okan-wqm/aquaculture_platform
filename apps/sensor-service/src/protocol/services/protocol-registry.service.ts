@@ -27,8 +27,8 @@ export interface ProtocolSummary {
 @Injectable()
 export class ProtocolRegistryService implements OnModuleInit {
   private readonly logger = new Logger(ProtocolRegistryService.name);
-  private adapterMap: Map<string, BaseProtocolAdapter> = new Map();
-  private adapters: BaseProtocolAdapter[] = [];
+  private adapterMap: Map<string, BaseProtocolAdapter<unknown>> = new Map();
+  private adapters: BaseProtocolAdapter<unknown>[] = [];
 
   constructor(
     @InjectRepository(SensorProtocol)
@@ -94,7 +94,7 @@ export class ProtocolRegistryService implements OnModuleInit {
   /**
    * Get adapter by protocol code
    */
-  getAdapter(protocolCode: string): BaseProtocolAdapter | undefined {
+  getAdapter(protocolCode: string): BaseProtocolAdapter<unknown> | undefined {
     return this.adapterMap.get(protocolCode);
   }
 

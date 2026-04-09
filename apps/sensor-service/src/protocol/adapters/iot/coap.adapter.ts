@@ -40,7 +40,7 @@ export interface CoapConfiguration {
 }
 
 @Injectable()
-export class CoapAdapter extends BaseProtocolAdapter {
+export class CoapAdapter extends BaseProtocolAdapter<CoapConfiguration> {
   readonly protocolCode = 'COAP';
   readonly category = ProtocolCategory.IOT;
   readonly subcategory = ProtocolSubcategory.REQUEST_RESPONSE;
@@ -49,8 +49,8 @@ export class CoapAdapter extends BaseProtocolAdapter {
   readonly description = 'Constrained Application Protocol - Lightweight IoT protocol for constrained devices';
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const coapConfig = config as unknown as CoapConfiguration;
+  async connect(config: CoapConfiguration): Promise<ConnectionHandle> {
+    const coapConfig = config;
 
     // CoAP is connectionless (UDP), so we just validate and create handle
     const handle = this.createConnectionHandle(
@@ -70,8 +70,8 @@ export class CoapAdapter extends BaseProtocolAdapter {
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
-    const coapConfig = config as unknown as CoapConfiguration;
+  async testConnection(config: CoapConfiguration): Promise<ConnectionTestResult> {
+    const coapConfig = config;
     const startTime = Date.now();
 
     try {

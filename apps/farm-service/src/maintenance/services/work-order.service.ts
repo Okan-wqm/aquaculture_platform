@@ -26,7 +26,7 @@ import {
   CostSummary,
 } from '../entities/work-order.entity';
 import { MaintenanceSchedule } from '../entities/maintenance-schedule.entity';
-import { SparePart } from '../entities/spare-part.entity';
+import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   CreateWorkOrderInput,
   ChecklistItemInput,
@@ -547,9 +547,9 @@ export class WorkOrderService {
 
                 // Update status based on stock level
                 if (sparePart.quantity === 0) {
-                  sparePart.status = 'out_of_stock' as any;
+                  sparePart.status = SparePartStatus.OUT_OF_STOCK;
                 } else if (sparePart.quantity <= sparePart.minStock) {
-                  sparePart.status = 'low_stock' as any;
+                  sparePart.status = SparePartStatus.LOW_STOCK;
                 }
               }
             }
@@ -982,9 +982,9 @@ export class WorkOrderService {
 
           // Update status based on stock level
           if (sparePart.quantity === 0) {
-            sparePart.status = 'out_of_stock' as any;
+            sparePart.status = SparePartStatus.OUT_OF_STOCK;
           } else if (sparePart.quantity <= sparePart.minStock) {
-            sparePart.status = 'low_stock' as any;
+            sparePart.status = SparePartStatus.LOW_STOCK;
           }
         }
       }

@@ -76,7 +76,7 @@ export class GetEquipmentDeletePreviewHandler
     const totalCount = childEquipment.length + subEquipment.length;
 
     return {
-      equipment: equipment as unknown as EquipmentResponse,
+      equipment: equipment as EquipmentResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

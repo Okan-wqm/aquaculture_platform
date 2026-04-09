@@ -98,7 +98,7 @@ export class GetSystemDeletePreviewHandler
     const totalCount = childSystems.length + equipment.length;
 
     return {
-      system: system as unknown as SystemResponse,
+      system: system as SystemResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

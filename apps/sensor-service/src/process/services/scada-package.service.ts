@@ -46,7 +46,7 @@ export class ScadaPackageService {
     if (Array.isArray(data.screens)) {
       for (const screen of data.screens) {
         if (screen && typeof screen === 'object' && 'widgets' in screen) {
-          if (!Array.isArray((screen as any).widgets)) {
+          if (!Array.isArray((screen as Record<string, unknown>).widgets)) {
             throw new BadRequestException('Each screen.widgets must be an array');
           }
         }
@@ -59,14 +59,15 @@ export class ScadaPackageService {
    * Returns a shallow-modified copy — does NOT mutate the DB record.
    */
   private sanitizePackageData(pkg: ScadaPackage): ScadaPackage {
-    const data = pkg.packageData as Record<string, any>;
-    if (data?.controlPermissions?.pinHash) {
+    const data = pkg.packageData;
+    const controlPermissions = data.controlPermissions as Record<string, unknown> | undefined;
+    if (controlPermissions?.pinHash) {
       // Return a copy — do not mutate the original entity that may be cached by TypeORM
       const clone = Object.assign(Object.create(Object.getPrototypeOf(pkg)), pkg);
       clone.packageData = {
         ...data,
         controlPermissions: {
-          ...data.controlPermissions,
+          ...controlPermissions,
           pinHash: '[REDACTED]',
         },
       };
@@ -247,7 +248,7 @@ export class ScadaPackageService {
     const packagePayload = {
       ...pkg.packageData,
       meta: {
-        ...(pkg.packageData as any)?.meta,
+        ...((pkg.packageData.meta ?? {}) as Record<string, unknown>),
         // Server-side fields MUST come last to prevent client override
         version: pkg.version,
         packageVersion: `${pkg.version}.0.0`,
@@ -315,8 +316,8 @@ export class ScadaPackageService {
    *   4. Each boundWidgetId references a widget present in the package screens
    */
   private async validateAutomationBindings(pkg: ScadaPackage): Promise<void> {
-    const meta = (pkg.packageData as any)?.meta;
-    const bindings: AutomationBinding[] | undefined = meta?.automationBindings;
+    const meta = pkg.packageData.meta as Record<string, unknown> | undefined;
+    const bindings: AutomationBinding[] | undefined = meta?.automationBindings as AutomationBinding[] | undefined;
 
     if (!bindings || !Array.isArray(bindings) || bindings.length === 0) {
       return; // No automation bindings — nothing to validate
@@ -408,7 +409,7 @@ export class ScadaPackageService {
    */
   private extractWidgetIds(packageData: Record<string, unknown>): Set<string> {
     const ids = new Set<string>();
-    const screens = (packageData as any)?.screens;
+    const screens = packageData.screens;
     if (!Array.isArray(screens)) return ids;
 
     const collectIds = (widgets: unknown[]): void => {
@@ -466,8 +467,8 @@ export class ScadaPackageService {
     if (!pkg) throw new NotFoundException(`ScadaPackage ${packageId} not found`);
 
     // Determine which programs to deploy
-    const meta = (pkg.packageData as any)?.meta;
-    const bindings: AutomationBinding[] | undefined = meta?.automationBindings;
+    const meta = pkg.packageData.meta as Record<string, unknown> | undefined;
+    const bindings: AutomationBinding[] | undefined = meta?.automationBindings as AutomationBinding[] | undefined;
     const programIds = programIdOverrides && programIdOverrides.length > 0
       ? programIdOverrides
       : [...new Set((bindings || []).map((b) => b.programId).filter(Boolean))];

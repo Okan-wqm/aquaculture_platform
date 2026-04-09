@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import {
   Configuration,
   ConfigValueType,
@@ -52,7 +52,7 @@ export class ConfigurationService implements OnModuleInit {
     }
 
     // Single query with tenant + global fallback
-    const whereConditions = [
+    const whereConditions: FindOptionsWhere<Configuration>[] = [
       { tenantId, service, key, isActive: true },
       ...(tenantId !== 'global'
         ? [{ tenantId: 'global', service, key, isActive: true }]
@@ -60,7 +60,7 @@ export class ConfigurationService implements OnModuleInit {
     ];
 
     const configs = await this.configRepository.find({
-      where: whereConditions as any,
+      where: whereConditions,
       take: 2,
     });
 

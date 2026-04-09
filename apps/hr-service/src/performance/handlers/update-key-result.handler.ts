@@ -56,12 +56,14 @@ export class UpdateKeyResultHandler implements ICommandHandler<UpdateKeyResultCo
       }
 
       await goalRepo.save(goal);
-      await queryRunner.commitTransaction();
 
-      const result = await this.dataSource.getRepository(Goal).findOne({
+      // Fetch with relations on the SAME connection before commit
+      const result = await queryRunner.manager.findOne(Goal, {
         where: { id: goalId, tenantId },
         relations: ['employee', 'parentGoal', 'childGoals'],
       });
+
+      await queryRunner.commitTransaction();
 
       return result!;
     } catch (error) {

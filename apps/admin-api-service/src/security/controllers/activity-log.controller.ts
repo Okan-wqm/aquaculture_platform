@@ -241,7 +241,7 @@ export class ActivityLogController {
       entityType: query.entityType,
       entityId: query.entityId,
       ipAddress: query.ipAddress,
-      success: query.success !== undefined ? query.success === true || query.success === 'true' as unknown as boolean : undefined,
+      success: query.success !== undefined ? query.success === true || String(query.success) === 'true' : undefined,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
       searchQuery: query.searchQuery,

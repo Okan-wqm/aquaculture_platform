@@ -15,6 +15,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { Request } from 'express';
+import { getAuthUserId, getAuthUser } from '../../shared/authenticated-request';
 
 import {
   IsUUID,
@@ -397,7 +398,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
   ) {
-    const adminId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const adminId = getAuthUserId(req);
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -615,7 +616,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
   ) {
-    const adminId = (req as unknown as { user?: { id?: string } }).user?.id;
+    const adminId = getAuthUserId(req);
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -632,7 +633,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
   ) {
-    const revertedBy = (req as unknown as { user?: { id?: string } }).user?.id;
+    const revertedBy = getAuthUserId(req);
     if (!revertedBy) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -691,7 +692,7 @@ export class DebugToolsController {
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req?: Request,
   ) {
-    const adminId = (req as unknown as { user?: { id?: string } } | undefined)?.user?.id;
+    const adminId = req ? getAuthUserId(req) : undefined;
     return this.debugToolsService.queryOverrides({
       tenantId,
       adminId,

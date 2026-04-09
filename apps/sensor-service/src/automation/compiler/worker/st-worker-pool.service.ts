@@ -29,15 +29,24 @@ import {
 import { WorkerErrorCodes } from './st-worker.types';
 import type { WorkerPoolStatus } from './st-worker.types';
 
-// Piscina is imported dynamically to handle the case where it's not installed
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore -- piscina is an optional dependency
-let Piscina: typeof import('piscina').default;
+// WHY: Piscina is an optional dependency — loaded dynamically to degrade gracefully
+// when not installed. We use a minimal interface instead of @ts-ignore.
+interface PiscinaLike {
+  new (options: { filename: string; minThreads: number; maxThreads: number; idleTimeout: number }): {
+    run(task: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
+    destroy(): Promise<void>;
+    utilization: number;
+    queueSize?: number;
+    threads?: unknown[];
+  };
+}
+
+let Piscina: PiscinaLike | undefined;
 
 @Injectable()
 export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(STWorkerPoolService.name);
-  private pool: InstanceType<typeof Piscina> | null = null;
+  private pool: InstanceType<PiscinaLike> | null = null;
   private isShuttingDown = false;
 
   /** Default security limits passed to every worker */
@@ -52,10 +61,9 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     try {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore -- piscina is an optional dependency
-      const piscinaModule = await import('piscina');
-      Piscina = piscinaModule.default || piscinaModule;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const piscinaModule = await import('piscina') as { default?: PiscinaLike };
+      Piscina = (piscinaModule.default ?? piscinaModule) as PiscinaLike;
 
       this.pool = new Piscina({
         filename: join(__dirname, 'st-worker.js'),
@@ -184,8 +192,8 @@ export class STWorkerPoolService implements OnModuleInit, OnModuleDestroy {
 
     return {
       runningTasks: this.pool.utilization ? Math.round(this.pool.utilization * WORKER_POOL_MAX_THREADS) : 0,
-      waitingTasks: (this.pool as unknown as { queueSize?: number }).queueSize ?? 0,
-      threads: (this.pool as unknown as { threads?: unknown[] }).threads?.length ?? WORKER_POOL_MIN_THREADS,
+      waitingTasks: this.pool.queueSize ?? 0,
+      threads: this.pool.threads?.length ?? WORKER_POOL_MIN_THREADS,
       accepting: !this.isShuttingDown,
     };
   }

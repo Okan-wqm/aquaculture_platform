@@ -33,7 +33,7 @@ export class CreateConfigurationHandler
     this.validationService.validateValue(
       input.value,
       input.valueType,
-      input.validationRules as any,
+      input.validationRules,
     );
 
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();

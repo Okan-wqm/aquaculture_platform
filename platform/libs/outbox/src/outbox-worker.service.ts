@@ -323,7 +323,7 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
           // The payload was validated at enqueue time
           // (OutboxPublisher.enqueue); the cast is safe because only
           // validated BaseEvent objects can reach this column.
-          const event = row.payload as unknown as IEvent;
+          const event = row.payload as IEvent;
           await this.eventBus.publish(event);
 
           successIds.push(row.id);

@@ -163,7 +163,7 @@ export class GetSiteDeletePreviewHandler
       tanks.length;
 
     return {
-      site: site as unknown as SiteResponse,
+      site: site as SiteResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

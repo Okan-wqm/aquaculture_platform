@@ -7,6 +7,7 @@
  * S7 Client interface
  */
 export interface S7Client {
+  [key: string]: unknown;
   /** Connect to PLC */
   connect(options: S7ConnectionOptions, callback: (error?: Error) => void): void;
 

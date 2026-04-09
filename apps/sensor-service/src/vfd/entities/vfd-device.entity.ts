@@ -131,7 +131,7 @@ export class VfdDevice {
 
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
-  protocolConfiguration!: VfdProtocolConfiguration;
+  protocolConfiguration!: VfdProtocolConfiguration & Record<string, unknown>;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })

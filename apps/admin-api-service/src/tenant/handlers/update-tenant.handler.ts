@@ -12,7 +12,7 @@ import { IEventBus } from '@platform/event-bus';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { UpdateTenantCommand } from '../commands/tenant.commands';
-import { Tenant } from '../entities/tenant.entity';
+import { Tenant, TenantSettings } from '../entities/tenant.entity';
 
 @Injectable()
 @CommandHandler(UpdateTenantCommand)
@@ -102,7 +102,7 @@ export class UpdateTenantHandler
 
       if (data.settings !== undefined) {
         changes['settings'] = { old: tenant.settings, new: data.settings };
-        tenant.settings = data.settings as any;
+        tenant.settings = data.settings as TenantSettings;
       }
 
       if (data.primaryContact !== undefined) {

@@ -50,13 +50,14 @@ export class VerifyCertificationHandler
 
       await certificationRepo.save(certification);
 
-      await queryRunner.commitTransaction();
-
-      // Re-fetch with relations so GraphQL response includes employee & certificationType
-      const result = await this.dataSource.getRepository(EmployeeCertification).findOne({
+      // Re-fetch with relations on the SAME connection before commit
+      const result = await queryRunner.manager.findOne(EmployeeCertification, {
         where: { id: certificationId, tenantId },
         relations: ['employee', 'certificationType'],
       });
+
+      await queryRunner.commitTransaction();
+
       return result!;
     } catch (error) {
       await queryRunner.rollbackTransaction();

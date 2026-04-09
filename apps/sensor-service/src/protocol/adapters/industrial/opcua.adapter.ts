@@ -77,18 +77,64 @@ interface OpcUaSessionData {
 }
 
 interface OpcUaClient {
+  [key: string]: unknown;
   connect: (url: string) => Promise<void>;
   disconnect: () => Promise<void>;
   createSession: (userIdentity: OpcUaUserIdentity) => Promise<OpcUaSession>;
+  getEndpoints: () => Promise<OpcUaEndpointDescription[]>;
+}
+
+interface OpcUaEndpointDescription {
+  endpointUrl?: string;
+  securityMode?: number;
+  securityPolicyUri?: string;
+  securityLevel?: number;
+  serverCertificate?: Buffer;
+  transportProfileUri?: string;
 }
 
 interface OpcUaSession {
+  [key: string]: unknown;
   close: () => Promise<void>;
   read: (params: { nodeId: string }) => Promise<OpcUaDataValue>;
+  browse: (params: {
+    nodeId: string;
+    referenceTypeId: unknown;
+    includeSubtypes: boolean;
+    resultMask: number;
+  }) => Promise<{ references: OpcUaBrowseReference[] }>;
+  write: (params: {
+    nodeId: string;
+    attributeId: number;
+    value: { value: unknown };
+  }) => Promise<{ value: number; toString: () => string }>;
+  performMessageTransaction: (request: unknown) => Promise<{
+    results?: Array<{ historyData?: { dataValues?: OpcUaHistoricalDataValue[] } }>;
+  }>;
+  call: (params: {
+    objectId: string;
+    methodId: string;
+    inputArguments: unknown[];
+  }) => Promise<{ statusCode?: { value: number }; outputArguments?: Array<{ value: unknown }> }>;
+}
+
+interface OpcUaBrowseReference {
+  nodeId: { toString: () => string };
+  browseName: { toString: () => string };
+  displayName?: { text?: string };
+  nodeClass: number;
+  description?: { text?: string };
+}
+
+interface OpcUaHistoricalDataValue {
+  sourceTimestamp?: Date;
+  serverTimestamp?: Date;
+  value?: { value?: unknown };
 }
 
 interface OpcUaDataValue {
-  value?: { value?: unknown };
+  [key: string]: unknown;
+  value?: { value?: unknown; dataType?: unknown };
 }
 
 interface OpcUaUserIdentity {
@@ -104,6 +150,7 @@ interface OpcUaMonitoredItem {
 }
 
 interface OpcUaSubscription {
+  [key: string]: unknown;
   monitor: (
     params: { nodeId: string; attributeId: number },
     options: { samplingInterval: number; discardOldest: boolean; queueSize: number },
@@ -113,7 +160,7 @@ interface OpcUaSubscription {
 }
 
 @Injectable()
-export class OpcUaAdapter extends BaseProtocolAdapter {
+export class OpcUaAdapter extends BaseProtocolAdapter<OpcUaConfiguration> {
   readonly protocolCode = 'OPC_UA';
   readonly category = ProtocolCategory.INDUSTRIAL;
   readonly subcategory = ProtocolSubcategory.ETHERNET_INDUSTRIAL;
@@ -123,8 +170,8 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
 
   private sessions = new Map<string, OpcUaSessionData>();
 
-  async connect(config: Record<string, unknown>): Promise<ConnectionHandle> {
-    const opcConfig = config as unknown as OpcUaConfiguration;
+  async connect(config: OpcUaConfiguration): Promise<ConnectionHandle> {
+    const opcConfig = config;
 
     // Dynamic import node-opcua
     const {
@@ -210,7 +257,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     }
   }
 
-  async testConnection(config: Record<string, unknown>): Promise<ConnectionTestResult> {
+  async testConnection(config: OpcUaConfiguration): Promise<ConnectionTestResult> {
     const startTime = Date.now();
     let handle: ConnectionHandle | null = null;
 
@@ -332,19 +379,19 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     } as Parameters<typeof OPCUAClient.create>[0]) as unknown as OpcUaClient;
 
     try {
-      await (client as any).connect(endpointUrl);
-      const endpoints = await (client as any).getEndpoints();
+      await client.connect(endpointUrl);
+      const endpoints = await client.getEndpoints();
 
-      return (endpoints || []).map((ep: any) => ({
+      return (endpoints || []).map((ep: OpcUaEndpointDescription) => ({
         endpointUrl: ep.endpointUrl || endpointUrl,
-        securityMode: this.reverseSecurityMode(ep.securityMode),
-        securityPolicy: this.reverseSecurityPolicy(ep.securityPolicyUri),
+        securityMode: this.reverseSecurityMode(ep.securityMode ?? 0),
+        securityPolicy: this.reverseSecurityPolicy(ep.securityPolicyUri ?? ''),
         securityLevel: ep.securityLevel || 0,
         serverCertificate: ep.serverCertificate ? Buffer.from(ep.serverCertificate).toString('base64') : undefined,
         transportProfileUri: ep.transportProfileUri,
       }));
     } finally {
-      try { await (client as any).disconnect(); } catch { /* ignore */ }
+      try { await client.disconnect(); } catch { /* ignore */ }
     }
   }
 
@@ -353,7 +400,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     if (!sessionData) throw new Error('Session not found');
 
     const { ReferenceTypeIds, NodeClass } = await import('node-opcua');
-    const session = sessionData.session as any;
+    const { session } = sessionData;
 
     const nodeId = parentNodeId || 'RootFolder';
     const browseResult = await session.browse({
@@ -374,7 +421,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
         try {
           const dv = await session.read({ nodeId: ref.nodeId.toString() });
           value = dv.value?.value !== undefined ? String(dv.value.value) : undefined;
-          dataType = dv.value?.dataType?.toString();
+          dataType = dv.value?.dataType !== undefined ? String(dv.value.dataType) : undefined;
         } catch { /* ignore read errors */ }
       }
 
@@ -398,9 +445,11 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     if (!sessionData) throw new Error('Session not found');
 
     const { DataType, Variant } = await import('node-opcua');
-    const session = sessionData.session as any;
+    const { session } = sessionData;
 
-    const dataTypeEnum = dataType ? (DataType as any)[dataType] : DataType.Float;
+    const dataTypeEnum = dataType && dataType in DataType
+      ? DataType[dataType as keyof typeof DataType]
+      : DataType.Float;
 
     const statusCode = await session.write({
       nodeId,
@@ -426,7 +475,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     if (!sessionData) throw new Error('Session not found');
 
     const { ReadRawModifiedDetails, HistoryReadRequest, TimestampsToReturn } = await import('node-opcua');
-    const session = sessionData.session as any;
+    const { session } = sessionData;
 
     const details = new ReadRawModifiedDetails({
       startTime,
@@ -445,7 +494,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     );
 
     const historyData = result?.results?.[0]?.historyData?.dataValues || [];
-    return historyData.map((dv: any) => ({
+    return historyData.map((dv: OpcUaHistoricalDataValue) => ({
       timestamp: dv.sourceTimestamp || dv.serverTimestamp || new Date(),
       value: dv.value?.value,
     }));
@@ -461,10 +510,12 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
     if (!sessionData) throw new Error('Session not found');
 
     const { DataType, Variant } = await import('node-opcua');
-    const session = sessionData.session as any;
+    const { session } = sessionData;
 
     const args = (inputArguments || []).map(arg => {
-      const dt = (DataType as any)[arg.dataType] || DataType.String;
+      const dt = arg.dataType in DataType
+        ? DataType[arg.dataType as keyof typeof DataType]
+        : DataType.String;
       return new Variant({ dataType: dt, value: arg.value });
     });
 
@@ -476,7 +527,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter {
 
     return {
       statusCode: result.statusCode?.value || 0,
-      outputArguments: (result.outputArguments || []).map((v: any) => v.value),
+      outputArguments: (result.outputArguments || []).map((v: { value: unknown }) => v.value),
     };
   }
 

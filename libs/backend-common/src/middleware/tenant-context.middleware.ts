@@ -93,15 +93,16 @@ export class TenantContextMiddleware implements NestMiddleware {
   }
 
   private extractTenantContext(req: TenantRequest): TenantContext | null {
-    // 1. Try from header
+    // SECURITY: JWT is the only cryptographically verified source — always prefer it.
+    // 1. Try from JWT (if already decoded by auth middleware)
+    if (req.user?.tenantId) {
+      return { tenantId: req.user.tenantId, source: 'jwt' };
+    }
+
+    // 2. Try from header (only reaches here for unauthenticated/pre-auth paths)
     const headerTenant = req.headers['x-tenant-id'] as string;
     if (headerTenant) {
       return { tenantId: headerTenant, source: 'header' };
-    }
-
-    // 2. Try from JWT (if already decoded by auth middleware)
-    if (req.user?.tenantId) {
-      return { tenantId: req.user.tenantId, source: 'jwt' };
     }
 
     // 3. Try from query parameter
@@ -154,7 +155,7 @@ export class TenantContextMiddleware implements NestMiddleware {
    * Check if a base domain is allowed for subdomain-based tenant extraction.
    *
    * - In production: requires ALLOWED_BASE_DOMAINS env var to be set
-   *   and the base domain to be in the list. If env var is not set, allows all.
+   *   and the base domain to be in the list. If env var is not set, rejects all (fail-closed).
    * - In non-production: always allows (for development flexibility)
    */
   private isAllowedBaseDomain(baseDomain: string): boolean {
@@ -166,8 +167,9 @@ export class TenantContextMiddleware implements NestMiddleware {
 
     const allowedDomainsEnv = process.env['ALLOWED_BASE_DOMAINS'];
     if (!allowedDomainsEnv) {
-      // If not configured in production, allow all (backward compatible)
-      return true;
+      // SECURITY: fail-closed in production — reject all subdomain-based tenant extraction
+      // when ALLOWED_BASE_DOMAINS is not configured (OWASP A05 compliance)
+      return false;
     }
 
     const allowedDomains = allowedDomainsEnv

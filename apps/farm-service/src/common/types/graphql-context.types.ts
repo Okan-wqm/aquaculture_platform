@@ -48,10 +48,15 @@ export interface FeedSelectionRow {
   dailyFeedKg: number;
 }
 
+/** DataLoader extended with a setContext method for batch-level feed selection context */
+export interface FeedSelectionDataLoader extends DataLoader<string, FeedSelectionRow | null> {
+  setContext: (batchId: string, avgWeightG: number, biomassKg: number) => void;
+}
+
 export interface EquipmentDataLoaders {
   tankBatchLoader: DataLoader<string, TankBatchRow | null>;
   batchSpeciesLoader: DataLoader<string, BatchSpeciesRow | null>;
-  feedSelectionLoader: DataLoader<string, FeedSelectionRow | null>;
+  feedSelectionLoader: FeedSelectionDataLoader;
 }
 
 export interface FarmGraphQLContext {

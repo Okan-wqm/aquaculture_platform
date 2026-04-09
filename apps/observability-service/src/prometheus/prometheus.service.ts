@@ -153,10 +153,10 @@ export class PrometheusService implements OnModuleInit, OnModuleDestroy {
   }
 
   private startDefaultMetrics(): void {
-    this.defaultMetricsDispose = client.collectDefaultMetrics({
+    client.collectDefaultMetrics({
       register: this.registry,
       prefix: 'nodejs_',
-    }) as unknown as (() => void);
+    });
   }
 
   /**

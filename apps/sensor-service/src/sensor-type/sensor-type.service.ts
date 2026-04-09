@@ -259,7 +259,7 @@ export class SensorTypeService {
         created.push(saved);
       } catch (error) {
         // Handle race condition: concurrent applyTemplate calls may cause unique constraint violation
-        if (error instanceof QueryFailedError && (error as any).code === '23505') {
+        if (error instanceof QueryFailedError && (error.driverError as { code?: string })?.code === '23505') {
           this.logger.debug(
             `Skipping type "${typeDef.typeKey}" — created concurrently for tenant ${tenantId}`,
           );

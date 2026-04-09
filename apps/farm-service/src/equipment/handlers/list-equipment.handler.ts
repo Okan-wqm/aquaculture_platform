@@ -10,7 +10,8 @@ import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
-import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
+import { Equipment, EquipmentStatus, EquipmentLocation, TankSpecifications } from '../entities/equipment.entity';
+import { EquipmentSystem } from '../entities/equipment-system.entity';
 import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
 import { Tank, TankStatus, TankType } from '../../tank/entities/tank.entity';
 
@@ -405,10 +406,10 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     equipment.code = tank.code;
     equipment.description = tank.description;
     equipment.departmentId = tank.departmentId;
-    equipment.department = tank.department as any; // Type cast for compatibility
+    equipment.department = tank.department;
     equipment.status = mapTankStatusToEquipmentStatus(tank.status);
     equipment.specifications = specifications;
-    equipment.location = tank.location as any;
+    equipment.location = tank.location as EquipmentLocation;
     equipment.notes = tank.notes;
     equipment.installationDate = tank.installationDate;
     equipment.isTank = true;
@@ -442,7 +443,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
         createdAt: tank.createdAt,
         updatedAt: tank.updatedAt,
         createdBy: tank.createdBy,
-      }] as any;
+      }] as EquipmentSystem[];
     } else {
       equipment.equipmentSystems = [];
     }

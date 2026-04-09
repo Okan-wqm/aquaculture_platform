@@ -12,6 +12,7 @@ import { Repository, DataSource, LessThan } from 'typeorm';
 
 import {
   TenantSchema,
+  SchemaStatus,
   DatabaseMetric,
   SlowQueryLog,
   DatabaseMetricData,
@@ -106,7 +107,7 @@ export class DatabaseMonitoringService {
     maxConnections: number;
   }>> {
     const schemas = await this.schemaRepository.find({
-      where: { status: 'active' as any },
+      where: { status: 'active' as SchemaStatus },
     });
 
     return schemas.map(schema => ({
@@ -283,7 +284,7 @@ export class DatabaseMonitoringService {
 
       return {
         source: 'slow_query_logs',
-        data: queries as unknown as Record<string, unknown>[],
+        data: queries.map((q) => ({ ...q })),
         metadata: {
           total: queries.length,
           limit,

@@ -7,6 +7,7 @@
  * Modbus RTU client interface
  */
 export interface ModbusRTUClient {
+  [key: string]: unknown;
   /** Connect via TCP */
   connectTCP(ip: string, options?: ModbusTcpOptions): Promise<void>;
 

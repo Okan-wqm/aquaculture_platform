@@ -75,12 +75,14 @@ export class SubmitManagerAssessmentHandler implements ICommandHandler<SubmitMan
       }
 
       await reviewRepo.save(review);
-      await queryRunner.commitTransaction();
 
-      const result = await this.dataSource.getRepository(PerformanceReview).findOne({
+      // Fetch with relations on the SAME connection before commit
+      const result = await queryRunner.manager.findOne(PerformanceReview, {
         where: { id: reviewId, tenantId },
         relations: ['employee', 'reviewer'],
       });
+
+      await queryRunner.commitTransaction();
 
       return result!;
     } catch (error) {

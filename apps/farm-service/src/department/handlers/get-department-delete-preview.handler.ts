@@ -95,7 +95,7 @@ export class GetDepartmentDeletePreviewHandler
     const totalCount = equipment.length + tanks.length;
 
     return {
-      department: department as unknown as DepartmentResponse,
+      department: department as DepartmentResponse,
       canDelete: blockers.length === 0,
       blockers,
       affectedItems: {

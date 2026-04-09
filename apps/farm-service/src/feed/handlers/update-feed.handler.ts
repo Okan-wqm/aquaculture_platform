@@ -61,7 +61,7 @@ export class UpdateFeedHandler implements ICommandHandler<UpdateFeedCommand, Fee
     }
 
     // Update fields - exclude id to prevent entity identity corruption
-    const { id: _id, ...updateFields } = input as any;
+    const { id: _id, ...updateFields } = input;
     Object.assign(feed, {
       ...updateFields,
       code: input.code ? input.code.toUpperCase() : feed.code,

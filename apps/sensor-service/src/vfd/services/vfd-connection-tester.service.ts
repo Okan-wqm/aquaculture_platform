@@ -111,7 +111,7 @@ export class VfdConnectionTesterService {
 
     const result = await this.testConnection({
       protocol: device.protocol,
-      configuration: device.protocolConfiguration as unknown as Record<string, unknown>,
+      configuration: device.protocolConfiguration,
       brand: device.brand,
     });
 

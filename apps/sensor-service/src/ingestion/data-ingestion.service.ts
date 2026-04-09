@@ -11,7 +11,7 @@ import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-met
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
-import { MqttAdapter } from '../protocol/adapters/iot/mqtt.adapter';
+import { MqttAdapter, MqttConfiguration } from '../protocol/adapters/iot/mqtt.adapter';
 
 /**
  * Active sensor connection info
@@ -161,7 +161,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Connecting to sensor ${sensor.id} (${sensor.name})...`);
 
       // Connect to the sensor
-      const handle = await this.mqttAdapter.connect(config);
+      const handle = await this.mqttAdapter.connect(config as MqttConfiguration);
 
       // Subscribe to data
       const subscription = await this.mqttAdapter.subscribeToData(

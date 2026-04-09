@@ -418,13 +418,13 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
       // JSONB fields
       if (specs.waterFlow !== undefined) {
-        tank.waterFlow = specs.waterFlow as unknown as Tank['waterFlow'];
+        tank.waterFlow = specs.waterFlow as Tank['waterFlow'];
       }
       if (specs.aeration !== undefined) {
-        tank.aeration = specs.aeration as unknown as Tank['aeration'];
+        tank.aeration = specs.aeration as Tank['aeration'];
       }
       if (specs.location !== undefined) {
-        tank.location = specs.location as unknown as Tank['location'];
+        tank.location = specs.location as Tank['location'];
       }
     }
 
@@ -573,7 +573,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
         createdAt: tank.createdAt,
         updatedAt: tank.updatedAt,
         createdBy: tank.createdBy,
-      }] as any;
+      }] as EquipmentSystem[];
     } else {
       equipment.equipmentSystems = [];
     }

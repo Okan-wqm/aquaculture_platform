@@ -677,7 +677,7 @@ export class NotificationDispatcherService implements OnModuleInit {
     // the returned rows; any concurrent invocation will find them already
     // in RETRYING status and skip them.
     // Only claims records where next_retry_at has elapsed (exponential backoff).
-    const claimed: NotificationLog[] = await this.dataSource.query(
+    const claimed: Record<string, unknown>[] = await this.dataSource.query(
       `UPDATE notification_logs
           SET status      = $1,
               retry_count = retry_count + 1
@@ -698,7 +698,7 @@ export class NotificationDispatcherService implements OnModuleInit {
     );
 
     // Map raw DB rows to entity-like objects (column names are snake_case from PG)
-    const failedNotifications: NotificationLog[] = (claimed as unknown as Record<string, unknown>[]).map((row) => {
+    const failedNotifications: NotificationLog[] = claimed.map((row) => {
       const log = new NotificationLog();
       log.id             = row['id'] as string;
       log.tenantId       = row['tenant_id'] as string;

@@ -33,10 +33,21 @@ registerEnumType(ChannelType, { name: 'ChannelType' });
 )
 @Index('idx_channels_type', ['type'])
 @Index('idx_channels_created_by', ['createdBy'])
+@Index('idx_channels_tenant', ['tenantId'])
 export class Channel {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier for multi-tenant isolation.
+   * SECURITY: Required for RLS policies and direct tenant-scoped queries
+   * without joining to parent entities.
+   * @see DB-HIGH-001 (messaging tables missing tenant_id)
+   */
+  @Field()
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Field(() => ChannelType)
   @Column({ type: 'varchar', length: 20, default: ChannelType.GROUP })

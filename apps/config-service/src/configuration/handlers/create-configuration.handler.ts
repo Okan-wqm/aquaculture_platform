@@ -59,9 +59,10 @@ export class CreateConfigurationHandler
       }
 
       // Encrypt secret values before saving
+      // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       let valueToStore = input.value;
       if (input.isSecret && this.encryptionService.isAvailable()) {
-        valueToStore = this.encryptionService.encrypt(input.value);
+        valueToStore = this.encryptionService.encrypt(input.value, tenantId, input.key);
       }
 
       const configuration = configRepo.create({

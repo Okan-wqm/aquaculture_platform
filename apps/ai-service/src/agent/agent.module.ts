@@ -5,9 +5,10 @@ import { ToolRegistryModule } from '../tools/tool-registry.module';
 import { ConversationModule } from '../conversation/conversation.module';
 import { AgentConfigModule } from '../tenant-config/agent-config.module';
 import { CostModule } from '../cost/cost.module';
+import { AiSafetyModule } from '../safety/ai-safety.module';
 
 @Module({
-  imports: [ToolRegistryModule, ConversationModule, AgentConfigModule, CostModule],
+  imports: [ToolRegistryModule, ConversationModule, AgentConfigModule, CostModule, AiSafetyModule],
   providers: [AgentRunnerService, AgentProfileService],
   exports: [AgentRunnerService, AgentProfileService],
 })

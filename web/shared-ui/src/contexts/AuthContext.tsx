@@ -12,6 +12,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { setTokens, clearSession, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
 import { tokenLifecycle } from '../utils/token-lifecycle';
+import { logoutCleanup } from '../utils/logout-cleanup';
 
 // ============================================================================
 // Types
@@ -481,6 +482,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
   /**
    * Logout
+   *
+   * SECURITY: FE-HIGH-005 — Uses logoutCleanup() to clear ALL browser
+   * storage layers (in-memory tokens, sessionStorage, IndexedDB, Workbox
+   * caches, service workers). This makes zombie tokens after logout
+   * structurally impossible.
    */
   const logout = useCallback(async (): Promise<void> => {
     try {
@@ -493,8 +499,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       `;
       await graphqlClient.request(LOGOUT_MUTATION).catch(() => {});
     } finally {
-      // Use clearSession (not clearTokens) to also remove tenantId on explicit logout
-      clearSession();
+      // FE-HIGH-005: Complete cleanup across all storage layers
+      await logoutCleanup({ revokeServerToken: false });
       dispatch({ type: 'LOGOUT' });
     }
   }, []);
@@ -648,7 +654,8 @@ export function useAuthContext(): AuthContextValue {
       return { redirectPath: '/' };
     },
     logout: async () => {
-      clearSession();
+      // FE-HIGH-005: Complete cleanup even in MFE fallback context
+      await logoutCleanup();
       // Use location.replace to avoid history pollution (SEC-008: avoid window.location.href anti-pattern)
       if (typeof window !== 'undefined') {
         window.location.replace('/login');

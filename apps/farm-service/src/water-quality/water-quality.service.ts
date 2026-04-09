@@ -4,15 +4,24 @@
  * Su kalitesi ölçümleri CRUD işlemleri.
  * Tank/batch bazlı sorgulama ve değerlendirme.
  *
+ * LIFE-SAFETY: Water quality events (WaterQualityMeasurementCreated,
+ * WaterQualityCritical) are now published via OutboxPublisher inside
+ * QueryRunner transactions. If NATS is temporarily unavailable, events
+ * are durably stored in the outbox table and delivered by the outbox
+ * worker — no silent event loss. Lost critical alerts directly impact
+ * fish mortality risk.
+ *
+ * Migration: NatsEventBus (fire-and-forget) -> OutboxPublisher (transactional).
+ *
  * @module WaterQuality
  */
 import { randomUUID } from 'crypto';
 
-import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import { Repository, DataSource, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
-import { NatsEventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
 import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent } from '@platform/event-contracts';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource, ParameterStatus } from './entities/water-quality-measurement.entity';
 import { Tank } from '../tank/entities/tank.entity';
@@ -99,8 +108,8 @@ export class WaterQualityService {
     private readonly tankRepository: Repository<Tank>,
     private readonly evaluationService: WaterQualityEvaluationService,
     private readonly validationService: WaterQualityValidationService,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -108,7 +117,13 @@ export class WaterQualityService {
   // -------------------------------------------------------------------------
 
   /**
-   * Yeni su kalitesi ölçümü oluşturur
+   * Yeni su kalitesi ölçümü oluşturur.
+   *
+   * LIFE-SAFETY: Measurement + outbox events are written in a single
+   * QueryRunner transaction. If NATS is temporarily unavailable the events
+   * persist in the outbox table and are delivered by the outbox worker.
+   * Fire-and-forget eventBus.publish() was removed — it silently dropped
+   * critical alerts when NATS was down, risking undetected fish mortality.
    */
   async create(tenantId: string, input: CreateWaterQualityData): Promise<WaterQualityMeasurement> {
     this.logger.log(`Creating water quality measurement for tenant ${tenantId}`);
@@ -145,63 +160,220 @@ export class WaterQualityService {
       ...(input.dynamicParameters || {}),
     };
 
-    const measurement = this.repository.create({
+    // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
+    // Done before the transaction to avoid holding a DB lock during evaluation
+    const preEvalMeasurement = this.repository.create({
       tenantId,
-      tankId: input.tankId,
-      pondId: input.pondId,
-      siteId: input.siteId,
-      batchId: input.batchId,
-      equipmentId: input.equipmentId,
-      measuredAt: input.measuredAt,
-      source: input.source,
-      measuredBy: input.measuredBy,
       parameters: mergedParameters,
-      notes: input.notes,
-      weatherConditions: input.weatherConditions,
-      idempotencyKey: input.idempotencyKey,
       overallStatus: WaterQualityStatus.UNKNOWN,
       hasAlarm: false,
     });
 
-    // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
-    const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters);
-    if (summary.evaluations.length > 0) {
-      measurement.overallStatus = summary.overallStatus;
-      measurement.summary = summary;
-      measurement.hasAlarm = summary.criticalCount > 0;
-    } else {
-      // Fallback: no tenant configs, use hardcoded defaults
-      measurement.evaluateParameters();
+    const summary = await this.evaluationService.evaluate(tenantId, preEvalMeasurement.parameters);
+
+    // ── Transaction: measurement save + outbox event(s) ───────────────
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    let saved: WaterQualityMeasurement;
+    try {
+      const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
+        tenantId,
+        tankId: input.tankId,
+        pondId: input.pondId,
+        siteId: input.siteId,
+        batchId: input.batchId,
+        equipmentId: input.equipmentId,
+        measuredAt: input.measuredAt,
+        source: input.source,
+        measuredBy: input.measuredBy,
+        parameters: mergedParameters,
+        notes: input.notes,
+        weatherConditions: input.weatherConditions,
+        idempotencyKey: input.idempotencyKey,
+        overallStatus: WaterQualityStatus.UNKNOWN,
+        hasAlarm: false,
+      });
+
+      if (summary.evaluations.length > 0) {
+        measurement.overallStatus = summary.overallStatus;
+        measurement.summary = summary;
+        measurement.hasAlarm = summary.criticalCount > 0;
+      } else {
+        // Fallback: no tenant configs, use hardcoded defaults
+        measurement.evaluateParameters();
+      }
+
+      saved = await queryRunner.manager.save(WaterQualityMeasurement, measurement);
+
+      // LIFE-SAFETY: Enqueue WaterQualityMeasurementCreatedEvent into the
+      // transactional outbox BEFORE commit. Guaranteed delivery via outbox worker.
+      const createdEvent: WaterQualityMeasurementCreatedEvent = {
+        eventId: randomUUID(),
+        eventType: 'WaterQualityMeasurementCreated',
+        tenantId,
+        timestamp: new Date(),
+        version: 1,
+        measurementId: saved.id,
+        equipmentId: saved.equipmentId ?? null,
+        tankId: saved.tankId ?? null,
+        source: saved.source,
+        overallStatus: saved.overallStatus,
+        hasAlarm: saved.hasAlarm,
+        measuredBy: saved.measuredBy ?? null,
+        measuredAt: saved.measuredAt.toISOString(),
+        parameterCount: Object.keys(saved.parameters || {}).length,
+      };
+      await this.outboxPublisher.enqueue(createdEvent, queryRunner.manager);
+
+      // LIFE-SAFETY: Critical alert event for alert-service — if parameters are
+      // in critical range, fish mortality risk is imminent. This event MUST be
+      // delivered reliably via outbox, not fire-and-forget.
+      if (saved.hasAlarm && saved.summary?.evaluations) {
+        const criticalParams = saved.summary.evaluations
+          .filter(e => e.status === ParameterStatus.CRITICAL_LOW || e.status === ParameterStatus.CRITICAL_HIGH)
+          .map(e => ({
+            code: e.parameter,
+            name: e.parameter,
+            value: e.value,
+            threshold: e.status === ParameterStatus.CRITICAL_LOW ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
+            direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as 'above' | 'below',
+            unit: e.unit,
+          }));
+
+        if (criticalParams.length > 0) {
+          // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
+          const criticalEvent: WaterQualityCriticalEvent = {
+            eventId: randomUUID(),
+            eventType: 'WaterQualityCritical',
+            tenantId,
+            timestamp: new Date(),
+            version: 2,
+            measurementId: saved.id,
+            equipmentId: saved.equipmentId ?? null,
+            tankId: saved.tankId ?? null,
+            criticalParametersJson: JSON.stringify(criticalParams),
+            criticalParameterCount: criticalParams.length,
+            measuredAt: saved.measuredAt.toISOString(),
+          };
+          await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
+        }
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
 
-    const saved = await this.repository.save(measurement);
     this.logger.log(`Created water quality measurement ${saved.id} with status ${saved.overallStatus}`);
+    return saved;
+  }
 
-    // Publish NATS domain events (non-blocking — failure does not affect measurement creation)
-    if (this.eventBus) {
-      try {
+  // -------------------------------------------------------------------------
+  // BATCH CREATE
+  // -------------------------------------------------------------------------
+
+  /**
+   * Batch creation of water quality measurements for multiple equipment.
+   * Validates all items first (fail-fast), then bulk inserts + outbox events
+   * in a single QueryRunner transaction.
+   *
+   * LIFE-SAFETY: All measurement events are enqueued in the transactional
+   * outbox. A NATS outage cannot silently drop critical water quality alerts.
+   */
+  async createBatch(
+    tenantId: string,
+    input: CreateBatchWaterQualityInput,
+    userId: string,
+  ): Promise<WaterQualityMeasurement[]> {
+    this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
+
+    // 1. Validate ALL items first (fail-fast, before transaction)
+    for (const item of input.measurements) {
+      const result = await this.validationService.validate(tenantId, item.dynamicParameters, item.equipmentId);
+      if (!result.valid) {
+        throw new BadRequestException({
+          message: `Validation failed for equipment ${item.equipmentId}`,
+          errors: result.errors,
+        });
+      }
+    }
+
+    // 2. Pre-evaluate thresholds (no DB writes, safe outside transaction)
+    const evaluations = [];
+    for (const item of input.measurements) {
+      const summary = await this.evaluationService.evaluate(
+        tenantId,
+        item.dynamicParameters as WaterQualityMeasurement['parameters'],
+      );
+      evaluations.push(summary);
+    }
+
+    // 3. Transaction: bulk INSERT measurements + enqueue outbox events
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    let saved: WaterQualityMeasurement[];
+    try {
+      const entities: WaterQualityMeasurement[] = [];
+      for (let i = 0; i < input.measurements.length; i++) {
+        const item = input.measurements[i]!;
+        const summary = evaluations[i]!;
+
+        const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
+          tenantId,
+          equipmentId: item.equipmentId,
+          measuredAt: input.measuredAt,
+          source: input.source,
+          measuredBy: userId,
+          parameters: item.dynamicParameters as WaterQualityMeasurement['parameters'],
+          notes: item.notes,
+          idempotencyKey: item.idempotencyKey,
+          overallStatus: WaterQualityStatus.UNKNOWN,
+          hasAlarm: false,
+        });
+
+        if (summary.evaluations.length > 0) {
+          measurement.overallStatus = summary.overallStatus;
+          measurement.summary = summary;
+          measurement.hasAlarm = summary.criticalCount > 0;
+        } else {
+          measurement.evaluateParameters();
+        }
+
+        entities.push(measurement);
+      }
+
+      saved = await queryRunner.manager.save(WaterQualityMeasurement, entities);
+
+      // Enqueue outbox events for each measurement (inside the same transaction)
+      for (const measurement of saved) {
         const createdEvent: WaterQualityMeasurementCreatedEvent = {
           eventId: randomUUID(),
           eventType: 'WaterQualityMeasurementCreated',
           tenantId,
           timestamp: new Date(),
           version: 1,
-          measurementId: saved.id,
-          equipmentId: saved.equipmentId ?? null,
-          tankId: saved.tankId ?? null,
-          source: saved.source,
-          overallStatus: saved.overallStatus,
-          hasAlarm: saved.hasAlarm,
-          measuredBy: saved.measuredBy ?? null,
-          measuredAt: saved.measuredAt.toISOString(),
-          parameterCount: Object.keys(saved.parameters || {}).length,
+          measurementId: measurement.id,
+          equipmentId: measurement.equipmentId ?? null,
+          tankId: measurement.tankId ?? null,
+          source: measurement.source,
+          overallStatus: measurement.overallStatus,
+          hasAlarm: measurement.hasAlarm,
+          measuredBy: measurement.measuredBy ?? null,
+          measuredAt: measurement.measuredAt.toISOString(),
+          parameterCount: Object.keys(measurement.parameters || {}).length,
         };
-        await this.eventBus.publish(createdEvent);
-        this.logger.debug(`Published WaterQualityMeasurementCreatedEvent for measurement ${saved.id}`);
+        await this.outboxPublisher.enqueue(createdEvent, queryRunner.manager);
 
-        // High-priority critical event for alert-service
-        if (saved.hasAlarm && saved.summary?.evaluations) {
-          const criticalParams = saved.summary.evaluations
+        // LIFE-SAFETY: Critical alert event for alert-service
+        if (measurement.hasAlarm && measurement.summary?.evaluations) {
+          const criticalParams = measurement.summary.evaluations
             .filter(e => e.status === ParameterStatus.CRITICAL_LOW || e.status === ParameterStatus.CRITICAL_HIGH)
             .map(e => ({
               code: e.parameter,
@@ -220,143 +392,24 @@ export class WaterQualityService {
               tenantId,
               timestamp: new Date(),
               version: 2,
-              measurementId: saved.id,
-              equipmentId: saved.equipmentId ?? null,
-              tankId: saved.tankId ?? null,
+              measurementId: measurement.id,
+              equipmentId: measurement.equipmentId ?? null,
+              tankId: measurement.tankId ?? null,
               criticalParametersJson: JSON.stringify(criticalParams),
               criticalParameterCount: criticalParams.length,
-              measuredAt: saved.measuredAt.toISOString(),
+              measuredAt: measurement.measuredAt.toISOString(),
             };
-            await this.eventBus.publish(criticalEvent);
-            this.logger.debug(`Published WaterQualityCriticalEvent for measurement ${saved.id} with ${criticalParams.length} critical parameters`);
+            await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
           }
         }
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish WQ event: ${(eventError as Error).message}`);
-      }
-    }
-
-    return saved;
-  }
-
-  // -------------------------------------------------------------------------
-  // BATCH CREATE
-  // -------------------------------------------------------------------------
-
-  /**
-   * Batch creation of water quality measurements for multiple equipment.
-   * Validates all items first (fail-fast), then bulk inserts in a single transaction.
-   */
-  async createBatch(
-    tenantId: string,
-    input: CreateBatchWaterQualityInput,
-    userId: string,
-  ): Promise<WaterQualityMeasurement[]> {
-    this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
-
-    // 1. Validate ALL items first (fail-fast)
-    for (const item of input.measurements) {
-      const result = await this.validationService.validate(tenantId, item.dynamicParameters, item.equipmentId);
-      if (!result.valid) {
-        throw new BadRequestException({
-          message: `Validation failed for equipment ${item.equipmentId}`,
-          errors: result.errors,
-        });
-      }
-    }
-
-    // 2. Build entities
-    const entities: WaterQualityMeasurement[] = [];
-    for (const item of input.measurements) {
-      const measurement = this.repository.create({
-        tenantId,
-        equipmentId: item.equipmentId,
-        measuredAt: input.measuredAt,
-        source: input.source,
-        measuredBy: userId,
-        parameters: item.dynamicParameters as WaterQualityMeasurement['parameters'],
-        notes: item.notes,
-        idempotencyKey: item.idempotencyKey,
-        overallStatus: WaterQualityStatus.UNKNOWN,
-        hasAlarm: false,
-      });
-
-      // Evaluate thresholds
-      const summary = await this.evaluationService.evaluate(
-        tenantId,
-        item.dynamicParameters as WaterQualityMeasurement['parameters'],
-      );
-      if (summary.evaluations.length > 0) {
-        measurement.overallStatus = summary.overallStatus;
-        measurement.summary = summary;
-        measurement.hasAlarm = summary.criticalCount > 0;
-      } else {
-        measurement.evaluateParameters();
       }
 
-      entities.push(measurement);
-    }
-
-    // 3. Bulk INSERT in single transaction
-    const saved = await this.repository.save(entities);
-
-    // 4. Emit NATS events (non-blocking)
-    if (this.eventBus) {
-      for (const measurement of saved) {
-        try {
-          const createdEvent: WaterQualityMeasurementCreatedEvent = {
-            eventId: randomUUID(),
-            eventType: 'WaterQualityMeasurementCreated',
-            tenantId,
-            timestamp: new Date(),
-            version: 1,
-            measurementId: measurement.id,
-            equipmentId: measurement.equipmentId ?? null,
-            tankId: measurement.tankId ?? null,
-            source: measurement.source,
-            overallStatus: measurement.overallStatus,
-            hasAlarm: measurement.hasAlarm,
-            measuredBy: measurement.measuredBy ?? null,
-            measuredAt: measurement.measuredAt.toISOString(),
-            parameterCount: Object.keys(measurement.parameters || {}).length,
-          };
-          await this.eventBus.publish(createdEvent);
-
-          // High-priority critical event for alert-service
-          if (measurement.hasAlarm && measurement.summary?.evaluations) {
-            const criticalParams = measurement.summary.evaluations
-              .filter(e => e.status === ParameterStatus.CRITICAL_LOW || e.status === ParameterStatus.CRITICAL_HIGH)
-              .map(e => ({
-                code: e.parameter,
-                name: e.parameter,
-                value: e.value,
-                threshold: e.status === ParameterStatus.CRITICAL_LOW ? (e.criticalMin ?? 0) : (e.criticalMax ?? 0),
-                direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as 'above' | 'below',
-                unit: e.unit,
-              }));
-
-            if (criticalParams.length > 0) {
-              // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
-              const criticalEvent: WaterQualityCriticalEvent = {
-                eventId: randomUUID(),
-                eventType: 'WaterQualityCritical',
-                tenantId,
-                timestamp: new Date(),
-                version: 2,
-                measurementId: measurement.id,
-                equipmentId: measurement.equipmentId ?? null,
-                tankId: measurement.tankId ?? null,
-                criticalParametersJson: JSON.stringify(criticalParams),
-                criticalParameterCount: criticalParams.length,
-                measuredAt: measurement.measuredAt.toISOString(),
-              };
-              await this.eventBus.publish(criticalEvent);
-            }
-          }
-        } catch (eventError) {
-          this.logger.warn(`Failed to publish WQ event for measurement ${measurement.id}: ${(eventError as Error).message}`);
-        }
-      }
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
 
     this.logger.log(`Created batch of ${saved.length} WQ measurements for tenant ${tenantId}`);

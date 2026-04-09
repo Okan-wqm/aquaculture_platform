@@ -4,6 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
 import { SchedulingSettings } from '../entities/scheduling-settings.entity';
 import { AttendanceRecord } from '../../attendance/entities/attendance-record.entity';
+import { getJurisdictionPolicy } from './jurisdiction-policy';
 
 export interface OvertimeCalculationResult {
   plannedMinutes: number;
@@ -87,7 +88,10 @@ export class OvertimeCalculatorService {
     }
 
     const settings = await this.settingsRepository.findOne({ where: { tenantId } });
-    const standardMinutes = settings?.standardWeeklyMinutes ?? 2700;
+    // HR-HIGH-009: Use jurisdiction policy for configurable thresholds.
+    // Falls back to tenant settings, then to jurisdiction default (TR = 2700).
+    const policy = getJurisdictionPolicy(settings?.jurisdictionCode);
+    const standardMinutes = settings?.standardWeeklyMinutes ?? policy.standardWeeklyMinutes;
 
     return {
       totalWorkedMinutes,
@@ -113,7 +117,9 @@ export class OvertimeCalculatorService {
     wouldExceedLimit: boolean;
   }> {
     const settings = await this.settingsRepository.findOne({ where: { tenantId } });
-    const monthlyLimit = settings?.maxOvertimeMinutesPerMonth ?? 2880;
+    // HR-HIGH-009: Use jurisdiction policy for monthly overtime limit.
+    const policy = getJurisdictionPolicy(settings?.jurisdictionCode);
+    const monthlyLimit = settings?.maxOvertimeMinutesPerMonth ?? policy.maxOvertimeMinutesPerMonth;
 
     // Calculate first and last day of month
     const firstDay = new Date(year, month - 1, 1);

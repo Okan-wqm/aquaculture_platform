@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { EventBus } from '@nestjs/cqrs';
 import { DataSource, EntityManager, Not, In, LessThan } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common';
+import { createBaseEvent } from '@platform/event-contracts';
+import type { CertificationExpiredEvent, CertificationExpiringSoonEvent } from '@platform/event-contracts';
 import { EmployeeCertification, CertificationStatus } from './entities/employee-certification.entity';
 import { CertificationType, CertificationRequirement } from './entities/certification-type.entity';
 import { Employee } from '../hr/entities/employee.entity';
@@ -22,6 +25,7 @@ export class CertificationExpiryService {
 
   constructor(
     private readonly dataSource: DataSource,
+    private readonly eventBus: EventBus,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -105,6 +109,31 @@ export class CertificationExpiryService {
 
             await empQr.commitTransaction();
             totalExpired += employeeCerts.length;
+
+            // HR-HIGH-012: Emit CertificationExpired NATS events for each expired cert.
+            // Published AFTER transaction commit so consumers see consistent state.
+            for (const cert of employeeCerts) {
+              try {
+                // Load certification type name for the event
+                const certType = await this.dataSource.manager.findOne(CertificationType, {
+                  where: { id: cert.certificationTypeId },
+                });
+                const expiredEvent: CertificationExpiredEvent = {
+                  ...createBaseEvent<CertificationExpiredEvent>('CertificationExpired', cert.tenantId),
+                  eventType: 'CertificationExpired' as const,
+                  certificationId: cert.id,
+                  employeeId: cert.employeeId,
+                  certificationTypeName: certType?.name ?? 'Unknown',
+                  expiryDate: cert.expiryDate!,
+                };
+                this.eventBus.publish(expiredEvent);
+              } catch (eventErr) {
+                this.logger.warn(
+                  `Failed to publish CertificationExpired event for cert ${cert.id}: ` +
+                  `${eventErr instanceof Error ? eventErr.message : String(eventErr)}`,
+                );
+              }
+            }
           } catch (employeeErr) {
             await empQr.rollbackTransaction();
             this.logger.error(

@@ -9,7 +9,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter } from '@aquaculture/shared-ui';
+import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider } from '@aquaculture/shared-ui';
+import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import App from './App';
 import './styles/index.css';
 
@@ -17,6 +18,10 @@ import './styles/index.css';
 // module loads) to ensure Document.prototype.createElement and
 // Element.prototype.setAttribute patches are active before React/ReactDOM
 // execute. See FE-CRITICAL-003.
+
+// FE-HIGH-006: Install visibilitychange listener so returning to a sleeping
+// tab triggers a proactive token refresh instead of a 401 force-logout.
+installVisibilityTokenRefresh();
 
 // ============================================================================
 // Query Client Configuration
@@ -97,14 +102,16 @@ if (!root) {
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ConfiguredBrowserRouter>
-        <AuthProvider>
-          <TenantProvider>
-            <App />
-          </TenantProvider>
-        </AuthProvider>
-      </ConfiguredBrowserRouter>
-    </QueryClientProvider>
+    <I18nProvider>
+      <QueryClientProvider client={queryClient}>
+        <ConfiguredBrowserRouter>
+          <AuthProvider>
+            <TenantProvider>
+              <App />
+            </TenantProvider>
+          </AuthProvider>
+        </ConfiguredBrowserRouter>
+      </QueryClientProvider>
+    </I18nProvider>
   </React.StrictMode>
 );

@@ -14,13 +14,24 @@
  * - Click-outside to close
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { validateNavigationUrl } from '@aquaculture/shared-ui';
 import {
   useNotifications,
   type InAppNotification,
   type NotificationData,
 } from '@/hooks/useNotifications';
+
+// ============================================================================
+// Pagination Constants
+// ============================================================================
+
+/**
+ * FE-HIGH-034: Limit initial render to prevent unbounded DOM growth.
+ * Additional notifications are loaded via "Load more" button.
+ */
+const PAGE_SIZE = 50;
 
 // ============================================================================
 // Route Mapping
@@ -79,7 +90,12 @@ function resolveNotificationRoute(data: NotificationData | null): string | null 
 // Sub-components
 // ============================================================================
 
-/** Format a timestamp into a human-readable relative time */
+/**
+ * Format a timestamp into a human-readable relative time.
+ *
+ * FE-HIGH-022: Uses Intl.DateTimeFormat with explicit timezone instead of
+ * bare toLocaleDateString() which shows server UTC times as local times.
+ */
 function formatTimeAgo(dateString: string): string {
   const now = new Date();
   const date = new Date(dateString);
@@ -93,7 +109,12 @@ function formatTimeAgo(dateString: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
 
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // FE-HIGH-022: Always include timezone to prevent UTC/local mismatch
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'Europe/Istanbul',
+  }).format(date);
 }
 
 /** Notification type icon/color indicator */
@@ -270,9 +291,13 @@ export const NotificationPanel: React.FC = () => {
       // Navigate to relevant route
       const data = parseNotificationData(notification);
       const route = resolveNotificationRoute(data);
-      if (route) {
+
+      // SECURITY: FE-HIGH-009 — Validate URL against allowlist to prevent
+      // open redirect via crafted notification payload
+      const validatedRoute = validateNavigationUrl(route);
+      if (validatedRoute) {
         setIsOpen(false);
-        navigate(route);
+        navigate(validatedRoute);
       }
     },
     [markAsRead, parseNotificationData, navigate],
@@ -289,6 +314,20 @@ export const NotificationPanel: React.FC = () => {
   // --------------------------------------------------------------------------
   // Render
   // --------------------------------------------------------------------------
+
+  // ── FE-HIGH-034: Paginated notification list ──
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  const paginatedNotifications = useMemo(
+    () => notifications.slice(0, visibleCount),
+    [notifications, visibleCount],
+  );
+
+  const hasMore = notifications.length > visibleCount;
+
+  const handleLoadMore = useCallback(() => {
+    setVisibleCount((prev) => prev + PAGE_SIZE);
+  }, []);
 
   return (
     <div className="relative" ref={panelRef}>
@@ -347,14 +386,26 @@ export const NotificationPanel: React.FC = () => {
             ) : notifications.length === 0 ? (
               <EmptyState />
             ) : (
-              notifications.map((notification) => (
-                <NotificationItem
-                  key={notification.id}
-                  notification={notification}
-                  data={parseNotificationData(notification)}
-                  onClick={() => handleNotificationClick(notification)}
-                />
-              ))
+              <>
+                {/* FE-HIGH-034: Render only the paginated subset to prevent unbounded DOM growth */}
+                {paginatedNotifications.map((notification) => (
+                  <NotificationItem
+                    key={notification.id}
+                    notification={notification}
+                    data={parseNotificationData(notification)}
+                    onClick={() => handleNotificationClick(notification)}
+                  />
+                ))}
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={handleLoadMore}
+                    className="w-full py-2 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-gray-50 transition-colors"
+                  >
+                    Load more ({notifications.length - visibleCount} remaining)
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

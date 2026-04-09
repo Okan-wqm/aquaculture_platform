@@ -1,7 +1,7 @@
 # Package 09: edge-scada-cancellation-mqtt-jitter
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 22K
 Priority: HIGH
 Security-Sensitive: no

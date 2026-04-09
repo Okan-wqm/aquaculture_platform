@@ -22,6 +22,10 @@ import {
   where: '"publishedAt" IS NULL AND "nextAttemptAt" <= NOW()',
 })
 @Index('idx_outbox_tenant', ['tenantId'])
+@Index('idx_outbox_idempotency', ['tenantId', 'idempotencyKey'], {
+  unique: true,
+  where: '"idempotencyKey" IS NOT NULL',
+})
 export class MessagingOutbox {
   /** UUID PK -- globally unique across replicas, safe for NATS Msg-Id dedup. */
   @PrimaryGeneratedColumn('uuid')
@@ -76,6 +80,23 @@ export class MessagingOutbox {
    */
   @Column({ type: 'timestamptz', default: () => 'NOW()' })
   nextAttemptAt!: Date;
+
+  /**
+   * Optional idempotency key for deduplication.
+   * UNIQUE constraint on (tenantId, idempotencyKey) prevents duplicate
+   * outbox entries for the same business operation.
+   * @see MSG-HIGH-004 (outbox deduplication)
+   */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  idempotencyKey!: string | null;
+
+  /**
+   * Whether this event has been dead-lettered after exceeding MAX_RETRIES.
+   * Dead-lettered events are excluded from polling and tracked via metrics.
+   * @see MSG-HIGH-006 (dead-letter metric counter)
+   */
+  @Column({ type: 'boolean', default: false })
+  isDeadLettered!: boolean;
 
   /**
    * Lease acquired timestamp -- set by the worker when it claims a row

@@ -2380,11 +2380,16 @@ export class AutomationService {
 
   /**
    * Rollback a deployment to previous version
+   *
+   * SECURITY: Four-eyes principle enforcement — the user initiating the rollback
+   * must differ from the user who performed the original deployment. This prevents
+   * a single compromised account from deploying malicious code AND rolling back
+   * legitimate code on safety-critical PLC/actuator devices.
    */
   async rollbackDeployment(
     deviceId: string,
     tenantId: string,
-    _rolledBackBy: string,
+    rolledBackBy: string,
   ): Promise<DeploymentResult> {
     // Ensure required services are available
     const edgeService = this.ensureEdgeDeviceServiceAvailable();
@@ -2398,6 +2403,28 @@ export class AutomationService {
       );
     }
 
+    // Find the currently deployed program for this device
+    const deployedProgram = await this.programRepo.findOne({
+      where: { tenantId, deviceId, status: ProgramStatus.DEPLOYED },
+    });
+
+    // SECURITY: Four-eyes principle — rollback initiator must differ from deployer.
+    // Look up the most recent successful deployment log to find the original deployer.
+    if (deployedProgram && this.deploymentLogService) {
+      const lastDeployLog = await this.deploymentLogService.findLatestForProgram(
+        deployedProgram.id,
+        deviceId,
+        tenantId,
+      );
+
+      if (lastDeployLog?.deployedBy && lastDeployLog.deployedBy === rolledBackBy) {
+        throw new ForbiddenException(
+          'Four-eyes violation: rollback initiator must differ from the original deployer. ' +
+          'A different authorized user must approve this rollback.',
+        );
+      }
+    }
+
     const commandId = randomUUID();
     const rollbackCommand = {
       commandId,
@@ -2407,11 +2434,6 @@ export class AutomationService {
     };
 
     const commandTopic = `tenants/${tenantId}/devices/${device.id}/commands`;
-
-    // Find the currently deployed program for this device
-    const deployedProgram = await this.programRepo.findOne({
-      where: { tenantId, deviceId, status: ProgramStatus.DEPLOYED },
-    });
 
     try {
       await mqtt.publish(commandTopic, rollbackCommand);
@@ -2427,7 +2449,7 @@ export class AutomationService {
           deviceId,
           commandId,
           version: deployedProgram.version,
-          deployedBy: _rolledBackBy,
+          deployedBy: rolledBackBy,
         });
       }
 

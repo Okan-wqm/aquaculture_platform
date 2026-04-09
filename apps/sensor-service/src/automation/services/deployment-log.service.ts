@@ -124,6 +124,26 @@ export class DeploymentLogService {
   }
 
   /**
+   * Find the latest deployment log for a program/device combination.
+   * Used by rollback four-eyes check to identify the original deployer.
+   *
+   * @param programId - The program that was deployed
+   * @param deviceId  - The target device
+   * @param tenantId  - Tenant scope for security isolation
+   * @returns The most recent deployment log, or null if none found
+   */
+  async findLatestForProgram(
+    programId: string,
+    deviceId: string,
+    tenantId: string,
+  ): Promise<DeploymentLog | null> {
+    return this.deploymentLogRepo.findOne({
+      where: { programId, deviceId, tenantId },
+      order: { deployedAt: 'DESC' },
+    });
+  }
+
+  /**
    * Mark a deployment as rolled back
    */
   async markRolledBack(commandId: string): Promise<void> {

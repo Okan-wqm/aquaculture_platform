@@ -118,6 +118,13 @@ export type { TenantProviderProps } from './contexts/TenantContext';
 
 export { useAuth, useRequireAuth } from './hooks/useAuth';
 export { useTenant } from './hooks/useTenant';
+
+// ============================================================================
+// I18n Infrastructure — FE-HIGH-020
+// ============================================================================
+
+export { I18nProvider, useI18n } from './i18n';
+export type { I18nProviderProps, I18nContextValue, SupportedLocale, MessageKey } from './i18n';
 export {
   useGraphQLQuery,
   useGraphQLMutation,

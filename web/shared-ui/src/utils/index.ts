@@ -147,6 +147,19 @@ export type {
 // Tenant-Scoped Query Keys (SECURITY: prevents cross-tenant cache leak)
 export { createTenantQueryKey } from './tenant-query-keys';
 
+// Logout Cleanup (SECURITY: FE-HIGH-005 — clears all browser storage layers)
+export { logoutCleanup } from './logout-cleanup';
+export type { LogoutCleanupOptions } from './logout-cleanup';
+
+// Visibility-Aware Token Refresh (SECURITY: FE-HIGH-006)
+export { installVisibilityTokenRefresh, uninstallVisibilityTokenRefresh } from './visibility-token-refresh';
+
+// URL Allowlist Validation (SECURITY: FE-HIGH-009 — prevents open redirect)
+export { validateNavigationUrl } from './url-allowlist';
+
+// HTML Sanitization (SECURITY: FE-HIGH-031 — prevents XSS via custom HTML)
+export { sanitizeHtml } from './sanitize-html';
+
 // Specification Validation - Equipment type specification validation
 export {
   validateSpecifications,

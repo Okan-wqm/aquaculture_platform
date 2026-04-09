@@ -11,6 +11,7 @@ import {
   JoinColumn,
   BeforeInsert,
   BeforeUpdate,
+  AfterLoad,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
 import { MoneyColumn } from '@aquaculture/backend-common';
@@ -251,6 +252,90 @@ export class Invoice {
     this.isDeleted = true;
     this.deletedAt = new Date();
     this.deletedBy = deletedBy;
+  }
+
+  // ── PLAT-HIGH-006: Immutability guard for finalized invoices ─────────
+  // SECURITY: Once an invoice transitions to SENT or beyond (PAID, OVERDUE, etc.),
+  // financial fields (amount, lineItems, subtotal, total) MUST NOT be modified.
+  // This is enforced at the entity level so NO code path can bypass it.
+
+  /** Status values that indicate the invoice has been finalized and sent to the customer */
+  private static readonly IMMUTABLE_STATUSES: Set<InvoiceStatus> = new Set([
+    InvoiceStatus.SENT,
+    InvoiceStatus.PAID,
+    InvoiceStatus.PARTIALLY_PAID,
+    InvoiceStatus.OVERDUE,
+    InvoiceStatus.REFUNDED,
+  ]);
+
+  /**
+   * Snapshot of financial fields at the time of last DB load.
+   * Used by @BeforeUpdate to detect unauthorized mutations.
+   * TypeORM @AfterLoad populates this from the DB state.
+   */
+  private _financialSnapshot?: {
+    subtotal: string;
+    total: string;
+    lineItems: string;
+    currency: string;
+  };
+
+  /**
+   * Capture financial field snapshot after loading from DB.
+   * This runs every time TypeORM hydrates the entity from a query.
+   */
+  @AfterLoad()
+  captureFinancialSnapshot(): void {
+    if (Invoice.IMMUTABLE_STATUSES.has(this.status)) {
+      this._financialSnapshot = {
+        subtotal: this.subtotal?.toString() ?? '',
+        total: this.total?.toString() ?? '',
+        lineItems: JSON.stringify(this.lineItems ?? []),
+        currency: this.currency ?? '',
+      };
+    }
+  }
+
+  /**
+   * PLAT-HIGH-006: Guard immutable financial fields on sent/finalized invoices.
+   * Throws if subtotal, total, lineItems, or currency are modified after finalization.
+   * Status transitions (e.g., SENT -> PAID) and payment tracking fields (amountPaid,
+   * amountDue, paidAt) are explicitly ALLOWED to change.
+   */
+  @BeforeUpdate()
+  guardImmutableAfterSent(): void {
+    if (!this._financialSnapshot) {
+      return; // Not a finalized invoice or freshly created
+    }
+
+    const current = {
+      subtotal: this.subtotal?.toString() ?? '',
+      total: this.total?.toString() ?? '',
+      lineItems: JSON.stringify(this.lineItems ?? []),
+      currency: this.currency ?? '',
+    };
+
+    const violations: string[] = [];
+    if (current.subtotal !== this._financialSnapshot.subtotal) {
+      violations.push('subtotal');
+    }
+    if (current.total !== this._financialSnapshot.total) {
+      violations.push('total');
+    }
+    if (current.lineItems !== this._financialSnapshot.lineItems) {
+      violations.push('lineItems');
+    }
+    if (current.currency !== this._financialSnapshot.currency) {
+      violations.push('currency');
+    }
+
+    if (violations.length > 0) {
+      throw new Error(
+        `INVOICE_IMMUTABILITY_VIOLATION: Cannot modify ${violations.join(', ')} ` +
+        `on invoice ${this.id} with status "${this.status}". ` +
+        `Invoices are immutable after being sent to the customer.`,
+      );
+    }
   }
 
   /**

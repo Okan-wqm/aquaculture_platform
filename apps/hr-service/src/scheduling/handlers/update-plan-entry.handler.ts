@@ -52,9 +52,17 @@ export class UpdatePlanEntryHandler implements ICommandHandler<UpdatePlanEntryCo
         throw new NotFoundException(`Entry with ID ${entryId} not found`);
       }
 
-      // Check if plan is editable
-      if (entry.weeklyPlan.status === WeeklyPlanStatus.PUBLISHED) {
-        throw new BadRequestException('Cannot modify entries of a published plan');
+      // SECURITY: Guard against editing CLOSED or PUBLISHED plans.
+      // HR-HIGH-001: S1 regression — the handler only blocked PUBLISHED but not CLOSED.
+      // Both terminal states must be structurally non-editable.
+      const nonEditableStatuses: WeeklyPlanStatus[] = [
+        WeeklyPlanStatus.PUBLISHED,
+        WeeklyPlanStatus.CLOSED,
+      ];
+      if (nonEditableStatuses.includes(entry.weeklyPlan.status)) {
+        throw new BadRequestException(
+          `Cannot modify entries of a plan with status "${entry.weeklyPlan.status}". Only DRAFT plans are editable.`,
+        );
       }
 
       // If leave day, cannot modify

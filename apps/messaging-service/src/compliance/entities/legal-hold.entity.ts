@@ -35,9 +35,35 @@ export class LegalHold {
   @Column({ type: 'uuid', nullable: true })
   channelId: string | null;
 
+  /**
+   * Reference to the specific legal matter or regulatory request that
+   * necessitates this hold. Required for GDPR proportionality -- a hold
+   * must be tied to a concrete legal proceeding, not an open-ended freeze.
+   * @see MSG-CRITICAL-018 (GDPR proportionality requirement)
+   */
+  @Field()
+  @Column({ type: 'uuid' })
+  legalMatterId: string;
+
+  /**
+   * Human-readable description of the legal matter (e.g., case number,
+   * regulatory reference). Optional but recommended for audit clarity.
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'text', nullable: true })
+  legalMatterDescription: string | null;
+
   @Field()
   @Column({ type: 'text' })
   reason: string;
+
+  /**
+   * User or system entity that requested the hold (may differ from startedBy
+   * when an admin activates a hold on behalf of legal counsel).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  requestedBy: string | null;
 
   @Field()
   @Column({ type: 'uuid' })
@@ -54,6 +80,15 @@ export class LegalHold {
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   releasedAt: Date | null;
+
+  /**
+   * Optional expiration date for the hold. After this date, the hold should
+   * be reviewed and either renewed or released. Prevents indefinite blanket
+   * holds that violate GDPR proportionality.
+   */
+  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  expiresAt: Date | null;
 
   @Field()
   @Column({ type: 'boolean', default: true })

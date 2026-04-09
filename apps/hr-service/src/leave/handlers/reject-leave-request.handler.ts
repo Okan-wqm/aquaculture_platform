@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { RejectLeaveRequestCommand } from '../commands/reject-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
+import { LeaveStateMachine } from '../leave-state-machine';
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { Employee } from '../../hr/entities/employee.entity';
 import { createLeaveRejectedEvent } from '../events/leave.events';
@@ -26,8 +27,10 @@ export class RejectLeaveRequestHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      // HR-HIGH-010: Pessimistic write lock prevents concurrent approve+reject race.
       const leaveRequest = await queryRunner.manager.findOne(LeaveRequest, {
         where: { id: leaveRequestId, tenantId, isDeleted: false },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!leaveRequest) {
@@ -44,12 +47,8 @@ export class RejectLeaveRequestHandler
         throw new ForbiddenException('You cannot reject your own leave request');
       }
 
-      // Can only reject PENDING requests
-      if (leaveRequest.status !== LeaveRequestStatus.PENDING) {
-        throw new BadRequestException(
-          `Cannot reject leave request with status ${leaveRequest.status}. Only PENDING requests can be rejected.`,
-        );
-      }
+      // HR-HIGH-008: Use centralized state machine for transition validation.
+      LeaveStateMachine.transition(leaveRequest.status, LeaveRequestStatus.REJECTED);
 
       // Restore pending balance
       const currentYear = new Date(leaveRequest.startDate).getFullYear();

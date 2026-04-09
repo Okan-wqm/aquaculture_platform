@@ -145,3 +145,7 @@ export type { ConfiguredBrowserRouterProps } from './ConfiguredBrowserRouter';
 // ApiError - Error display component
 export { ApiError } from './ApiError';
 export type { ApiErrorProps } from './ApiError';
+
+// Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
+export { VisuallyHidden, FocusTrap, RouteAnnouncer } from './a11y';
+export type { VisuallyHiddenProps, FocusTrapProps, RouteAnnouncerProps } from './a11y';

@@ -2,9 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
+import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Configuration - Hydroponics Module Microfrontend
+ *
+ * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
+ * source of truth with strictVersion:true enforced on ALL entries.
  */
 export default defineConfig({
   plugins: [
@@ -15,14 +19,8 @@ export default defineConfig({
       exposes: {
         './Module': './src/Module.tsx',
       },
-      shared: {
-        react: { singleton: true, requiredVersion: '^18.2.0' },
-        'react-dom': { singleton: true, requiredVersion: '^18.2.0' },
-        'react-router-dom': { singleton: true, requiredVersion: '^6.21.0' },
-        '@tanstack/react-query': { singleton: true, requiredVersion: '^5.17.0' },
-        '@aquaculture/shared-ui': { singleton: true, import: true },
-        zustand: { singleton: true, requiredVersion: '^4.4.0' },
-      },
+      // FE-HIGH-004: Single source of truth with strictVersion:true
+      shared: getCoreSharedConfig(),
     }),
   ],
   resolve: {

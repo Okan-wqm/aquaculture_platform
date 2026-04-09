@@ -9,6 +9,7 @@ import { TokenBudgetService } from '../cost/token-budget.service';
 import { RateLimitService } from '../cost/rate-limit.service';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
+import { AiSafetyMiddleware } from '../safety/ai-safety.middleware';
 
 export interface ChatRequest {
   message: string;
@@ -47,6 +48,7 @@ export class AgentRunnerService {
     private readonly tokenBudget: TokenBudgetService,
     private readonly rateLimit: RateLimitService,
     private readonly agentConfig: AgentConfigService,
+    private readonly aiSafety: AiSafetyMiddleware,
   ) {
     this.anthropic = new Anthropic({
       apiKey: this.configService.get<string>('ANTHROPIC_API_KEY'),
@@ -130,12 +132,33 @@ export class AgentRunnerService {
       timestamp: new Date().toISOString(),
     });
 
-    // 7. Build tool definitions
+    // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
+    const safetyResult = this.aiSafety.preProcess(
+      request.message,
+      request.tenantId,
+      profile.persona.name,
+      profile.persona.systemPrompt,
+    );
+
+    if (!safetyResult.allowed) {
+      this.logger.warn(
+        `AI safety rejected input for tenant ${request.tenantId}: ${safetyResult.rejectionReason}`,
+      );
+      throw new Error(
+        'Your message was flagged by our safety system and cannot be processed.',
+      );
+    }
+
+    // Use hardened system prompt if instruction hierarchy is active
+    const effectiveSystemPrompt =
+      safetyResult.hardenedSystemPrompt ?? profile.effectiveSystemPrompt;
+
+    // 8. Build tool definitions
     const toolDefinitions = this.toolRegistry.getClaudeToolDefinitions(
       profile.effectiveToolNames,
     );
 
-    // 8. Run agent loop
+    // 9. Run agent loop
     const toolCalls: ChatResponse['toolCalls'] = [];
     const totalTokens = { input: 0, output: 0, total: 0 };
     let finalMessage = '';
@@ -158,7 +181,7 @@ export class AgentRunnerService {
       const response = await this.anthropic.messages.create({
         model: profile.persona.model,
         max_tokens: profile.persona.maxTokensPerTurn,
-        system: profile.effectiveSystemPrompt,
+        system: effectiveSystemPrompt,
         tools: toolDefinitions as Anthropic.Tool[],
         messages: currentMessages,
       });
@@ -194,6 +217,36 @@ export class AgentRunnerService {
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
       for (const toolUse of toolUseBlocks) {
+        // SECURITY: Validate tool call through safety pipeline before execution.
+        const toolMeta = this.toolRegistry.getClaudeToolDefinitions([toolUse.name]);
+        const toolSchema = toolMeta.length > 0
+          ? (toolMeta[0]!.input_schema as Record<string, unknown>)
+          : {};
+        const inputRecord = toolUse.input as Record<string, unknown>;
+        const urls = Object.values(inputRecord).filter(
+          (v): v is string => typeof v === 'string' && /^https?:\/\//i.test(v),
+        );
+
+        const toolValidation = await this.aiSafety.validateToolCall(
+          toolUse.name,
+          toolUse.input,
+          toolSchema,
+          urls.length > 0 ? urls : undefined,
+        );
+
+        if (!toolValidation.allowed) {
+          this.logger.warn(
+            `AI safety blocked tool call ${toolUse.name}: ${toolValidation.rejectionReason}`,
+          );
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: `Error: Tool call blocked by safety validation: ${toolValidation.rejectionReason}`,
+            is_error: true,
+          });
+          continue;
+        }
+
         const result = await this.toolExecutor.executeTool(
           toolUse.name,
           toolUse.input,
@@ -224,7 +277,17 @@ export class AgentRunnerService {
       }
     }
 
-    // 9. Save assistant response to conversation
+    // 10. SECURITY: Post-process model output through AI safety pipeline (PII redaction)
+    const postResult = this.aiSafety.postProcess(finalMessage, request.tenantId);
+    finalMessage = postResult.outputText;
+
+    if (postResult.piiRedacted) {
+      this.logger.warn(
+        `AI safety redacted PII from output for tenant ${request.tenantId}`,
+      );
+    }
+
+    // 11. Save assistant response to conversation
     await this.conversationService.addMessage(conversationId, {
       role: 'assistant',
       content: finalMessage,
@@ -232,7 +295,7 @@ export class AgentRunnerService {
       timestamp: new Date().toISOString(),
     });
 
-    // 10. Update token usage
+    // 12. Update token usage
     await this.tokenBudget.addUsage(request.tenantId, totalTokens.total);
     await this.conversationService.updateTokenCount(
       conversationId,

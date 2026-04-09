@@ -1,8 +1,7 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
-  CreateDateColumn,
   Index,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
@@ -32,8 +31,20 @@ registerEnumType(ComplianceAction, { name: 'ComplianceAction' });
  * Compliance audit log entity — records every messaging operation for
  * regulatory and forensic purposes.
  *
- * Partitioned by createdAt (monthly, same strategy as messages table).
- * TypeORM synchronize=false; managed via migrations.
+ * ## Partition Strategy (DB-CRITICAL-003, MSG-CRITICAL-009)
+ *
+ * This table uses PostgreSQL RANGE partitioning on `created_at` (monthly).
+ * PostgreSQL requires the partition key to be part of the primary key.
+ * Therefore the PK is composite: `(id, createdAt)`.
+ *
+ * Actual partition DDL (CREATE TABLE ... PARTITION BY RANGE, monthly
+ * partition creation cron) is defined in `init-messaging-schema.sql`.
+ * TypeORM `synchronize=false`; schema managed via migrations only.
+ *
+ * Partition benefits:
+ * - Partition pruning on date-range audit queries (GDPR Article 30 compliance)
+ * - Fast DROP PARTITION for data retention (instead of slow DELETE)
+ * - Parallel sequential scans within partitions
  *
  * @see ADR-012 Phase 3 (Compliance Audit Log)
  */
@@ -43,8 +54,12 @@ registerEnumType(ComplianceAction, { name: 'ComplianceAction' });
 @Index('idx_compliance_audit_user_created', ['userId', 'createdAt'])
 @Index('idx_compliance_audit_action_created', ['action', 'createdAt'])
 export class ComplianceAuditLog {
+  // WHY: Composite PK (id, createdAt) is required because PostgreSQL partitioned
+  // tables must include the partition key in the primary key. Without createdAt in
+  // the PK, the table cannot be partitioned by RANGE on created_at.
+  // @see DB-CRITICAL-003, MSG-CRITICAL-009
   @Field(() => ID)
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
   id: string;
 
   @Field()
@@ -79,7 +94,9 @@ export class ComplianceAuditLog {
   @Column({ type: 'varchar', length: 512, nullable: true })
   userAgent: string | null;
 
+  // IMPORTANT: createdAt is part of the composite PK for partition compatibility.
+  // PostgreSQL RANGE partition key must be in the PK.
   @Field()
-  @CreateDateColumn({ type: 'timestamptz' })
+  @PrimaryColumn({ type: 'timestamptz', default: () => 'now()' })
   createdAt: Date;
 }

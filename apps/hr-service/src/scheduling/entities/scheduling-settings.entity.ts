@@ -16,6 +16,18 @@ export class SchedulingSettings {
   @PrimaryColumn('uuid')
   tenantId!: string;
 
+  /**
+   * HR-HIGH-009: Jurisdiction code for overtime threshold lookup.
+   * Defaults to 'TR' (Turkish labor law). Multi-country tenants
+   * set this to 'US', 'EU', 'NO', etc. to get jurisdiction-appropriate
+   * overtime thresholds.
+   *
+   * @see JurisdictionPolicy for the full list of supported codes
+   */
+  @Field({ nullable: true })
+  @Column({ length: 10, nullable: true, default: 'TR' })
+  jurisdictionCode?: string;
+
   @Field(() => Int)
   @Column({ type: 'int', default: 2700 }) // 45 hours in minutes
   standardWeeklyMinutes!: number;

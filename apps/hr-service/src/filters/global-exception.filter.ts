@@ -76,8 +76,47 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     return undefined;
   }
 
+  /**
+   * HR-HIGH-004: Redact PII from error messages.
+   *
+   * SECURITY: Employee names, national IDs, emails, and phone numbers
+   * must never appear in client-facing error responses. This filter
+   * strips known PII patterns and sensitive keywords. In production,
+   * ALL messages are sanitized; in dev, only sensitive keywords trigger
+   * full redaction.
+   */
   private sanitize(message: string): string {
-    return /password|secret|token|sql/i.test(message) ? 'An error occurred' : message;
+    // Always redact messages containing obviously sensitive keywords
+    if (/password|secret|token|sql|credentials/i.test(message)) {
+      return 'An error occurred';
+    }
+
+    // SECURITY: Redact common PII patterns from error messages
+    let sanitized = message;
+
+    // Redact email addresses
+    sanitized = sanitized.replace(
+      /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+      '[REDACTED_EMAIL]',
+    );
+
+    // Redact Turkish national ID (TC Kimlik) — 11 digits
+    sanitized = sanitized.replace(/\b\d{11}\b/g, '[REDACTED_ID]');
+
+    // Redact phone numbers (various formats)
+    sanitized = sanitized.replace(
+      /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{2,4}/g,
+      '[REDACTED_PHONE]',
+    );
+
+    // Redact potential names after known context words (e.g., "Employee John Doe")
+    // Only replace if pattern matches "Employee <word> <word>" to avoid false positives
+    sanitized = sanitized.replace(
+      /\b(employee|user|manager|staff)\s+[A-Z][a-z]+\s+[A-Z][a-z]+/gi,
+      '$1 [REDACTED_NAME]',
+    );
+
+    return sanitized;
   }
 
   /**

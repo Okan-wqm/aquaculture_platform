@@ -24,7 +24,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as crypto from 'crypto';
-import { requestContextStorage, RequestContext, listTenantSchemas } from '@aquaculture/backend-common';
+import { withTenantContext, listTenantSchemas } from '@aquaculture/backend-common';
 import { FeedingProgram, FeedingProgramStatus } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { DailyFeedingExecution, ExecutionStatus } from '../entities/daily-feeding-execution.entity';
@@ -326,42 +326,54 @@ export class FeedingCronService {
         { jobId: context.jobId },
       );
 
-      // Process each tenant schema with proper search_path isolation
+      // Process each tenant schema using withTenantContext() for proper
+      // AsyncLocalStorage isolation. Raw queryRunner + SET search_path is
+      // replaced by the centralized withTenantContext() which validates the
+      // tenantId as UUID and sets up search_path via TenantConnectionBootstrap.
       for (const schema of tenantSchemas) {
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-
         try {
-          await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+          // Discovery query: fetch tenant-program pairs from this schema.
+          // This uses a short-lived queryRunner only for read discovery.
+          const discoveryRunner = this.dataSource.createQueryRunner();
+          await discoveryRunner.connect();
 
-          // Fetch active programs within this tenant schema using pagination
-          let offset = 0;
-          let hasMore = true;
-          const programsByTenant = new Map<string, Array<{ id: string; code: string; tenantId: string }>>();
+          let programsByTenant: Map<string, Array<{ id: string; code: string; tenantId: string }>>;
+          let totalProgramCount = 0;
+          try {
+            await discoveryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-          while (hasMore) {
-            const batch: Array<{ id: string; code: string; tenantId: string }> = await queryRunner.query(
-              `SELECT id, code, "tenantId"
-               FROM feeding_programs
-               WHERE status = $1
-               ORDER BY "tenantId" ASC, id ASC
-               OFFSET $2 LIMIT $3`,
-              [FeedingProgramStatus.ACTIVE, offset, BATCH_SIZE],
-            );
+            let offset = 0;
+            let hasMore = true;
+            programsByTenant = new Map<string, Array<{ id: string; code: string; tenantId: string }>>();
 
-            if (batch.length === 0) {
-              hasMore = false;
-              break;
+            while (hasMore) {
+              const batch: Array<{ id: string; code: string; tenantId: string }> = await discoveryRunner.query(
+                `SELECT id, code, "tenantId"
+                 FROM feeding_programs
+                 WHERE status = $1
+                 ORDER BY "tenantId" ASC, id ASC
+                 OFFSET $2 LIMIT $3`,
+                [FeedingProgramStatus.ACTIVE, offset, BATCH_SIZE],
+              );
+
+              if (batch.length === 0) {
+                hasMore = false;
+                break;
+              }
+
+              for (const program of batch) {
+                const programs = programsByTenant.get(program.tenantId) || [];
+                programs.push(program);
+                programsByTenant.set(program.tenantId, programs);
+              }
+
+              offset += batch.length;
+              totalProgramCount = offset;
+              hasMore = batch.length === BATCH_SIZE;
             }
-
-            for (const program of batch) {
-              const programs = programsByTenant.get(program.tenantId) || [];
-              programs.push(program);
-              programsByTenant.set(program.tenantId, programs);
-            }
-
-            offset += batch.length;
-            hasMore = batch.length === BATCH_SIZE;
+          } finally {
+            await discoveryRunner.query('RESET search_path').catch(() => {});
+            await discoveryRunner.release();
           }
 
           if (programsByTenant.size === 0) {
@@ -369,11 +381,11 @@ export class FeedingCronService {
           }
 
           this.logger.log(
-            `Schema ${schema}: found ${offset} active programs across ${programsByTenant.size} tenants`,
+            `Schema ${schema}: found ${totalProgramCount} active programs across ${programsByTenant.size} tenants`,
             { jobId: context.jobId },
           );
 
-          // Process each tenant's programs within this schema
+          // Process each tenant's programs within withTenantContext()
           for (const [tenantId, programs] of programsByTenant) {
             const tenantContext: JobContext = { ...context, tenantId };
             const result: TenantJobResult = {
@@ -389,12 +401,10 @@ export class FeedingCronService {
               { jobId: context.jobId, tenantId },
             );
 
-            // Wrap in requestContextStorage.run() so that repo calls inside
-            // executionService.generateDailyPlan() use the correct search_path
-            // via TenantConnectionBootstrap pool patch
-            const reqContext: RequestContext = { tenantId, schemaName: schema };
-
-            await requestContextStorage.run(reqContext, async () => {
+            // withTenantContext() validates tenantId as UUID and establishes
+            // AsyncLocalStorage context so TenantConnectionBootstrap sets the
+            // correct search_path on every DB connection acquired within.
+            await withTenantContext(tenantId, async () => {
               for (const program of programs) {
                 try {
                   const planResult = await this.withRetry(
@@ -465,9 +475,6 @@ export class FeedingCronService {
             err.stack,
             { jobId: context.jobId },
           );
-        } finally {
-          await queryRunner.query('RESET search_path').catch(() => {});
-          await queryRunner.release();
         }
       }
 
@@ -563,44 +570,51 @@ export class FeedingCronService {
       let totalWarnings = 0;
       let tenantsWithWarnings = 0;
 
-      // Process each tenant schema with proper search_path isolation
+      // Process each tenant schema using short-lived discovery queryRunners
+      // for read-only raw SQL, then emit events per tenant.
       for (const schema of tenantSchemas) {
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-
         try {
-          await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
+          // Discovery: short-lived queryRunner for GIN-optimized JSONB query
+          const discoveryRunner = this.dataSource.createQueryRunner();
+          await discoveryRunner.connect();
 
-          // Use raw query with JSONB operator for GIN index optimization
-          let offset = 0;
-          let hasMore = true;
-          const warningsByTenant = new Map<string, TransitionWarningRow[]>();
+          let warningsByTenant: Map<string, TransitionWarningRow[]>;
+          try {
+            await discoveryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-          while (hasMore) {
-            const rows: TransitionWarningRow[] = await queryRunner.query(
-              `SELECT id, "tenantId", "equipmentCode", "equipmentName", calculations
-               FROM daily_feeding_executions
-               WHERE "executionDate" = $1
-               AND status = $2
-               AND calculations::jsonb ? 'transitionWarning'
-               ORDER BY "tenantId" ASC, id ASC
-               OFFSET $3 LIMIT $4`,
-              [today, ExecutionStatus.PLANNED, offset, BATCH_SIZE],
-            );
+            let offset = 0;
+            let hasMore = true;
+            warningsByTenant = new Map<string, TransitionWarningRow[]>();
 
-            if (rows.length === 0) {
-              hasMore = false;
-              break;
+            while (hasMore) {
+              const rows: TransitionWarningRow[] = await discoveryRunner.query(
+                `SELECT id, "tenantId", "equipmentCode", "equipmentName", calculations
+                 FROM daily_feeding_executions
+                 WHERE "executionDate" = $1
+                 AND status = $2
+                 AND calculations::jsonb ? 'transitionWarning'
+                 ORDER BY "tenantId" ASC, id ASC
+                 OFFSET $3 LIMIT $4`,
+                [today, ExecutionStatus.PLANNED, offset, BATCH_SIZE],
+              );
+
+              if (rows.length === 0) {
+                hasMore = false;
+                break;
+              }
+
+              for (const row of rows) {
+                const warnings = warningsByTenant.get(row.tenantId) || [];
+                warnings.push(row);
+                warningsByTenant.set(row.tenantId, warnings);
+              }
+
+              offset += rows.length;
+              hasMore = rows.length === BATCH_SIZE;
             }
-
-            for (const row of rows) {
-              const warnings = warningsByTenant.get(row.tenantId) || [];
-              warnings.push(row);
-              warningsByTenant.set(row.tenantId, warnings);
-            }
-
-            offset += rows.length;
-            hasMore = rows.length === BATCH_SIZE;
+          } finally {
+            await discoveryRunner.query('RESET search_path').catch(() => {});
+            await discoveryRunner.release();
           }
 
           if (warningsByTenant.size === 0) {
@@ -619,8 +633,6 @@ export class FeedingCronService {
 
           // Emit events for each tenant's transition warnings
           for (const [tenantId, executions] of warningsByTenant) {
-            // TODO: Send notifications to operators when notification service is available
-            // For now, emit events for downstream processing
             this.eventEmitter.emit('feeding.transitionWarnings', {
               tenantId,
               jobId: context.jobId,
@@ -641,9 +653,6 @@ export class FeedingCronService {
             err.stack,
             { jobId: context.jobId },
           );
-        } finally {
-          await queryRunner.query('RESET search_path').catch(() => {});
-          await queryRunner.release();
         }
       }
 
@@ -719,61 +728,62 @@ export class FeedingCronService {
       let totalDeleted = 0;
       const deletedByTenant: Record<string, number> = {};
 
-      // SEC: Use catalog-validated schema names from information_schema instead of
-      // constructing them from application-controlled tenantId strings.
-      // A tampered tenantId in the DB could redirect search_path to another tenant's
-      // schema, causing the DELETE to wipe their data. listTenantSchemas() queries
-      // information_schema.schemata which cannot be poisoned via application inputs.
-      const validatedSchemas = await listTenantSchemas(this.dataSource);
-      const validSchemaSet = new Set(validatedSchemas);
-
-      // Process each tenant separately with proper schema context
+      // Process each tenant using withTenantContext() which:
+      // 1. Validates tenantId as UUID (rejects tampered strings)
+      // 2. Derives schema name via getTenantSchemaName() (deterministic, safe)
+      // 3. Establishes AsyncLocalStorage context for TenantConnectionBootstrap
+      //
+      // Previous approach used manual schema derivation from application-controlled
+      // tenantId strings + SET search_path — a tampered tenantId could redirect to
+      // another tenant's schema (schema interpolation vulnerability).
       for (const row of tenantsWithOldData) {
-        const tenantId = row.tenantId;
+        const tenantId = row.tenantId as string;
         let tenantDeleted = 0;
         let deleted = 0;
         let iterations = 0;
         const maxIterations = 100;
 
-        // Derive schema name and verify it against the catalog-validated set
-        const schemaName = `tenant_${(tenantId as string).replace(/-/g, '').substring(0, 16).toLowerCase()}`;
-        if (!validSchemaSet.has(schemaName)) {
-          this.logger.warn(`Skipping unknown schema '${schemaName}' for tenantId ${tenantId}`);
-          continue;
-        }
-
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-
         try {
-          await queryRunner.query(`SET search_path TO "${schemaName}", farm, public`);
+          await withTenantContext(tenantId, async () => {
+            const queryRunner = this.dataSource.createQueryRunner();
+            await queryRunner.connect();
 
-          // Batch delete for this specific tenant
-          do {
-            const result = await queryRunner.query(
-              `DELETE FROM daily_feeding_executions
-               WHERE id IN (
-                 SELECT id FROM daily_feeding_executions
-                 WHERE "tenantId" = $1
-                 AND "executionDate" < $2
-                 AND status = ANY($3)
-                 LIMIT $4
-               )`,
-              [tenantId, oneYearAgo, [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED], CLEANUP_BATCH_SIZE],
-            );
+            try {
+              // Batch delete for this specific tenant
+              do {
+                const result = await queryRunner.query(
+                  `DELETE FROM daily_feeding_executions
+                   WHERE id IN (
+                     SELECT id FROM daily_feeding_executions
+                     WHERE "tenantId" = $1
+                     AND "executionDate" < $2
+                     AND status = ANY($3)
+                     LIMIT $4
+                   )`,
+                  [tenantId, oneYearAgo, [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED], CLEANUP_BATCH_SIZE],
+                );
 
-            deleted = result?.rowCount ?? (Array.isArray(result) ? 0 : result?.affected ?? 0);
-            tenantDeleted += deleted;
-            iterations++;
+                deleted = result?.rowCount ?? (Array.isArray(result) ? 0 : result?.affected ?? 0);
+                tenantDeleted += deleted;
+                iterations++;
 
-            if (deleted === CLEANUP_BATCH_SIZE) {
-              await this.sleep(100);
+                if (deleted === CLEANUP_BATCH_SIZE) {
+                  await this.sleep(100);
+                }
+
+              } while (deleted === CLEANUP_BATCH_SIZE && iterations < maxIterations);
+            } finally {
+              await queryRunner.release();
             }
-
-          } while (deleted === CLEANUP_BATCH_SIZE && iterations < maxIterations);
-        } finally {
-          await queryRunner.query('RESET search_path').catch(() => {});
-          await queryRunner.release();
+          });
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          // withTenantContext throws on invalid UUID — skip this tenant
+          this.logger.warn(
+            `Skipping cleanup for tenantId ${tenantId}: ${err.message}`,
+            { jobId: context.jobId },
+          );
+          continue;
         }
 
         if (tenantDeleted > 0) {

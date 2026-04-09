@@ -51,8 +51,9 @@ describe('LegalHoldService', () => {
   it('activates a tenant-wide legal hold', async () => {
     holdRepo.findOne.mockResolvedValue(null); // no existing hold
 
+    const legalMatterId = fakeUuid('lm');
     const result = await service.activate(
-      TENANT_A, null, 'Regulatory investigation', adminUserId,
+      TENANT_A, null, 'Regulatory investigation', adminUserId, legalMatterId,
     );
 
     expect(holdRepo.create).toHaveBeenCalledWith(
@@ -60,6 +61,7 @@ describe('LegalHoldService', () => {
         tenantId: TENANT_A,
         channelId: null,
         reason: 'Regulatory investigation',
+        legalMatterId,
         startedBy: adminUserId,
         isActive: true,
       }),
@@ -74,14 +76,16 @@ describe('LegalHoldService', () => {
   it('activates a channel-specific legal hold', async () => {
     holdRepo.findOne.mockResolvedValue(null);
 
+    const legalMatterId = fakeUuid('lm');
     const result = await service.activate(
-      TENANT_A, channelId, 'Channel audit', adminUserId,
+      TENANT_A, channelId, 'Channel audit', adminUserId, legalMatterId,
     );
 
     expect(holdRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: TENANT_A,
         channelId,
+        legalMatterId,
         isActive: true,
       }),
     );
@@ -96,7 +100,7 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(existingHold);
 
     await expect(
-      service.activate(TENANT_A, null, 'Duplicate', adminUserId),
+      service.activate(TENANT_A, null, 'Duplicate', adminUserId, fakeUuid('lm')),
     ).rejects.toThrow(ForbiddenException);
   });
 

@@ -2,12 +2,16 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
+import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Tenant Admin Microfrontend
  *
  * Module Federation ile Shell uygulamasına expose edilir.
  * AuthContext ve TenantContext'e erişim için shared-ui SINGLETON olmalı.
+ *
+ * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
+ * source of truth with strictVersion:true enforced on ALL entries.
  */
 export default defineConfig({
   plugins: [
@@ -18,33 +22,12 @@ export default defineConfig({
       exposes: {
         './Module': './src/Module.tsx',
       },
-      // Paylaşılan bağımlılıklar - Host (shell) ile AYNI olmalı
+      // FE-HIGH-004: Single source of truth with strictVersion:true
       shared: {
-        react: {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-dom': {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-router-dom': {
-          singleton: true,
-          requiredVersion: '^6.21.0',
-        },
-        '@tanstack/react-query': {
-          singleton: true,
-          requiredVersion: '^5.17.0',
-        },
-        // CRITICAL: AuthContext ve TenantContext için zorunlu
-        // Bu olmadan useAuthContext() "must be used within AuthProvider" hatası verir
-        '@aquaculture/shared-ui': {
-          singleton: true,
-          import: true,
-          requiredVersion: '^1.0.0',
-        },
+        ...getCoreSharedConfig(),
         'lucide-react': {
           singleton: true,
+          strictVersion: true,
           requiredVersion: '^0.469.0',
         },
       },

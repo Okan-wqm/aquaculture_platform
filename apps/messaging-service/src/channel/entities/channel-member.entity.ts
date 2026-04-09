@@ -37,10 +37,19 @@ registerEnumType(NotificationPreference, { name: 'NotificationPreference' });
 @Unique('uq_channel_member', ['channelId', 'userId'])
 @Index('idx_channel_members_user_id', ['userId'])
 @Index('idx_channel_members_channel_id', ['channelId'])
+@Index('idx_channel_members_tenant', ['tenantId'])
 export class ChannelMember {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier for multi-tenant isolation.
+   * @see DB-HIGH-001 (messaging tables missing tenant_id)
+   */
+  @Field()
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Field()
   @Column({ type: 'uuid' })

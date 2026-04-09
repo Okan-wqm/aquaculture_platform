@@ -2,12 +2,16 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
+import { getSharedConfigWithReactFlow } from '../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Shell (Host) Uygulaması
  *
  * Module Federation ile remote microfrontend'leri tüketir.
  * Paylaşılan bağımlılıkları merkezi olarak yönetir.
+ *
+ * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
+ * source of truth with strictVersion:true enforced on ALL entries.
  */
 export default defineConfig(({ command }) => {
   // Development: local docker proxy at localhost:8080/mf/
@@ -29,49 +33,8 @@ export default defineConfig(({ command }) => {
           adminPanel: `${remoteBase}/admin-panel/assets/remoteEntry.js`,
           tenantAdmin: `${remoteBase}/tenant-admin/assets/remoteEntry.js`,
         },
-        shared: {
-          react: {
-            singleton: true,
-            requiredVersion: '18.3.1',
-          },
-          'react-dom': {
-            singleton: true,
-            requiredVersion: '18.3.1',
-          },
-          'react-router-dom': {
-            singleton: true,
-            requiredVersion: '6.30.3',
-          },
-          '@tanstack/react-query': {
-            singleton: true,
-            requiredVersion: '5.90.10',
-          },
-          '@aquaculture/shared-ui': {
-            singleton: true,
-            requiredVersion: '1.0.0',
-          },
-          zustand: {
-            singleton: true,
-            requiredVersion: '4.5.7',
-          },
-          /**
-           * SCADA-FIX: reactflow MUST be shared by the host so the remote
-           * can find it in globalThis.__federation_shared__ and both sides
-           * use the same React instance.
-           *
-           * Explicit `version` is REQUIRED because reactflow v11's
-           * package.json exports map omits "./package.json", which
-           * @originjs/vite-plugin-federation uses to auto-detect the
-           * version.  Providing `version` here bypasses that resolution
-           * and prevents the "Missing ./package.json specifier" build
-           * error permanently.
-           */
-          reactflow: {
-            singleton: true,
-            requiredVersion: '11.11.4',
-            version: '11.11.4',
-          },
-        },
+        // FE-HIGH-004: Single source of truth — includes reactflow for SCADA
+        shared: getSharedConfigWithReactFlow(),
       }),
     ],
     resolve: {

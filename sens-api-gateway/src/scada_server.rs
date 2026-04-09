@@ -1939,7 +1939,17 @@ pub fn build_scada_router(state: ScadaState) -> Router {
 
 /// Start the SCADA display HTTP + WebSocket server
 ///
-/// Listens on `0.0.0.0:6526` by default (configurable via `SUDERRA_SCADA_PORT` env var).
+/// # Security (IEC 62443 FR-2: Network segmentation)
+/// Default bind address is `127.0.0.1` (loopback only). In edge deployments
+/// with multiple NICs (OT + IT network), binding `0.0.0.0` exposes the SCADA
+/// HMI to the IT network where it should not be accessible.
+///
+/// Use `SUDERRA_SCADA_BIND` to set the OT interface address explicitly:
+///   SUDERRA_SCADA_BIND=192.168.100.1  (OT network only)
+///   SUDERRA_SCADA_BIND=127.0.0.1      (loopback, default)
+///   SUDERRA_SCADA_BIND=0.0.0.0        (all interfaces — NOT recommended for production)
+///
+/// Port is configurable via `SUDERRA_SCADA_PORT` (default 6526).
 pub async fn start_scada_server(state: ScadaState) -> tokio::task::JoinHandle<()> {
     // Load persistent process
     state.load_persistent_process().await;
@@ -1949,7 +1959,23 @@ pub async fn start_scada_server(state: ScadaState) -> tokio::task::JoinHandle<()
         .and_then(|p| p.parse().ok())
         .unwrap_or(6526);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    // SECURITY: Default to loopback (127.0.0.1) instead of 0.0.0.0.
+    // Edge devices with dual NICs (OT + IT) must not expose SCADA to IT network.
+    // Operators can override via SUDERRA_SCADA_BIND for the OT interface address.
+    let bind_addr: Ipv4Addr = std::env::var("SUDERRA_SCADA_BIND")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(Ipv4Addr::LOCALHOST);
+
+    if bind_addr == Ipv4Addr::UNSPECIFIED {
+        warn!(
+            "SCADA server binding to 0.0.0.0 (all interfaces). \
+             This exposes HMI to ALL networks including IT. \
+             Set SUDERRA_SCADA_BIND to the OT interface address for production."
+        );
+    }
+
+    let addr = SocketAddr::from((bind_addr, port));
     let app = build_scada_router(state);
 
     info!("Starting SCADA display server on {}", addr);

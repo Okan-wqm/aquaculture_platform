@@ -11,6 +11,7 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
@@ -56,7 +57,7 @@ import {
 import { PaginatedResult } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
-import { TenantProvisioningService, ProvisioningResult } from './services/tenant-provisioning.service';
+import { TenantProvisioningService } from './services/tenant-provisioning.service';
 
 interface AdminUser {
   id: string;
@@ -67,6 +68,8 @@ interface AdminUser {
 @ApiTags('Tenants')
 @Controller('tenants')
 export class TenantController {
+  private readonly logger = new Logger(TenantController.name);
+
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
@@ -319,18 +322,37 @@ export class TenantController {
   // Provisioning Endpoints
   // ============================================================================
 
+  /**
+   * ADMIN-HIGH-010: Returns 202 Accepted with a status-tracking URL.
+   * Provisioning runs asynchronously to prevent HTTP gateway timeouts
+   * caused by long-running schema creation, table creation, and seed data insertion.
+   *
+   * The client polls GET /:id/provision/status to track progress.
+   */
   @Post(':id/provision')
-  @ApiOperation({ summary: 'Provision tenant schema and resources' })
-  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Provision tenant schema and resources (async)' })
+  @HttpCode(HttpStatus.ACCEPTED)
   async provisionTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ProvisionTenantDto,
-  ): Promise<ProvisioningResult> {
-    return this.provisioningService.provisionTenant(id, {
+  ): Promise<{ accepted: true; tenantId: string; statusUrl: string }> {
+    // ADMIN-HIGH-010: Fire-and-forget with error logging.
+    // The provisioning saga tracks its own state and the client polls /status.
+    this.provisioningService.provisionTenant(id, {
       createFirstAdmin: dto.createAdmin || false,
       adminEmail: dto.adminEmail,
       assignModules: dto.modules || [],
+    }).catch((err: Error) => {
+      // Non-fatal: the saga already persists step-level failures.
+      // This catch prevents unhandled rejection on the detached promise.
+      this.logger.error(`Async provisioning failed for tenant ${id}: ${err.message}`);
     });
+
+    return {
+      accepted: true,
+      tenantId: id,
+      statusUrl: `/api/v1/tenants/${id}/provision/status`,
+    };
   }
 
   @Get(':id/provision/status')

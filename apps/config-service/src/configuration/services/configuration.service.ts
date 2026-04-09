@@ -217,6 +217,10 @@ export class ConfigurationService implements OnModuleInit {
 
   /**
    * Decrypt secret values and return typed value.
+   *
+   * PLAT-HIGH-003: Passes tenantId and configKey as AAD context to the
+   * decryption call. This ensures V2-encrypted values cannot be silently
+   * copied between tenants or config keys without detection.
    */
   private getDecryptedTypedValue<T = unknown>(config: Configuration): T {
     let rawValue = config.value;
@@ -224,7 +228,8 @@ export class ConfigurationService implements OnModuleInit {
     // Decrypt if secret and encryption is available
     if (config.isSecret && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
       try {
-        rawValue = this.encryptionService.decrypt(rawValue);
+        // PLAT-HIGH-003: AAD binding validates tenant + key context
+        rawValue = this.encryptionService.decrypt(rawValue, config.tenantId, config.key);
       } catch (error) {
         this.logger.error(`Failed to decrypt config ${config.service}/${config.key}: ${error}`);
         throw new Error(`Failed to decrypt configuration: ${config.service}/${config.key}`);

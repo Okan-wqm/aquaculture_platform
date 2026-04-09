@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { SubmitLeaveRequestCommand } from '../commands/submit-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
+import { LeaveStateMachine } from '../leave-state-machine';
 import { Employee } from '../../hr/entities/employee.entity';
 import { createLeaveRequestSubmittedEvent } from '../events/leave.events';
 
@@ -48,12 +49,8 @@ export class SubmitLeaveRequestHandler
         throw new ForbiddenException('You can only submit your own leave requests');
       }
 
-      // Can only submit from DRAFT status
-      if (leaveRequest.status !== LeaveRequestStatus.DRAFT) {
-        throw new BadRequestException(
-          `Cannot submit leave request with status ${leaveRequest.status}. Only DRAFT requests can be submitted.`,
-        );
-      }
+      // HR-HIGH-008: Use centralized state machine for transition validation.
+      LeaveStateMachine.transition(leaveRequest.status, LeaveRequestStatus.PENDING);
 
       // NOTE: pending balance is already incremented at DRAFT creation time
       // (CreateLeaveRequestHandler) to close the TOCTOU window on the balance check.

@@ -2,17 +2,25 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { Money } from '@aquaculture/backend-common';
 import { CreatePayrollCommand } from '../commands/create-payroll.command';
 import { Payroll, PayrollStatus, EarningsBreakdown, DeductionsBreakdown } from '../entities/payroll.entity';
+import { PayrollAudit, PayrollAuditAction } from '../entities/payroll-audit.entity';
 import { Employee } from '../entities/employee.entity';
 import { AttendanceRecord, ApprovalStatus } from '../../attendance/entities/attendance-record.entity';
 
 /**
- * Cent-based arithmetic to avoid floating-point errors in monetary calculations.
- * Rounds each value to cents, sums in integer space, then converts back.
+ * HR-HIGH-005: Money-based arithmetic using the platform Money value object.
+ * All monetary calculations go through Decimal.js (banker's rounding, ISO 4217).
+ * JavaScript float multiplication is STRUCTURALLY IMPOSSIBLE through this API.
  */
-function safeAdd(...values: number[]): number {
-  return values.reduce((sum, v) => sum + Math.round(v * 100), 0) / 100;
+function moneyAdd(currency: string, ...values: number[]): number {
+  let total = Money.zero(currency);
+  for (const v of values) {
+    total = total.add(Money.of(v, currency));
+  }
+  // Return cents-precise number for DB storage
+  return total.toMinorUnits() / 100;
 }
 
 @Injectable()
@@ -94,31 +102,36 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         );
       }
 
+      // HR-HIGH-005: All monetary calculations use Money value object (Decimal.js).
+      // JavaScript float multiplication is structurally impossible through this API.
+      const currency = input.currency || employee.currency || 'USD';
+
       // Auto-compute earnings from attendance-based hours if not explicitly provided
       let effectiveEarnings = input.earnings;
       if (autoComputedEarnings && input.earnings.baseSalary === 0) {
-        const hourlyRate = Number(employee.baseSalary) / 160; // approximate monthly hours
-        const regularPay = Math.round(workHoursData.regularHours * hourlyRate * 100) / 100;
-        const overtimePay = Math.round(
-          (workHoursData.overtimeHours || 0) * hourlyRate * CreatePayrollHandler.OVERTIME_RATE * 100,
-        ) / 100;
+        const hourlyRate = Money.of(employee.baseSalary, currency).divide(160);
+        const regularPay = hourlyRate.multiply(workHoursData.regularHours);
+        const overtimePay = hourlyRate
+          .multiply(workHoursData.overtimeHours || 0)
+          .multiply(CreatePayrollHandler.OVERTIME_RATE);
         effectiveEarnings = {
-          baseSalary: regularPay,
-          overtime: overtimePay,
+          baseSalary: regularPay.toMinorUnits() / 100,
+          overtime: overtimePay.toMinorUnits() / 100,
           bonus: input.earnings.bonus || 0,
           commission: input.earnings.commission || 0,
           allowances: input.earnings.allowances || 0,
         };
       }
 
-      // Calculate earnings breakdown (cent-based arithmetic to avoid floating-point errors)
+      // Calculate earnings breakdown using Money (no float arithmetic)
       const earnings: EarningsBreakdown = {
         baseSalary: effectiveEarnings.baseSalary,
         overtime: effectiveEarnings.overtime || 0,
         bonus: effectiveEarnings.bonus || 0,
         commission: effectiveEarnings.commission || 0,
         allowances: effectiveEarnings.allowances || 0,
-        grossPay: safeAdd(
+        grossPay: moneyAdd(
+          currency,
           effectiveEarnings.baseSalary,
           effectiveEarnings.overtime || 0,
           effectiveEarnings.bonus || 0,
@@ -127,7 +140,7 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         ),
       };
 
-      // Calculate deductions breakdown (cent-based arithmetic to avoid floating-point errors)
+      // Calculate deductions breakdown using Money (no float arithmetic)
       const deductionInput = input.deductions || {};
       const deductions: DeductionsBreakdown = {
         tax: deductionInput.tax || 0,
@@ -135,7 +148,8 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         healthInsurance: deductionInput.healthInsurance || 0,
         retirement: deductionInput.retirement || 0,
         otherDeductions: deductionInput.otherDeductions || 0,
-        totalDeductions: safeAdd(
+        totalDeductions: moneyAdd(
+          currency,
           deductionInput.tax || 0,
           deductionInput.socialSecurity || 0,
           deductionInput.healthInsurance || 0,
@@ -145,12 +159,14 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
       };
 
       // Validate deductions don't exceed gross pay
-      if (deductions.totalDeductions > earnings.grossPay) {
+      const grossMoney = Money.of(earnings.grossPay, currency);
+      const deductionsMoney = Money.of(deductions.totalDeductions, currency);
+      if (deductionsMoney.greaterThan(grossMoney)) {
         throw new BadRequestException('Total deductions cannot exceed gross pay');
       }
 
-      // Calculate net pay (cent-based subtraction to avoid floating-point errors)
-      const netPay = (Math.round(earnings.grossPay * 100) - Math.round(deductions.totalDeductions * 100)) / 100;
+      // Calculate net pay using Money (no float subtraction)
+      const netPay = grossMoney.subtract(deductionsMoney).toMinorUnits() / 100;
 
       // Validate net pay is not negative
       if (netPay < 0) {
@@ -185,6 +201,30 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
       });
 
       const savedPayroll = await queryRunner.manager.save(Payroll, payroll);
+
+      // HR-HIGH-006: Write immutable payroll audit trail entry
+      const auditEntry = queryRunner.manager.create(PayrollAudit, {
+        tenantId,
+        payrollId: savedPayroll.id,
+        employeeId: input.employeeId,
+        action: PayrollAuditAction.CREATED,
+        calculationInputs: {
+          workHours: workHoursData,
+          baseSalary: Number(employee.baseSalary),
+          earningsInput: effectiveEarnings,
+          deductionsInput: deductionInput,
+        },
+        calculationOutputs: {
+          earnings,
+          deductions,
+          netPay,
+        },
+        grossPay: earnings.grossPay,
+        netPay,
+        currency,
+        performedBy: userId,
+      });
+      await queryRunner.manager.save(PayrollAudit, auditEntry);
 
       await queryRunner.commitTransaction();
 

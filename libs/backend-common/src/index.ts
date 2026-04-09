@@ -80,6 +80,9 @@ export * from './audit';
 // NATS - Shared connection factory with SEC-H01 authentication support
 export { buildNatsConnectionOptions, buildNatsTransportOptions } from './nats/nats-connection.factory';
 
+// NATS - Tenant-validating consumer base class for cross-tenant isolation
+export { TenantValidatingConsumer, TenantValidationResult } from './nats/tenant-validating-consumer';
+
 // Constants - Shared NATS patterns and validation regexes
 export { NATS_PATTERNS } from './constants/nats-patterns';
 export {

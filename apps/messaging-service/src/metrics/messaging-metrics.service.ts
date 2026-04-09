@@ -28,6 +28,12 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   private outboxPending!: client.Gauge;
   private storageUsedBytes!: client.Gauge;
 
+  // Dead-letter and GDPR metrics
+  // @see MSG-HIGH-006 (dead-letter metric counter)
+  // @see MSG-HIGH-027 (GDPR erasure metric counter)
+  private deadLetterTotal!: client.Counter;
+  private gdprErasureTotal!: client.Counter;
+
   constructor() {
     this.registry = new client.Registry();
   }
@@ -96,6 +102,21 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
       labelNames: ['action'],
       registers: [this.registry],
     });
+
+    // @see MSG-HIGH-006 (dead-letter metric counter)
+    this.deadLetterTotal = new client.Counter({
+      name: 'messaging_outbox_dead_letter_total',
+      help: 'Total number of dead-lettered outbox events',
+      registers: [this.registry],
+    });
+
+    // @see MSG-HIGH-027 (GDPR erasure metric counter)
+    this.gdprErasureTotal = new client.Counter({
+      name: 'messaging_gdpr_erasure_total',
+      help: 'Total number of GDPR erasure requests processed',
+      labelNames: ['tenant'],
+      registers: [this.registry],
+    });
   }
 
   // ── Public metric recording methods ─────────────────────────────
@@ -138,6 +159,22 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   /** Increment rate_limit_hits_total counter. */
   incrementRateLimitHits(action: string): void {
     this.rateLimitHitsTotal.inc({ action });
+  }
+
+  /**
+   * Increment dead-letter counter when an outbox event is dead-lettered.
+   * @see MSG-HIGH-006 (dead-letter metric counter)
+   */
+  incrementDeadLetter(): void {
+    this.deadLetterTotal.inc();
+  }
+
+  /**
+   * Increment GDPR erasure counter.
+   * @see MSG-HIGH-027 (GDPR erasure metric counter)
+   */
+  incrementGdprErasure(tenant: string): void {
+    this.gdprErasureTotal.inc({ tenant });
   }
 
   // ── Prometheus scrape endpoint support ──────────────────────────

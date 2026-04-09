@@ -1,7 +1,7 @@
 # Package 15: farm-event-publishing-transactions
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 30K
 Priority: HIGH
 Security-Sensitive: no

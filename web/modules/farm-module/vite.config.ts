@@ -2,9 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
+import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Farm Module Microfrontend
+ *
+ * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
+ * source of truth with strictVersion:true enforced on ALL entries.
  */
 export default defineConfig({
   plugins: [
@@ -18,30 +22,8 @@ export default defineConfig({
         './FarmDetail': './src/pages/FarmDetailPage.tsx',
         './SensorDashboard': './src/pages/SensorDashboardPage.tsx',
       },
-      // Paylaşılan bağımlılıklar — Host (shell) ile EXACT aynı versiyon olmalı.
-      //
-      // Module Federation negotiation: when both sides declare `singleton: true`,
-      // the plugin picks the host's version and expects every remote to declare
-      // a compatible `requiredVersion`. If the remote declares a looser range
-      // (`^18.2.0`) that does NOT satisfy the host's exact pin (`18.3.1`), the
-      // federation runtime falls back to loading the remote's bundled copy —
-      // producing TWO React instances at runtime. Two React instances break
-      // hooks, context, AND the shared QueryClient, so mutations in the remote
-      // land in a different cache than the shell's and invalidation never
-      // propagates. This is the "anlık görünmüyor" scenario at the frontend level.
-      //
-      // Versions here are exact pins matching web/shell/vite.config.ts. If a
-      // shell upgrade changes one of these, the remote must be updated in lock
-      // step or CI should flag the mismatch before deploy.
-      shared: {
-        react: { singleton: true, requiredVersion: '18.3.1' },
-        'react-dom': { singleton: true, requiredVersion: '18.3.1' },
-        'react-router-dom': { singleton: true, requiredVersion: '6.30.3' },
-        '@tanstack/react-query': { singleton: true, requiredVersion: '5.90.10' },
-        // CRITICAL: AuthContext ve TenantContext için zorunlu
-        '@aquaculture/shared-ui': { singleton: true, import: true },
-        zustand: { singleton: true, requiredVersion: '4.5.7' },
-      },
+      // FE-HIGH-004: Single source of truth with strictVersion:true
+      shared: getCoreSharedConfig(),
     }),
   ],
   resolve: {

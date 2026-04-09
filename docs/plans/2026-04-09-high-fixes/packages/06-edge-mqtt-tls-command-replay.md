@@ -1,7 +1,7 @@
 # Package 06: edge-mqtt-tls-command-replay
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 30K
 Priority: HIGH
 Security-Sensitive: yes

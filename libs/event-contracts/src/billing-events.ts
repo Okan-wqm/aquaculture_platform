@@ -1,6 +1,35 @@
 import { BaseEvent, PlanTier } from './base-event';
 
 /**
+ * Typed subscription feature flags.
+ * SECURITY: Replaces Record<string, unknown> to prevent arbitrary payloads
+ * and ensure compile-time validation of feature flags.
+ * @see DATA-HIGH-005 (Record<string,unknown> features field)
+ */
+export interface SubscriptionFeatures {
+  /** Maximum number of users allowed under this subscription. */
+  maxUsers?: number;
+  /** Maximum number of farms allowed. */
+  maxFarms?: number;
+  /** Maximum number of ponds allowed. */
+  maxPonds?: number;
+  /** Maximum number of sensors allowed. */
+  maxSensors?: number;
+  /** Maximum number of employees allowed. */
+  maxEmployees?: number;
+  /** Whether AI analysis is included. */
+  aiAnalysisEnabled?: boolean;
+  /** Whether advanced reporting is included. */
+  advancedReportingEnabled?: boolean;
+  /** Whether real-time alerts are included. */
+  realTimeAlertsEnabled?: boolean;
+  /** Whether data export is included. */
+  dataExportEnabled?: boolean;
+  /** Whether API access is included. */
+  apiAccessEnabled?: boolean;
+}
+
+/**
  * Subscription Created Event
  */
 export interface SubscriptionCreatedEvent extends BaseEvent {
@@ -10,7 +39,8 @@ export interface SubscriptionCreatedEvent extends BaseEvent {
   monthlyPrice: number;
   currency: string;
   startDate: Date;
-  features: Record<string, unknown>;
+  /** Typed feature flags — replaces Record<string, unknown> for compile-time safety. */
+  features: SubscriptionFeatures;
 }
 
 /**
@@ -23,7 +53,8 @@ export interface SubscriptionUpdatedEvent extends BaseEvent {
   monthlyPrice?: number;
   currency?: string;
   startDate?: Date;
-  features?: Record<string, unknown>;
+  /** Typed feature flags — replaces Record<string, unknown> for compile-time safety. */
+  features?: SubscriptionFeatures;
 }
 
 /**

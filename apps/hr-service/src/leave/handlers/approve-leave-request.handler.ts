@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { ApproveLeaveRequestCommand } from '../commands/approve-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
+import { LeaveStateMachine } from '../leave-state-machine';
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { Employee } from '../../hr/entities/employee.entity';
 import { createLeaveApprovedEvent } from '../events/leave.events';
@@ -31,8 +32,12 @@ export class ApproveLeaveRequestHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      // HR-HIGH-010: Pessimistic write lock prevents concurrent approvals.
+      // Two managers approving overlapping leave requests simultaneously would
+      // both see PENDING and both commit APPROVED without this lock.
       const leaveRequest = await queryRunner.manager.findOne(LeaveRequest, {
         where: { id: leaveRequestId, tenantId, isDeleted: false },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!leaveRequest) {
@@ -49,12 +54,9 @@ export class ApproveLeaveRequestHandler
         throw new ForbiddenException('You cannot approve your own leave request');
       }
 
-      // Can only approve PENDING requests
-      if (leaveRequest.status !== LeaveRequestStatus.PENDING) {
-        throw new BadRequestException(
-          `Cannot approve leave request with status ${leaveRequest.status}. Only PENDING requests can be approved.`,
-        );
-      }
+      // HR-HIGH-008: Use centralized state machine for transition validation.
+      // Invalid transitions (e.g., APPROVED→APPROVED, CANCELLED→APPROVED) throw immediately.
+      LeaveStateMachine.transition(leaveRequest.status, LeaveRequestStatus.APPROVED);
 
       // Update balance - move from pending to used
       const currentYear = new Date(leaveRequest.startDate).getFullYear();

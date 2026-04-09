@@ -32,10 +32,22 @@ registerEnumType(MessageContentType, { name: 'MessageContentType' });
 @Check(`"contentType" IN ('text', 'image', 'file', 'voice', 'system')`)
 @Index('idx_messages_channel_created', ['channelId', 'createdAt'])
 @Index('idx_messages_sender', ['senderId', 'createdAt'])
+@Index('idx_messages_tenant', ['tenantId'])
 export class Message {
   @Field(() => ID)
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
   id: string;
+
+  /**
+   * Tenant identifier for multi-tenant isolation.
+   * SECURITY: Required for direct message table queries without joining
+   * to conversation/channel for tenant filtering.
+   * @see MSG-HIGH-010 (Message entity missing tenantId)
+   * @see DB-HIGH-001 (messaging tables missing tenant_id)
+   */
+  @Field()
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Field()
   @Column({ type: 'uuid' })
@@ -61,6 +73,12 @@ export class Message {
   @Column({ type: 'uuid', nullable: true })
   forwardedFrom: string | null;
 
+  /**
+   * Idempotency key for deduplication. UNIQUE constraint prevents duplicate
+   * messages from concurrent or retried sends.
+   * @see MSG-HIGH-015 (no idempotency constraint on message processing)
+   */
+  @Index('idx_messages_idempotency', ['tenantId', 'idempotencyKey'], { unique: true })
   @Column({ type: 'uuid' })
   idempotencyKey: string;
 
@@ -76,6 +94,14 @@ export class Message {
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   editedAt: Date | null;
+
+  /**
+   * User who last modified this record.
+   * @see DB-HIGH-007 (missing updated_by audit column)
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  updatedBy: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;

@@ -129,9 +129,32 @@ export class LeaveAccrualService {
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth(); // 0-based
 
+      // HR-HIGH-007: Replaced O(N^2) nested loop (leaveTypes x employees) with
+      // a batch approach. For each leave type, we pre-fetch all existing balances
+      // in a single query and index them by employeeId for O(1) lookup.
+      // This reduces DB round-trips from O(employees * leaveTypes) to O(leaveTypes).
+
       for (const leaveType of accrualLeaveTypes) {
         const rate = Number(leaveType.accrualRate);
         const waitMonths = leaveType.accrualStartAfterMonths || 0;
+        const defaultDays = leaveType.defaultDaysPerYear != null
+          ? Number(leaveType.defaultDaysPerYear)
+          : null;
+
+        // ── Single query: all balances for this leave type + year ──
+        const existingBalances = await manager.find(LeaveBalance, {
+          where: {
+            leaveTypeId: leaveType.id,
+            year: currentYear,
+            isDeleted: false,
+          },
+        });
+
+        // Index by employeeId for O(1) lookup
+        const balanceByEmployeeId = new Map<string, typeof existingBalances[number]>();
+        for (const b of existingBalances) {
+          balanceByEmployeeId.set(b.employeeId, b);
+        }
 
         for (const employee of employees) {
           // Check if employee has served the accrual start waiting period
@@ -140,22 +163,12 @@ export class LeaveAccrualService {
           eligibleDate.setMonth(eligibleDate.getMonth() + waitMonths);
 
           if (now < eligibleDate) {
-            // Employee hasn't completed the waiting period yet
             continue;
           }
 
-          // Find or create leave balance for current year
-          let balance = await manager.findOne(LeaveBalance, {
-            where: {
-              employeeId: employee.id,
-              leaveTypeId: leaveType.id,
-              year: currentYear,
-              isDeleted: false,
-            },
-          });
+          let balance = balanceByEmployeeId.get(employee.id);
 
           if (!balance) {
-            // Create a new balance record for the current year
             balance = manager.create(LeaveBalance, {
               tenantId: employee.tenantId,
               employeeId: employee.id,
@@ -179,21 +192,13 @@ export class LeaveAccrualService {
               lastAccrual.getFullYear() === currentYear &&
               lastAccrual.getMonth() === currentMonth
             ) {
-              // Already processed this month — skip
               continue;
             }
           }
 
-          // Apply accrual
+          // Apply accrual with cap
           const currentAccrued = Number(balance.accrued) || 0;
-          const newAccrued = currentAccrued + rate;
-
-          // Cap: accrued should not exceed defaultDaysPerYear (annual entitlement cap)
-          const defaultDays = leaveType.defaultDaysPerYear != null
-            ? Number(leaveType.defaultDaysPerYear)
-            : null;
-
-          let cappedAccrued = newAccrued;
+          let cappedAccrued = currentAccrued + rate;
           if (defaultDays != null && cappedAccrued > defaultDays) {
             cappedAccrued = defaultDays;
           }

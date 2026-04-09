@@ -2,7 +2,14 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
+import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
 
+/**
+ * Vite Konfigürasyonu - Admin Panel Microfrontend
+ *
+ * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
+ * source of truth with strictVersion:true enforced on ALL entries.
+ */
 export default defineConfig({
   plugins: [
     react(),
@@ -15,14 +22,8 @@ export default defineConfig({
         './TenantManagement': './src/pages/TenantManagementPage.tsx',
         './SystemSettings': './src/pages/SystemSettingsPage.tsx',
       },
-      // Paylaşılan bağımlılıklar - Host (shell) ile AYNI olmalı
-      shared: {
-        react: { singleton: true, requiredVersion: '^18.2.0' },
-        'react-dom': { singleton: true, requiredVersion: '^18.2.0' },
-        'react-router-dom': { singleton: true, requiredVersion: '^6.21.0' },
-        // CRITICAL: AuthContext ve TenantContext için zorunlu
-        '@aquaculture/shared-ui': { singleton: true, import: true },
-      },
+      // FE-HIGH-004: Single source of truth with strictVersion:true
+      shared: getCoreSharedConfig(),
     }),
   ],
   resolve: {

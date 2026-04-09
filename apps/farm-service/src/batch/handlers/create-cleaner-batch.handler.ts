@@ -5,11 +5,10 @@
  *
  * @module Batch/Handlers
  */
-import { Injectable, BadRequestException, Inject, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
 import { CreateCleanerBatchCommand } from '../commands/create-cleaner-batch.command';
 import { Batch, BatchStatus, BatchInputType, BatchType } from '../entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
@@ -24,8 +23,6 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly codeGenerator: CodeGeneratorService,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: CreateCleanerBatchCommand): Promise<Batch> {

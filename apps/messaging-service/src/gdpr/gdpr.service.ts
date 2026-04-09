@@ -10,6 +10,7 @@ import { REDIS_CLIENT } from '../shared/redis.provider';
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { ComplianceAuditService } from '../compliance/services/compliance-audit.service';
 import { ComplianceAction } from '../compliance/entities/compliance-audit-log.entity';
+import { MessagingMetricsService } from '../metrics/messaging-metrics.service';
 
 /** UUID representing an anonymised / deleted user. */
 const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -90,6 +91,7 @@ export class GdprService {
     private readonly redis: Redis,
     private readonly legalHoldService: LegalHoldService,
     private readonly complianceAuditService: ComplianceAuditService,
+    private readonly metricsService: MessagingMetricsService,
   ) {}
 
   /**
@@ -440,6 +442,11 @@ export class GdprService {
       );
 
       await queryRunner.commitTransaction();
+
+      // SECURITY: Increment GDPR erasure metric for compliance reporting.
+      // @see MSG-HIGH-027 (GDPR erasure metric counter)
+      this.metricsService.incrementGdprErasure(tenantId);
+
       this.logger.log(`GDPR anonymisation completed for user ${userId}`);
 
       return true;

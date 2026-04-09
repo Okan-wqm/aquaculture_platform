@@ -160,9 +160,40 @@ impl ProcessImage {
         }
     }
 
-    /// Update a tag value in the process image
+    /// Update a tag value in the process image.
+    ///
+    /// LIFE-SAFETY: When quality is Bad or CommFailure, the numeric value is
+    /// unreliable (sensor disconnect, CRC error, timeout). Persisting such
+    /// values into the process image would cause downstream control logic
+    /// (alarm engine, SCADA HMI, PID loops) to act on stale/garbage data.
+    ///
+    /// Bad-quality updates preserve the previous tag value but update the
+    /// quality and timestamp so consumers can detect the degradation.
     pub async fn update_tag(&self, name: &str, value: f64, quality: TagQuality, source: TagSource) {
         let mut inner = self.inner.write().await;
+
+        // LIFE-SAFETY: Reject numeric value when quality indicates unreliable data.
+        // Preserve existing value (last-known-good) but update quality + timestamp
+        // so downstream consumers see the quality degradation.
+        if matches!(quality, TagQuality::Bad | TagQuality::CommFailure) {
+            if let Some(existing) = inner.tags.get_mut(name) {
+                existing.quality = quality;
+                existing.timestamp = Utc::now();
+                existing.source = source;
+                return;
+            }
+            // No existing tag — insert with NaN to make it obvious the value is invalid.
+            // f64::NAN propagates through arithmetic without silently producing valid results.
+            inner.tags.insert(name.to_string(), TagValue {
+                value: f64::NAN,
+                quality,
+                timestamp: Utc::now(),
+                raw_value: None,
+                source,
+            });
+            return;
+        }
+
         let raw_value = inner.tags.get(name).and_then(|t| t.raw_value);
 
         // Apply scaling if config exists

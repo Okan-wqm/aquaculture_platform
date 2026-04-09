@@ -35,9 +35,10 @@ export class UpsertConfigurationHandler
       });
 
       // Encrypt secret values before storing
+      // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       let valueToStore = value;
       if (isSecret && this.encryptionService.isAvailable()) {
-        valueToStore = this.encryptionService.encrypt(value);
+        valueToStore = this.encryptionService.encrypt(value, tenantId, key);
       }
 
       // Atomic upsert using INSERT ... ON CONFLICT DO UPDATE

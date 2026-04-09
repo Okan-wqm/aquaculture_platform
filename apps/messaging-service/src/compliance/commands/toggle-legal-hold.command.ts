@@ -17,5 +17,13 @@ export class ToggleLegalHoldCommand implements ICommand {
     public readonly channelId: string | null,
     /** Required when activating. Reason for the hold. */
     public readonly reason: string | null,
+    /** Required when activating. UUID of the legal matter (GDPR proportionality). */
+    public readonly legalMatterId: string | null = null,
+    /** Optional description of the legal matter. */
+    public readonly legalMatterDescription: string | null = null,
+    /** Optional user/entity that requested the hold. */
+    public readonly requestedBy: string | null = null,
+    /** Optional expiration date for the hold. */
+    public readonly expiresAt: Date | null = null,
   ) {}
 }

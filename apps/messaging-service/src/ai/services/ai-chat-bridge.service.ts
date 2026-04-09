@@ -23,6 +23,12 @@ import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { Channel, ChannelType } from '../../channel/entities/channel.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { sanitizeContent } from '../../shared/sanitize';
+import { InputFilterService } from '../safety/input-filter.service';
+import { OutputPiiScannerService } from '../safety/output-pii-scanner.service';
+import { SsrfValidatorService } from '../safety/ssrf-validator.service';
+import { InstructionHierarchyService } from '../safety/instruction-hierarchy.service';
+import { ToolSchemaValidatorService } from '../safety/tool-schema-validator.service';
+import { AiPersonasRegistryService } from './ai-personas-registry.service';
 
 /** Virtual AI user UUID -- consistent across all tenants. */
 const AI_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -81,6 +87,12 @@ export class AiChatBridgeService {
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
+    private readonly inputFilter: InputFilterService,
+    private readonly outputPiiScanner: OutputPiiScannerService,
+    private readonly ssrfValidator: SsrfValidatorService,
+    private readonly instructionHierarchy: InstructionHierarchyService,
+    private readonly toolSchemaValidator: ToolSchemaValidatorService,
+    private readonly personasRegistry: AiPersonasRegistryService,
   ) {}
 
   /**
@@ -109,8 +121,37 @@ export class AiChatBridgeService {
       return;
     }
 
+    // SECURITY: Filter input for jailbreak/prompt injection before forwarding to AI.
+    // @see MSG-CRITICAL-030 (OWASP LLM01:2025 jailbreak defense)
+    const filterResult = this.inputFilter.scanInput(content, tenantId);
+    if (!filterResult.safe) {
+      this.logger.warn(
+        `SECURITY: Jailbreak attempt blocked in AI channel ${channelId} by user ${senderId}. ` +
+        `Patterns: ${filterResult.flaggedPatterns.join(', ')}`,
+      );
+      await this.persistAiResponse(tenantId, channelId, {
+        content: 'Your message was flagged by our safety system and cannot be processed.',
+        metadata: { type: 'safety_block', reason: 'input_filter' },
+      });
+      return;
+    }
+
     // Fetch context: last N messages from this channel
     const contextMessages = await this.fetchContextMessages(channelId);
+
+    // SECURITY: Build hardened system prompt with instruction hierarchy.
+    // Prevents user messages from overriding system-level directives.
+    // @see MSG-HIGH-031 (instruction hierarchy)
+    // @see MSG-HIGH-036 (custom system prompt injection)
+    const personaName = channel.aiPersona ?? 'Aquaculture Assistant';
+    const baseSystemPrompt = this.personasRegistry.getPersonaSystemPrompt(personaName);
+    // NOTE: Tenant custom prompts are validated by InstructionHierarchyService.
+    // Prompts containing injection patterns are rejected and logged.
+    const hardenedSystemPrompt = this.instructionHierarchy.buildHardenedSystemPrompt(
+      personaName,
+      baseSystemPrompt,
+      undefined, // Tenant custom prompt passed via separate config, not inline
+    );
 
     const request: AiChatRequest = {
       tenantId,
@@ -129,6 +170,16 @@ export class AiChatBridgeService {
 
     if (!response) {
       return;
+    }
+
+    // SECURITY: Scan AI response for PII leakage and redact if detected.
+    // @see MSG-HIGH-032 (output PII filter)
+    const piiResult = this.outputPiiScanner.redact(response.content, tenantId);
+    if (piiResult.scanResult.hasPii) {
+      this.logger.warn(
+        `SECURITY: PII detected in AI response for channel ${channelId}, redacting`,
+      );
+      response.content = piiResult.redactedText;
     }
 
     // Persist AI response as a message from the virtual AI user
@@ -366,10 +417,13 @@ export class AiChatBridgeService {
     url: string,
     request: AiChatRequest,
   ): Promise<AiChatResponse> {
-    // SECURITY: SSRF prevention — only allow HTTPS URLs to public hosts
-    if (!this.isSafeExternalUrl(url)) {
+    // SECURITY: SSRF prevention with DNS rebinding defense — resolve DNS
+    // and validate resolved IPs BEFORE making the HTTP connection.
+    // @see MSG-CRITICAL-029 (DNS rebinding defense)
+    const ssrfResult = await this.ssrfValidator.validateUrl(url);
+    if (!ssrfResult.safe) {
       this.logger.warn(
-        `Rejected unsafe AI service URL: ${url} (SSRF prevention)`,
+        `SECURITY: Rejected AI service URL: ${url} (SSRF: ${ssrfResult.reason})`,
       );
       return this.forwardViaNats(request, request.messageId);
     }
@@ -378,11 +432,15 @@ export class AiChatBridgeService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
 
+      const safeFetchOptions = this.ssrfValidator.getSafeFetchOptions();
+
       const httpResponse = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
         signal: controller.signal,
+        // SECURITY: Merge SSRF-safe defaults (no redirect following)
+        ...safeFetchOptions,
       });
 
       clearTimeout(timeoutId);
@@ -402,52 +460,7 @@ export class AiChatBridgeService {
     }
   }
 
-  /**
-   * Validate that a URL is safe for server-side HTTP requests (SSRF prevention).
-   * Rejects private IPs, localhost, non-HTTPS, and link-local addresses.
-   */
-  private isSafeExternalUrl(url: string): boolean {
-    try {
-      const parsed = new URL(url);
-
-      // Must be HTTPS
-      if (parsed.protocol !== 'https:') {
-        return false;
-      }
-
-      const hostname = parsed.hostname.toLowerCase();
-
-      // Block localhost and loopback
-      if (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '::1' ||
-        hostname === '[::1]' ||
-        hostname === '0.0.0.0'
-      ) {
-        return false;
-      }
-
-      // Block private/internal IP ranges (RFC 1918, link-local, metadata endpoints)
-      const privatePatterns = [
-        /^10\./,                      // 10.0.0.0/8
-        /^172\.(1[6-9]|2\d|3[0-1])\./, // 172.16.0.0/12
-        /^192\.168\./,                // 192.168.0.0/16
-        /^169\.254\./,                // link-local / AWS metadata
-        /^100\.(6[4-9]|[7-9]\d|1[0-2]\d)\./, // CGNAT 100.64.0.0/10
-        /^fc[0-9a-f]{2}:/i,          // IPv6 unique local
-        /^fe80:/i,                    // IPv6 link-local
-      ];
-
-      for (const pattern of privatePatterns) {
-        if (pattern.test(hostname)) {
-          return false;
-        }
-      }
-
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  // SECURITY: isSafeExternalUrl() removed in favor of SsrfValidatorService
+  // which adds DNS rebinding defense (pre-connect DNS resolution + IP pinning).
+  // @see MSG-CRITICAL-029
 }

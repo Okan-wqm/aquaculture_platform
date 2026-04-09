@@ -35,11 +35,19 @@ export class ToggleLegalHoldHandler
   ) {}
 
   async execute(command: ToggleLegalHoldCommand): Promise<LegalHold> {
-    const { tenantId, userId, activate, holdId, channelId, reason } = command;
+    const {
+      tenantId, userId, activate, holdId, channelId, reason,
+      legalMatterId, legalMatterDescription, requestedBy, expiresAt,
+    } = command;
 
     // Validate before entering transaction
     if (activate && (!reason || reason.trim().length === 0)) {
       throw new BadRequestException('A reason is required to activate a legal hold');
+    }
+    if (activate && !legalMatterId) {
+      throw new BadRequestException(
+        'legalMatterId is required to activate a legal hold (GDPR proportionality)',
+      );
     }
     if (!activate && !holdId) {
       throw new BadRequestException('holdId is required to release a legal hold');
@@ -58,6 +66,12 @@ export class ToggleLegalHoldHandler
           channelId,
           reason!,
           userId,
+          legalMatterId!,
+          {
+            legalMatterDescription: legalMatterDescription ?? undefined,
+            requestedBy: requestedBy ?? undefined,
+            expiresAt: expiresAt ?? undefined,
+          },
           manager,
         );
 

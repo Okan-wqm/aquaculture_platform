@@ -17,8 +17,14 @@ const DRIFT_RATE_THRESH = 0.1;  // pH/s - actual rate threshold
 const MAX_ACID_GRAMS_HOUR = 500;
 const MAX_BASE_GRAMS_HOUR = 500;
 const MAX_NUT_ML_HOUR = 2000;
-const PH_MIN = 3.0;
-const PH_MAX = 10.0;
+/**
+ * PLAT-HIGH-012: Narrowed pH bounds for aquaculture safety.
+ * Previous range (3.0-10.0) allowed the full chemical pH range, which is
+ * dangerous for aquatic organisms. Aquaculture systems must alarm within
+ * the biologically safe range of 6.0-9.0.
+ */
+const PH_MIN = 6.0;
+const PH_MAX = 9.0;
 const HOURLY_TICKS = 36000; // 3600s / 0.1s
 const DT = 0.1; // tick duration for rate calculations
 

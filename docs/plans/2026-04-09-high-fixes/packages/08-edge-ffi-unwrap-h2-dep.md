@@ -1,7 +1,7 @@
 # Package 08: edge-ffi-unwrap-h2-dep
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 20K
 Priority: HIGH
 Security-Sensitive: no

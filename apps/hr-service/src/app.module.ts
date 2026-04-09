@@ -47,6 +47,7 @@ import { PerformanceModule } from './performance/performance.module';
 // Core HR entities
 import { Employee } from './hr/entities/employee.entity';
 import { Payroll } from './hr/entities/payroll.entity';
+import { PayrollAudit } from './hr/entities/payroll-audit.entity';
 import { DepartmentHR } from './hr/entities/department.entity';
 // Leave entities
 import { LeaveType } from './leave/entities/leave-type.entity';
@@ -118,6 +119,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
           // Core HR
           Employee,
           Payroll,
+          PayrollAudit,
           DepartmentHR,
           // Leave
           LeaveType,

@@ -136,16 +136,49 @@ export class SensorMetric {
 
   // === Measurement Values ===
 
+  // WHY: rawValue and value use `double precision` (float8) instead of `numeric`
+  // for TimescaleDB hypertable performance. Rationale:
+  //
+  // 1. WRITE THROUGHPUT: float8 arithmetic is hardware-accelerated (FPU).
+  //    numeric uses software arbitrary-precision math -- 3-5x slower per row.
+  //    At 50K+ writes/second, this difference is material for ingestion SLA.
+  //
+  // 2. STORAGE: float8 is 8 bytes fixed. numeric(10,4) is 8-14 bytes variable.
+  //    For hypertables with billions of rows, the storage overhead compounds
+  //    in both raw storage and compression ratio.
+  //
+  // 3. CONTINUOUS AGGREGATES: TimescaleDB continuous aggregates (avg, min, max)
+  //    on float8 columns use hardware SIMD instructions and are significantly
+  //    faster than numeric aggregates.
+  //
+  // TRADEOFF: float8 has ~15-17 significant digits of precision. For sensor
+  // measurements (pH, temperature, dissolved oxygen) this is more than adequate.
+  // However, for COMPLIANCE THRESHOLD COMPARISONS (e.g., pH 6.9999999 vs 7.0),
+  // exact comparison on float8 can produce false positives/negatives.
+  //
+  // RESOLUTION (DB-CRITICAL-002): Compliance reporting queries and continuous
+  // aggregates used for threshold comparison MUST cast to NUMERIC at query time:
+  //   WHERE value::numeric(10,4) > threshold::numeric(10,4)
+  // This keeps write-path fast while ensuring compliance-path correctness.
+  // The continuous aggregates for compliance reporting are defined in
+  // init-sensor-schema.sql with explicit NUMERIC casts.
+  //
+  // @see DB-CRITICAL-002 (float vs numeric tradeoff)
+
   /**
-   * Raw value before calibration
+   * Raw value before calibration.
+   * Uses double precision for hypertable write performance.
+   * @see DB-CRITICAL-002 for compliance threshold comparison guidance
    */
   @Field(() => Float)
   @Column('double precision', { name: 'raw_value' })
   rawValue!: number;
 
   /**
-   * Calibrated/processed value
+   * Calibrated/processed value.
    * value = raw_value * calibration_multiplier + calibration_offset
+   * Uses double precision for hypertable write performance.
+   * @see DB-CRITICAL-002 for compliance threshold comparison guidance
    */
   @Field(() => Float)
   @Column('double precision', { name: 'value' })

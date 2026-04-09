@@ -26,12 +26,18 @@ export class LegalHoldService {
   /**
    * Activate a legal hold on a tenant or specific channel.
    *
+   * @param tenantId - Tenant identifier
+   * @param channelId - Optional channel to scope the hold (null = tenant-wide)
+   * @param reason - Human-readable reason for the hold
+   * @param userId - User activating the hold
+   * @param legalMatterId - UUID of the legal matter/regulatory request (REQUIRED for GDPR proportionality)
+   * @param options - Optional fields: legalMatterDescription, requestedBy, expiresAt
    * @param manager Optional EntityManager for transactional callers.
-   *   BEFORE: no manager parameter — activate() used its own injected repo,
+   *   BEFORE: no manager parameter -- activate() used its own injected repo,
    *   so it was always outside the caller's transaction boundary.
    *   WHY: ToggleLegalHoldHandler wraps activate() + audit + outbox in one
    *   dataSource.transaction(). Without manager propagation, activate() committed
-   *   independently — if audit or outbox save failed, the hold was already committed
+   *   independently -- if audit or outbox save failed, the hold was already committed
    *   but had no audit trail (ghost legal hold).
    *   With manager: all three writes share the same transaction context.
    */
@@ -40,8 +46,24 @@ export class LegalHoldService {
     channelId: string | null,
     reason: string,
     userId: string,
+    legalMatterId: string,
+    options?: {
+      legalMatterDescription?: string;
+      requestedBy?: string;
+      expiresAt?: Date;
+    },
     manager?: EntityManager,
   ): Promise<LegalHold> {
+    // SECURITY: legalMatterId is mandatory for GDPR proportionality.
+    // A hold without a legal matter reference is a blanket freeze that violates
+    // data protection regulations.
+    // @see MSG-CRITICAL-018
+    if (!legalMatterId) {
+      throw new ForbiddenException(
+        'legalMatterId is required: a legal hold must reference a specific legal matter (GDPR proportionality)',
+      );
+    }
+
     // Use caller's transaction manager if provided, fall back to injected repo
     const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
 
@@ -64,13 +86,18 @@ export class LegalHoldService {
       tenantId,
       channelId,
       reason,
+      legalMatterId,
+      legalMatterDescription: options?.legalMatterDescription ?? null,
+      requestedBy: options?.requestedBy ?? null,
+      expiresAt: options?.expiresAt ?? null,
       startedBy: userId,
       isActive: true,
     });
     const saved = await repo.save(hold);
 
     this.logger.log(
-      `Legal hold activated: id=${saved.id}, tenant=${tenantId}, channel=${channelId ?? 'all'}, by=${userId}`,
+      `Legal hold activated: id=${saved.id}, tenant=${tenantId}, ` +
+      `channel=${channelId ?? 'all'}, legalMatter=${legalMatterId}, by=${userId}`,
     );
     return saved;
   }
@@ -113,17 +140,30 @@ export class LegalHoldService {
     const tenantHold = await this.holdRepo.findOne({
       where: { tenantId, channelId: IsNull(), isActive: true },
     });
-    if (tenantHold) return true;
+    if (tenantHold && !this.isExpired(tenantHold)) return true;
 
     // If a specific channel is requested, also check channel-level hold
     if (channelId) {
       const channelHold = await this.holdRepo.findOne({
         where: { tenantId, channelId, isActive: true },
       });
-      if (channelHold) return true;
+      if (channelHold && !this.isExpired(channelHold)) return true;
     }
 
     return false;
+  }
+
+  /**
+   * Check if a legal hold has expired based on its expiresAt field.
+   * Expired holds are still active (isActive=true) but should not enforce
+   * data retention. They must be explicitly reviewed and released or renewed.
+   *
+   * @param hold - The legal hold to check
+   * @returns true if the hold has an expiresAt date in the past
+   */
+  private isExpired(hold: LegalHold): boolean {
+    if (!hold.expiresAt) return false;
+    return hold.expiresAt < new Date();
   }
 
   /**

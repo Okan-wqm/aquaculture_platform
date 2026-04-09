@@ -74,6 +74,20 @@ export interface BaseEvent {
    * Value is 0 on first delivery; incremented by the retry/DLQ infrastructure.
    */
   retryCount?: number;
+
+  /**
+   * Crypto-shred key ID for GDPR erasure support.
+   * When set, all PII fields in this event are encrypted with the key identified by
+   * this ID. Deleting the key from the key store renders all PII in this event
+   * irrecoverable (crypto-shredding).
+   *
+   * SECURITY: Events containing PII (employeeName, email, nationalId) MUST set this
+   * field. Consumers that need PII must decrypt using the key store. If the key is
+   * deleted (GDPR erasure), consumers see encrypted gibberish — no replay needed.
+   *
+   * @see DATA-HIGH-003 (PII in events without crypto-shred support)
+   */
+  cryptoShredKeyId?: string;
 }
 
 // ==================== Shared Literal Types ====================

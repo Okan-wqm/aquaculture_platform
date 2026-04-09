@@ -136,6 +136,18 @@ export class ToggleLegalHoldInput {
 
   @Field(() => String, { nullable: true, description: 'Required when activating. Reason for the hold.' })
   reason: string | null;
+
+  @Field(() => String, { nullable: true, description: 'Required when activating. UUID of the legal matter (GDPR proportionality).' })
+  legalMatterId: string | null;
+
+  @Field(() => String, { nullable: true, description: 'Optional description of the legal matter.' })
+  legalMatterDescription: string | null;
+
+  @Field(() => String, { nullable: true, description: 'Optional UUID of the user/entity that requested the hold.' })
+  requestedBy: string | null;
+
+  @Field(() => Date, { nullable: true, description: 'Optional expiration date for the hold (GDPR proportionality).' })
+  expiresAt: Date | null;
 }
 
 @InputType()
@@ -266,6 +278,10 @@ export class ComplianceResolver {
         input.holdId,
         input.channelId,
         input.reason,
+        input.legalMatterId,
+        input.legalMatterDescription,
+        input.requestedBy,
+        input.expiresAt,
       ),
     );
   }

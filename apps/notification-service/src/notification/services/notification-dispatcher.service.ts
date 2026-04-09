@@ -100,6 +100,25 @@ function pLimit(concurrency: number) {
 // Exponential backoff base delay for retries (1 minute)
 const RETRY_BASE_DELAY_MS = 60 * 1000;
 
+/**
+ * PLAT-HIGH-007: Add jitter to exponential backoff to prevent thundering herd.
+ * All failed notifications retrying simultaneously overload downstream webhook endpoints.
+ *
+ * Formula: delay * (1 + random(0, jitterFactor))
+ * With 0.5 jitter factor, a 60s delay becomes 60-90s.
+ */
+const RETRY_JITTER_FACTOR = 0.5;
+
+/**
+ * Apply jitter to a backoff delay to decorrelate retry storms.
+ * @param baseDelayMs - The computed exponential backoff delay
+ * @returns Delay with random jitter added (never less than baseDelayMs)
+ */
+function addJitter(baseDelayMs: number): number {
+  const jitter = Math.random() * RETRY_JITTER_FACTOR * baseDelayMs;
+  return Math.floor(baseDelayMs + jitter);
+}
+
 // Rate limiting constants
 const MAX_NOTIFICATIONS_PER_MINUTE = 100;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -435,9 +454,10 @@ export class NotificationDispatcherService implements OnModuleInit {
         `Notification sent via ${channel} to ${this.maskRecipientForLog(channel, logRecipient)}: ${externalId}`,
       );
     } catch (error) {
-      // Compute next retry time using exponential backoff (base 1 minute).
-      // retryCount is 0 on first failure so delay is 1 min, then 2 min, 4 min, etc.
-      const nextRetryAt = new Date(Date.now() + RETRY_BASE_DELAY_MS);
+      // Compute next retry time using exponential backoff with jitter (base 1 minute).
+      // retryCount is 0 on first failure so delay is ~1 min, then ~2 min, ~4 min, etc.
+      // PLAT-HIGH-007: Jitter decorrelates retry storms across failed notifications.
+      const nextRetryAt = new Date(Date.now() + addJitter(RETRY_BASE_DELAY_MS));
 
       // Persist failure state directly; if the DB write itself fails, log the
       // error so the audit trail is not silently lost.
@@ -739,8 +759,9 @@ export class NotificationDispatcherService implements OnModuleInit {
         await this.logRepository.save(notification);
         retried++;
       } catch (error) {
-        // Apply exponential backoff: 2^retryCount minutes
-        const backoffMs = Math.pow(2, notification.retryCount) * RETRY_BASE_DELAY_MS;
+        // Apply exponential backoff with jitter: 2^retryCount minutes + random jitter
+        // PLAT-HIGH-007: Jitter prevents all retries from firing simultaneously
+        const backoffMs = addJitter(Math.pow(2, notification.retryCount) * RETRY_BASE_DELAY_MS);
         notification.status = NotificationStatus.FAILED;
         notification.errorMessage = (error as Error).message;
         notification.nextRetryAt = new Date(Date.now() + backoffMs);

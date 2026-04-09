@@ -1,8 +1,8 @@
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { UseGuards, Logger, NotFoundException } from '@nestjs/common';
+import { UseGuards, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Roles, Role, TenantGuard, CurrentTenant } from '@aquaculture/backend-common';
+import { Roles, Role, TenantGuard, CurrentTenant, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common';
 import { HydroponicsStatusResponse } from '../dto/hydroponics-status.response';
 import { HydroponicsConfig } from '../entities/hydroponics-config.entity';
 import { CreateHydroponicsConfigInput } from '../dto/create-hydroponics-config.input';
@@ -139,15 +139,43 @@ export class SetupResolver {
   }
 
   /**
-   * Delete a configuration
+   * Delete a configuration.
+   *
+   * PLAT-HIGH-011: MODULE_MANAGER or higher can delete any config within tenant.
+   * MODULE_USER can only delete configs they created. This prevents a regular
+   * module user from destroying administrator-created configurations.
    */
   @Mutation(() => Boolean, { name: 'deleteHydroponicsConfiguration', description: 'Delete a hydroponics configuration' })
   @Roles(Role.MODULE_USER)
   async deleteHydroponicsConfiguration(
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<boolean> {
     this.logger.log(`Deleting configuration: ${id}`);
+
+    const config = await this.configRepository.findOne({
+      where: { id, tenantId },
+    });
+
+    if (!config) {
+      throw new NotFoundException(`Configuration with id "${id}" not found`);
+    }
+
+    // PLAT-HIGH-011: Ownership check for MODULE_USER role.
+    // MODULE_MANAGER and above (TENANT_ADMIN, SUPER_ADMIN) can delete any config.
+    // MODULE_USER can only delete configs where createdBy matches their user ID.
+    const userRoles = user.roles || [];
+    const isManager = userRoles.some(
+      (r) => r === Role.MODULE_MANAGER || r === Role.TENANT_ADMIN || r === Role.SUPER_ADMIN,
+    );
+
+    if (!isManager && config.settings?.['createdBy'] !== user.sub) {
+      throw new ForbiddenException(
+        'MODULE_USER can only delete configurations they created. ' +
+        'Contact a MODULE_MANAGER or TENANT_ADMIN to delete this configuration.',
+      );
+    }
 
     const result = await this.configRepository.delete({ id, tenantId });
     return (result.affected ?? 0) > 0;

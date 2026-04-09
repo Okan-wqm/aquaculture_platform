@@ -3,9 +3,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { Employee } from './entities/employee.entity';
 import { Payroll } from './entities/payroll.entity';
+import { PayrollAudit } from './entities/payroll-audit.entity';
 import { DepartmentHR } from './entities/department.entity';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { LeaveRequest } from '../leave/entities/leave-request.entity';
+import { EmployeeCertification } from '../training/entities/employee-certification.entity';
 import { HRResolver } from './hr.resolver';
+import { EmployeeErasureService } from './services/employee-erasure.service';
 
 // Command Handlers
 import { CreateEmployeeHandler } from './handlers/create-employee.handler';
@@ -42,14 +46,23 @@ const QueryHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Employee, Payroll, DepartmentHR, AttendanceRecord]),
+    TypeOrmModule.forFeature([
+      Employee,
+      Payroll,
+      PayrollAudit,
+      DepartmentHR,
+      AttendanceRecord,
+      LeaveRequest,
+      EmployeeCertification,
+    ]),
     CqrsModule,
   ],
   providers: [
     HRResolver,
     ...CommandHandlers,
     ...QueryHandlers,
+    EmployeeErasureService,
   ],
-  exports: [TypeOrmModule],
+  exports: [TypeOrmModule, EmployeeErasureService],
 })
 export class HRModule {}

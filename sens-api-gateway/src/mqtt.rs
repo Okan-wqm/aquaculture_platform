@@ -464,20 +464,40 @@ impl MqttClient {
                 Err(e) => {
                     consecutive_errors = consecutive_errors.saturating_add(1);
 
-                    // v1.2.6: Clearer exponential backoff: min * 2^(errors-1), capped at max
-                    // Shift amount capped at 6 (max multiplier = 64x)
+                    // Exponential backoff with jitter: base * 2^(errors-1), capped at max.
+                    // Jitter prevents thundering herd when broker recovers and all edge
+                    // agents reconnect simultaneously (IEC 62443 FR-7 availability).
+                    // Uses "full jitter" strategy: uniform random in [0, backoff].
                     let shift_amount = consecutive_errors.saturating_sub(1).min(6) as u32;
                     let multiplier = 1u64 << shift_amount;
-                    let backoff_secs = min_backoff_secs
+                    let base_backoff_secs = min_backoff_secs
                         .saturating_mul(multiplier)
                         .min(max_backoff_secs);
 
+                    // Full jitter: random value between 50% and 100% of base backoff.
+                    // This spreads reconnection attempts across the window while
+                    // maintaining a minimum delay floor (50% of computed backoff).
+                    let jitter_range_ms = (base_backoff_secs * 500) as u64; // 50% in ms
+                    let jitter_ms = if jitter_range_ms > 0 {
+                        // Simple PRNG: use lower bits of current time as entropy source.
+                        // No cryptographic requirement here — just spread reconnections.
+                        let seed = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .subsec_nanos() as u64;
+                        seed % jitter_range_ms
+                    } else {
+                        0
+                    };
+                    let backoff_ms = (base_backoff_secs * 500) + jitter_ms; // 50% base + jitter
+                    let backoff_display = backoff_ms as f64 / 1000.0;
+
                     error!(
-                        "MQTT error (attempt {}): {:?}. Retrying in {}s",
-                        consecutive_errors, e, backoff_secs
+                        "MQTT error (attempt {}): {:?}. Retrying in {:.1}s (base={}s, jitter={}ms)",
+                        consecutive_errors, e, backoff_display, base_backoff_secs, jitter_ms
                     );
 
-                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                 }
             }
         }

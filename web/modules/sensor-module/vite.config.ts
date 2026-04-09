@@ -3,9 +3,14 @@ import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import svgr from 'vite-plugin-svgr';
 import { resolve } from 'path';
+import { getSharedConfigWithReactFlow } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Sensor Module Microfrontend
+ *
+ * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
+ * source of truth with strictVersion:true enforced on ALL entries.
+ * Uses getSharedConfigWithReactFlow() for SCADA builder reactflow support.
  */
 export default defineConfig({
   plugins: [
@@ -25,32 +30,8 @@ export default defineConfig({
         './Alerts': './src/pages/AlertsPage.tsx',
         './VfdProgramming': './src/pages/VfdProgrammingPage.tsx',
       },
-      shared: {
-        react: { singleton: true, requiredVersion: '^18.2.0' },
-        'react-dom': { singleton: true, requiredVersion: '^18.2.0' },
-        'react-router-dom': { singleton: true, requiredVersion: '^6.21.0' },
-        '@tanstack/react-query': { singleton: true, requiredVersion: '^5.17.0' },
-        '@aquaculture/shared-ui': { singleton: true, import: true },
-        zustand: { singleton: true, requiredVersion: '^4.4.0' },
-        /**
-         * SCADA-FIX: reactflow MUST be a shared singleton so the federation
-         * plugin rewrites its internal `import from 'react'` calls to
-         * `importShared('react')`, which resolves to the host's React.
-         *
-         * Without this, reactflow bundles its own React copy inside the
-         * lazy-loaded chunk, causing "Invalid hook call" at runtime.
-         *
-         * Explicit `version` is REQUIRED because reactflow v11's package.json
-         * exports map does not include `"./package.json"`, which the
-         * @originjs/vite-plugin-federation resolver needs to auto-detect the
-         * version.  Specifying it here bypasses that resolution entirely.
-         */
-        reactflow: {
-          singleton: true,
-          requiredVersion: '^11.10.0',
-          version: '11.11.4',
-        },
-      },
+      // FE-HIGH-004: Single source of truth with strictVersion:true + reactflow
+      shared: getSharedConfigWithReactFlow(),
     }),
   ],
   resolve: {

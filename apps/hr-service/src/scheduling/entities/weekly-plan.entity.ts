@@ -17,6 +17,8 @@ import { WeeklyPlanEntry } from './weekly-plan-entry.entity';
 export enum WeeklyPlanStatus {
   DRAFT = 'draft',
   PUBLISHED = 'published',
+  /** HR-HIGH-001: Terminal state — plan completed its week. No further edits allowed. */
+  CLOSED = 'closed',
 }
 
 registerEnumType(WeeklyPlanStatus, { name: 'WeeklyPlanStatus' });

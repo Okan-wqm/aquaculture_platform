@@ -7,7 +7,7 @@
 
 import React, { Suspense, lazy, memo } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuthContext, PageLoading } from '@aquaculture/shared-ui';
+import { useAuthContext, PageLoading, RouteAnnouncer } from '@aquaculture/shared-ui';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
 import LoginPage from './pages/LoginPage';
@@ -136,6 +136,9 @@ const RoleBasedRedirect: React.FC = () => {
 
 const App: React.FC = () => {
   return (
+    <>
+    {/* FE-HIGH-017: Announce route changes to screen readers */}
+    <RouteAnnouncer />
     <Routes>
       {/* ================================================================ */}
       {/* Auth Routes (Public) */}
@@ -269,6 +272,7 @@ const App: React.FC = () => {
       <Route path="/unauthorized" element={<NotFoundPage type="unauthorized" />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
+    </>
   );
 };
 

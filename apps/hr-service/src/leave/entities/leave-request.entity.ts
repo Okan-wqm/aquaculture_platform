@@ -183,6 +183,19 @@ export class LeaveRequest {
   @Column({ type: 'text', nullable: true })
   cancellationReason?: string;
 
+  /**
+   * HR-HIGH-011: Preserved original close reason when a cancelled/rejected
+   * request is reopened. The current cancellationReason/rejectionReason may
+   * be overwritten, but the original is preserved here for audit trail.
+   */
+  @Field({ nullable: true })
+  @Column({ type: 'text', nullable: true })
+  originalCloseReason?: string;
+
+  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  originalClosedAt?: Date;
+
   @Field(() => [LeaveAttachment], { nullable: true })
   @Column('jsonb', { nullable: true })
   attachments?: LeaveAttachment[];

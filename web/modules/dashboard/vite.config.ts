@@ -3,11 +3,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
+import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Dashboard Microfrontend
  *
  * Module Federation ile Shell uygulamasına expose edilir.
+ *
+ * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
+ * source of truth with strictVersion:true enforced on ALL entries.
  */
 export default defineConfig({
   plugins: [
@@ -21,39 +25,14 @@ export default defineConfig({
         './DashboardPage': './src/pages/DashboardPage.tsx',
         './OverviewWidgets': './src/components/OverviewWidgets.tsx',
       },
-      // Paylaşılan bağımlılıklar - Host (shell) ile AYNI olmalı
+      // FE-HIGH-004: Single source of truth with strictVersion:true
       shared: {
-        react: {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-dom': {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-router-dom': {
-          singleton: true,
-          requiredVersion: '^6.21.0',
-        },
-        // CRITICAL: AuthContext ve TenantContext için zorunlu
-        // singleton: true ile host'un provider'larına erişebilir
-        '@aquaculture/shared-ui': {
-          singleton: true,
-          import: true,
-        },
-        // @tanstack/react-query singleton — shares QueryClient with shell
-        '@tanstack/react-query': {
-          singleton: true,
-          requiredVersion: '^5.17.0',
-        },
+        ...getCoreSharedConfig(),
         // recharts is used heavily — share to avoid duplication across MF chunks
         recharts: {
           singleton: true,
+          strictVersion: true,
           requiredVersion: '^2.10.0',
-        },
-        zustand: {
-          singleton: true,
-          requiredVersion: '^4.4.0',
         },
       },
     }),

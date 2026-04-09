@@ -40,6 +40,13 @@ import { KnowledgeExtractionService } from './services/knowledge-extraction.serv
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
 import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
 
+// AI Safety Services (MSG-CRITICAL-029, MSG-CRITICAL-030, MSG-HIGH-031, MSG-HIGH-033)
+import { InputFilterService } from './safety/input-filter.service';
+import { OutputPiiScannerService } from './safety/output-pii-scanner.service';
+import { SsrfValidatorService } from './safety/ssrf-validator.service';
+import { InstructionHierarchyService } from './safety/instruction-hierarchy.service';
+import { ToolSchemaValidatorService } from './safety/tool-schema-validator.service';
+
 // Command Handlers
 import { AnalyzeMessageHandler } from './commands/analyze-message.handler';
 import { ExtractKnowledgeHandler } from './commands/extract-knowledge.handler';
@@ -68,6 +75,12 @@ const services = [
   KnowledgeExtractionService,
   AiChatBridgeService,
   AiPersonasRegistryService,
+  // AI Safety Services (MSG-CRITICAL-029, MSG-CRITICAL-030, MSG-HIGH-031, MSG-HIGH-033, MSG-HIGH-034)
+  InputFilterService,
+  OutputPiiScannerService,
+  SsrfValidatorService,
+  InstructionHierarchyService,
+  ToolSchemaValidatorService,
 ];
 
 @Module({

@@ -101,12 +101,20 @@ export class OutboxWorkerService implements OnModuleInit {
       // ── Publish each event outside the lock ──
       for (const event of events) {
         try {
+          // SECURITY: Include tenantId in NATS subject for per-tenant routing.
+          // Format: events.{tenantId}.{eventType} — enables per-tenant filtering
+          // and prevents cross-tenant event subscription.
+          // @see MSG-HIGH-051 (NATS subject missing tenantId)
+          const subject = `events.${event.tenantId}.${event.eventType}`;
+
           await firstValueFrom(
             this.natsClient
-              .emit(`events.${event.eventType}`, {
+              .emit(subject, {
                 ...event.payload,
-                // IMPORTANT: Nats-Msg-Id for deduplication across retries
-                _msgId: event.id,
+                // IMPORTANT: Nats-Msg-Id header for JetStream deduplication.
+                // Using outbox row UUID ensures globally unique dedup key across replicas.
+                // @see MSG-HIGH-004 (outbox publisher Nats-Msg-Id)
+                _nats_msg_id: event.id,
               })
               .pipe(timeout(PUBLISH_TIMEOUT_MS)),
           );
@@ -122,18 +130,37 @@ export class OutboxWorkerService implements OnModuleInit {
             `Failed to publish outbox event ${event.id}: ${errorMessage}`,
           );
 
-          // ── Exponential backoff: nextAttemptAt = NOW() + base * 2^retryCount ──
+          // ── Exponential backoff with jitter: nextAttemptAt = NOW() + base * 2^retryCount + jitter ──
+          // @see MSG-HIGH-005 (exponential backoff on publish retry)
           const newRetryCount = event.retryCount + 1;
           const backoffSeconds = BACKOFF_BASE_SECONDS * Math.pow(2, event.retryCount);
-          const nextAttemptAt = new Date(Date.now() + backoffSeconds * 1000);
+          // WHY: Jitter prevents thundering herd when multiple workers retry simultaneously
+          const jitterMs = Math.floor(Math.random() * 1000);
+          const nextAttemptAt = new Date(Date.now() + backoffSeconds * 1000 + jitterMs);
 
-          await this.outboxRepo.update(event.id, {
-            retryCount: newRetryCount,
-            lastError: errorMessage.slice(0, 2000),
-            nextAttemptAt,
-            leasedAt: null,
-            leasedBy: null,
-          });
+          // ── Dead-letter events that exceed MAX_RETRIES ──
+          // @see MSG-HIGH-006 (dead-letter metric counter)
+          if (newRetryCount >= MAX_RETRIES) {
+            await this.outboxRepo.update(event.id, {
+              retryCount: newRetryCount,
+              lastError: errorMessage.slice(0, 2000),
+              isDeadLettered: true,
+              leasedAt: null,
+              leasedBy: null,
+            });
+            this.metricsService.incrementDeadLetter();
+            this.logger.error(
+              `Outbox event ${event.id} dead-lettered after ${newRetryCount} attempts`,
+            );
+          } else {
+            await this.outboxRepo.update(event.id, {
+              retryCount: newRetryCount,
+              lastError: errorMessage.slice(0, 2000),
+              nextAttemptAt,
+              leasedAt: null,
+              leasedBy: null,
+            });
+          }
         }
       }
     } catch (err) {

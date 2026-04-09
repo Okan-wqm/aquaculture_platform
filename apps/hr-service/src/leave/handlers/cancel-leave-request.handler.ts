@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException, ForbiddenException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { CancelLeaveRequestCommand } from '../commands/cancel-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
+import { LeaveStateMachine } from '../leave-state-machine';
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { Employee } from '../../hr/entities/employee.entity';
 import { createLeaveCancelledEvent } from '../events/leave.events';
@@ -51,18 +52,9 @@ export class CancelLeaveRequestHandler
         throw new ForbiddenException('You can only cancel your own leave requests');
       }
 
-      // Cannot cancel already cancelled, rejected or withdrawn requests
-      const nonCancellableStatuses = [
-        LeaveRequestStatus.CANCELLED,
-        LeaveRequestStatus.REJECTED,
-        LeaveRequestStatus.WITHDRAWN,
-      ];
-
-      if (nonCancellableStatuses.includes(leaveRequest.status)) {
-        throw new BadRequestException(
-          `Cannot cancel leave request with status ${leaveRequest.status}`,
-        );
-      }
+      // HR-HIGH-008: Use centralized state machine for transition validation.
+      // Replaces ad-hoc nonCancellableStatuses array with FSM-enforced transitions.
+      LeaveStateMachine.transition(leaveRequest.status, LeaveRequestStatus.CANCELLED);
 
       // If approved, check if leave hasn't started yet
       if (leaveRequest.status === LeaveRequestStatus.APPROVED) {

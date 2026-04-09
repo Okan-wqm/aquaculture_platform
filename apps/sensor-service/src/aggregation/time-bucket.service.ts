@@ -36,11 +36,29 @@ export interface TimeBucketRow {
  * desired resolution, preventing clients from accidentally scanning
  * the raw hypertable for multi-day/week queries.
  *
+ * SECURITY: Tier-to-table mapping uses a compile-time whitelist Map
+ * instead of enum-to-string interpolation. Even though the enum is
+ * trusted, defense-in-depth ensures no SQL injection is structurally
+ * possible — the table name never comes from a runtime string.
+ *
  * CRITICAL-005: Previously a 1-line stub.
  */
 @Injectable()
 export class TimeBucketService {
   private readonly logger = new Logger(TimeBucketService.name);
+
+  /**
+   * SECURITY: Whitelist Map of tier enum values to safe table/view names.
+   * This is the ONLY place table names are defined. No runtime string
+   * interpolation — the Map lookup guarantees only known identifiers
+   * reach the SQL query. A missing entry throws instead of injecting.
+   */
+  private static readonly TIER_TABLE_MAP: ReadonlyMap<TimeBucketGranularity, string> = new Map([
+    [TimeBucketGranularity.RAW,    'sensor_metrics'],
+    [TimeBucketGranularity.MIN_1,  'metrics_1min'],
+    [TimeBucketGranularity.HOUR_1, 'metrics_1hour'],
+    [TimeBucketGranularity.DAY_1,  'metrics_1day'],
+  ]);
 
   /** Boundaries for automatic tier selection */
   private static readonly TIER_THRESHOLDS = {
@@ -91,17 +109,18 @@ export class TimeBucketService {
       `TimeBucket query: tier=${tier}, range=${startTime.toISOString()}—${endTime.toISOString()}`,
     );
 
-    // Validate tier against known enum values before interpolation
-    const validTiers: string[] = Object.values(TimeBucketGranularity);
-    if (!validTiers.includes(tier)) {
-      throw new Error(`Invalid tier: ${tier}`);
+    // SECURITY: Resolve table name via whitelist Map — never interpolate tier directly.
+    // This makes SQL injection structurally impossible regardless of tier's runtime value.
+    const tableName = TimeBucketService.TIER_TABLE_MAP.get(tier);
+    if (!tableName) {
+      throw new Error(`Unknown tier: ${tier} — not in TIER_TABLE_MAP whitelist`);
     }
 
     if (tier === TimeBucketGranularity.RAW) {
       return this.queryRaw(tenantId, sensorId, channelId, tankId, startTime, endTime, limit);
     }
 
-    return this.queryAggregate(tier, tenantId, sensorId, channelId, tankId, startTime, endTime, limit);
+    return this.queryAggregate(tableName, tenantId, sensorId, channelId, tankId, startTime, endTime, limit);
   }
 
   private async queryRaw(
@@ -137,8 +156,16 @@ export class TimeBucketService {
     return this.dataSource.query(sql, params) as Promise<TimeBucketRow[]>;
   }
 
+  /**
+   * Query from a pre-validated aggregate view name.
+   *
+   * @param safeTableName - Table/view identifier resolved from TIER_TABLE_MAP whitelist.
+   *   SECURITY: This value NEVER originates from user input — it is a compile-time
+   *   constant looked up by enum key. String interpolation here is safe because the
+   *   only possible values are the 4 entries in TIER_TABLE_MAP.
+   */
   private async queryAggregate(
-    tier: TimeBucketGranularity,
+    safeTableName: string,
     tenantId: string,
     sensorId: string | undefined,
     channelId: string | undefined,
@@ -148,7 +175,7 @@ export class TimeBucketService {
     limit: number,
   ): Promise<TimeBucketRow[]> {
     const params: unknown[] = [tenantId, startTime, endTime];
-    // tier is validated against the enum above
+    // SECURITY: safeTableName comes from TIER_TABLE_MAP whitelist, not user input
     let sql = `
       SELECT
         bucket,
@@ -159,7 +186,7 @@ export class TimeBucketService {
         max_value  AS "maxValue",
         sample_count AS "sampleCount",
         quality_pct  AS "qualityPct"
-      FROM ${tier}
+      FROM ${safeTableName}
       WHERE tenant_id = $1 AND bucket >= $2 AND bucket <= $3
     `;
     let p = 4;

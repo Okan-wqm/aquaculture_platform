@@ -138,14 +138,18 @@ export class MigrationController {
   async rollbackMigration(
     @Param('tenantId') tenantId: string,
     @Body() dto: RollbackMigrationDto,
+    @Req() req: Request,
   ) {
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
+    // SECURITY: Use JWT sub for executedBy — prevents identity falsification
+    const executedBy = getAuthUser(req)?.sub
+      ?? 'unknown-admin';
     return this.migrationService.rollbackMigration(
       tenantId,
       dto.version,
-      dto.executedBy,
+      executedBy,
     );
   }
 
@@ -155,14 +159,20 @@ export class MigrationController {
 
   @Post('batch/run')
   @HttpCode(HttpStatus.OK)
-  async runBatchMigration(@Body() dto: BatchMigrationDto) {
+  async runBatchMigration(
+    @Body() dto: BatchMigrationDto,
+    @Req() req: Request,
+  ) {
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
+    // SECURITY: Use JWT sub for executedBy — prevents identity falsification
+    const executedBy = getAuthUser(req)?.sub
+      ?? 'unknown-admin';
     return this.migrationService.runBatchMigration(
       dto.version,
       dto.isDryRun,
-      dto.executedBy,
+      executedBy,
     );
   }
 

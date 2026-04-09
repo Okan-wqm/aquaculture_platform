@@ -166,5 +166,7 @@ The platform has 14 backend services + Rust edge agent + 9 MFEs interacting via 
 - Cross-agent recommendation conflicts (test-runner fix request breaks a domain contract) → architectural-arbiter
 - Multi-service test audit consolidation / systemic test debt patterns → context-manager
 
+**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `{severity}-{NNN}` (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
+
 ## Prior Work Check
 Before starting any review, check `docs/reviews/test-runner/` and `docs/recommendations/test-runner/` for previous test health audits of the same files. Verify if prior findings were fixed. Escalate unfixed issues by one severity level. Flag recurring patterns (3+ occurrences) as SYSTEMIC test debt requiring architectural discussion rather than per-test fixes.

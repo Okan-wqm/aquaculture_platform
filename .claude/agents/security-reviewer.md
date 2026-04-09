@@ -311,5 +311,7 @@ This agent has unlimited read scope but coordinates with domain experts for impl
 - Cross-agent recommendation conflicts (security fix breaks domain invariants) → architectural-arbiter
 - Multi-agent audit consolidation / systemic pattern detection across reviews → context-manager
 
+**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `{severity}-{NNN}` (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
+
 ## Prior Work Check
 Before starting any review, check `docs/reviews/security-reviewer/` and `docs/recommendations/security-reviewer/` for previous audits of the same files. Verify if prior findings were remediated. Escalate unfixed vulnerabilities by one severity level. Flag recurring patterns (3+ occurrences) as SYSTEMIC issues requiring architectural remediation.

@@ -240,5 +240,7 @@ The shell MUST serve a strict Content Security Policy in production. React 18 do
 - Cross-agent recommendation conflicts (frontend fix breaks API client / auth contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
 
+**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `{severity}-{NNN}` (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
+
 ## Prior Work Check
 Before starting any review, check `docs/reviews/frontend-expert/` and `docs/recommendations/frontend-expert/` for previous reviews of the same files. Verify if prior findings were fixed. Escalate unfixed issues by one severity level. Flag recurring patterns (3+ occurrences) as SYSTEMIC issues requiring architectural discussion.

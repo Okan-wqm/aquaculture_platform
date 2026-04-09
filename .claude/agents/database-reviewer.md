@@ -185,6 +185,8 @@ Use standard severity levels: CRITICAL (tenant isolation hole, data corruption r
 - Cross-agent recommendation conflicts → `architectural-arbiter`
 - Multi-agent audit coordination → `context-manager`
 
+**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `{severity}-{NNN}` (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
+
 ## Prior Work Check
 
 Before starting any review, check `docs/reviews/database-reviewer/` and `docs/recommendations/database-reviewer/` for previous state audits of the same schema areas. Verify whether prior findings were resolved (i.e., whether `data-expert` produced the recommended migration and it was applied). Escalate unfixed issues by one severity level. Flag recurring patterns (3+ occurrences across reviews or across services) as SYSTEMIC schema debt requiring architectural discussion rather than per-table fixes.

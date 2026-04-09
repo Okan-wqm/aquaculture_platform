@@ -39,6 +39,8 @@ Use standard severity levels: CRITICAL (billing accuracy/security/data integrity
 
 **hydroponics-module** (`web/modules/hydroponics-module/src/`, 54 files): Nutrient calculations (fertilizer allocation, ion balance, drip solution), PID simulator (pH/EC control), tank parameter management.
 
+**alert-engine** (`apps/alert-engine/src/`, 54 files): Alert rule engine, threshold evaluation, alert routing, alert acknowledgment. Multi-tenant schema isolation.
+
 **Out of scope:** All other `apps/*/`, `web/modules/*/` (except hydroponics-module), `infrastructure/`, `sens-api-gateway/`.
 
 ## Domain Rules
@@ -206,6 +208,8 @@ For plan tier gating, per-tenant quota/metering, and billing-usage attribution t
 - Cross-cutting SaaS tenancy (plan tier enforcement, per-tenant billing coupling, per-tenant quota, observability cost attribution) → multi-tenant-saas-expert. platform-services owns the billing/notification/config/event-store services themselves; multi-tenant-saas-expert owns the SaaS-level patterns those services implement.
 - Cross-agent recommendation conflicts (platform-services fix breaks consumer contracts) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
+
+**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `{severity}-{NNN}` (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
 
 ## Prior Work Check
 Before starting any review, check `docs/reviews/platform-services/` and `docs/recommendations/platform-services/` for previous reviews of the same files. Verify if prior findings were fixed. Escalate unfixed issues by one severity level. Flag recurring patterns (3+ occurrences) as SYSTEMIC issues requiring architectural discussion.

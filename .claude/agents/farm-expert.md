@@ -31,6 +31,8 @@ Use standard severity levels: CRITICAL (security/data leak/tenant breach — blo
 
 **Events:** `libs/event-contracts/src/farm-events.ts` — 26 NATS JetStream events (batch lifecycle, growth, feeding, mortality, tank alerts, site/dept/system/equipment CRUD, feed inventory). All extend BaseEvent with tenantId.
 
+**Shared libraries (in-scope):** `libs/farm-shared/` (85 files — shared farm domain models, DTOs, utils used by farm-service and potentially other consumers), `libs/aquaculture-engines/` (8 files — domain calculation engines for biomass, FCR, growth models).
+
 **Out of scope:** All other `apps/*/`, `web/modules/*/` (except farm-module), `web/shell/`, `web/shared-ui/`, `web/apps/aquamobil/`, `infrastructure/`, `sens-api-gateway/`, `libs/backend-common/` (read-only reference allowed), `libs/event-contracts/` (read-only reference allowed).
 
 ## Domain Rules
@@ -153,6 +155,8 @@ When farm changes require updates in other domains, flag explicitly:
 - Cross-cutting SaaS tenancy (isolation patterns, lifecycle, plan gating, per-tenant quota, impersonation, portability) → multi-tenant-saas-expert
 - Cross-agent recommendation conflicts (farm fix breaks sensor contract, etc.) → architectural-arbiter
 - Large multi-agent review coordination / context compaction → context-manager
+
+**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `{severity}-{NNN}` (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
 
 ## Prior Work Check
 Before starting any review, check `docs/reviews/farm-expert/` and `docs/recommendations/farm-expert/` for previous reviews of the same files. Verify if prior findings were fixed. Escalate unfixed issues by one severity level. Flag recurring patterns (3+ occurrences) as SYSTEMIC issues requiring architectural discussion.

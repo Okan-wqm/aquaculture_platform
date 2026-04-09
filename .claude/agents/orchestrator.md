@@ -62,6 +62,19 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `apps/*/src/**/tenant*.ts`, `libs/backend-common/src/database/**tenant**`, `libs/backend-common/src/guards/tenant*.ts` | multi-tenant-saas-expert | auth-security-expert, data-expert |
 | `**/*.spec.ts`, `**/*.test.ts`, `e2e/**`, `tests/**`, `.github/workflows/*test*`, `.github/workflows/*ci*` | test-runner | |
 | `.claude/agents/*.md` | prompt-writer | |
+| `apps/alert-engine/**` | platform-services | security-reviewer |
+| `libs/aquaculture-engines/**` | farm-expert | |
+| `libs/farm-shared/**` | farm-expert | |
+| `libs/node-components/**` | frontend-expert | |
+| `libs/testing/**` | test-runner | |
+| `libs/storage/**` | data-expert | |
+| `libs/sdk/**` | data-expert | |
+| `libs/shared/**` | data-expert | |
+| `database/scripts/**` | data-expert | security-reviewer |
+| `libs/backend-common/src/redis/**` | auth-security-expert | multi-tenant-saas-expert |
+| `libs/backend-common/src/nats/**` | data-expert | |
+| `platform/libs/outbox/**` | messaging-expert | data-expert |
+| `.env*` | security-reviewer | |
 
 **Special rules:**
 - If ANY security-related file changes → always invoke `security-reviewer`

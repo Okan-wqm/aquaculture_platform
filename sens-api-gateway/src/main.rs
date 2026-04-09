@@ -375,6 +375,7 @@ fn main() {
         match arg.as_str() {
             "--init" => {
                 if let Err(e) = generate_default_config() {
+                    // WHY: pre-tracing bootstrap — tracing is not yet initialized at this point
                     eprintln!("Error generating config: {}", e);
                     std::process::exit(1);
                 }
@@ -403,6 +404,7 @@ fn main() {
                 return;
             }
             _ => {
+                // WHY: pre-tracing bootstrap — tracing is not yet initialized at this point
                 eprintln!("Unknown argument: {}", arg);
                 eprintln!("Use --help for usage information");
                 std::process::exit(1);
@@ -420,6 +422,7 @@ fn main() {
     {
         Ok(rt) => rt,
         Err(e) => {
+            // WHY: pre-tracing bootstrap — tracing is not yet initialized at this point
             #[allow(clippy::print_stderr)]
             {
                 eprintln!("Failed to build Tokio runtime: {}", e);
@@ -430,8 +433,9 @@ fn main() {
 
     // Run async main within the custom runtime
     if let Err(e) = runtime.block_on(async_main()) {
-        // Use tracing for error output (tracing is initialized in async_main, but on fatal
-        // errors we need to output before that, so we allow stderr here)
+        // WHY: pre-tracing bootstrap — tracing may have failed to initialize in async_main,
+        // or we reached a fatal error before tracing was ready. eprintln! is the only
+        // reliable output channel at this point.
         #[allow(clippy::print_stderr)]
         {
             eprintln!("Fatal error: {}", e);

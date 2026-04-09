@@ -413,28 +413,6 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Safely format UUID for SQL or return NULL
-   */
-  private formatUUID(uuid: string | null | undefined): string {
-    if (!uuid) return 'NULL';
-    if (!this.isValidUUID(uuid)) {
-      this.logger.warn(`Invalid UUID detected: ${uuid?.substring(0, 20)}`);
-      return 'NULL';
-    }
-    return `'${uuid}'`;
-  }
-
-  /**
-   * Safely format protocol string - only allow alphanumeric and underscore
-   */
-  private formatProtocol(protocol: string | null | undefined): string {
-    if (!protocol) return 'NULL';
-    const safeProtocol = protocol.replace(/[^a-zA-Z0-9_-]/g, '');
-    if (safeProtocol.length === 0) return 'NULL';
-    return `'${safeProtocol}'`;
-  }
-
-  /**
    * Batch insert metrics using parameterized queries for maximum security
    *
    * SECURITY FIX: Changed from string interpolation to parameterized queries

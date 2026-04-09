@@ -36,6 +36,10 @@ export class InvoiceLineItem {
   @Field()
   description!: string;
 
+  // TODO: Migrate monetary GraphQL fields from Float to a custom Decimal scalar.
+  // IEEE 754 double-precision (GraphQL Float) causes rounding errors on monetary values.
+  // Current Float usage works for typical aquaculture billing amounts but should be
+  // replaced before high-volume invoicing. Tracked as PLAT-LOW-001.
   @Field(() => Float)
   quantity!: number;
 
@@ -131,9 +135,9 @@ export class Invoice {
   @Column('jsonb', { name: 'line_items' })
   lineItems!: InvoiceLineItem[];
 
+  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001). DB layer is already numeric(19,4)
+  // via MoneyColumn — only the GraphQL serialization uses lossy Float.
   @Field(() => Float)
-  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
-  // Subtotal is the base for invoice total calculation (subtotal + tax - discount).
   @MoneyColumn()
   subtotal!: Decimal;
 
@@ -141,9 +145,8 @@ export class Invoice {
   @Column('jsonb', { nullable: true })
   tax?: TaxInfo;
 
+  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
   @Field(() => Float, { nullable: true })
-  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
-  // Discount is subtracted from subtotal. Nullable=true is safe.
   @MoneyColumn({ nullable: true })
   discount?: Decimal;
 
@@ -151,21 +154,18 @@ export class Invoice {
   @Column({ nullable: true, name: 'discount_code' })
   discountCode?: string;
 
+  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
   @Field(() => Float)
-  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
-  // Total is the authoritative invoice amount used in payment matching.
   @MoneyColumn()
   total!: Decimal;
 
+  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
   @Field(() => Float, { defaultValue: 0 })
-  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
-  // amountPaid accumulates across multiple partial payments.
   @MoneyColumn({ default: 0, name: 'amount_paid' })
   amountPaid!: Decimal;
 
+  // TODO: Migrate to Decimal scalar (see PLAT-LOW-001)
   @Field(() => Float)
-  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
-  // amountDue = total - amountPaid.
   @MoneyColumn({ name: 'amount_due' })
   amountDue!: Decimal;
 

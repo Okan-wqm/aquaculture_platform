@@ -20,6 +20,14 @@ const PARTITIONED_TABLES: ReadonlyArray<{ table: string; column: string }> = [
  * - Partitions are created in:
  *   1. The 'messaging' source schema (template).
  *   2. Every `tenant_*` schema in the database.
+ *
+ * WHY no DEFAULT partition: We intentionally do NOT create a DEFAULT partition.
+ * Without a DEFAULT, inserts with timestamps outside any defined partition range
+ * will fail with a PostgreSQL error. This is a deliberate fail-fast strategy:
+ * a missing partition is an operational signal that the cron job failed or that
+ * data is arriving with unexpected timestamps. A DEFAULT partition would silently
+ * route such rows to a catch-all, masking the problem until the table grows
+ * unboundedly and query performance degrades.
  */
 @Injectable()
 export class PartitionManagerService implements OnApplicationBootstrap {

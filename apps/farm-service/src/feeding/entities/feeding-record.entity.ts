@@ -164,9 +164,16 @@ export class FeedingRecord {
   @Index()
   feedingDate: Date;
 
+  // WHY VARCHAR(10) instead of PostgreSQL TIME: The feedingTime field stores
+  // user-entered schedule labels like "08:00" and "12:00". It intentionally
+  // uses VARCHAR because: (1) the mobile app sends time as a formatted string,
+  // (2) the value is used primarily for display and grouping, not for
+  // database-level time arithmetic, and (3) TIME type would require timezone
+  // handling that adds complexity without benefit for meal scheduling.
+  // A future migration to TIME is possible if DB-level time comparisons become needed.
   @Field()
   @Column({ length: 10 })
-  feedingTime: string;             // "08:00", "12:00", etc.
+  feedingTime: string;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })

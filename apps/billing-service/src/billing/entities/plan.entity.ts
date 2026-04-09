@@ -42,9 +42,11 @@ export class Plan {
   @Column({ type: 'enum', enum: PlanTier })
   tier!: PlanTier;
 
+  // TODO: Migrate monetary GraphQL fields from Float to a custom Decimal scalar.
+  // IEEE 754 double-precision (GraphQL Float) causes rounding errors on monetary values.
+  // DB layer already stores as numeric(19,4) via MoneyColumn — only GraphQL serialization
+  // uses lossy Float. Tracked as PLAT-LOW-002.
   @Field(() => Float)
-  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
-  // basePrice is used in subscription pricing calculations.
   @MoneyColumn({ name: 'base_price' })
   basePrice!: Decimal;
 
@@ -103,9 +105,15 @@ export class Plan {
   // Soft-delete: plan templates must not be physically deleted because existing subscriptions
   // reference them. Hard-deleting a plan would orphan all active subscriptions on that plan.
   // BEFORE: no soft-delete — plan records could be permanently removed, breaking subscription references.
+  //
+  // IMPORTANT: Uses partial index WHERE is_deleted = false instead of a standard B-tree index.
+  // For highly skewed boolean columns (99% false), a partial index is far more efficient:
+  // - Smaller index size (only indexes active plans, not the entire table)
+  // - Faster index scans for the common query pattern (WHERE is_deleted = false)
+  // @see DB-MEDIUM-008
   @Field()
   @Column({ default: false, name: 'is_deleted' })
-  @Index()
+  @Index('idx_plan_is_deleted_partial', { where: '"is_deleted" = false' })
   isDeleted: boolean = false;
 
   @Field(() => Date, { nullable: true })

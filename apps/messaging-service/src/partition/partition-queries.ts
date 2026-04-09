@@ -11,6 +11,10 @@
  *
  * SECURITY: All schema and table names are validated with assertSafeSqlIdentifier()
  * to prevent SQL injection via string interpolation.
+ *
+ * WHY no DEFAULT partition: These query builders intentionally do not generate a
+ * DEFAULT partition. See PartitionManagerService for the rationale (fail-fast on
+ * out-of-range timestamps rather than silent catch-all routing).
  */
 
 /**

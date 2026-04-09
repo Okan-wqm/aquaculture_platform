@@ -139,6 +139,10 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
      * raw JSON-RPC over stdio. This makes the SDK truly optional.
      */
     try {
+      // WHY .js extensions: @modelcontextprotocol/sdk is published as pure ESM with
+      // explicit .js extensions in its package.json "exports" map. Node's ESM resolver
+      // requires the file extension for ESM packages — bare specifiers without .js fail
+      // with ERR_MODULE_NOT_FOUND. This is the SDK's documented import style.
       const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
       const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
 

@@ -6,6 +6,14 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import { Repository, DataSource } from 'typeorm';
 
+/**
+ * SECURITY: UUID constant for system-level operations.
+ * Replaces the fragile string literal 'system' as tenantId which could
+ * collide with an actual tenant named 'system'.
+ * @see SENSOR-MEDIUM-003
+ */
+const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
 import { AutomationService } from '../automation/automation.service';
 import { DeploymentLogService } from '../automation/services/deployment-log.service';
 import { ScadaDeployLogService } from '../process/services/scada-deploy-log.service';
@@ -582,7 +590,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           eventId: randomUUID(),
           eventType: 'IoConfigPushResult',
           timestamp: new Date(),
-          tenantId: tenantId || 'system',
+          tenantId: tenantId || SYSTEM_TENANT_ID,
           deviceCode,
           commandId: payload.commandId,
           success: payload.success ?? false,
@@ -702,7 +710,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         eventId: randomUUID(),
         eventType: 'EdgeDeviceResponse',
         timestamp: new Date(),
-        tenantId: tenantId || 'system',
+        tenantId: tenantId || SYSTEM_TENANT_ID,
         deviceCode,
         commandId: payload.commandId,
         success: payload.success,
@@ -1852,18 +1860,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     if (!str) return false;
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     return uuidRegex.test(str);
-  }
-
-  /**
-   * Safely format UUID for SQL or return NULL
-   */
-  private formatUUID(uuid: string | null | undefined): string {
-    if (!uuid) return 'NULL';
-    if (!this.isValidUUID(uuid)) {
-      this.logger.warn(`Invalid UUID detected: ${uuid?.substring(0, 20)}`);
-      return 'NULL';
-    }
-    return `'${uuid}'`;
   }
 
   /**

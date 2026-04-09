@@ -23,6 +23,16 @@ import { BigIntTransformer } from '../transformers/bigint.transformer';
 @Index(['tenantId', 'globalPosition'])
 @Index(['tenantId', 'eventType'])
 @Index(['tenantId', 'storedAt'])
+/**
+ * Composite index for tenant-scoped aggregate event replay.
+ * Event store queries filter by tenant_id + aggregate_id + version
+ * for event-sourced replay of a specific aggregate within a tenant.
+ * Without this index, the query planner cannot use the existing
+ * (aggregateType, aggregateId, version) unique index when tenant_id
+ * is part of the WHERE clause (common in multi-tenant queries).
+ * @see DATA-MEDIUM-013
+ */
+@Index('IDX_stored_events_tenant_aggregate_version', ['tenantId', 'aggregateId', 'version'])
 export class StoredEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -112,7 +122,13 @@ export class StoredEvent {
   occurredAt!: Date;
 
   /**
-   * When the event was stored
+   * When the event was stored in the event store.
+   *
+   * WHY "storedAt" instead of "createdAt": In event sourcing, an event has two
+   * timestamps with different semantics — `occurredAt` (when the domain event
+   * happened) and `storedAt` (when it was persisted to the store). Using the
+   * generic `createdAt` would conflate these two concepts and invite future
+   * "consistency" refactors that would break the semantic distinction.
    */
   @CreateDateColumn({ type: 'timestamptz' })
   storedAt!: Date;

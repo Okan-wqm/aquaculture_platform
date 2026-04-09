@@ -320,13 +320,36 @@ export class ChannelManagementService {
   }
 
   /**
-   * Bulk create channels for a new sensor during registration
+   * Bulk create channels for a new sensor during registration.
+   *
+   * @param sensorId  Sensor to attach channels to
+   * @param tenantId  Tenant scope for data isolation
+   * @param channels  Channel definitions — channelKey must be unique within the array
+   * @throws ConflictException if duplicate channelKey values are found in the input
    */
   async createChannelsForSensor(
     sensorId: string,
     tenantId: string,
     channels: CreateChannelInput[],
   ): Promise<SensorDataChannel[]> {
+    // ── Duplicate channelKey validation ──
+    // Detect duplicates before saving so callers get a clean validation error
+    // instead of a raw database unique constraint violation.
+    const seenKeys = new Set<string>();
+    const duplicates: string[] = [];
+    for (const ch of channels) {
+      if (!ch?.channelKey) continue;
+      if (seenKeys.has(ch.channelKey)) {
+        duplicates.push(ch.channelKey);
+      }
+      seenKeys.add(ch.channelKey);
+    }
+    if (duplicates.length > 0) {
+      throw new ConflictException(
+        `Duplicate channelKey values in input: ${[...new Set(duplicates)].join(', ')}`,
+      );
+    }
+
     const savedChannels: SensorDataChannel[] = [];
 
     for (let i = 0; i < channels.length; i++) {

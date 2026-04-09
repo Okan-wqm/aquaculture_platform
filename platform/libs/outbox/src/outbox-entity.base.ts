@@ -20,6 +20,11 @@ import {
  * @see Phase 2 of farm domain real-time visibility plan.
  */
 export abstract class OutboxEntityBase {
+  // WHY string type for bigint: PostgreSQL bigint can represent values up to 2^63-1,
+  // but JavaScript's Number type safely represents integers only up to 2^53-1.
+  // TypeORM's standard practice is to map bigint columns to string in TypeScript
+  // to avoid silent precision loss on large IDs. The string representation is
+  // safe for JSON serialization, comparison, and storage.
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 

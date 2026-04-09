@@ -100,6 +100,191 @@ describe('SensorReading v1→v2 upcaster', () => {
   });
 });
 
+describe('SensorReading upcaster edge cases', () => {
+  let registry: EventUpcasterRegistry;
+
+  beforeEach(() => {
+    registry = createDefaultRegistry();
+  });
+
+  it('should not re-upcast an event already at version 2', () => {
+    const v2 = {
+      eventType: 'SensorReading',
+      version: 2,
+      sensorId: 's1',
+      readingTemperature: 25,
+    };
+
+    const result = registry.upcast(v2);
+
+    expect(result['version']).toBe(2);
+    expect(result['readingTemperature']).toBe(25);
+    // Ensure no double-processing artifacts
+    expect(result['readings']).toBeUndefined();
+  });
+
+  it('should handle an unexpected version number higher than target', () => {
+    const v99 = {
+      eventType: 'SensorReading',
+      version: 99,
+      sensorId: 's1',
+      readingTemperature: 30,
+    };
+
+    const result = registry.upcast(v99);
+
+    // Should pass through unchanged — no upcaster matches fromVersion: 99
+    expect(result['version']).toBe(99);
+    expect(result['readingTemperature']).toBe(30);
+  });
+
+  it('should handle v1 event with non-object readings value gracefully', () => {
+    const v1 = {
+      eventType: 'SensorReading',
+      version: 1,
+      sensorId: 's1',
+      readings: 'not-an-object' as unknown,
+    };
+
+    const result = sensorReadingUpcaster.upcast(v1 as Record<string, unknown>);
+
+    expect(result['version']).toBe(2);
+    // Non-object readings should be treated as missing
+    expect(result['readingTemperature']).toBeUndefined();
+  });
+
+  it('should handle v1 event with null readings value', () => {
+    const v1 = {
+      eventType: 'SensorReading',
+      version: 1,
+      sensorId: 's1',
+      readings: null,
+    };
+
+    const result = sensorReadingUpcaster.upcast(v1 as Record<string, unknown>);
+
+    expect(result['version']).toBe(2);
+  });
+
+  it('should preserve extra fields not in READING_FIELD_MAP', () => {
+    const v1 = {
+      eventType: 'SensorReading',
+      version: 1,
+      sensorId: 's1',
+      farmId: 'f1',
+      tenantId: 't1',
+      correlationId: 'c1',
+      readings: { temperature: 20 },
+    };
+
+    const result = sensorReadingUpcaster.upcast(v1);
+
+    expect(result['sensorId']).toBe('s1');
+    expect(result['farmId']).toBe('f1');
+    expect(result['tenantId']).toBe('t1');
+    expect(result['correlationId']).toBe('c1');
+  });
+});
+
+describe('AlertTriggered upcaster edge cases', () => {
+  let registry: EventUpcasterRegistry;
+
+  beforeEach(() => {
+    registry = createDefaultRegistry();
+  });
+
+  it('should not re-upcast an event already at version 2', () => {
+    const v2 = {
+      eventType: 'AlertTriggered',
+      version: 2,
+      alertId: 'a1',
+      triggerSensorId: 's1',
+    };
+
+    const result = registry.upcast(v2);
+
+    expect(result['version']).toBe(2);
+    expect(result['triggerSensorId']).toBe('s1');
+    expect(result['triggeringData']).toBeUndefined();
+  });
+
+  it('should handle an unexpected version number higher than target', () => {
+    const v99 = {
+      eventType: 'AlertTriggered',
+      version: 99,
+      alertId: 'a1',
+      triggerSensorId: 's1',
+    };
+
+    const result = registry.upcast(v99);
+
+    expect(result['version']).toBe(99);
+  });
+
+  it('should handle v1 event with non-object triggeringData gracefully', () => {
+    const v1 = {
+      eventType: 'AlertTriggered',
+      version: 1,
+      alertId: 'a1',
+      triggeringData: 42 as unknown,
+    };
+
+    const result = alertTriggeredUpcaster.upcast(v1 as Record<string, unknown>);
+
+    expect(result['version']).toBe(2);
+    expect(result['triggerSensorId']).toBeUndefined();
+  });
+
+  it('should handle v1 event with null triggeringData', () => {
+    const v1 = {
+      eventType: 'AlertTriggered',
+      version: 1,
+      alertId: 'a1',
+      triggeringData: null,
+    };
+
+    const result = alertTriggeredUpcaster.upcast(v1 as Record<string, unknown>);
+
+    expect(result['version']).toBe(2);
+  });
+});
+
+describe('EventUpcasterRegistry edge cases', () => {
+  it('should handle event with version 0', () => {
+    const registry = createDefaultRegistry();
+    const event = { eventType: 'SensorReading', version: 0, sensorId: 's1' };
+
+    const result = registry.upcast(event);
+
+    // Version 0 does not match any registered upcaster (fromVersion: 1), so pass-through
+    expect(result['version']).toBe(0);
+  });
+
+  it('should handle event with negative version', () => {
+    const registry = createDefaultRegistry();
+    const event = { eventType: 'SensorReading', version: -1, sensorId: 's1' };
+
+    const result = registry.upcast(event);
+
+    expect(result['version']).toBe(-1);
+  });
+
+  it('should handle event with missing version field (defaults to 1)', () => {
+    const registry = createDefaultRegistry();
+    const event: Record<string, unknown> = {
+      eventType: 'SensorReading',
+      sensorId: 's1',
+      readings: { temperature: 22 },
+    };
+
+    const result = registry.upcast(event);
+
+    // Missing version defaults to 1 in the registry, which matches the v1->v2 upcaster
+    expect(result['version']).toBe(2);
+    expect(result['readingTemperature']).toBe(22);
+  });
+});
+
 describe('AlertTriggered v1→v2 upcaster', () => {
   it('should flatten triggeringData object to flat fields', () => {
     const v1 = {

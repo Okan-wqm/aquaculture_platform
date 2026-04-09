@@ -83,6 +83,15 @@ import {
  * ```
  */
 
+// WHY this service uses the main DataSource (not a separate admin DataSource):
+// The bypass is scoped per-callback via AsyncLocalStorage, not per-connection.
+// When `withBypass()` runs, it sets `bypassRls: true` in the AsyncLocalStorage
+// frame. On connection checkout, `RlsConnectionBootstrap` reads this flag and
+// emits `SET LOCAL app.bypass_rls = 'on'`. Because `SET LOCAL` is transaction-
+// scoped and the flag lives in a strictly bounded AsyncLocalStorage frame,
+// there is no risk of bypass leaking to other requests sharing the same
+// connection pool. A separate DataSource would double the connection count
+// (costly on edge hardware) for zero safety benefit.
 @Injectable()
 export class BypassRlsService {
   private readonly logger = new Logger(BypassRlsService.name);

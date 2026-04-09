@@ -46,6 +46,8 @@ export class MutationRateLimitGuard implements CanActivate, OnModuleDestroy {
     clearInterval(this.cleanupTimer);
   }
 
+  // SECURITY: Rate-limits GraphQL mutations per user/IP to prevent abuse,
+  // credential stuffing via mutations, and resource exhaustion attacks.
   canActivate(context: ExecutionContext): boolean {
     // Only applies to GraphQL context
     const contextType = context.getType<string>();

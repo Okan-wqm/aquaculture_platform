@@ -177,6 +177,9 @@ export class PermissionGuard implements CanActivate, OnModuleDestroy {
     }
   }
 
+  // SECURITY: Authorization decision point — evaluates role hierarchy, permissions,
+  // and resource-based access rules to determine if the authenticated user may
+  // proceed. Any bypass of this guard is a privilege escalation vulnerability.
   canActivate(context: ExecutionContext): boolean {
     const request = this.getRequest(context);
     const user = (request as AuthenticatedRequest).user;

@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -142,15 +143,16 @@ export class BillingController {
 
   @Post('plans')
   async createPlan(@Body() dto: CreatePlanDto, @Req() req: Request) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    // SECURITY: Require authenticated user for plan creation — anonymous writes to billing data are forbidden.
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to create a plan');
     return this.planService.create({ ...dto, createdBy: userId });
   }
 
   @Put('plans/:id')
   async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto, @Req() req: Request) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to update a plan');
     return this.planService.update(id, { ...dto, updatedBy: userId });
   }
 
@@ -159,8 +161,8 @@ export class BillingController {
     @Param('id') id: string,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to deprecate a plan');
     return this.planService.deprecate(id, userId);
   }
 
@@ -178,8 +180,8 @@ export class BillingController {
 
   @Post('plans/seed')
   async seedPlans(@Req() req: Request) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to seed plans');
     await this.planService.seedDefaultPlans(userId);
     return { success: true, message: 'Default plans seeded successfully' };
   }
@@ -226,8 +228,8 @@ export class BillingController {
 
   @Post('discounts')
   async createDiscountCode(@Body() dto: CreateDiscountCodeDto, @Req() req: Request) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to create a discount code');
     return this.discountService.create({ ...dto, createdBy: userId });
   }
 
@@ -237,8 +239,8 @@ export class BillingController {
     @Body() dto: UpdateDiscountCodeDto,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to update a discount code');
     return this.discountService.update(id, { ...dto, updatedBy: userId });
   }
 
@@ -247,8 +249,8 @@ export class BillingController {
     @Param('id') id: string,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to deactivate a discount code');
     return this.discountService.deactivate(id, userId);
   }
 
@@ -262,10 +264,10 @@ export class BillingController {
   @Post('discounts/apply')
   async applyDiscountCode(
     @Body() dto: ApplyDiscountCodeDto,
-    @Req() req?: Request,
+    @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = req ? getAuthUserId(req) ?? '' : '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to apply a discount code');
     return this.discountService.applyDiscount(dto.code, dto.tenantId, dto.originalAmount, {
       subscriptionId: dto.subscriptionId,
       invoiceId: dto.invoiceId,
@@ -299,8 +301,8 @@ export class BillingController {
     @Body() dto: BulkCreateDiscountCodesDto,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity, review feedback ile eklendi
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required for bulk discount creation');
     const safeTemplate = { ...dto.template, createdBy: userId };
     const codes = await this.discountService.bulkCreate(dto.count, safeTemplate, dto.codePrefix);
     return { success: true, count: codes.length, codes };
@@ -312,8 +314,8 @@ export class BillingController {
 
   @Post('subscriptions')
   async createSubscription(@Body() dto: CreateSubscriptionDto, @Req() req: Request) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to create a subscription');
     return this.subscriptionService.createSubscription({ ...dto, createdBy: userId });
   }
 
@@ -372,8 +374,8 @@ export class BillingController {
 
   @Post('subscriptions/change-plan')
   async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to change a subscription plan');
     return this.subscriptionService.changePlan({ ...request, changedBy: userId });
   }
 
@@ -383,10 +385,10 @@ export class BillingController {
   async cancelSubscription(
     @Param('tenantId') tenantId: string,
     @Body() dto: CancelSubscriptionDto,
-    @Req() req?: Request,
+    @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = req ? getAuthUserId(req) ?? '' : '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to cancel a subscription');
     return this.subscriptionService.cancelSubscription(
       tenantId,
       dto.reason,
@@ -400,8 +402,8 @@ export class BillingController {
     @Param('tenantId') tenantId: string,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to reactivate a subscription');
     return this.subscriptionService.reactivateSubscription(tenantId, userId);
   }
 
@@ -411,8 +413,8 @@ export class BillingController {
     @Body() dto: ExtendTrialDto,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to extend a trial');
     return this.subscriptionService.extendTrial(tenantId, dto.additionalDays, userId);
   }
 
@@ -559,8 +561,8 @@ export class BillingController {
 
   @Post('custom-plans')
   async createCustomPlan(@Body() dto: CreateCustomPlanDto, @Req() req: Request) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to create a custom plan');
     return this.customPlanService.createCustomPlan({ ...dto, createdBy: userId });
   }
 
@@ -570,8 +572,8 @@ export class BillingController {
     @Body() dto: UpdateCustomPlanDto,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to update a custom plan');
     return this.customPlanService.updateCustomPlan(planId, { ...dto, updatedBy: userId });
   }
 
@@ -585,8 +587,8 @@ export class BillingController {
     @Param('planId') planId: string,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to approve a custom plan');
     return this.customPlanService.approvePlan(planId, userId);
   }
 
@@ -596,8 +598,8 @@ export class BillingController {
     @Body() dto: RejectCustomPlanDto,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to reject a custom plan');
     return this.customPlanService.rejectPlan(planId, dto.reason, userId);
   }
 
@@ -684,8 +686,8 @@ export class BillingController {
     @Body() dto: MarkInvoicePaidDto,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to mark an invoice as paid');
     return this.invoiceService.markAsPaid(invoiceId, dto.amount, userId);
   }
 
@@ -697,8 +699,8 @@ export class BillingController {
     @Body() dto: VoidInvoiceDto,
     @Req() req: Request,
   ) {
-    // Fix: C6 -- JWT-based identity
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to void an invoice');
     return this.invoiceService.voidInvoice(invoiceId, dto.reason, userId);
   }
 
@@ -743,14 +745,16 @@ export class BillingController {
   @ThrottleSensitive()
   @Post('payments')
   async recordPayment(@Body() dto: RecordPaymentDto, @Req() req: Request) {
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to record a payment');
     return this.paymentService.recordPayment(dto, userId);
   }
 
   @ThrottleSensitive()
   @Post('payments/refund')
   async refundPayment(@Body() dto: RefundPaymentDto, @Req() req: Request) {
-    const userId: string = getAuthUserId(req) ?? '';
+    const userId = getAuthUserId(req);
+    if (!userId) throw new UnauthorizedException('Authentication required to refund a payment');
     return this.paymentService.refundPayment(dto, userId);
   }
 

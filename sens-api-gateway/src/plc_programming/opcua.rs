@@ -41,6 +41,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+// WHY: tokio::sync::Mutex — held across .await (OPC UA TCP read/write is async I/O)
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use serde_json::Value as JsonValue;

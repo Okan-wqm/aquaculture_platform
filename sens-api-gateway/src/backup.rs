@@ -91,6 +91,12 @@ pub struct BackupContents {
 }
 
 /// Backup manager for creating and restoring backups
+///
+/// SECURITY (EDGE-MEDIUM-006): If backup operations are exposed over HTTP in the
+/// future, authentication MUST use the standard JWT-based auth flow or a secret
+/// loaded from environment/config — never a hardcoded magic header value.
+/// The `backup_auth_secret` field below provides this: when set, any HTTP handler
+/// must validate the request against this env-loaded secret before proceeding.
 pub struct BackupManager {
     /// Directory for storing backups
     backup_dir: PathBuf,
@@ -98,16 +104,51 @@ pub struct BackupManager {
     max_backups: usize,
     /// Device ID for verification
     device_id: String,
+    /// SECURITY (EDGE-MEDIUM-006): Optional auth secret loaded from config/env.
+    /// When backup is exposed via HTTP, validate requests against this secret.
+    /// Never hardcode — always load from `BACKUP_AUTH_SECRET` env or config YAML.
+    backup_auth_secret: Option<String>,
 }
 
 impl BackupManager {
     /// Create a new backup manager
+    ///
+    /// EDGE-MEDIUM-006: Reads `BACKUP_AUTH_SECRET` from environment at construction
+    /// time so any future HTTP endpoint can validate requests without hardcoding.
     pub fn new(backup_dir: impl Into<PathBuf>, device_id: impl Into<String>) -> Self {
         let backup_dir = backup_dir.into();
+        // SECURITY: Load auth secret from env — never hardcode (EDGE-MEDIUM-006)
+        let backup_auth_secret = std::env::var("BACKUP_AUTH_SECRET").ok();
         Self {
             backup_dir,
             max_backups: 10,
             device_id: device_id.into(),
+            backup_auth_secret,
+        }
+    }
+
+    /// Validate an incoming backup request against the env-loaded secret.
+    ///
+    /// SECURITY (EDGE-MEDIUM-006): Use this for any HTTP-exposed backup endpoint.
+    /// Returns `Ok(())` if the provided key matches the env-loaded secret, or if
+    /// no secret is configured (local-only mode). Returns `Err` if a secret is
+    /// configured but the provided key doesn't match.
+    pub fn validate_auth(&self, provided_key: &str) -> Result<(), BackupError> {
+        match &self.backup_auth_secret {
+            Some(expected) => {
+                // SECURITY: Use constant-time comparison to prevent timing side-channel
+                use subtle::ConstantTimeEq;
+                let eq = expected.as_bytes().ct_eq(provided_key.as_bytes());
+                if bool::from(eq) {
+                    Ok(())
+                } else {
+                    Err(BackupError::Io("Invalid backup auth key".to_string()))
+                }
+            }
+            None => {
+                // No secret configured — backup is local-only, no HTTP auth needed
+                Ok(())
+            }
         }
     }
 

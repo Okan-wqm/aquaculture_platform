@@ -325,7 +325,16 @@ impl MqttClient {
             // Poll the event loop or detect that the message receiver has been dropped
             // (which indicates the owning MqttClient was disconnected/dropped).
             // Using tokio::select! avoids spinning forever after disconnect (LOW-36).
+            //
+            // EDGE-MEDIUM-005: `biased;` ensures the MQTT poll branch is always
+            // checked first. Without this, tokio::select! uses a random branch order.
+            // If message_tx.closed() wins the race while eventloop.poll() has a
+            // partially buffered MQTT message, the poll future is dropped mid-read
+            // and the partial message is lost. With biased, the MQTT branch is
+            // evaluated first on every iteration, and message_tx.closed() only wins
+            // when the poll is genuinely pending (no data available).
             let poll_result = tokio::select! {
+                biased;
                 result = eventloop.poll() => result,
                 _ = message_tx.closed() => {
                     // All receivers dropped — owner has shut down, exit loop cleanly

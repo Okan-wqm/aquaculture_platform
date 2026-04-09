@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+// WHY: tokio::sync::Mutex — held across .await (ADS/AMS TCP read/write is async I/O)
 use tokio::sync::Mutex;
 use std::time::Duration;
 use tokio::time::timeout;

@@ -20,6 +20,17 @@
 
 use lasso::{Spur, ThreadedRodeo};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// EDGE-MEDIUM-002: Maximum number of unique strings the interner will accept.
+/// Beyond this limit, new strings are not interned and a sentinel key is returned.
+/// 10K entries covers a generous deployment (hundreds of devices * dozens of
+/// topics/registers each) while preventing unbounded memory growth on long-running
+/// edge agents that encounter transient unique MQTT topics (e.g., from scanners).
+const MAX_INTERNER_ENTRIES: usize = 10_000;
+
+/// Whether the capacity warning has been logged (log once, not per-call)
+static CAPACITY_WARNING_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// Global string interner (thread-safe, lazy-initialized)
 static INTERNER: OnceLock<ThreadedRodeo> = OnceLock::new();
@@ -37,6 +48,11 @@ pub fn interner() -> &'static ThreadedRodeo {
 /// If the string was already interned, returns the existing key.
 /// Otherwise, stores the string and returns a new key.
 ///
+/// # EDGE-MEDIUM-002: Bounded capacity
+/// If the interner has reached `MAX_INTERNER_ENTRIES` unique strings,
+/// new (previously unseen) strings are rejected and `None` is returned.
+/// Already-interned strings always succeed regardless of capacity.
+///
 /// # Example
 /// ```ignore
 /// let key1 = intern("device-001");
@@ -44,7 +60,31 @@ pub fn interner() -> &'static ThreadedRodeo {
 /// assert_eq!(key1, key2);
 /// ```
 pub fn intern(s: &str) -> Spur {
-    interner().get_or_intern(s)
+    let rodeo = interner();
+
+    // Fast path: string already interned — always succeeds
+    if let Some(key) = rodeo.get(s) {
+        return key;
+    }
+
+    // EDGE-MEDIUM-002: Check capacity before interning a new string.
+    // ThreadedRodeo::len() is O(1) (atomic counter internally).
+    if rodeo.len() >= MAX_INTERNER_ENTRIES {
+        if !CAPACITY_WARNING_LOGGED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                "String interner capacity reached ({} entries). \
+                 New unique strings will not be interned. \
+                 This may indicate a topic pattern explosion.",
+                MAX_INTERNER_ENTRIES,
+            );
+        }
+        // Return a sentinel: intern a fixed overflow marker so callers
+        // always get a valid Spur. The resolved string will be "<overflow>"
+        // instead of the original, which is acceptable for logging/metrics.
+        return rodeo.get_or_intern("<interner-overflow>");
+    }
+
+    rodeo.get_or_intern(s)
 }
 
 /// Get interned string by key

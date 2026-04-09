@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+// WHY: tokio::sync::Mutex — held across .await (EtherNet/IP TCP read/write is async I/O)
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::{debug, info, warn};

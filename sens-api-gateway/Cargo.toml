@@ -135,8 +135,11 @@ cmac = { version = "0.7", optional = true }
 lorawan = { version = "0.9", optional = true }
 # Constant-time comparison for MIC verification + PIN verification (timing side-channel protection)
 subtle = "2"
-# Zeroize sensitive key material on drop (IEC 62443 FR4)
-zeroize = { version = "1", features = ["derive"], optional = true }
+# EDGE-MEDIUM-003: Promoted from optional (lorawan-only) to required dependency.
+# Cryptographic key material in security.rs must be zeroized on drop (IEC 62443 FR4).
+# Keeping it optional meant key structs were only zeroized when the lorawan feature
+# was enabled — a silent security gap on non-LoRa deployments.
+zeroize = { version = "1", features = ["derive"] }
 
 # HTTP server for health check endpoint (ws feature needed for scada-display)
 axum = { version = "0.8", features = ["ws"], optional = true }
@@ -173,7 +176,8 @@ strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]
 # LoRaWAN SX1302 concentrator support (requires vendor/sx1302_hal C sources)
-lorawan = ["dep:aes", "dep:cmac", "dep:lorawan", "dep:zeroize", "dep:cc", "dep:bindgen", "dep:glob"]
+# EDGE-MEDIUM-003: dep:zeroize removed — zeroize is now a required dependency
+lorawan = ["dep:aes", "dep:cmac", "dep:lorawan", "dep:cc", "dep:bindgen", "dep:glob"]
 
 [build-dependencies]
 # SX1302 HAL derleme araclari (sadece `lorawan` feature ile aktif)

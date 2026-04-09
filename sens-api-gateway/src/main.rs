@@ -618,23 +618,40 @@ fn notify_systemd_ready() -> Result<()> {
             interval_usec / 1000
         );
 
-        // Spawn watchdog heartbeat task (v1.2.3: Added error logging for task failures)
-        tokio::spawn(async move {
-            let result = async {
-                loop {
-                    tokio::time::sleep(interval).await;
-                    if let Err(e) = sd_notify::notify(false, &[NotifyState::Watchdog]) {
-                        warn!("Failed to send watchdog heartbeat: {}", e);
-                    } else {
-                        debug!("Watchdog heartbeat sent");
-                    }
+        // EDGE-MEDIUM-007: Store the watchdog JoinHandle and check for panics.
+        // Previously the handle was discarded — if the watchdog panicked, the main
+        // loop never learned and systemd would eventually kill the process after
+        // WatchdogSec timeout, with no diagnostic information in the logs.
+        let watchdog_handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+                if let Err(e) = sd_notify::notify(false, &[NotifyState::Watchdog]) {
+                    warn!("Failed to send watchdog heartbeat: {}", e);
+                } else {
+                    debug!("Watchdog heartbeat sent");
                 }
             }
-            .await;
+        });
 
-            // This point is only reached if the loop somehow exits (shouldn't happen)
-            error!("Watchdog heartbeat task unexpectedly terminated");
-            result
+        // Spawn a supervisor task that monitors the watchdog handle.
+        // If the watchdog task panics, log the error for diagnostics.
+        // systemd will restart the agent after WatchdogSec timeout.
+        tokio::spawn(async move {
+            match watchdog_handle.await {
+                Ok(_) => {
+                    // Infinite loop exited normally — should never happen
+                    error!("LIFE-SAFETY: Watchdog heartbeat task exited unexpectedly. \
+                            systemd will restart the agent after WatchdogSec timeout.");
+                }
+                Err(join_err) => {
+                    // Task panicked — log the panic info for diagnostics
+                    error!(
+                        "LIFE-SAFETY: Watchdog heartbeat task panicked: {}. \
+                         systemd will restart the agent after WatchdogSec timeout.",
+                        join_err
+                    );
+                }
+            }
         });
     }
 

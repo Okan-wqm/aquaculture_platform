@@ -82,6 +82,12 @@ impl RateLimiter {
     /// * `capacity` - Maximum tokens (burst size)
     /// * `refill_amount` - Tokens added per interval
     /// * `refill_interval` - Time between refills
+    ///
+    /// # EDGE-MEDIUM-001: Zero-window guard
+    /// A zero `refill_interval` would cause a division-by-zero in `refill()`.
+    /// Instead of panicking (which crashes the entire edge agent on misconfiguration),
+    /// we clamp to a minimum of 1ms. This makes the wrong thing structurally impossible
+    /// at the type level while logging a warning for operators.
     pub fn with_interval(
         name: impl Into<String>,
         capacity: u64,
@@ -90,16 +96,27 @@ impl RateLimiter {
     ) -> Self {
         assert!(capacity > 0, "capacity must be > 0");
         assert!(refill_amount > 0, "refill_amount must be > 0");
-        assert!(
-            !refill_interval.is_zero(),
-            "refill_interval must be non-zero"
-        );
+
+        // LIFE-SAFETY: Clamp zero interval to 1ms instead of panicking.
+        // A panic here would crash the entire edge agent (tokio runtime
+        // abort) on a single misconfiguration line in YAML, taking down
+        // all MQTT telemetry for the farm site.
+        let name = name.into();
+        let safe_interval = if refill_interval.is_zero() {
+            tracing::warn!(
+                "RateLimiter '{}': refill_interval is zero, clamping to 1ms to prevent division-by-zero",
+                name
+            );
+            Duration::from_millis(1)
+        } else {
+            refill_interval
+        };
 
         Self {
-            name: name.into(),
+            name,
             capacity,
             refill_amount,
-            refill_interval_ms: refill_interval.as_millis() as u64,
+            refill_interval_ms: safe_interval.as_millis() as u64,
             tokens: AtomicU64::new(capacity),
             last_refill_ms: AtomicU64::new(now_millis()),
         }
@@ -319,6 +336,15 @@ mod tests {
 
         // Total acquired should equal capacity (no refill during test)
         assert_eq!(total, 100);
+    }
+
+    /// EDGE-MEDIUM-001: Zero refill_interval must not panic — clamped to 1ms
+    #[test]
+    fn test_zero_window_does_not_panic() {
+        let limiter = RateLimiter::with_interval("zero-test", 5, 1, Duration::from_secs(0));
+        // Should function normally after clamping
+        assert!(limiter.try_acquire());
+        assert_eq!(limiter.capacity(), 5);
     }
 
     #[test]

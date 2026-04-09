@@ -256,10 +256,13 @@ struct ScadaStateInner {
     /// SQLite database for trends, alarms, calibration, audit
     db: Option<Arc<ScadaDb>>,
     /// Alarm engine
+    /// WHY: tokio::sync::Mutex — held across .await (alarm evaluation reads DB)
     alarm_engine: tokio::sync::Mutex<AlarmEngine>,
     /// Trend recording engine
+    /// WHY: tokio::sync::Mutex — held across .await (trend recording writes DB)
     trend_engine: tokio::sync::Mutex<Option<TrendEngine>>,
     /// Calibration state machine
+    /// WHY: tokio::sync::Mutex — held across .await (calibration interacts with I/O)
     calibration_engine: tokio::sync::Mutex<CalibrationEngine>,
     /// Command channel for WS → I/O routing
     command_tx: Option<tokio::sync::mpsc::Sender<ScadaCommand>>,
@@ -268,6 +271,7 @@ struct ScadaStateInner {
     /// Tags affected by emergency stop
     emergency_tags: RwLock<Vec<String>>,
     /// Global PIN lockout state (persists across WS reconnections)
+    /// WHY: tokio::sync::Mutex — held across .await (PIN validation may check DB)
     pin_lockout: tokio::sync::Mutex<PinLockoutState>,
 }
 
@@ -744,8 +748,45 @@ fn default_alarm_limit() -> u32 {
 // ============================================================================
 
 /// Serve the SCADA viewer HTML page
-async fn scada_page_handler() -> Html<&'static str> {
-    Html(SCADA_HTML)
+///
+/// EDGE-MEDIUM-008: Generates a per-request cryptographic nonce and injects it
+/// into all `<script` tags in the SCADA HTML. The matching nonce is set in the
+/// Content-Security-Policy header, replacing `'unsafe-inline'` with nonce-based
+/// authorization. This prevents injected scripts from executing even if an
+/// attacker finds an HTML injection vector in tag labels or process names.
+async fn scada_page_handler() -> impl IntoResponse {
+    // Generate a 128-bit random nonce (base64-encoded)
+    let mut nonce_bytes = [0u8; 16];
+    if let Err(e) = getrandom::getrandom(&mut nonce_bytes) {
+        warn!("Failed to generate CSP nonce: {}, falling back to static CSP", e);
+        return (HeaderMap::new(), SCADA_HTML.to_string());
+    }
+    let nonce = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, nonce_bytes);
+
+    // Inject nonce into all <script tags in the embedded HTML
+    let html_with_nonce = SCADA_HTML.replace("<script", &format!("<script nonce=\"{}\"", nonce));
+
+    // Build nonce-based CSP (replaces the 'unsafe-inline' from the middleware)
+    let csp = format!(
+        "default-src 'self'; \
+         script-src 'nonce-{nonce}' 'strict-dynamic' https://unpkg.com https://cdn.jsdelivr.net; \
+         style-src 'self' 'unsafe-inline' https://unpkg.com; \
+         connect-src 'self' ws: wss:; \
+         img-src 'self' data:; \
+         manifest-src 'self'; \
+         frame-ancestors 'none'; \
+         base-uri 'self'; \
+         form-action 'none'; \
+         object-src 'none';",
+    );
+
+    let mut headers = HeaderMap::new();
+    if let Ok(csp_value) = HeaderValue::from_str(&csp) {
+        headers.insert("Content-Security-Policy", csp_value);
+    }
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+
+    (headers, html_with_nonce)
 }
 
 /// Get the current SCADA process definition
@@ -1880,21 +1921,26 @@ async fn security_headers_middleware(
     headers.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
     headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
     headers.insert("Permissions-Policy", HeaderValue::from_static("geolocation=(), camera=(), microphone=(), payment=(), usb=()"));
-    headers.insert(
-        "Content-Security-Policy",
-        HeaderValue::from_static(
-            "default-src 'self'; \
-             script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; \
-             style-src 'self' 'unsafe-inline' https://unpkg.com; \
-             connect-src 'self' ws: wss:; \
-             img-src 'self' data:; \
-             manifest-src 'self'; \
-             frame-ancestors 'none'; \
-             base-uri 'self'; \
-             form-action 'none'; \
-             object-src 'none';"
-        ),
-    );
+    // EDGE-MEDIUM-008: Only set CSP if the handler didn't already set a nonce-based
+    // one (e.g., scada_page_handler injects a per-request nonce). For non-HTML
+    // endpoints (JSON APIs, WebSocket), the static CSP below is sufficient.
+    if !headers.contains_key("Content-Security-Policy") {
+        headers.insert(
+            "Content-Security-Policy",
+            HeaderValue::from_static(
+                "default-src 'self'; \
+                 script-src 'none'; \
+                 style-src 'none'; \
+                 connect-src 'self' ws: wss:; \
+                 img-src 'self' data:; \
+                 manifest-src 'self'; \
+                 frame-ancestors 'none'; \
+                 base-uri 'self'; \
+                 form-action 'none'; \
+                 object-src 'none';"
+            ),
+        );
+    }
     response
 }
 

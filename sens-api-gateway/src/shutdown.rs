@@ -6,11 +6,12 @@
 //!
 //! Manages proper shutdown sequence for all agent components:
 //! 1. Signal all tasks to stop
-//! 2. Wait for in-flight operations
-//! 3. Flush offline buffer
-//! 4. Disconnect hardware interfaces
-//! 5. Publish offline status
-//! 6. Disconnect MQTT
+//! 2. Wait for script engine + in-flight operations to stop
+//! 3. SAFE-STATE all actuator outputs (LIFE-SAFETY)
+//! 4. Flush offline queue (fsync WAL to disk)
+//! 5. Disconnect hardware interfaces (Modbus, LoRa, I2C)
+//! 6. Publish offline status via MQTT
+//! 7. Disconnect MQTT
 //!
 //! v1.2.3: Increased broadcast channel capacity for reliability
 

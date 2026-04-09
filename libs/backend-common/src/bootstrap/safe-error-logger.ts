@@ -83,7 +83,7 @@ export function logBootstrapError(
     : undefined;
 
   console.error(JSON.stringify({
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString().toISOString(),
     level: 'fatal',
     service: serviceName,
     message: `${context} failed: ${sanitizedMessage}`,

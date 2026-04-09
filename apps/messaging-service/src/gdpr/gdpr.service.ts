@@ -243,22 +243,7 @@ export class GdprService {
     tenantId: string,
     confirmPassword: string,
   ): Promise<boolean> {
-    // Step 0: Per-channel legal hold check
-    const userMemberships: Array<{ channelId: string }> = await this.dataSource.query(
-      `SELECT "channelId" FROM channel_members WHERE "userId" = $1`,
-      [userId],
-    );
-    const isTenantUnderHold = await this.legalHoldService.isUnderLegalHold(tenantId, null);
-    if (isTenantUnderHold) {
-      throw new ForbiddenException('Tenant is under legal hold and data cannot be anonymized');
-    }
-    for (const membership of userMemberships) {
-      if (await this.legalHoldService.isUnderLegalHold(tenantId, membership.channelId)) {
-        throw new ForbiddenException(`Channel ${membership.channelId} is under legal hold`);
-      }
-    }
-
-    // Step 1: Verify password via auth-service
+    // Step 1: Verify password via auth-service (outside transaction -- network call)
     const passwordValid = await this.verifyPassword(userId, confirmPassword);
     if (!passwordValid) {
       throw new BadRequestException('Invalid password confirmation');
@@ -269,6 +254,45 @@ export class GdprService {
     await queryRunner.startTransaction();
 
     try {
+      // ── SECURITY: Legal hold check INSIDE transaction with SELECT FOR UPDATE ──
+      // BEFORE: legal hold check was OUTSIDE the transaction (TOCTOU race).
+      // A concurrent legal hold creation between the check and anonymize would
+      // allow anonymization of legally-held data, destroying evidence.
+      // WHY: SELECT FOR UPDATE on legal_holds serializes concurrent hold creation
+      // and anonymization -- if a hold is being created concurrently, this query
+      // blocks until that transaction commits/rolls back, then re-evaluates.
+      // @see MSG-CRITICAL-019
+      const activeTenantHolds: Array<{ id: string; channelId: string | null }> = await queryRunner.query(
+        `SELECT id, "channelId" FROM legal_holds
+         WHERE "tenantId" = $1 AND "isActive" = true
+         FOR UPDATE`,
+        [tenantId],
+      );
+
+      // Check if any hold is tenant-wide (channelId IS NULL)
+      const tenantWideHold = activeTenantHolds.find((h) => h.channelId === null);
+      if (tenantWideHold) {
+        throw new ForbiddenException('Tenant is under legal hold and data cannot be anonymized');
+      }
+
+      // Check per-channel holds for user's channels
+      if (activeTenantHolds.length > 0) {
+        const userMemberships: Array<{ channelId: string }> = await queryRunner.query(
+          `SELECT "channelId" FROM channel_members WHERE "userId" = $1`,
+          [userId],
+        );
+        const heldChannelIds = new Set(
+          activeTenantHolds
+            .filter((h) => h.channelId !== null)
+            .map((h) => h.channelId),
+        );
+        for (const membership of userMemberships) {
+          if (heldChannelIds.has(membership.channelId)) {
+            throw new ForbiddenException(`Channel ${membership.channelId} is under legal hold`);
+          }
+        }
+      }
+
       // IMPORTANT: Capture message IDs BEFORE anonymising senderId,
       // so we can delete attachments correctly.
       const userMessages: Array<{ id: string; createdAt: Date }> = await queryRunner.query(
@@ -321,9 +345,6 @@ export class GdprService {
       }
 
       // 6. Delete knowledge_entries whose source message belonged to the user.
-      // BEFORE: `DELETE FROM knowledge_entries WHERE "authorId" = $1` — "authorId"
-      // does not exist in the knowledge_entry schema. This query was a runtime error
-      // (or deleted 0 rows) — knowledge extracted from the user's messages was never cleaned.
       // WHY: knowledge_entries.sourceMessageId uses ON DELETE SET NULL so entries survive
       // message soft-delete. Must explicitly delete by sourceMessageId during GDPR erasure.
       if (messageIds.length > 0) {
@@ -353,30 +374,73 @@ export class GdprService {
         [userId],
       );
 
-      // 10. Log to outbox for event publication
+      // ── 10. Cascade anonymization to AgentConversation records (ai-service) ──
+      // SECURITY: GDPR Article 17 requires erasure of ALL personal data, including
+      // AI chat history. Since AgentConversation lives in ai-service, we publish a
+      // GdprAnonymizeRequested event via the outbox so ai-service can clean up.
+      // Also attempt direct DB cleanup for shared-DB deployments.
+      // @see MSG-CRITICAL-024
+      try {
+        await queryRunner.query(
+          `UPDATE agent_conversations
+           SET messages = $1::jsonb,
+               title = '[ANONYMIZED]',
+               "isActive" = false
+           WHERE "userId" = $2 AND "tenantId" = $3`,
+          [
+            JSON.stringify([{ role: 'system', content: '[ANONYMIZED]', timestamp: new Date().toISOString() }]),
+            userId,
+            tenantId,
+          ],
+        );
+      } catch {
+        // Table may not exist in this DB (separate-db deployment) -- event handles it
+        this.logger.warn(
+          'agent_conversations table not found in messaging DB; relying on GdprAnonymizeRequested event for ai-service cascade',
+        );
+      }
+
+      // 11. Log to outbox for event publication (UserDataAnonymized + GdprAnonymizeRequested)
+      const anonymizedAt = new Date().toISOString();
       await queryRunner.query(
-        `INSERT INTO messaging_outbox ("eventType", payload, "createdAt")
-         VALUES ($1, $2, NOW())`,
+        `INSERT INTO messaging_outbox ("eventType", "tenantId", payload, "createdAt")
+         VALUES ($1, $2, $3, NOW())`,
         [
           'UserDataAnonymized',
-          JSON.stringify({ userId, tenantId, anonymizedAt: new Date().toISOString() }),
+          tenantId,
+          JSON.stringify({ userId, tenantId, anonymizedAt }),
+        ],
+      );
+
+      // SECURITY: Cross-service cascade event for ai-service AgentConversation cleanup
+      await queryRunner.query(
+        `INSERT INTO messaging_outbox ("eventType", "tenantId", payload, "createdAt")
+         VALUES ($1, $2, $3, NOW())`,
+        [
+          'GdprAnonymizeRequested',
+          tenantId,
+          JSON.stringify({ userId, tenantId, anonymizedAt, targetService: 'ai-service', targetEntity: 'AgentConversation' }),
+        ],
+      );
+
+      // 12. SECURITY: Compliance audit log INSIDE transaction (before commit)
+      // BEFORE: audit log was written AFTER commit, so if audit write failed,
+      // anonymization happened with no audit trail.
+      await queryRunner.query(
+        `INSERT INTO compliance_audit_log ("tenantId", "userId", action, "resourceType", "resourceId", details, "createdAt")
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [
+          tenantId,
+          userId,
+          ComplianceAction.DATA_ANONYMIZE,
+          'user',
+          userId,
+          JSON.stringify({ anonymizedAt }),
         ],
       );
 
       await queryRunner.commitTransaction();
       this.logger.log(`GDPR anonymisation completed for user ${userId}`);
-
-      // Log anonymisation to compliance audit
-      await this.complianceAuditService.log({
-        tenantId,
-        userId,
-        action: ComplianceAction.DATA_ANONYMIZE,
-        resourceType: 'user',
-        resourceId: userId,
-        details: { anonymizedAt: new Date().toISOString() },
-        ipAddress: null,
-        userAgent: null,
-      });
 
       return true;
     } catch (err) {

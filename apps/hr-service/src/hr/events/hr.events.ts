@@ -15,6 +15,9 @@ import { Employee } from '../entities/employee.entity';
  *
  * Published AFTER transaction commit to guarantee the employee row exists in DB
  * before consumers attempt to load it.
+ *
+ * SECURITY: Raw PII (firstName, lastName, email) removed from event payload.
+ * Consumers must query HR service directly using employeeId for display names.
  */
 export function createEmployeeCreatedEvent(
   employee: Employee,
@@ -28,9 +31,6 @@ export function createEmployeeCreatedEvent(
     aggregateType: 'Employee',
     eventType: 'EmployeeCreated' as const,
     employeeId: employee.id,
-    firstName: employee.firstName,
-    lastName: employee.lastName,
-    email: employee.email,
     position: employee.position,
     hireDate: employee.hireDate,
   };
@@ -42,6 +42,9 @@ export function createEmployeeCreatedEvent(
  * WHY: update-employee.handler.ts previously had no EventBus injection and never
  * published this event. Cross-service caches and derived data (sensor assignments,
  * messaging profiles) were never invalidated on employee profile changes.
+ *
+ * SECURITY: Raw PII (firstName, lastName, email) removed from event payload.
+ * Consumers must query HR service directly using employeeId for display names.
  */
 export function createEmployeeUpdatedEvent(
   employee: Employee,
@@ -55,9 +58,6 @@ export function createEmployeeUpdatedEvent(
     aggregateType: 'Employee',
     eventType: 'EmployeeUpdated' as const,
     employeeId: employee.id,
-    firstName: employee.firstName,
-    lastName: employee.lastName,
-    email: employee.email,
     position: employee.position,
   };
 }

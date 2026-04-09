@@ -13,7 +13,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer, createEncryptedColumnTransformer } from '@aquaculture/backend-common';
 import { Payroll } from './payroll.entity';
 import { DepartmentHR } from './department.entity';
 
@@ -118,18 +118,23 @@ export class NextOfKin {
   email?: string;
 }
 
-@ObjectType()
+/**
+ * EmergencyInfo -- internal-only type for safety operations.
+ *
+ * SECURITY: @ObjectType() and @Field() decorators intentionally removed.
+ * Medical data (bloodType, medicalConditions, allergies) MUST NOT appear in
+ * GraphQL schema introspection. Access is restricted to a dedicated secure
+ * resolver with audit logging.
+ *
+ * @see HR-CRITICAL-002
+ */
 export class EmergencyInfo {
-  @Field({ nullable: true })
   bloodType?: string;
 
-  @Field(() => [String], { nullable: true })
   medicalConditions?: string[];
 
-  @Field(() => [String], { nullable: true })
   allergies?: string[];
 
-  @Field(() => NextOfKin, { nullable: true })
   nextOfKin?: NextOfKin;
 }
 
@@ -187,8 +192,14 @@ export class Employee {
   @Column({ type: 'date' })
   dateOfBirth!: Date;
 
+  /**
+   * SECURITY: Government ID encrypted at rest with AES-256-GCM.
+   * DB column stores ciphertext; application decrypts on read.
+   * Direct SQL queries return encrypted values, not plaintext.
+   * @see DB-CRITICAL-001
+   */
   @HideField()
-  @Column({ length: 50 })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer('EMPLOYEE_PII_ENCRYPTION_KEY') })
   nationalId!: string;
 
   @Field(() => EmployeeStatus)
@@ -225,8 +236,14 @@ export class Employee {
   @Column({ default: 'USD' })
   currency!: string;
 
+  /**
+   * SECURITY: Bank details encrypted at rest with AES-256-GCM (JSONB serialized).
+   * Column type changed from jsonb to text to store ciphertext string.
+   * Application transparently encrypts/decrypts via ValueTransformer.
+   * @see DB-CRITICAL-001
+   */
   @HideField()
-  @Column('jsonb', { nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: createEncryptedColumnTransformer('EMPLOYEE_PII_ENCRYPTION_KEY', { json: true }) })
   bankDetails?: BankDetails;
 
   @Field({ nullable: true })

@@ -11,7 +11,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer, createEncryptedColumnTransformer } from '@aquaculture/backend-common';
 
 @Entity('farm_workers')
 @Index(['tenantId', 'email'], { unique: true })
@@ -44,7 +44,12 @@ export class Worker {
   @Column({ type: 'date' })
   dateOfBirth: Date;
 
-  @Column()
+  /**
+   * SECURITY: Government ID encrypted at rest with AES-256-GCM.
+   * DB column stores ciphertext; application decrypts on read.
+   * @see DB-CRITICAL-001
+   */
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer('EMPLOYEE_PII_ENCRYPTION_KEY') })
   nationalId: string;
 
   @Column({ type: 'varchar', default: 'active' })

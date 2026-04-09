@@ -31,5 +31,8 @@ export * from './validators';
 // GDPR Compliance (Consent Management, Data Subject Rights)
 export * from './gdpr';
 
+// Encryption - AES-256-GCM column-level encryption for PII at rest
+export * from './encryption';
+
 // Security Event Service (Audit logging for security events)
 export * from './security-event.service';

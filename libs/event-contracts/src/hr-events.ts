@@ -2,13 +2,16 @@ import { BaseEvent } from './base-event';
 
 /**
  * Employee Created Event
+ *
+ * SECURITY: Raw PII (firstName, lastName, email) removed per data minimization
+ * (GDPR Article 5(1)(c)). Consumers that need display names MUST query the
+ * HR service directly using the employeeId reference.
+ *
+ * BREAKING CHANGE: firstName, lastName, email fields removed.
  */
 export interface EmployeeCreatedEvent extends BaseEvent {
   eventType: 'EmployeeCreated';
   employeeId: string;
-  firstName: string;
-  lastName: string;
-  email: string;
   position: string;
   farmId?: string;
   hireDate: Date;
@@ -16,13 +19,15 @@ export interface EmployeeCreatedEvent extends BaseEvent {
 
 /**
  * Employee Updated Event
+ *
+ * SECURITY: Raw PII removed -- only employeeId and changed non-PII fields.
+ * Consumers resolve display names via HR service query.
+ *
+ * BREAKING CHANGE: firstName, lastName, email fields removed.
  */
 export interface EmployeeUpdatedEvent extends BaseEvent {
   eventType: 'EmployeeUpdated';
   employeeId: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
   position?: string;
   farmId?: string;
 }
@@ -165,12 +170,13 @@ export interface CertificationAddedEvent extends BaseEvent {
 
 /**
  * Certification Expiring Soon Event
+ *
+ * SECURITY: employeeName removed -- resolve via HR service using employeeId.
  */
 export interface CertificationExpiringSoonEvent extends BaseEvent {
   eventType: 'CertificationExpiringSoon';
   certificationId: string;
   employeeId: string;
-  employeeName: string;
   certificationTypeName: string;
   expiryDate: Date;
   daysUntilExpiry: number;
@@ -178,12 +184,13 @@ export interface CertificationExpiringSoonEvent extends BaseEvent {
 
 /**
  * Certification Expired Event
+ *
+ * SECURITY: employeeName removed -- resolve via HR service using employeeId.
  */
 export interface CertificationExpiredEvent extends BaseEvent {
   eventType: 'CertificationExpired';
   certificationId: string;
   employeeId: string;
-  employeeName: string;
   certificationTypeName: string;
   expiryDate: Date;
 }
@@ -220,12 +227,13 @@ export interface TrainingCompletedEvent extends BaseEvent {
 
 /**
  * Mandatory Training Overdue Event
+ *
+ * SECURITY: employeeName removed -- resolve via HR service using employeeId.
  */
 export interface MandatoryTrainingOverdueEvent extends BaseEvent {
   eventType: 'MandatoryTrainingOverdue';
   enrollmentId: string;
   employeeId: string;
-  employeeName: string;
   trainingCourseName: string;
   dueDate: Date;
   daysOverdue: number;

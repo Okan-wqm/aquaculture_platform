@@ -5,7 +5,7 @@ import { RevokeCertificationCommand } from '../commands/revoke-certification.com
 import { EmployeeCertification, CertificationStatus } from '../entities/employee-certification.entity';
 import { CertificationType, CertificationRequirement } from '../entities/certification-type.entity';
 import { Employee } from '../../hr/entities/employee.entity';
-import { CertificationRevokedEvent } from '../events/training.events';
+import { createCertificationRevokedEvent } from '../events/training.events';
 
 @CommandHandler(RevokeCertificationCommand)
 export class RevokeCertificationHandler
@@ -117,8 +117,8 @@ export class RevokeCertificationHandler
 
       await queryRunner.commitTransaction();
 
-      // Publish event for notification/audit purposes
-      this.eventBus.publish(new CertificationRevokedEvent(result!));
+      // HR-MEDIUM-007: Publish flat BaseEvent-conforming event via factory function.
+      this.eventBus.publish(createCertificationRevokedEvent(result!));
 
       return result!;
     } catch (error) {

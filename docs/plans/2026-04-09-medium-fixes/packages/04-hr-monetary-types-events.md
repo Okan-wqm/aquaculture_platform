@@ -1,7 +1,7 @@
 # Package 04: hr-monetary-types-events
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 22K
 Priority: MEDIUM
 Security-Sensitive: no

@@ -44,6 +44,12 @@ export interface EmployeeTerminatedEvent extends BaseEvent {
 
 /**
  * Payroll Processed Event
+ *
+ * HR-MEDIUM-001: Monetary values are string-encoded decimals (e.g. "1234.56"),
+ * NOT JavaScript `number`. IEEE 754 float arithmetic is STRUCTURALLY IMPOSSIBLE
+ * through this contract. Consumers must parse with Decimal.js or equivalent.
+ *
+ * BREAKING CHANGE: grossAmount, netAmount changed from number to string.
  */
 export interface PayrollProcessedEvent extends BaseEvent {
   eventType: 'PayrollProcessed';
@@ -51,8 +57,12 @@ export interface PayrollProcessedEvent extends BaseEvent {
   employeeId: string;
   periodStart: Date;
   periodEnd: Date;
-  grossAmount: number;
-  netAmount: number;
+  /** String-encoded decimal. NEVER use JavaScript number for monetary values. */
+  grossAmount: string;
+  /** String-encoded decimal. NEVER use JavaScript number for monetary values. */
+  netAmount: string;
+  /** ISO 4217 currency code */
+  currency: string;
   /**
    * Payroll status at the time of the event.
    * Values are always lowercase to match the entity enum:

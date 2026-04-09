@@ -5,7 +5,7 @@ import { NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { CompleteTrainingCommand } from '../commands/complete-training.command';
 import { TrainingEnrollment, EnrollmentStatus, AssessmentAttempt } from '../entities/training-enrollment.entity';
 import { TrainingCourse } from '../entities/training-course.entity';
-import { TrainingCompletedEvent } from '../events/training.events';
+import { createTrainingCompletedEvent } from '../events/training.events';
 
 @CommandHandler(CompleteTrainingCommand)
 export class CompleteTrainingHandler
@@ -94,9 +94,10 @@ export class CompleteTrainingHandler
 
     const savedEnrollment = await this.enrollmentRepository.save(enrollment);
 
-    // Publish event for notification/audit purposes when training is completed
+    // HR-MEDIUM-007: Publish flat BaseEvent-conforming event via factory function.
+    // The old class-based TrainingCompletedEvent lacked eventId/timestamp/version/tenantId.
     if (savedEnrollment.status === EnrollmentStatus.PASSED || savedEnrollment.status === EnrollmentStatus.COMPLETED) {
-      this.eventBus.publish(new TrainingCompletedEvent(savedEnrollment)).catch((err: unknown) => {
+      this.eventBus.publish(createTrainingCompletedEvent(savedEnrollment)).catch((err: unknown) => {
         this.logger.warn(`Failed to publish TrainingCompletedEvent: ${err instanceof Error ? err.message : String(err)}`);
       });
     }

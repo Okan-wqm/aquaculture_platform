@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { Money } from '@aquaculture/backend-common';
 import { ApprovePayrollCommand } from '../commands/approve-payroll.command';
 import { Payroll, PayrollStatus } from '../entities/payroll.entity';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -67,6 +68,13 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
       // Publish PayrollProcessedEvent AFTER commit.
       // BEFORE this fix: no event was published — downstream services (notifications,
       // accounting integrations) never learned that payroll was approved and ready for payment.
+      //
+      // HR-MEDIUM-001 / HR-MEDIUM-010: Monetary values are string-encoded decimals via
+      // Money.of().toJSON().amount. Number() wrappers are REMOVED — IEEE 754 precision
+      // loss is STRUCTURALLY IMPOSSIBLE through this path.
+      const currency = savedPayroll.currency || 'USD';
+      const grossRaw = savedPayroll.earnings?.grossPay ?? savedPayroll.netPay;
+      const netRaw = savedPayroll.netPay;
       const event: PayrollProcessedEvent = {
         ...createBaseEvent<PayrollProcessedEvent>('PayrollProcessed', savedPayroll.tenantId, {
           userId,
@@ -78,8 +86,9 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
         employeeId: savedPayroll.employeeId,
         periodStart: savedPayroll.payPeriodStart,
         periodEnd: savedPayroll.payPeriodEnd,
-        grossAmount: Number(savedPayroll.earnings?.grossPay ?? savedPayroll.netPay),
-        netAmount: Number(savedPayroll.netPay),
+        grossAmount: Money.of(grossRaw, currency).toJSON().amount,
+        netAmount: Money.of(netRaw, currency).toJSON().amount,
+        currency,
         status: savedPayroll.status,
       };
       this.eventBus.publish(event).catch((err: unknown) => {

@@ -5,7 +5,7 @@ import { AddEmployeeCertificationCommand } from '../commands/add-employee-certif
 import { EmployeeCertification, CertificationStatus, VerificationStatus } from '../entities/employee-certification.entity';
 import { CertificationType } from '../entities/certification-type.entity';
 import { Employee } from '../../hr/entities/employee.entity';
-import { CertificationAddedEvent } from '../events/training.events';
+import { createCertificationAddedEvent } from '../events/training.events';
 
 /**
  * HR-HIGH-013: All certification operations are now transactional.
@@ -122,8 +122,9 @@ export class AddEmployeeCertificationHandler
 
       await queryRunner.commitTransaction();
 
-      // Publish event AFTER commit — consumers see consistent state
-      this.eventBus.publish(new CertificationAddedEvent(result!));
+      // HR-MEDIUM-007: Publish flat BaseEvent-conforming event via factory function.
+      // The old class-based CertificationAddedEvent lacked eventId/timestamp/version/tenantId.
+      this.eventBus.publish(createCertificationAddedEvent(result!));
 
       return result!;
     } catch (error) {

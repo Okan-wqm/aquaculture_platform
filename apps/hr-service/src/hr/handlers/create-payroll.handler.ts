@@ -210,7 +210,9 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         action: PayrollAuditAction.CREATED,
         calculationInputs: {
           workHours: workHoursData,
-          baseSalary: Number(employee.baseSalary),
+          // HR-MEDIUM-009/010: entity.baseSalary already a number via DecimalTransformer;
+          // no Number() wrapper needed. The transformer is the single source of truth.
+          baseSalary: employee.baseSalary,
           earningsInput: effectiveEarnings,
           deductionsInput: deductionInput,
         },

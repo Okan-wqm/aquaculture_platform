@@ -230,9 +230,30 @@ export class DatabaseExplorerController {
   private readonly logger = new Logger(DatabaseExplorerController.name);
 
   constructor(
-    @InjectDataSource()
+    /**
+     * SECURITY (ADMIN-CRITICAL-004): Use a dedicated read-only DataSource.
+     * This connection has `default_transaction_read_only=on` at the PG level,
+     * so any DML/DDL statement is rejected by the database itself.
+     * Defense-in-depth: each query runner also executes SET TRANSACTION READ ONLY.
+     */
+    @InjectDataSource('explorer-readonly')
     private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * SECURITY (ADMIN-CRITICAL-005): Create a read-only query runner.
+   * Sets TRANSACTION READ ONLY as an additional safety layer on top of
+   * the connection-level read-only default.
+   *
+   * @returns A connected QueryRunner in read-only transaction mode
+   */
+  private async createReadOnlyQueryRunner(): ReturnType<DataSource['createQueryRunner']> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    // SECURITY: Defense-in-depth — SET TRANSACTION READ ONLY on every query
+    await queryRunner.query('SET TRANSACTION READ ONLY');
+    return queryRunner;
+  }
 
   /**
    * Validate that the requested schema and table are accessible via the explorer.
@@ -256,8 +277,7 @@ export class DatabaseExplorerController {
    */
   @Get('schemas')
   async getSchemas() {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       const schemas = await queryRunner.query(`
@@ -283,8 +303,7 @@ export class DatabaseExplorerController {
     }
     this.validateExplorerAccess(schema);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       // Tablo bilgilerini al (DISTINCT ile duplicate önleme)
@@ -360,8 +379,7 @@ export class DatabaseExplorerController {
     const orderDirection = query.orderDirection === 'DESC' ? 'DESC' : 'ASC';
     // Fix: C12 -- sensitive data her zaman maskelenir, client kontrolü kaldırıldı
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       // Sütun bilgilerini al
@@ -441,8 +459,7 @@ export class DatabaseExplorerController {
     const orderBy = query.orderBy && this.isValidIdentifier(query.orderBy) ? query.orderBy : null;
     const orderDirection = query.orderDirection === 'DESC' ? 'DESC' : 'ASC';
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       // Get column info
@@ -561,8 +578,7 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Data is required');
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       const columns = Object.keys(dto.data);
@@ -616,8 +632,7 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Data is required');
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       // Primary key sütununu bul
@@ -676,8 +691,7 @@ export class DatabaseExplorerController {
     }
     this.validateExplorerAccess(schema, table);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       // Primary key sütununu bul
@@ -719,8 +733,7 @@ export class DatabaseExplorerController {
     }
     this.validateExplorerAccess(schema, table);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       const columns = await this.getColumnInfo(queryRunner, schema, table);
@@ -891,8 +904,7 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Query references restricted tenant schemas');
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
       // SECURITY: Set statement timeout to prevent long-running queries

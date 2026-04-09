@@ -15,6 +15,7 @@ import { NotificationRetentionService } from './services/notification-retention.
 import { RetrySchedulerService } from './services/retry-scheduler.service';
 import { InAppNotificationService } from './services/in-app.service';
 import { DeadLetterQueueService } from './services/dead-letter-queue.service';
+import { SsrfValidatorService } from './services/ssrf-validator.service';
 
 // Event Handlers
 import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.handler';
@@ -49,6 +50,7 @@ import { NotificationResolver } from './resolvers/notification.resolver';
     NotificationDispatcherService,
     InAppNotificationService,
     DeadLetterQueueService,
+    SsrfValidatorService,
 
     // Scheduled jobs
     NotificationRetentionService,

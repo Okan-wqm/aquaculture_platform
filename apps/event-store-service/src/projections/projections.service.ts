@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import {
   ProjectionCheckpoint,
@@ -48,6 +48,7 @@ export class ProjectionsService {
     @InjectRepository(StoredEvent)
     private readonly eventRepository: Repository<StoredEvent>,
     private readonly schedulerRegistry: SchedulerRegistry,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -363,33 +364,62 @@ export class ProjectionsService {
         const startTime = Date.now();
 
         try {
-          await this.processEventWithRetry(
-            registration.handler,
-            {
-              id: event.id,
-              streamName: event.streamName,
-              globalPosition: event.globalPosition,
-              streamPosition: event.streamPosition,
-              aggregateType: event.aggregateType,
-              aggregateId: event.aggregateId,
-              version: event.version,
-              eventType: event.eventType,
-              payload: event.payload,
-              metadata: event.metadata,
-              tenantId: event.tenantId,
-              correlationId: event.correlationId,
-              causationId: event.causationId,
-              userId: event.userId,
-              occurredAt: event.occurredAt,
-              storedAt: event.storedAt,
-              schemaVersion: event.schemaVersion,
-            },
-            registration.retryPolicy,
-          );
+          // SECURITY (PLAT-CRITICAL-004): Wrap handler callback + checkpoint
+          // update in a single database transaction. If the handler succeeds
+          // but checkpoint persistence fails, both are rolled back. This
+          // prevents duplicate side effects on restart after a crash between
+          // the handler apply and checkpoint save.
+          const queryRunner = this.dataSource.createQueryRunner();
+          await queryRunner.connect();
+          await queryRunner.startTransaction();
 
-          processed++;
-          lastPosition = event.globalPosition;
-          processingTimes.push(Date.now() - startTime);
+          try {
+            await this.processEventWithRetry(
+              registration.handler,
+              {
+                id: event.id,
+                streamName: event.streamName,
+                globalPosition: event.globalPosition,
+                streamPosition: event.streamPosition,
+                aggregateType: event.aggregateType,
+                aggregateId: event.aggregateId,
+                version: event.version,
+                eventType: event.eventType,
+                payload: event.payload,
+                metadata: event.metadata,
+                tenantId: event.tenantId,
+                correlationId: event.correlationId,
+                causationId: event.causationId,
+                userId: event.userId,
+                occurredAt: event.occurredAt,
+                storedAt: event.storedAt,
+                schemaVersion: event.schemaVersion,
+              },
+              registration.retryPolicy,
+            );
+
+            // Update checkpoint position atomically within the same transaction
+            await queryRunner.manager.update(
+              ProjectionCheckpoint,
+              { id: checkpoint.id },
+              {
+                position: event.globalPosition,
+                eventsProcessed: checkpoint.eventsProcessed + processed + 1,
+                lastProcessedAt: new Date(),
+              },
+            );
+
+            await queryRunner.commitTransaction();
+
+            processed++;
+            lastPosition = event.globalPosition;
+            processingTimes.push(Date.now() - startTime);
+          } catch (txError) {
+            await queryRunner.rollbackTransaction();
+            throw txError;
+          } finally {
+            await queryRunner.release();
+          }
         } catch (error) {
           failed++;
           this.logger.error(
@@ -414,11 +444,10 @@ export class ProjectionsService {
         }
       }
 
-      // Update checkpoint — only persist to DB when position actually advanced.
-      // The in-memory cachedCheckpoint is mutated in place so the next batch
-      // reads the correct position without a DB round-trip.
-      const positionAdvanced = lastPosition !== checkpoint.position;
-
+      // Update in-memory cached checkpoint to reflect the persisted state.
+      // The per-event transaction already persisted position; update the
+      // in-memory entity so the next batch reads the correct position
+      // without a DB round-trip.
       checkpoint.position = lastPosition;
       checkpoint.eventsProcessed = checkpoint.eventsProcessed + processed;
       checkpoint.eventsFailed = checkpoint.eventsFailed + failed;
@@ -432,11 +461,10 @@ export class ProjectionsService {
           EMA_ALPHA * avgTime + (1 - EMA_ALPHA) * checkpoint.avgProcessingTimeMs;
       }
 
-      // Persist durably only when position advances; stats (eventsProcessed etc.)
-      // are best-effort counters that catch up on the next persist.
-      if (positionAdvanced) {
+      // Persist remaining stats (eventsFailed, avgProcessingTimeMs) that were
+      // not covered by the per-event transaction. These are best-effort counters.
+      if (failed > 0 || processingTimes.length > 0) {
         await this.checkpointRepository.save(checkpoint);
-        // Keep cachedCheckpoint pointing at the same mutated entity (already up to date)
       }
 
       return {

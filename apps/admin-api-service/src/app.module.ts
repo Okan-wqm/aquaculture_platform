@@ -106,6 +106,57 @@ import { UsersModule } from './users/users.module';
       };
       },
     }),
+    /**
+     * SECURITY (ADMIN-CRITICAL-004): Read-only DataSource for DB Explorer.
+     *
+     * The DB Explorer panel must NEVER write to the database. This second
+     * DataSource uses the same PostgreSQL credentials but forces
+     * `default_transaction_read_only=on` at the connection level. Even if
+     * application-level query validation is bypassed, PostgreSQL itself
+     * will reject any DML/DDL statement.
+     *
+     * Injected in explorer.controller.ts via @InjectDataSource('explorer-readonly').
+     */
+    TypeOrmModule.forRootAsync({
+      name: 'explorer-readonly',
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
+        return {
+          type: 'postgres',
+          host: configService.get<string>('DATABASE_HOST', 'localhost'),
+          port: configService.get<number>('DATABASE_PORT', 5432),
+          username: configService.get<string>('DATABASE_READONLY_USER',
+            configService.get<string>('DATABASE_USER', 'postgres')),
+          password: configService.get<string>('DATABASE_READONLY_PASSWORD',
+            dbPassword || 'postgres'),
+          database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
+          schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
+          // SECURITY: No entities — this DataSource is for raw queries only
+          entities: [],
+          synchronize: false,
+          logging: configService.get<string>('NODE_ENV') === 'development',
+          ssl: (() => {
+            const sslEnabled = configService.get<string>('DB_SSL') === 'true';
+            if (!sslEnabled) return false;
+            const caPath = configService.get<string>('DATABASE_SSL_CA');
+            const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
+            return {
+              rejectUnauthorized,
+              ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
+            };
+          })(),
+          extra: {
+            // SECURITY: Force read-only at connection level — defense-in-depth
+            options: '-c default_transaction_read_only=on',
+            max: configService.get<number>('DB_EXPLORER_POOL_SIZE', 5),
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 10000,
+          },
+        };
+      },
+    }),
     CqrsModule.forRoot(),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),

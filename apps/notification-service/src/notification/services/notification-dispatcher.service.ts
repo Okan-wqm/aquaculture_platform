@@ -12,64 +12,7 @@ import {
 import { EmailService, AlertEmailData } from './email.service';
 import { SmsService } from './sms.service';
 import { PushService } from './push.service';
-
-// Blocked hosts for SSRF prevention
-const BLOCKED_HOSTS = [
-  'localhost',
-  '127.0.0.1',
-  '0.0.0.0',
-  '::1',
-  '169.254.169.254', // AWS metadata
-  'metadata.google.internal', // GCP metadata
-];
-
-// Blocked IP patterns for SSRF prevention (private ranges)
-const BLOCKED_IP_PATTERNS = [
-  /^10\./, // 10.0.0.0/8
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // 172.16.0.0/12
-  /^192\.168\./, // 192.168.0.0/16
-  /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./, // 100.64.0.0/10 (CGNAT)
-  /^198\.1[89]\./, // 198.18.0.0/15 (benchmark)
-  /^fc00:/, // IPv6 unique local
-  /^fe80:/, // IPv6 link-local
-];
-
-/**
- * Validate webhook URL to prevent SSRF attacks
- */
-function isValidWebhookUrl(urlString: string): { valid: boolean; reason?: string } {
-  try {
-    const url = new URL(urlString);
-
-    // Only allow HTTPS in production (HTTP for development)
-    const allowHttp = process.env['NODE_ENV'] !== 'production';
-    if (url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) {
-      return { valid: false, reason: 'Only HTTPS URLs are allowed' };
-    }
-
-    // Check blocked hosts
-    const hostname = url.hostname.toLowerCase();
-    if (BLOCKED_HOSTS.includes(hostname)) {
-      return { valid: false, reason: 'Hostname is not allowed' };
-    }
-
-    // Check IP patterns
-    for (const pattern of BLOCKED_IP_PATTERNS) {
-      if (pattern.test(hostname)) {
-        return { valid: false, reason: 'Private IP addresses are not allowed' };
-      }
-    }
-
-    // Don't allow non-standard ports in production
-    if (process.env['NODE_ENV'] === 'production' && url.port && !['443', '80'].includes(url.port)) {
-      return { valid: false, reason: 'Non-standard ports are not allowed in production' };
-    }
-
-    return { valid: true };
-  } catch {
-    return { valid: false, reason: 'Invalid URL format' };
-  }
-}
+import { SsrfValidatorService } from './ssrf-validator.service';
 
 /**
  * Redact sensitive parts from webhook URL for safe logging/storage
@@ -198,6 +141,7 @@ export class NotificationDispatcherService implements OnModuleInit {
     private readonly pushService: PushService,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly ssrfValidator: SsrfValidatorService,
     @Optional() private readonly redisService?: RedisService,
   ) {}
 
@@ -599,15 +543,19 @@ export class NotificationDispatcherService implements OnModuleInit {
 
   /**
    * Send webhook notification
-   * Validates URL to prevent SSRF attacks and uses timeout
+   * SECURITY (PLAT-CRITICAL-006): Full SSRF defense:
+   * 1. SsrfValidatorService validates URL (protocol, port, DNS resolution, IP denylist)
+   * 2. DNS resolution BEFORE connect prevents DNS rebinding
+   * 3. redirect: 'error' prevents open redirect to internal endpoints
+   * 4. Timeout via AbortController prevents hanging connections
    */
   private async sendWebhook(
     webhookUrl: string,
     alertData: AlertNotificationData,
   ): Promise<string> {
-    // SECURITY: Validate webhook URL to prevent SSRF
-    const validation = isValidWebhookUrl(webhookUrl);
-    if (!validation.valid) {
+    // SECURITY: Full SSRF validation with DNS resolution and IP pinning
+    const validation = await this.ssrfValidator.validateUrl(webhookUrl);
+    if (!validation.safe) {
       this.logger.warn(
         `Webhook URL rejected: ${validation.reason} (URL redacted for security)`,
       );
@@ -618,6 +566,9 @@ export class NotificationDispatcherService implements OnModuleInit {
       // Create AbortController for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+      // SECURITY: Merge safe fetch options (redirect: 'error') with request config
+      const safeFetchOptions = this.ssrfValidator.getSafeFetchOptions();
 
       const response = await fetch(webhookUrl, {
         method: 'POST',
@@ -635,6 +586,8 @@ export class NotificationDispatcherService implements OnModuleInit {
           timestamp: alertData.timestamp || new Date(),
         }),
         signal: controller.signal,
+        // SECURITY: Never follow redirects — prevents SSRF via open redirect
+        redirect: safeFetchOptions.redirect,
       });
 
       clearTimeout(timeoutId);

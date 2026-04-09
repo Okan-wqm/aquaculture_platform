@@ -42,6 +42,7 @@ import type { EdgeDeviceEvent } from './edge-device-events';
 import type { WaterQualityEvent } from './water-quality-events';
 import type { MessagingEvent } from './messaging-events';
 import type { StorageEvent } from './storage-events';
+import type { SecurityEvent } from './security';
 
 /**
  * Union type for all platform events.
@@ -61,4 +62,5 @@ export type AnyPlatformEvent =
   | EdgeDeviceEvent
   | WaterQualityEvent
   | MessagingEvent
-  | StorageEvent;
+  | StorageEvent
+  | SecurityEvent;

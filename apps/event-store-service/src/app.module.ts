@@ -10,6 +10,7 @@ import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1782000000000-AddStoredEventsImmutabilityTriggers';
 
 @Module({
   imports: [
@@ -30,6 +31,11 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         database: configService.get<string>('DB_NAME', 'aquaculture_events'),
         autoLoadEntities: true,
         synchronize: configService.get<string>('NODE_ENV') === 'development',
+        migrationsRun:
+          configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+        migrations: [
+          AddStoredEventsImmutabilityTriggers1782000000000,
+        ],
         logging: configService.get<string>('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {

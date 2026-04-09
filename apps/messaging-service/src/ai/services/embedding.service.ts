@@ -87,18 +87,25 @@ export class EmbeddingService implements OnModuleDestroy {
    * embeddings via ai-service, and writes them back.
    */
   private async runBatch(): Promise<void> {
-    // Fetch messages where embedding IS NULL, with text content
+    // SECURITY: Use SELECT FOR UPDATE SKIP LOCKED to prevent duplicate
+    // processing across worker replicas. Without this, multiple workers can
+    // claim the same rows, causing duplicate embeddings and wasted API calls.
+    // @see MSG-HIGH-039 (embedding worker SKIP LOCKED)
+    //
+    // SECURITY: Explicit tenantId from message entity (not just channel join)
+    // ensures tenant isolation in the embedding pipeline.
+    // @see MSG-HIGH-040 (embedding writes to wrong schema)
     const messages: UnembeddedMessage[] = await this.dataSource.query(
       `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt",
-              c."tenantId"
+              m."tenantId"
        FROM "messages" m
-       INNER JOIN "channels" c ON c."id" = m."channelId"
        WHERE m."embedding" IS NULL
          AND m."isDeleted" = false
          AND m."content" IS NOT NULL
          AND m."content" != ''
        ORDER BY m."createdAt" ASC
-       LIMIT $1`,
+       LIMIT $1
+       FOR UPDATE OF m SKIP LOCKED`,
       [BATCH_SIZE],
     );
 

@@ -76,6 +76,10 @@ export class SearchSimilarMessagesHandler
     }
 
     // 3. Perform pgvector cosine similarity search
+    // SECURITY: Include tenantId in WHERE clause to prevent cross-tenant
+    // semantic search. Without this filter, vector search returns results
+    // from all tenants — cross-tenant information disclosure.
+    // @see MSG-HIGH-042 (vector search missing tenantId filter)
     const vectorStr = `[${queryEmbedding.join(',')}]`;
     const cappedLimit = Math.min(limit, 50);
 
@@ -101,10 +105,11 @@ export class SearchSimilarMessagesHandler
       FROM "messages" m
       WHERE m."embedding" IS NOT NULL
         AND m."isDeleted" = false
-        AND m."channelId" = ANY($2::uuid[])
+        AND m."tenantId" = $2::uuid
+        AND m."channelId" = ANY($3::uuid[])
       ORDER BY m."embedding" <=> $1::vector
-      LIMIT $3`,
-      [vectorStr, channelIds, cappedLimit],
+      LIMIT $4`,
+      [vectorStr, query.tenantId, channelIds, cappedLimit],
     );
 
     return results.map((row) => ({

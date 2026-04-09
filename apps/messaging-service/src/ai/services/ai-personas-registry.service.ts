@@ -140,4 +140,28 @@ export class AiPersonasRegistryService {
     }
     return exists;
   }
+
+  /**
+   * Get the system prompt for a persona by its name or ID.
+   * Returns a description-based prompt suitable for instruction hierarchy wrapping.
+   *
+   * @param personaNameOrId - Persona display name or persona ID
+   * @returns System prompt string
+   */
+  getPersonaSystemPrompt(personaNameOrId: string): string {
+    const persona = DEFAULT_PERSONAS.find(
+      (p) => p.id === personaNameOrId || p.name === personaNameOrId,
+    );
+
+    if (!persona) {
+      return `You are an aquaculture AI assistant. Help users with their aquaculture operations. Provide accurate, safe, and helpful information.`;
+    }
+
+    const capabilitiesList = persona.capabilities.join(', ');
+    return (
+      `You are ${persona.name}. ${persona.description}. ` +
+      `Your capabilities include: ${capabilitiesList}. ` +
+      `Provide accurate, safe, and helpful information within your area of expertise.`
+    );
+  }
 }

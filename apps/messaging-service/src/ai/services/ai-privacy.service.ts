@@ -167,7 +167,61 @@ export class AiPrivacyService {
     const cacheKey = `${USER_KEY_PREFIX}${tenantId}:${userId}`;
     await this.safeRedisDel(cacheKey);
 
+    // SECURITY: When user revokes consent, sweep all existing embeddings
+    // containing their messages from the vector store.
+    // @see MSG-HIGH-035 (consent opt-out does not sweep existing embeddings)
+    if (!consent) {
+      await this.sweepUserEmbeddings(tenantId, userId);
+    }
+
     this.logger.log(`User ${userId} in tenant ${tenantId} AI consent set to: ${consent}`);
+  }
+
+  /**
+   * Delete all embeddings for messages authored by a specific user.
+   * Called when a user revokes AI data consent to ensure previously
+   * generated embeddings are removed from the vector store.
+   *
+   * @param tenantId - The tenant identifier
+   * @param userId - The user whose embeddings should be deleted
+   * @see MSG-HIGH-035 (consent opt-out embedding sweep)
+   */
+  private async sweepUserEmbeddings(tenantId: string, userId: string): Promise<void> {
+    try {
+      // NULL out embeddings for all messages authored by this user.
+      // Uses a join to channels to ensure tenant isolation.
+      const result = await this.dataSource.query(
+        `UPDATE "messages" m
+         SET "embedding" = NULL
+         FROM "channels" c
+         WHERE m."channelId" = c."id"
+           AND c."tenantId" = $1
+           AND m."senderId" = $2
+           AND m."embedding" IS NOT NULL`,
+        [tenantId, userId],
+      );
+
+      const rowCount = result?.[1] ?? 0;
+      if (rowCount > 0) {
+        this.logger.log(
+          `SECURITY: Swept ${rowCount} embeddings for user ${userId} in tenant ${tenantId} (consent revoked)`,
+        );
+      }
+
+      // Also clean up any embedding metadata records
+      await this.dataSource.query(
+        `DELETE FROM "embeddings_metadata"
+         WHERE "tenantId" = $1 AND "userId" = $2`,
+        [tenantId, userId],
+      ).catch(() => {
+        // Table may not exist in all deployments
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to sweep embeddings for user ${userId}: ${message}`);
+      // Do not throw — consent update should succeed even if sweep fails.
+      // Sweep can be retried via a background job.
+    }
   }
 
   /**

@@ -1,7 +1,7 @@
 # Package 22: messaging-outbox-idempotency
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 30K
 Priority: HIGH
 Security-Sensitive: yes

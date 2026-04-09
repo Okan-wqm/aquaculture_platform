@@ -40,13 +40,17 @@ export class PresenceService {
   /**
    * Mark a user as online with a 5-minute TTL.
    * Also stores the current timestamp as a last-seen value.
+   *
+   * SECURITY: Uses Redis MULTI/EXEC for atomic updates to prevent
+   * race conditions with concurrent presence changes.
+   * @see MSG-HIGH-044 (presence tracking race condition)
    */
   async setOnline(tenantId: string, userId: string): Promise<void> {
     try {
-      const pipeline = this.redis.pipeline();
-      pipeline.set(this.presenceKey(tenantId, userId), 'online', 'EX', PRESENCE_TTL);
-      pipeline.set(this.lastSeenKey(tenantId, userId), new Date().toISOString());
-      await pipeline.exec();
+      const multi = this.redis.multi();
+      multi.set(this.presenceKey(tenantId, userId), 'online', 'EX', PRESENCE_TTL);
+      multi.set(this.lastSeenKey(tenantId, userId), new Date().toISOString());
+      await multi.exec();
     } catch (err) {
       this.logger.warn(`setOnline failed for ${userId}: ${(err as Error).message}`);
     }
@@ -54,13 +58,16 @@ export class PresenceService {
 
   /**
    * Mark a user as offline immediately and update last-seen.
+   *
+   * SECURITY: Uses Redis MULTI/EXEC for atomic updates.
+   * @see MSG-HIGH-044 (presence tracking race condition)
    */
   async setOffline(tenantId: string, userId: string): Promise<void> {
     try {
-      const pipeline = this.redis.pipeline();
-      pipeline.del(this.presenceKey(tenantId, userId));
-      pipeline.set(this.lastSeenKey(tenantId, userId), new Date().toISOString());
-      await pipeline.exec();
+      const multi = this.redis.multi();
+      multi.del(this.presenceKey(tenantId, userId));
+      multi.set(this.lastSeenKey(tenantId, userId), new Date().toISOString());
+      await multi.exec();
     } catch (err) {
       this.logger.warn(`setOffline failed for ${userId}: ${(err as Error).message}`);
     }

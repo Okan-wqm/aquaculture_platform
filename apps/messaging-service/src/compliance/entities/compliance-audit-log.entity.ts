@@ -31,6 +31,27 @@ registerEnumType(ComplianceAction, { name: 'ComplianceAction' });
  * Compliance audit log entity — records every messaging operation for
  * regulatory and forensic purposes.
  *
+ * ## Immutability (MSG-HIGH-021)
+ *
+ * This table MUST have a PostgreSQL trigger that prevents UPDATE and DELETE:
+ *
+ * ```sql
+ * CREATE OR REPLACE FUNCTION prevent_audit_log_mutation()
+ * RETURNS TRIGGER AS $$
+ * BEGIN
+ *   RAISE EXCEPTION 'compliance_audit_log is immutable: % not allowed', TG_OP;
+ * END;
+ * $$ LANGUAGE plpgsql;
+ *
+ * CREATE TRIGGER trg_audit_log_immutable
+ *   BEFORE UPDATE OR DELETE ON compliance_audit_log
+ *   FOR EACH ROW EXECUTE FUNCTION prevent_audit_log_mutation();
+ * ```
+ *
+ * This trigger should be installed via migration. Once installed, UPDATE and
+ * DELETE on audit_log rows will throw an exception at the database level,
+ * making audit record tampering structurally impossible.
+ *
  * ## Partition Strategy (DB-CRITICAL-003, MSG-CRITICAL-009)
  *
  * This table uses PostgreSQL RANGE partitioning on `created_at` (monthly).
@@ -47,6 +68,7 @@ registerEnumType(ComplianceAction, { name: 'ComplianceAction' });
  * - Parallel sequential scans within partitions
  *
  * @see ADR-012 Phase 3 (Compliance Audit Log)
+ * @see MSG-HIGH-021 (audit records immutability protection)
  */
 @ObjectType()
 @Entity('compliance_audit_log')

@@ -85,6 +85,8 @@ import { AddCompositeFkIndexesOnMessageChildren1781600000000 } from './migration
 // workers). Runs after the outbox IDENTITY conversion is complete; the
 // helper is idempotent at the discovery layer so retries are free.
 import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
+// Package 21-26: Tenant isolation, message idempotency, outbox dedup, audit immutability
+import { AddTenantIsolationAndAuditImmutability1782000000000 } from './migrations/1782000000000-AddTenantIsolationAndAuditImmutability';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -161,6 +163,7 @@ const complexityCache = new Map<string, number>();
             ConvertMessagingOutboxToIdentity1781200000000,
             AddCompositeFkIndexesOnMessageChildren1781600000000,
             ConvertAuditColumnsToTimestamptz1781900000000,
+            AddTenantIsolationAndAuditImmutability1782000000000,
           ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {

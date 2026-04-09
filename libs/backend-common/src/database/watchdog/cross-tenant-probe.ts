@@ -119,7 +119,7 @@ export class CrossTenantProbe {
                 `Expected only tenant_id=${expectedTenantId}. ` +
                 `This indicates a cross-tenant data leak that must be investigated immediately.`,
               rowCount: count,
-              timestamp: new Date().toISOString(),
+              timestamp: new Date(),
             });
           }
         } catch {

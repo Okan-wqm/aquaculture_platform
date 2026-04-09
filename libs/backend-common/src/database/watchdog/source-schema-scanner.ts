@@ -113,7 +113,7 @@ export class SourceSchemaScanner {
                 `Data should be in tenant_xxx.${table}, not the template schema. ` +
                 `Check that ${mod.moduleName}-service TenantSchemaMiddleware is correctly setting search_path.`,
               rowCount: count,
-              timestamp: new Date().toISOString(),
+              timestamp: new Date(),
             });
           }
         } catch (err) {

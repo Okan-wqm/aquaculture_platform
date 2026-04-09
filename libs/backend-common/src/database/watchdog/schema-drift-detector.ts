@@ -66,7 +66,7 @@ export class SchemaDriftDetector {
                 `Table "${expected}" (module: ${ownerModule?.moduleName ?? 'unknown'}) is defined in ` +
                 `MODULE_SCHEMAS but missing from tenant schema "${schema}". ` +
                 `Run schema migration or re-provision this tenant.`,
-              timestamp: new Date().toISOString(),
+              timestamp: new Date(),
             });
           }
         }
@@ -120,7 +120,7 @@ export class SchemaDriftDetector {
               `Schema "${schema}" is missing ${missingFromCanonical.length} tables present in ` +
               `the majority of tenant schemas: [${missingFromCanonical.join(', ')}]. ` +
               `This indicates inconsistent provisioning or partial migration.`,
-            timestamp: new Date().toISOString(),
+            timestamp: new Date(),
           });
         }
 
@@ -134,7 +134,7 @@ export class SchemaDriftDetector {
               `Schema "${schema}" has ${extraVsCanonical.length} extra tables not present in ` +
               `the majority of tenant schemas: [${extraVsCanonical.join(', ')}]. ` +
               `This may indicate a partial migration that ran only on some tenants.`,
-            timestamp: new Date().toISOString(),
+            timestamp: new Date(),
           });
         }
       }

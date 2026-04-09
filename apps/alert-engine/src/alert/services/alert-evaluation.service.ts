@@ -27,7 +27,7 @@ export interface SensorReadingData {
   readings: Record<string, number>;
   farmId?: string;
   pondId?: string;
-  timestamp: Date;
+  timestamp: string | Date;
 }
 
 /**
@@ -443,7 +443,7 @@ export class AlertEvaluationService {
       await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'AlertTriggered',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: reading.tenantId,
         alertId,
         ruleId: rule.id,
@@ -550,7 +550,7 @@ export class AlertEvaluationService {
           await this.eventBus.publish({
             eventId: crypto.randomUUID(),
             eventType: 'AlertResolved',
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
             tenantId: reading.tenantId,
             incidentId: incident.id,
             sensorId: reading.sensorId,

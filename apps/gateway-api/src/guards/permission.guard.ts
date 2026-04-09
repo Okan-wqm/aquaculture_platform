@@ -460,7 +460,7 @@ export class PermissionGuard implements CanActivate, OnModuleDestroy {
     const controller = context.getClass().name;
 
     const auditEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       userId: user.sub,
       tenantId: user.tenantId,
       roles: user.roles,

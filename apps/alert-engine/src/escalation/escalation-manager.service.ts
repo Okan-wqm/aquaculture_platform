@@ -383,7 +383,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
         await this.eventBus.publish({
           eventId: randomUUID(),
           eventType: 'AlertEscalated',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId: incident.tenantId,
           incidentId: incident.id,
           level,
@@ -476,7 +476,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     // Record acknowledgment
     state.acknowledgments.push({
       userId,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       level: state.currentLevel,
       message,
     });

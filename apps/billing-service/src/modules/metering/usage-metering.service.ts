@@ -456,7 +456,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   recordUsage(event: Omit<UsageEvent, 'id' | 'timestamp'>): UsageEvent {
     const fullEvent: UsageEvent = {
       id: this.generateEventId(),
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       ...event,
     };
 
@@ -491,7 +491,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   recordUsageBatch(events: Array<Omit<UsageEvent, 'id' | 'timestamp'>>): UsageEventBatch {
     const batch: UsageEventBatch = {
       batchId: this.generateBatchId(),
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       events: events.map(e => this.recordUsage(e)),
     };
 
@@ -593,7 +593,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
           currentValue: meter.currentValue,
           limit: meter.limit,
           percentageUsed,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         this.eventEmitter.emit('usage.threshold.breached', breachEvent);
@@ -751,7 +751,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
       meterType,
       previousValue,
       reason,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     // Reset values

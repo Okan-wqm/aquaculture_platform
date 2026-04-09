@@ -143,7 +143,7 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
           eventId: randomUUID(),
           eventType: 'EquipmentDeleted',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           equipmentId: equipment.id,
           name: equipment.name,
           code: equipment.code,

@@ -94,7 +94,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode: status,
       message,
       error,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       path: request.url,
       correlationId: request.headers['x-correlation-id'] as string,
     };

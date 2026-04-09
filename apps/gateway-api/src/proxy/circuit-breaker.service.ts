@@ -326,7 +326,7 @@ class CircuitBreaker {
       serviceName: this.serviceName,
       previousState,
       newState,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       stats: this.getStats(),
     };
 

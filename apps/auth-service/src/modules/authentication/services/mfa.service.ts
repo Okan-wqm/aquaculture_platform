@@ -818,7 +818,7 @@ export class MfaService {
         details: {
           success,
           reason,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
         },
         severity: success ? AuditLogSeverity.INFO : AuditLogSeverity.WARNING,
       });

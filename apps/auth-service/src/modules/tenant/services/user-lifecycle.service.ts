@@ -223,7 +223,7 @@ export class UserLifecycleService {
           email: savedUser.email,
           role: savedUser.role,
           tenantRoleId: input.roleId,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
         },
         severity: AuditLogSeverity.INFO,
       });
@@ -314,7 +314,7 @@ export class UserLifecycleService {
           targetEmail: user.email,
           targetRole: user.role,
           refreshTokensRevoked: true,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
         },
         severity: AuditLogSeverity.WARNING,
       });
@@ -414,7 +414,7 @@ export class UserLifecycleService {
     const event: UserInvitedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'UserInvited',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: tenant.id,
       userId: user.id,
       email: user.email,

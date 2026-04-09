@@ -129,7 +129,7 @@ export class AgentRunnerService {
     await this.conversationService.addMessage(conversationId, {
       role: 'user',
       content: request.message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
     });
 
     // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
@@ -292,7 +292,7 @@ export class AgentRunnerService {
       role: 'assistant',
       content: finalMessage,
       toolUse: toolCalls,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
     });
 
     // 12. Update token usage

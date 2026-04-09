@@ -209,7 +209,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       const mortalityEvent: MortalityRecordedEvent = {
         eventId: randomUUID(),
         eventType: 'MortalityRecorded',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId: recordedBy,

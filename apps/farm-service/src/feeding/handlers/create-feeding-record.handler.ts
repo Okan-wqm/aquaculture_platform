@@ -145,7 +145,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       const feedingEvent: FeedingRecordedEvent = {
         eventId: randomUUID(),
         eventType: 'FeedingRecorded',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId,
@@ -262,7 +262,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       const lowStockEvent: FeedInventoryLowEvent = {
         eventId: randomUUID(),
         eventType: 'FeedInventoryLow',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId,

@@ -105,7 +105,7 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
           eventId: randomUUID(),
           eventType: 'FeedInventoryLow',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           inventoryId: saved.id,
           feedId: saved.feedId,
           siteId: saved.siteId,

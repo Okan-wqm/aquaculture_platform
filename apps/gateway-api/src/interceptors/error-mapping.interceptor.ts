@@ -256,7 +256,7 @@ export class ErrorMappingInterceptor implements NestInterceptor {
         trackingId,
       },
       meta: {
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
         path: request.originalUrl || request.url,
         method: request.method,
         statusCode: mapping.status,
@@ -369,7 +369,7 @@ export class ErrorMappingInterceptor implements NestInterceptor {
         trackingId,
       },
       meta: {
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
         path: request.originalUrl || request.url,
         method: request.method,
         statusCode: status,
@@ -402,7 +402,7 @@ export class ErrorMappingInterceptor implements NestInterceptor {
         trackingId,
       },
       meta: {
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
         path: request.originalUrl || request.url,
         method: request.method,
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,

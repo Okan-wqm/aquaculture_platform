@@ -175,7 +175,7 @@ export class AuditLogInterceptor implements NestInterceptor {
     const event = {
       eventId: crypto.randomUUID(),
       eventType: `audit.${options.action.toLowerCase()}`,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: requestCtx.tenantId ?? undefined,
       userId: requestCtx.userId ?? undefined,
       metadata: {

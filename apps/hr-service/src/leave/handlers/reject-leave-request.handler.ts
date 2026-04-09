@@ -83,7 +83,7 @@ export class RejectLeaveRequestHandler
         {
           action: 'rejected',
           actorId: userId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           notes: reason,
         },
       ];

@@ -75,7 +75,7 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
           eventId: randomUUID(),
           eventType: 'DepartmentUpdated',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           departmentId: updatedDepartment.id,
           siteId: updatedDepartment.siteId ?? '',
           name: updatedDepartment.name,

@@ -131,7 +131,7 @@ export function createBaseEvent<T extends BaseEvent>(
   return {
     eventId: crypto.randomUUID(),
     eventType,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString().toISOString(),
     tenantId,
     version: 1,
     aggregateId: '',

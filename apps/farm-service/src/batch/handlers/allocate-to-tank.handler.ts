@@ -262,7 +262,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       const allocationEvent: BatchAllocatedToTankEvent = {
         eventId: randomUUID(),
         eventType: 'BatchAllocatedToTank',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId: allocatedBy,

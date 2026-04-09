@@ -72,7 +72,7 @@ export class CreateFarmHandler
     await this.eventBus?.publish({
       eventId: crypto.randomUUID(),
       eventType: 'FarmCreated',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: savedFarm.tenantId,
       farmId: savedFarm.id,
       name: savedFarm.name,

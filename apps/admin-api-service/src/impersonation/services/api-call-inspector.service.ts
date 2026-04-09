@@ -80,7 +80,7 @@ export class ApiCallInspectorService {
       correlationId: data.correlationId,
       hasError: data.hasError || data.responseStatus >= 400,
       errorMessage: data.errorMessage,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     // Link to active sessions

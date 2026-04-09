@@ -106,7 +106,7 @@ export class LorawanAdapter extends BaseProtocolAdapter {
   async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
     // LoRaWAN push-based: veri MQTT topic'inden gelir, polling desteklenmez
     return {
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       values: {},
       quality: 0,
       source: 'lorawan',

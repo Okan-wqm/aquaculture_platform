@@ -375,7 +375,7 @@ export class OpaPolicyGuard implements CanActivate {
       },
       action: handler.name,
       context: {
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
         // SECURITY: Use req.ip which respects trust proxy setting;
         // do not fall back to x-forwarded-for which is client-spoofable
         ip: request.ip ?? request.connection?.remoteAddress,

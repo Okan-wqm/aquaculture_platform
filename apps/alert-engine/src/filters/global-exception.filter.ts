@@ -34,7 +34,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     response.status(statusCode).json({
       statusCode,
       message: this.isProduction ? this.sanitize(message) : message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       path: request.url,
     });
 

@@ -340,7 +340,7 @@ export class ResponseTransformInterceptor<T> implements NestInterceptor<T, ApiRe
         code: error.name || 'INTERNAL_ERROR',
         message: error.message || 'An unexpected error occurred',
       },
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       requestId,
       path,
     };

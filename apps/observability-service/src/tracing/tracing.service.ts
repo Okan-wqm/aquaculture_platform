@@ -143,7 +143,7 @@ export class TracingService implements OnModuleDestroy {
     const span = this.activeSpans.get(spanId);
     if (span) {
       span.logs.push({
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         level,
         message,
         fields,

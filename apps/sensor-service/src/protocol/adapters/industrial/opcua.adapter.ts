@@ -346,7 +346,7 @@ export class OpcUaAdapter extends BaseProtocolAdapter<OpcUaConfiguration> {
         try {
           const nodeName = nodeId.split(';').pop() || nodeId;
           const data: SensorReadingData = {
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
             values: { [nodeName]: (dataValue.value?.value ?? null) as number | string | boolean | null },
             quality: 100,
             source: 'opc_ua',

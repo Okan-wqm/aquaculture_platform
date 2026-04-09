@@ -314,7 +314,7 @@ export class JobQueueService {
       status: JobStatus.RUNNING,
       startedAt: job.startedAt,
       workerId: this.workerId,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
     await this.logRepo.save(log);
 

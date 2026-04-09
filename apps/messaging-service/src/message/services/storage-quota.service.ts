@@ -174,7 +174,7 @@ export class StorageQuotaService {
             usedBytes: used + newFileSize,
             quotaBytes: quota,
             usagePercentage: Math.round(usageAfterUpload * 100),
-            timestamp: new Date().toISOString(),
+            timestamp: new Date().toISOString().toISOString(),
           },
         }),
       );

@@ -203,7 +203,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         const movementEvent: StockMovementRecordedEvent = {
           eventId: randomUUID(),
           eventType: 'StockMovementRecorded',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId,
           version: 1,
           userId,
@@ -249,7 +249,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
             const lowStockEvent: LowStockDetectedEvent = {
               eventId: randomUUID(),
               eventType: 'LowStockDetected',
-              timestamp: new Date(),
+              timestamp: new Date().toISOString(),
               tenantId,
               version: 1,
               itemType,

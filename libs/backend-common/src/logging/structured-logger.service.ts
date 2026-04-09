@@ -165,7 +165,7 @@ export class StructuredLoggerService implements LoggerService {
     }
 
     const entry: Record<string, unknown> = {
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       level: toSeverity(level),
       service: this.serviceName,
       // WHY: Error properties (message, stack) are non-enumerable — JSON.stringify produces '{}'.

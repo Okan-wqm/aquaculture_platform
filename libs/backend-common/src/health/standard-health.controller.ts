@@ -198,7 +198,7 @@ export class StandardHealthController {
   health(): StandardHealthResponse {
     return {
       status: 'ok',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       uptime: process.uptime(),
       version: this.version,
       service: this.serviceName,

@@ -410,7 +410,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
       timeoutCount: 0,
       history: [
         {
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           previousStatus: AckStatus.PENDING,
           newStatus: AckStatus.PENDING,
           action: 'created',

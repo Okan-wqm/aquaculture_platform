@@ -89,7 +89,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode,
       message: this.sanitizeMessage(message),
       error: errorType,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       path: request.url,
       correlationId: typeof correlationId === 'string' ? correlationId : undefined,
     };
@@ -124,7 +124,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const extensions: GraphQLErrorExtensions = {
       code: this.getGraphQLErrorCode(statusCode),
       statusCode,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       correlationId: typeof correlationId === 'string' ? correlationId : undefined,
     };
 

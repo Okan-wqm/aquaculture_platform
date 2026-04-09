@@ -98,7 +98,7 @@ export class DataQualityService {
         severity: 'error',
         message: 'No readings provided',
       });
-      return { score: 0, issues, timestamp: new Date() };
+      return { score: 0, issues, timestamp: new Date().toISOString() };
     }
 
     // Check each configured metric
@@ -152,7 +152,7 @@ export class DataQualityService {
     // Ensure score stays within bounds
     score = Math.max(0, Math.min(100, score));
 
-    return { score, issues, timestamp: new Date() };
+    return { score, issues, timestamp: new Date().toISOString() };
   }
 
   /**

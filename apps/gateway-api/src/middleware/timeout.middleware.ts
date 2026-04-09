@@ -101,7 +101,7 @@ export class TimeoutMiddleware implements NestMiddleware {
             },
           },
           meta: {
-            timestamp: new Date().toISOString(),
+            timestamp: new Date().toISOString().toISOString(),
             path: req.path,
             method: req.method,
             statusCode: 504,

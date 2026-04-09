@@ -75,7 +75,7 @@ export class QueryInspectorService {
       errorMessage: data.errorMessage,
       stackTrace: data.stackTrace,
       connectionSource: data.connectionSource,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     // Link to active sessions

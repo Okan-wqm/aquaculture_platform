@@ -79,7 +79,7 @@ export class DdsAdapter extends BaseProtocolAdapter<DdsConfiguration> {
     this.updateLastActivity(handle);
 
     return {
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       values: {},
       quality: 100,
       source: 'dds',

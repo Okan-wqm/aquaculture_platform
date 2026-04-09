@@ -33,7 +33,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const errorResponse = {
       statusCode,
       message: this.isProduction ? this.sanitize(message) : message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       // SECURITY: Strip query parameters in production to avoid reflecting
       // sensitive data (tokens, IDs) that may be passed inadvertently in URLs.
       path: this.isProduction ? request.url.split('?')[0] : request.url,

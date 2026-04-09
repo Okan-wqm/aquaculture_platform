@@ -76,7 +76,7 @@ export class DeviceFingerprintMiddleware implements NestMiddleware {
       timezone: characteristics.timezone,
       platform: characteristics.platform,
       ip: characteristics.ip,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     // SECURITY: Do NOT expose the computed fingerprint hash in response headers.

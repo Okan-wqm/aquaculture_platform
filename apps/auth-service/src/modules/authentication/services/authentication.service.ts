@@ -119,7 +119,7 @@ export class AuthenticationService {
         details: {
           success: details.success,
           reason: details.reason,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
         },
         severity,
         ipAddress: details.ipAddress,
@@ -172,7 +172,7 @@ export class AuthenticationService {
     await this.eventBus.publish({
       eventId: crypto.randomUUID(),
       eventType: 'UserRegistered',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: savedUser.tenantId ?? 'system',
       userId: savedUser.id,
       version: 1,
@@ -357,7 +357,7 @@ export class AuthenticationService {
         this.eventBus.publish({
           eventId: crypto.randomUUID(),
           eventType: 'UserLoggedIn',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId: user.tenantId ?? 'system',
           userId: user.id,
           version: 1,
@@ -493,7 +493,7 @@ export class AuthenticationService {
       this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'InvitationAccepted',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: result.tenantId ?? 'system',
         userId: result.id,
         version: 1,
@@ -927,7 +927,7 @@ export class AuthenticationService {
       await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'PasswordResetRequested',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: user.tenantId ?? 'system',
         userId: user.id,
         email: user.email,
@@ -1037,7 +1037,7 @@ export class AuthenticationService {
       this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'PasswordResetCompleted',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: user.tenantId ?? 'system',
         userId: user.id,
         version: 1,

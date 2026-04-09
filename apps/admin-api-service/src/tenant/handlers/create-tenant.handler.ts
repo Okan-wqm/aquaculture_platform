@@ -119,7 +119,7 @@ export class CreateTenantHandler
       const tenantCreatedEvent: TenantCreatedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantCreated',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: savedTenant.id,
         slug: savedTenant.slug,
         name: savedTenant.name,
@@ -185,7 +185,7 @@ export class CreateTenantHandler
           await this.eventBus.publish({
             eventId: crypto.randomUUID(),
             eventType: 'TenantProvisioningFailed',
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
             tenantId: savedTenant.id,
             error: provisionResult.error,
             stepCount: provisionResult.steps?.length ?? 0,
@@ -317,7 +317,7 @@ export class CreateTenantHandler
       await this.eventBus.publish({
         eventId: crypto.randomUUID(),
         eventType: 'TenantSubscriptionRequested',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: tenant.id,
         tenantName: tenant.name,
         moduleIds: data.moduleIds || [],

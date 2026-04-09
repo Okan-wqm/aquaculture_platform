@@ -228,7 +228,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
           eventId: randomUUID(),
           eventType: 'EquipmentCreated',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           equipmentId: savedEquipment.id,
           siteId: department.siteId ?? '',
           systemId: systems[0]?.id,

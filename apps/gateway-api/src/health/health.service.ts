@@ -183,7 +183,7 @@ export class HealthService {
 
     return {
       status: overallStatus,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       uptime: Date.now() - this.startTime,
       version: this.configService.get('APP_VERSION', '1.0.0'),
       services,
@@ -209,7 +209,7 @@ export class HealthService {
 
     return {
       status: overallStatus,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
   }
 

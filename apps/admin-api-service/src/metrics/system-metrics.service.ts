@@ -75,7 +75,7 @@ export class SystemMetricsService {
     ]);
 
     return {
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       database,
       platform,
       resources,

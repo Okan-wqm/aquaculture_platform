@@ -251,7 +251,7 @@ export class FeedingCronService {
       jobId: context.jobId,
       tenantId,
       errors,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
   }
 

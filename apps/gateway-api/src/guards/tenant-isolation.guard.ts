@@ -270,7 +270,7 @@ export class TenantIsolationGuard implements CanActivate {
       userId: user.sub,
       userTenantId: user.tenantId,
       targetTenantId,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
     });
   }
 

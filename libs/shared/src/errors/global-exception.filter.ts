@@ -97,7 +97,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           code: this.getErrorCode(exception.getStatus()),
           message,
           details,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
           path: request.url,
           correlationId,
         },
@@ -113,7 +113,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message: isProduction
           ? 'An unexpected error occurred'
           : (exception instanceof Error ? exception.message : 'Unknown error'),
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
         path: request.url,
         correlationId,
       },

@@ -167,7 +167,7 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       const cullEvent: CullRecordedEvent = {
         eventId: randomUUID(),
         eventType: 'CullRecorded',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId: recordedBy,

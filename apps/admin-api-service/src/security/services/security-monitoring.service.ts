@@ -806,7 +806,7 @@ export class SecurityMonitoringService implements OnModuleInit {
       relatedSecurityEvents: [event.id],
       timeline: [
         {
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           action: 'Incident created',
           actor: 'System',
           details: `Auto-escalated from security event ${event.id}`,
@@ -863,7 +863,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     if (data.status && data.status !== incident.status) {
       if (!incident.timeline) incident.timeline = [];
       incident.timeline.push({
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         action: `Status changed to ${data.status}`,
         actor: actorName,
       });

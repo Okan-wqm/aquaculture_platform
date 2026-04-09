@@ -694,7 +694,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
         healthy: response.ok,
         responseTime,
         statusCode: response.status,
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
       };
 
       this.emit('healthCheck', { serviceName, result });
@@ -705,7 +705,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
         instanceId: instance.id,
         healthy: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
       };
 
       this.emit('healthCheck', { serviceName, result });

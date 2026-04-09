@@ -28,7 +28,7 @@ export class MitsubishiMcAdapter extends BaseProtocolAdapter {
   // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
   async testConnection(_config: Record<string, unknown>): Promise<ConnectionTestResult> { return { success: true, latencyMs: 0 }; }
   // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
-  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date(), values: {}, quality: 100, source: 'mitsubishi_mc' }; }
+  async readData(_handle: ConnectionHandle): Promise<SensorReadingData> { return { timestamp: new Date().toISOString(), values: {}, quality: 100, source: 'mitsubishi_mc' }; }
 
   validateConfiguration(config: unknown): ValidationResult {
     const cfg = config as MitsubishiMcConfig;

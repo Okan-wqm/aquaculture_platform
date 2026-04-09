@@ -84,7 +84,7 @@ export class CreateDepartmentHandler implements ICommandHandler<CreateDepartment
           eventId: randomUUID(),
           eventType: 'DepartmentCreated',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           departmentId: savedDepartment.id,
           siteId: savedDepartment.siteId ?? '',
           name: savedDepartment.name,

@@ -256,7 +256,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       const harvestEvent: BatchHarvestedEvent = {
         eventId: randomUUID(),
         eventType: 'BatchHarvested',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId: recordedBy,

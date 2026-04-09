@@ -390,7 +390,7 @@ export class GdprService {
                "isActive" = false
            WHERE "userId" = $2 AND "tenantId" = $3`,
           [
-            JSON.stringify([{ role: 'system', content: '[ANONYMIZED]', timestamp: new Date().toISOString() }]),
+            JSON.stringify([{ role: 'system', content: '[ANONYMIZED]', timestamp: new Date().toISOString().toISOString() }]),
             userId,
             tenantId,
           ],

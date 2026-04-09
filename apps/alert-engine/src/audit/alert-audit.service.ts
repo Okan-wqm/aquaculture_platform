@@ -321,7 +321,7 @@ export class AlertAuditService implements OnModuleInit {
   log(entry: Omit<AuditEntry, 'id' | 'timestamp'>): AuditEntry {
     const fullEntry: AuditEntry = {
       id: this.generateId(),
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       correlationId: this.getCurrentCorrelationId(),
       ...entry,
     };

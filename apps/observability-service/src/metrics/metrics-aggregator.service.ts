@@ -128,7 +128,7 @@ export class MetricsAggregatorService {
       }
 
       this.lastAggregation = {
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         status,
         tenants,
         sensors,

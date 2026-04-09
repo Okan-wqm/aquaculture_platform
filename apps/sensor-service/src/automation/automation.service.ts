@@ -1319,7 +1319,7 @@ export class AutomationService {
         deployCommand = {
           commandId,
           command: 'deploy_to_codesys',
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
           params: {
             program_name: program.programName,
             program_id: program.id,
@@ -1343,7 +1343,7 @@ export class AutomationService {
         deployCommand = {
           commandId,
           command: 'deploy_auto',
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
           params: {
             target: 'plc_setpoint',
             program_name: program.programName,
@@ -1364,7 +1364,7 @@ export class AutomationService {
         deployCommand = {
           commandId,
           command: 'deploy_program',
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
           params: edgeScript,
         };
         break;
@@ -2429,7 +2429,7 @@ export class AutomationService {
     const rollbackCommand = {
       commandId,
       command: 'rollback_program',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
       params: {},
     };
 

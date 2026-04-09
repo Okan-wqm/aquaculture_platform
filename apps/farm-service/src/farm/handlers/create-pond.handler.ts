@@ -83,7 +83,7 @@ export class CreatePondHandler
     await this.eventBus?.publish({
       eventId: crypto.randomUUID(),
       eventType: 'PondCreated',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       payload: {
         pondId: savedPond.id,
         farmId: savedPond.farmId,

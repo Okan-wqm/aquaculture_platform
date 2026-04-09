@@ -657,7 +657,7 @@ export class PerformanceMonitoringService {
       const healthScore = this.calculateHealthScore(null, alerts);
 
       const snapshot = this.snapshotRepo.create({
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         applicationMetrics: appMetrics,
         databaseMetrics: dbMetrics,
         infrastructureMetrics: infraMetrics,

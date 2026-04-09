@@ -1248,7 +1248,7 @@ export class DailyFeedingExecutionService {
           eventId: randomUUID(),
           eventType: 'FeedInventoryLow',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           inventoryId: feedInventory.id,
           feedId: feedInventory.feedId,
           siteId: feedInventory.siteId,

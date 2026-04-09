@@ -205,7 +205,7 @@ export class ComplianceService {
       dueDate,
       auditTrail: [
         {
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           action: 'Request created',
           actor: 'System',
           details: `${params.requestType} request submitted`,
@@ -311,7 +311,7 @@ export class ComplianceService {
 
     // Track changes in audit trail
     const auditEntry = {
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       action: this.getStatusChangeDescription(request.status, data.status),
       actor: actorName,
       details: data.completionNotes || data.rejectionReason,
@@ -364,7 +364,7 @@ export class ComplianceService {
     request.verificationMethod = verificationMethod;
 
     request.auditTrail?.push({
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       action: 'Identity verified',
       actor: verifiedBy,
       details: `Verification method: ${verificationMethod}`,
@@ -404,7 +404,7 @@ export class ComplianceService {
     }
 
     request.auditTrail?.push({
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       action: 'Request completed',
       actor: params.completedBy,
       details: params.completionNotes,

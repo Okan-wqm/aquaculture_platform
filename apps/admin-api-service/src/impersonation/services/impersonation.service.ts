@@ -630,7 +630,7 @@ export class ImpersonationService {
       action: 'session_extended',
       resource: 'impersonation_session',
       resourceId: sessionId,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       details: {
         additionalMinutes,
         newExpiresAt: session.expiresAt.toISOString(),
@@ -756,7 +756,7 @@ export class ImpersonationService {
       action,
       resource,
       resourceId,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       details,
     };
 
@@ -793,7 +793,7 @@ export class ImpersonationService {
       type: resourceType,
       id: resourceId,
       action,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     // Keep last 500 accessed resources

@@ -314,7 +314,7 @@ export class ModuleAssignmentService {
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
       eventType: 'ModuleRemovedFromTenant',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId,
       moduleId,
       removedBy,
@@ -543,7 +543,7 @@ export class ModuleAssignmentService {
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
       eventType: 'TenantModulesAssigned',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId,
       moduleIds,
       pricingMonthlyTotal: pricing?.monthlyTotal,

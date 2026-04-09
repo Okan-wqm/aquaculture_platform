@@ -64,7 +64,7 @@ export class UpdateFarmHandler
     await this.eventBus?.publish({
       eventId: crypto.randomUUID(),
       eventType: 'FarmUpdated',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       payload: {
         farmId: savedFarm.id,
         tenantId: savedFarm.tenantId,

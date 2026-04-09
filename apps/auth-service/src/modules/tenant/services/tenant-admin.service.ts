@@ -457,7 +457,7 @@ export class TenantAdminService {
         details: {
           targetEmail: user.email,
           targetRole: user.role,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
         },
         severity: AuditLogSeverity.WARNING,
       });
@@ -505,7 +505,7 @@ export class TenantAdminService {
         details: {
           targetEmail: user.email,
           targetRole: user.role,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
         },
         severity: AuditLogSeverity.INFO,
       });

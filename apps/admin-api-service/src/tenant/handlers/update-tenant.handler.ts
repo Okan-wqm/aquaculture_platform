@@ -169,7 +169,7 @@ export class UpdateTenantHandler
         await this.eventBus.publish({
           eventId: crypto.randomUUID(),
           eventType: 'TenantUpdated',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId,
           name: data.name,
           userId: updatedBy,

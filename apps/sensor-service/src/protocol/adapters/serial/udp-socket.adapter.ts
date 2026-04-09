@@ -78,7 +78,7 @@ export class UdpSocketAdapter extends BaseProtocolAdapter {
       const timeout = setTimeout(() => reject(new Error('Read timeout')), 5000);
       socket.once('message', (msg, rinfo) => {
         clearTimeout(timeout);
-        resolve({ timestamp: new Date(), values: { raw: msg.toString(), remoteAddress: rinfo.address, remotePort: rinfo.port }, quality: 100, source: 'udp_socket' });
+        resolve({ timestamp: new Date().toISOString(), values: { raw: msg.toString(), remoteAddress: rinfo.address, remotePort: rinfo.port }, quality: 100, source: 'udp_socket' });
       });
     });
   }

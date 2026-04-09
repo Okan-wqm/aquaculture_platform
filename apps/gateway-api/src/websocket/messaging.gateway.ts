@@ -198,7 +198,7 @@ export class MessagingGateway
       this.server.to(`tenant:${tenantId}`).emit('presence', {
         userId,
         status: 'online',
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
       });
     } catch (error) {
       this.logger.error(`Connection error: ${(error as Error).message}`);
@@ -216,7 +216,7 @@ export class MessagingGateway
       this.server.to(`tenant:${clientData.tenantId}`).emit('presence', {
         userId: clientData.userId,
         status: 'offline',
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
       });
     }
 
@@ -326,7 +326,7 @@ export class MessagingGateway
     client.to(`channel:${clientData.tenantId}:${payload.channelId}`).emit('typing', {
       userId: clientData.userId,
       channelId: payload.channelId,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
     });
 
     return { success: true };
@@ -351,7 +351,7 @@ export class MessagingGateway
       userId: clientData.userId,
       channelId: payload.channelId,
       messageId: payload.messageId,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
     });
 
     return { success: true };
@@ -418,7 +418,7 @@ export class MessagingGateway
 
     clientData.socket.emit('reAuth', {
       message: 'Token refresh required',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString().toISOString(),
     });
   }
 

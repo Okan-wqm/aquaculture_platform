@@ -95,7 +95,7 @@ export class SuspendTenantHandler
       const suspendedEvent: TenantSuspendedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantSuspended',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         reason: data.reason,
         suspendedBy,
@@ -107,7 +107,7 @@ export class SuspendTenantHandler
       const statusChangedEvent: TenantStatusChangedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantStatusChanged',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         previousStatus,
         newStatus: TenantStatus.SUSPENDED,
@@ -192,7 +192,7 @@ export class ActivateTenantHandler
       const activatedEvent: TenantActivatedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantActivated',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         activatedBy,
         version: 1,
@@ -203,7 +203,7 @@ export class ActivateTenantHandler
       const statusChangedEvent: TenantStatusChangedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantStatusChanged',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         previousStatus,
         newStatus: TenantStatus.ACTIVE,
@@ -283,7 +283,7 @@ export class DeactivateTenantHandler
       const statusChangedEvent: TenantStatusChangedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantStatusChanged',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         previousStatus,
         newStatus: TenantStatus.DEACTIVATED,
@@ -366,7 +366,7 @@ export class ArchiveTenantHandler
       const archivedEvent: TenantArchivedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantArchived',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         archivedBy,
         version: 1,
@@ -377,7 +377,7 @@ export class ArchiveTenantHandler
       const statusChangedEvent: TenantStatusChangedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'TenantStatusChanged',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         previousStatus,
         newStatus: TenantStatus.ARCHIVED,

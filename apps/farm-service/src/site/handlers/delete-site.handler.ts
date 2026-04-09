@@ -178,7 +178,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
           eventId: randomUUID(),
           eventType: 'SiteDeleted',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           siteId: site.id,
           name: site.name,
           code: site.code,

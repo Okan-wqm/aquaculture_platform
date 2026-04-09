@@ -255,7 +255,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
           eventId: randomUUID(),
           eventType: 'EquipmentUpdated',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           equipmentId: updatedEquipment.id,
           name: updatedEquipment.name,
           status: updatedEquipment.status,

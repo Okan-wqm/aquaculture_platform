@@ -328,7 +328,7 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       const transferEvent: BatchTransferredEvent = {
         eventId: randomUUID(),
         eventType: 'BatchTransferred',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId: transferredBy,

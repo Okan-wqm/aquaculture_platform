@@ -209,7 +209,7 @@ export class TenantService {
     const event: TenantCreatedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantCreated',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       name: saved.name,
       slug: saved.slug,
@@ -231,7 +231,7 @@ export class TenantService {
           slug: saved.slug,
           plan: saved.plan,
           status: saved.status,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toISOString().toISOString(),
         },
         severity: AuditLogSeverity.INFO,
       });
@@ -293,7 +293,7 @@ export class TenantService {
       const userInvitedEvent: UserInvitedEvent = {
         eventId: crypto.randomUUID(),
         eventType: 'UserInvited',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: tenant.id,
         userId: savedUser.id,
         email: savedUser.email,
@@ -369,7 +369,7 @@ export class TenantService {
     const event: TenantUpdatedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantUpdated',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       name: input.name,
       version: 1,
@@ -392,7 +392,7 @@ export class TenantService {
     const activatedEvent: TenantActivatedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantActivated',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       version: 1,
     };
@@ -402,7 +402,7 @@ export class TenantService {
     const statusChangedEvent: TenantStatusChangedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantStatusChanged',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       previousStatus,
       newStatus: TenantStatus.ACTIVE,
@@ -425,7 +425,7 @@ export class TenantService {
     const suspendedEvent: TenantSuspendedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantSuspended',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       reason,
       version: 1,
@@ -436,7 +436,7 @@ export class TenantService {
     const statusChangedEvent: TenantStatusChangedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantStatusChanged',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       previousStatus,
       newStatus: TenantStatus.SUSPENDED,
@@ -461,7 +461,7 @@ export class TenantService {
     const statusChangedEvent: TenantStatusChangedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantStatusChanged',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       previousStatus,
       newStatus: TenantStatus.CANCELLED,
@@ -517,7 +517,7 @@ export class TenantService {
     const modulesAssignedEvent: TenantModulesAssignedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantModulesAssigned',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: tenant.id,
       moduleIds: modules.map(mod => mod.id),
       moduleCodes: input.moduleCodes,
@@ -1065,7 +1065,7 @@ export class TenantService {
     const event: TenantUpdatedEvent = {
       eventId: crypto.randomUUID(),
       eventType: 'TenantUpdated',
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       tenantId: saved.id,
       name: input.name,
       version: 1,

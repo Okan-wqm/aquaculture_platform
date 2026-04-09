@@ -75,7 +75,7 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Sit
           eventId: randomUUID(),
           eventType: 'SiteUpdated',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           siteId: updatedSite.id,
           name: updatedSite.name,
           code: updatedSite.code,

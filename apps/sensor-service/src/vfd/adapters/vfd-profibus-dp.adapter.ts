@@ -221,7 +221,7 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
       parameters,
       statusBits,
       rawValues,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       latencyMs: Date.now() - startTime,
       errors: errors.length > 0 ? errors : undefined,
     };

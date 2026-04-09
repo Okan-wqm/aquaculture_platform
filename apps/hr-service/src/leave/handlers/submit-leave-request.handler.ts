@@ -63,7 +63,7 @@ export class SubmitLeaveRequestHandler
         {
           action: 'submitted',
           actorId: userId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           notes: 'Leave request submitted for approval',
         },
       ];

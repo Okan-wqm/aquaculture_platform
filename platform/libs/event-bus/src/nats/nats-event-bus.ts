@@ -706,7 +706,7 @@ export function createEvent(
   return {
     eventId: crypto.randomUUID(),
     eventType,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString().toISOString(),
     tenantId,
     metadata,
   };

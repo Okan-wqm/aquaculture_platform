@@ -491,7 +491,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         await this.eventBus.publish({
           eventId: randomUUID(),
           eventType: 'EdgeDeviceHeartbeat',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId: device.tenantId,
           deviceId: device.id,
           deviceCode: device.deviceCode,
@@ -589,7 +589,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         await this.eventBus.publish({
           eventId: randomUUID(),
           eventType: 'IoConfigPushResult',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId: tenantId || SYSTEM_TENANT_ID,
           deviceCode,
           commandId: payload.commandId,
@@ -709,7 +709,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       await this.eventBus.publish({
         eventId: randomUUID(),
         eventType: 'EdgeDeviceResponse',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId: tenantId || SYSTEM_TENANT_ID,
         deviceCode,
         commandId: payload.commandId,
@@ -883,7 +883,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         await this.eventBus.publish({
           eventId: randomUUID(),
           eventType: 'EdgeDeviceHeartbeat',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId: device.tenantId,
           deviceId: device.id,
           deviceCode: device.deviceCode,
@@ -1043,7 +1043,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       await this.eventBus.publish({
         eventId: randomUUID(),
         eventType: 'EdgeDeviceIoData',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         deviceCode,
         tagsJson: JSON.stringify(tags),
@@ -1223,7 +1223,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         await this.eventBus.publish({
           eventId: randomUUID(),
           eventType: 'EdgeDeviceAlarm',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId,
           deviceCode,
           alarmsJson: JSON.stringify(alarms),
@@ -1405,7 +1405,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         await this.eventBus.publish({
           eventId: randomUUID(),
           eventType: 'LoRaDeviceEvent',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           tenantId,
           deviceCode,
           loraEventType: eventType,
@@ -1938,7 +1938,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       id: randomUUID(),
       sensorId: sensor.id,
       tenantId: sensor.tenantId,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       readings: data,
       pondId: sensor.pondId,
       farmId: sensor.farmId,

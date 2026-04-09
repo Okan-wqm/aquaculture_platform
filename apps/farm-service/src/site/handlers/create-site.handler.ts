@@ -75,7 +75,7 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
           eventId: randomUUID(),
           eventType: 'SiteCreated',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           siteId: savedSite.id,
           name: savedSite.name,
           code: savedSite.code,

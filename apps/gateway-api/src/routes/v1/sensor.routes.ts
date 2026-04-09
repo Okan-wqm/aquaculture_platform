@@ -37,13 +37,13 @@ export class SensorRoutesController {
       return {
         status,
         service: 'sensor-service',
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
       };
     } catch (error) {
       return {
         status: 'unreachable',
         service: 'sensor-service',
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString().toISOString(),
       };
     }
   }

@@ -154,7 +154,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
           eventId: randomUUID(),
           eventType: 'DepartmentDeleted',
           tenantId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           departmentId: department.id,
           siteId: department.siteId ?? '',
           name: department.name,

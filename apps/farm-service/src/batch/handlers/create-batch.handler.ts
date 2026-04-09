@@ -533,7 +533,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       const batchCreatedEvent: BatchCreatedEvent = {
         eventId: randomUUID(),
         eventType: 'BatchCreated',
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         tenantId,
         version: 1,
         userId: createdBy,

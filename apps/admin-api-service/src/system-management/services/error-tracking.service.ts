@@ -163,7 +163,7 @@ export class ErrorTrackingService {
       ipAddress: report.ipAddress,
       userAgent: report.userAgent,
       metadata: report.metadata,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
 
     const savedOccurrence = await this.occurrenceRepo.save(occurrence);

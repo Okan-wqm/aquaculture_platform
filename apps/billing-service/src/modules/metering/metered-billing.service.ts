@@ -1209,7 +1209,7 @@ export class MeteredBillingService implements OnModuleInit {
     // Emit billing-specific event for potential overages
     this.eventEmitter.emit('billing.usage.high', {
       ...event,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     });
   }
 

@@ -113,7 +113,7 @@ export class CancelLeaveRequestHandler
         {
           action: 'cancelled',
           actorId: userId,
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
           notes: reason || 'Leave request cancelled',
         },
       ];

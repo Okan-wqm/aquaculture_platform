@@ -4,17 +4,11 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
+import { Money } from '@aquaculture/backend-common';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
 import { randomBytes } from 'crypto';
-
-/**
- * Round to 2 decimal places for currency
- */
-function roundCurrency(amount: number): number {
-  return Math.round(amount * 100) / 100;
-}
 
 /**
  * D09-F02 / D09-F03 / D09-F06: Automated billing lifecycle scheduler.
@@ -286,13 +280,14 @@ export class BillingSchedulerService {
           continue;
         }
 
-        // Build line items from subscription pricing
-        const basePrice = roundCurrency(Number(sub.pricing.basePrice) || 0);
+        // Build line items from subscription pricing using Money
+        const pricingCurrency = sub.pricing.currency || 'USD';
+        const basePriceMoney = Money.of(sub.pricing.basePrice || 0, pricingCurrency);
         const lineItems = [
           {
             description: `${sub.planName} - Base subscription`,
             quantity: 1,
-            unitPrice: basePrice,
+            unitPrice: basePriceMoney.toDecimal().toNumber(),
           },
         ];
 
@@ -300,7 +295,7 @@ export class BillingSchedulerService {
         const cycleMonths = this.cycleToMonths(sub.billingCycle);
         if (cycleMonths > 1 && lineItems[0]) {
           lineItems[0].description = `${sub.planName} - Base subscription (${cycleMonths} months)`;
-          lineItems[0].unitPrice = roundCurrency(basePrice * cycleMonths);
+          lineItems[0].unitPrice = basePriceMoney.multiply(cycleMonths).toDecimal().toNumber();
         }
 
         // Generate invoice number
@@ -323,17 +318,29 @@ export class BillingSchedulerService {
             postalCode: '',
             country: '',
           },
-          lineItems: lineItems.map((item) => ({
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            amount: roundCurrency(item.quantity * item.unitPrice),
-          })),
-          subtotal: roundCurrency(lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)),
-          total: roundCurrency(lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)),
-          amountPaid: 0,
-          amountDue: roundCurrency(lineItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)),
-          currency: sub.pricing.currency || 'USD',
+          lineItems: lineItems.map((item) => {
+            const lineMoney = Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity);
+            return {
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              amount: lineMoney.toDecimal().toNumber(),
+            };
+          }),
+          subtotal: lineItems.reduce(
+            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
+            Money.zero(pricingCurrency),
+          ).toDecimal(),
+          total: lineItems.reduce(
+            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
+            Money.zero(pricingCurrency),
+          ).toDecimal(),
+          amountPaid: Money.zero(pricingCurrency).toDecimal(),
+          amountDue: lineItems.reduce(
+            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
+            Money.zero(pricingCurrency),
+          ).toDecimal(),
+          currency: pricingCurrency,
           issueDate: now,
           dueDate,
           periodStart: sub.currentPeriodStart,
@@ -356,9 +363,9 @@ export class BillingSchedulerService {
             invoiceId: savedInvoice.id,
             invoiceNumber: savedInvoice.invoiceNumber,
             subscriptionId: sub.id,
-            subtotal: savedInvoice.subtotal,
+            subtotal: savedInvoice.subtotal.toNumber(),
             tax: 0,
-            total: savedInvoice.total,
+            total: savedInvoice.total.toNumber(),
             currency: savedInvoice.currency,
             dueDate: savedInvoice.dueDate,
             billingPeriodStart: savedInvoice.periodStart,

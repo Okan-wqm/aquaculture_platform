@@ -10,7 +10,8 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { MoneyColumn } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 
 export enum PaymentStatus {
   PENDING = 'pending',
@@ -107,10 +108,9 @@ export class Payment {
   invoice?: any;
 
   @Field(() => Float)
-  // DecimalTransformer: PostgreSQL returns decimal as string; transformer converts to number on read.
-  // Without this, monetary arithmetic like amount + refundedAmount concatenates strings instead of adding.
-  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  amount!: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  @MoneyColumn()
+  amount!: Decimal;
 
   @Field()
   @Column({ default: 'USD' })
@@ -154,10 +154,10 @@ export class Payment {
   refunds?: RefundInfo[];
 
   @Field(() => Float, { defaultValue: 0 })
-  // DecimalTransformer: refundedAmount participates in remaining balance calculation (amount - refundedAmount).
-  // String subtraction would produce NaN, breaking partial refund tracking.
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, name: 'refunded_amount', transformer: new DecimalTransformer() })
-  refundedAmount!: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  // refundedAmount participates in remaining balance calculation (amount - refundedAmount).
+  @MoneyColumn({ default: 0, name: 'refunded_amount' })
+  refundedAmount!: Decimal;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })

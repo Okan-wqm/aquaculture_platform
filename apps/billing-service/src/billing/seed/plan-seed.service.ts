@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import Decimal from 'decimal.js';
 import { Plan } from '../entities/plan.entity';
 import { PlanTier, BillingCycle } from '../entities/subscription.entity';
 
@@ -29,7 +30,7 @@ export class PlanSeedService implements OnModuleInit {
       {
         name: 'Starter',
         tier: PlanTier.STARTER,
-        basePrice: 49,
+        basePrice: new Decimal(49),
         currency: 'USD',
         billingCycle: BillingCycle.MONTHLY,
         limits: {
@@ -64,7 +65,7 @@ export class PlanSeedService implements OnModuleInit {
       {
         name: 'Professional',
         tier: PlanTier.PROFESSIONAL,
-        basePrice: 149,
+        basePrice: new Decimal(149),
         currency: 'USD',
         billingCycle: BillingCycle.MONTHLY,
         limits: {
@@ -102,7 +103,7 @@ export class PlanSeedService implements OnModuleInit {
       {
         name: 'Enterprise',
         tier: PlanTier.ENTERPRISE,
-        basePrice: 499,
+        basePrice: new Decimal(499),
         currency: 'USD',
         billingCycle: BillingCycle.MONTHLY,
         limits: {

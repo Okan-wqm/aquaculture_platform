@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { AuditedOperation } from '@aquaculture/backend-common';
 import { VoidInvoiceCommand } from '../commands/void-invoice.command';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 
@@ -14,6 +15,7 @@ const VOIDABLE_STATUSES = [
 
 const MAX_VOID_REASON_LENGTH = 500;
 
+@AuditedOperation({ resource: 'Invoice', action: 'VOID' })
 @Injectable()
 @CommandHandler(VoidInvoiceCommand)
 export class VoidInvoiceHandler implements ICommandHandler<VoidInvoiceCommand, Invoice> {

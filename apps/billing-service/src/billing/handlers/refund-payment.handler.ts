@@ -3,22 +3,13 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, PaymentRefundedEvent } from '@platform/event-contracts';
+import { AuditedOperation, Money } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 import { RefundPaymentCommand } from '../commands/refund-payment.command';
 import { Payment, PaymentStatus, RefundInfo } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 
-/**
- * Helper function for safe decimal arithmetic
- * Converts to integer cents first, then performs math to avoid floating point errors
- */
-function safeAdd(a: number, b: number): number {
-  return (Math.round(a * 100) + Math.round(b * 100)) / 100;
-}
-
-function safeSubtract(a: number, b: number): number {
-  return (Math.round(a * 100) - Math.round(b * 100)) / 100;
-}
-
+@AuditedOperation({ resource: 'Payment', action: 'REFUND' })
 @Injectable()
 @CommandHandler(RefundPaymentCommand)
 export class RefundPaymentHandler implements ICommandHandler<RefundPaymentCommand, Payment> {
@@ -56,15 +47,16 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
         throw new BadRequestException('Refund amount must be greater than zero');
       }
 
-      const currentRefunded = Number(payment.refundedAmount) || 0;
-      const originalAmount = Number(payment.amount);
-      const maxRefundable = safeSubtract(originalAmount, currentRefunded);
+      const currentRefundedMoney = Money.of(payment.refundedAmount, payment.currency);
+      const originalAmountMoney = Money.of(payment.amount, payment.currency);
+      const maxRefundableMoney = originalAmountMoney.subtract(currentRefundedMoney);
+      const refundMoney = Money.of(input.amount, payment.currency);
 
       // Double refund guard: refundedAmount + newRefund must not exceed originalAmount
-      if (input.amount > maxRefundable + 0.001) { // Small epsilon for floating point
+      if (refundMoney.greaterThan(maxRefundableMoney)) {
         throw new BadRequestException(
-          `Refund amount ${input.amount} exceeds maximum refundable amount ${maxRefundable}. ` +
-          `Original payment: ${originalAmount}, already refunded: ${currentRefunded}.`,
+          `Refund amount ${refundMoney} exceeds maximum refundable amount ${maxRefundableMoney}. ` +
+          `Original payment: ${originalAmountMoney}, already refunded: ${currentRefundedMoney}.`,
         );
       }
 
@@ -82,16 +74,17 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
       }
       payment.refunds.push(refundInfo);
 
-      // Update refundedAmount with safe arithmetic
-      const newRefundedAmount = safeAdd(currentRefunded, input.amount);
-      payment.refundedAmount = newRefundedAmount;
+      // Update refundedAmount with Money-based precision arithmetic
+      const newRefundedMoney = currentRefundedMoney.add(refundMoney);
+      payment.refundedAmount = newRefundedMoney.toDecimal();
 
-      // Determine if full or partial refund (using epsilon for floating point)
-      const isFullRefund = safeSubtract(originalAmount, newRefundedAmount) <= 0.01;
+      // Determine if full or partial refund
+      const remainingMoney = originalAmountMoney.subtract(newRefundedMoney);
+      const isFullRefund = remainingMoney.isZero() || remainingMoney.isNegative();
 
       if (isFullRefund) {
         payment.status = PaymentStatus.REFUNDED;
-        payment.refundedAmount = originalAmount; // Normalize to prevent tiny remainder
+        payment.refundedAmount = originalAmountMoney.toDecimal(); // Normalize to prevent tiny remainder
       } else {
         payment.status = PaymentStatus.PARTIALLY_REFUNDED;
       }
@@ -106,20 +99,28 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
       });
 
       if (invoice) {
-        const currentAmountPaid = Number(invoice.amountPaid);
-        const newAmountPaid = Math.max(0, safeSubtract(currentAmountPaid, input.amount));
-        const newAmountDue = safeSubtract(Number(invoice.total), newAmountPaid);
+        const invoicePaidMoney = Money.of(invoice.amountPaid, invoice.currency);
+        const newInvoicePaidMoney = invoicePaidMoney.subtract(refundMoney);
+        const invoiceTotalMoney = Money.of(invoice.total, invoice.currency);
 
-        invoice.amountPaid = newAmountPaid;
-        invoice.amountDue = Math.max(0, newAmountDue);
+        // Prevent negative paid amount
+        const clampedPaidMoney = newInvoicePaidMoney.isNegative()
+          ? Money.zero(invoice.currency)
+          : newInvoicePaidMoney;
+        const newInvoiceDueMoney = invoiceTotalMoney.subtract(clampedPaidMoney);
+
+        invoice.amountPaid = clampedPaidMoney.toDecimal();
+        invoice.amountDue = newInvoiceDueMoney.isNegative()
+          ? new Decimal(0)
+          : newInvoiceDueMoney.toDecimal();
 
         // Update invoice status based on remaining paid amount
-        if (newAmountPaid <= 0.01) {
+        if (clampedPaidMoney.isZero()) {
           // Fully refunded - no money left
           invoice.status = InvoiceStatus.REFUNDED;
-          invoice.amountPaid = 0;
+          invoice.amountPaid = new Decimal(0);
           invoice.paidAt = undefined;
-        } else if (newAmountDue > 0.01) {
+        } else if (newInvoiceDueMoney.isPositive()) {
           // Partially paid after refund
           invoice.status = InvoiceStatus.PARTIALLY_PAID;
         }
@@ -145,7 +146,7 @@ export class RefundPaymentHandler implements ICommandHandler<RefundPaymentComman
           paymentId: savedPayment.id,
           invoiceId: payment.invoiceId,
           refundAmount: input.amount,
-          totalRefunded: savedPayment.refundedAmount,
+          totalRefunded: savedPayment.refundedAmount.toNumber(),
           currency: payment.currency,
           reason: input.reason,
           refundId: input.refundId,

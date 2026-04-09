@@ -3,18 +3,14 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
+import { AuditedOperation, Money } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
 import { Invoice, InvoiceStatus, InvoiceLineItem } from '../entities/invoice.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { randomBytes } from 'crypto';
 
-/**
- * Round to 2 decimal places for currency
- */
-function roundCurrency(amount: number): number {
-  return Math.round(amount * 100) / 100;
-}
-
+@AuditedOperation({ resource: 'Invoice', action: 'CREATE' })
 @Injectable()
 @CommandHandler(CreateInvoiceCommand)
 export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceCommand, Invoice> {
@@ -48,44 +44,52 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
       throw new BadRequestException('Invoice must have at least one line item');
     }
 
-    // Calculate line items with amounts (rounded to 2 decimal places)
-    const lineItems: InvoiceLineItem[] = input.lineItems.map((item) => ({
-      description: item.description,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      amount: roundCurrency(item.quantity * item.unitPrice),
-      productCode: item.productCode,
-    }));
+    const currency = input.currency || 'USD';
 
-    // Calculate subtotal
-    const subtotal = roundCurrency(lineItems.reduce((sum, item) => sum + item.amount, 0));
+    // Calculate line items with amounts using Money for precision
+    const lineItems: InvoiceLineItem[] = input.lineItems.map((item) => {
+      const lineAmount = Money.of(item.unitPrice, currency).multiply(item.quantity);
+      return {
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        amount: lineAmount.toDecimal().toNumber(),
+        productCode: item.productCode,
+      };
+    });
 
-    // Calculate tax (rounded)
-    let taxAmount = 0;
+    // Calculate subtotal using Money
+    const subtotalMoney = lineItems.reduce(
+      (sum, item) => sum.add(Money.of(item.amount, currency)),
+      Money.zero(currency),
+    );
+
+    // Calculate tax using Money
+    let taxMoney = Money.zero(currency);
     if (input.tax) {
-      taxAmount = roundCurrency(subtotal * (input.tax.taxRate / 100));
+      taxMoney = subtotalMoney.multiply(input.tax.taxRate / 100);
     }
 
     // Validate discount
     // Discounts are applied to the pre-tax subtotal, consistent with MeteredBillingService.applyDiscount().
-    const discount = input.discount || 0;
-    if (discount < 0) {
+    const discountMoney = Money.of(input.discount || 0, currency);
+    if (discountMoney.isNegative()) {
       throw new BadRequestException('Discount cannot be negative');
     }
-    if (discount > subtotal) {
+    if (discountMoney.greaterThan(subtotalMoney)) {
       throw new BadRequestException(
-        `Discount (${discount}) cannot exceed subtotal (${subtotal})`,
+        `Discount (${discountMoney}) cannot exceed subtotal (${subtotalMoney})`,
       );
     }
 
     // Recalculate tax on the discounted subtotal so the effective rate is applied consistently
-    const discountedSubtotal = roundCurrency(subtotal - discount);
+    const discountedSubtotal = subtotalMoney.subtract(discountMoney);
     if (input.tax) {
-      taxAmount = roundCurrency(discountedSubtotal * (input.tax.taxRate / 100));
+      taxMoney = discountedSubtotal.multiply(input.tax.taxRate / 100);
     }
 
-    // Calculate total (rounded)
-    const total = roundCurrency(discountedSubtotal + taxAmount);
+    // Calculate total using Money
+    const totalMoney = discountedSubtotal.add(taxMoney);
 
     // Generate invoice number with collision-resistant approach
     const invoiceNumber = await this.generateInvoiceNumber(tenantId);
@@ -106,21 +110,21 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
         taxId: input.billingAddress.taxId,
       },
       lineItems,
-      subtotal,
+      subtotal: subtotalMoney.toDecimal(),
       tax: input.tax
         ? {
             taxRate: input.tax.taxRate,
-            taxAmount,
+            taxAmount: taxMoney.toDecimal().toNumber(),
             taxId: input.tax.taxId,
             taxName: input.tax.taxName,
           }
         : undefined,
-      discount,
+      discount: discountMoney.isZero() ? undefined : discountMoney.toDecimal(),
       discountCode: input.discountCode,
-      total,
-      amountPaid: 0,
-      amountDue: total,
-      currency: input.currency || 'USD',
+      total: totalMoney.toDecimal(),
+      amountPaid: new Decimal(0),
+      amountDue: totalMoney.toDecimal(),
+      currency,
       issueDate: new Date(),
       dueDate: new Date(input.dueDate),
       periodStart: new Date(input.periodStart),
@@ -143,9 +147,9 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
         invoiceId: savedInvoice.id,
         invoiceNumber: savedInvoice.invoiceNumber,
         subscriptionId: savedInvoice.subscriptionId || '',
-        subtotal: savedInvoice.subtotal,
+        subtotal: savedInvoice.subtotal.toNumber(),
         tax: savedInvoice.tax?.taxAmount || 0,
-        total: savedInvoice.total,
+        total: savedInvoice.total.toNumber(),
         currency: savedInvoice.currency,
         dueDate: savedInvoice.dueDate,
         billingPeriodStart: savedInvoice.periodStart,

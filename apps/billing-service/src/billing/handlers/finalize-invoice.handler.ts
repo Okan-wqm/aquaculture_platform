@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { AuditedOperation } from '@aquaculture/backend-common';
 import { FinalizeInvoiceCommand } from '../commands/finalize-invoice.command';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 
+@AuditedOperation({ resource: 'Invoice', action: 'FINALIZE' })
 @Injectable()
 @CommandHandler(FinalizeInvoiceCommand)
 export class FinalizeInvoiceHandler implements ICommandHandler<FinalizeInvoiceCommand, Invoice> {

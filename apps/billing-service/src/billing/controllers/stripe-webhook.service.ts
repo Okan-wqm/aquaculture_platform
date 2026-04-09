@@ -7,22 +7,12 @@ import {
   PaymentFailedEvent,
   SubscriptionCancelledEvent,
 } from '@platform/event-contracts';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService, Money } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 import { Payment, PaymentStatus, PaymentMethod } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
 import { randomUUID } from 'crypto';
-
-/**
- * Safe decimal arithmetic helpers (cents-based to avoid floating point errors)
- */
-function safeAdd(a: number, b: number): number {
-  return (Math.round(a * 100) + Math.round(b * 100)) / 100;
-}
-
-function safeSubtract(a: number, b: number): number {
-  return (Math.round(a * 100) - Math.round(b * 100)) / 100;
-}
 
 /**
  * Stripe Webhook Event Handler Service
@@ -58,8 +48,12 @@ export class StripeWebhookService {
     }
 
     const stripePaymentIntentId: string = paymentIntent.id;
-    const amountReceived: number = (paymentIntent.amount_received ?? paymentIntent.amount ?? 0) / 100;
     const currency: string = (paymentIntent.currency ?? 'usd').toUpperCase();
+    const amountReceivedMoney: Money = Money.fromMinorUnits(
+      paymentIntent.amount_received ?? paymentIntent.amount ?? 0,
+      currency,
+    );
+    const amountReceived: number = amountReceivedMoney.toDecimal().toNumber();
     const stripeChargeId: string | undefined = paymentIntent.latest_charge ?? undefined;
 
     // Metadata should carry our tenantId and invoiceId
@@ -116,7 +110,7 @@ export class StripeWebhookService {
       let payment: Payment;
       if (existingPayment) {
         existingPayment.status = PaymentStatus.SUCCEEDED;
-        existingPayment.amount = amountReceived;
+        existingPayment.amount = amountReceivedMoney.toDecimal();
         existingPayment.processedAt = new Date();
         existingPayment.stripeChargeId = stripeChargeId;
         existingPayment.updatedBy = 'stripe-webhook';
@@ -126,7 +120,7 @@ export class StripeWebhookService {
           tenantId,
           transactionId,
           invoiceId,
-          amount: amountReceived,
+          amount: amountReceivedMoney.toDecimal(),
           currency,
           status: PaymentStatus.SUCCEEDED,
           paymentMethod: PaymentMethod.CREDIT_CARD,
@@ -134,7 +128,7 @@ export class StripeWebhookService {
           processedAt: new Date(),
           stripePaymentIntentId,
           stripeChargeId,
-          refundedAmount: 0,
+          refundedAmount: new Decimal(0),
           notes: `Stripe webhook: payment_intent.succeeded`,
           createdBy: 'stripe-webhook',
           updatedBy: 'stripe-webhook',
@@ -142,17 +136,21 @@ export class StripeWebhookService {
         payment = await manager.save(Payment, payment);
       }
 
-      // Update invoice totals
-      const newAmountPaid = safeAdd(Number(invoice.amountPaid), amountReceived);
-      const newAmountDue = safeSubtract(Number(invoice.total), newAmountPaid);
+      // Update invoice totals using Money-based precision arithmetic
+      const currentPaidMoney = Money.of(invoice.amountPaid, invoice.currency);
+      const newAmountPaidMoney = currentPaidMoney.add(amountReceivedMoney);
+      const totalMoney = Money.of(invoice.total, invoice.currency);
+      const newAmountDueMoney = totalMoney.subtract(newAmountPaidMoney);
 
-      invoice.amountPaid = newAmountPaid;
-      invoice.amountDue = Math.max(0, newAmountDue);
+      invoice.amountPaid = newAmountPaidMoney.toDecimal();
+      invoice.amountDue = newAmountDueMoney.isNegative()
+        ? new Decimal(0)
+        : newAmountDueMoney.toDecimal();
 
-      if (newAmountDue <= 0.01) {
+      if (newAmountDueMoney.isZero() || newAmountDueMoney.isNegative()) {
         invoice.status = InvoiceStatus.PAID;
         invoice.paidAt = new Date();
-        invoice.amountDue = 0;
+        invoice.amountDue = new Decimal(0);
       } else {
         invoice.status = InvoiceStatus.PARTIALLY_PAID;
       }
@@ -197,8 +195,8 @@ export class StripeWebhookService {
     }
 
     const stripePaymentIntentId: string = paymentIntent.id;
-    const amount: number = (paymentIntent.amount ?? 0) / 100;
     const currency: string = (paymentIntent.currency ?? 'usd').toUpperCase();
+    const failedAmountMoney = Money.fromMinorUnits(paymentIntent.amount ?? 0, currency);
     const failureMessage: string =
       paymentIntent.last_payment_error?.message ?? 'Payment failed';
     const failureCode: string =
@@ -235,7 +233,7 @@ export class StripeWebhookService {
         tenantId,
         transactionId,
         invoiceId,
-        amount,
+        amount: failedAmountMoney.toDecimal(),
         currency,
         status: PaymentStatus.FAILED,
         paymentMethod: PaymentMethod.CREDIT_CARD,
@@ -243,7 +241,7 @@ export class StripeWebhookService {
         processedAt: new Date(),
         stripePaymentIntentId,
         failureReason: `${failureCode}: ${failureMessage}`,
-        refundedAmount: 0,
+        refundedAmount: new Decimal(0),
         notes: 'Stripe webhook: payment_intent.payment_failed',
         createdBy: 'stripe-webhook',
         updatedBy: 'stripe-webhook',
@@ -261,7 +259,7 @@ export class StripeWebhookService {
           ...createBaseEvent<PaymentFailedEvent>('PaymentFailed', tenantId),
           paymentId: savedPayment.id,
           invoiceId,
-          amount,
+          amount: failedAmountMoney.toDecimal().toNumber(),
           currency,
           paymentMethod: PaymentMethod.CREDIT_CARD,
           failureReason: `${failureCode}: ${failureMessage}`,
@@ -436,10 +434,10 @@ export class StripeWebhookService {
     }
 
     const stripeChargeId: string = charge.id;
-    const amountRefunded: number = (charge.amount_refunded ?? 0) / 100;
-    const amountTotal: number = (charge.amount ?? 0) / 100;
-    const isFullRefund = amountRefunded >= amountTotal;
     const currency: string = (charge.currency ?? 'usd').toUpperCase();
+    const amountRefundedMoney = Money.fromMinorUnits(charge.amount_refunded ?? 0, currency);
+    const amountTotalMoney = Money.fromMinorUnits(charge.amount ?? 0, currency);
+    const isFullRefund = !amountRefundedMoney.lessThan(amountTotalMoney);
 
     const tenantId: string | undefined = charge.metadata?.tenantId;
 
@@ -463,12 +461,12 @@ export class StripeWebhookService {
 
       // Update payment status based on refund amount
       payment.status = isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED;
-      payment.refundedAmount = amountRefunded;
+      payment.refundedAmount = amountRefundedMoney.toDecimal();
       payment.updatedBy = 'stripe-webhook';
 
       // Append refund info
       const refundInfo = {
-        amount: amountRefunded,
+        amount: amountRefundedMoney.toDecimal().toNumber(),
         reason: 'Refund via Stripe',
         refundedAt: new Date(),
         refundId: charge.refunds?.data?.[0]?.id,
@@ -498,7 +496,7 @@ export class StripeWebhookService {
 
       this.logger.log(
         `charge.refunded: payment ${payment.id} ${isFullRefund ? 'fully' : 'partially'} refunded. ` +
-        `Amount: ${amountRefunded} ${currency}`,
+        `Amount: ${amountRefundedMoney} ${currency}`,
       );
     });
   }

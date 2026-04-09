@@ -9,7 +9,8 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { MoneyColumn } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 // forwardRef removed - not needed with string-based lazy loading
 
@@ -166,22 +167,22 @@ export class SubscriptionModuleItem {
    * Subtotal before discounts
    */
   @Field(() => Float)
-  @Column('decimal', { precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  subtotal!: number;
+  @MoneyColumn()
+  subtotal!: Decimal;
 
   /**
    * Module-specific discount
    */
   @Field(() => Float)
-  @Column('decimal', { precision: 12, scale: 2, default: 0, name: 'discount_amount', transformer: new DecimalTransformer() })
-  discountAmount!: number;
+  @MoneyColumn({ default: 0, name: 'discount_amount' })
+  discountAmount!: Decimal;
 
   /**
    * Final total for this module
    */
   @Field(() => Float)
-  @Column('decimal', { precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  total!: number;
+  @MoneyColumn()
+  total!: Decimal;
 
   /**
    * Currency
@@ -261,9 +262,12 @@ export class SubscriptionModuleItem {
   }
 
   /**
-   * Calculate total from line items
+   * Calculate total from line items using lossless Decimal arithmetic
    */
-  calculateTotal(): number {
-    return this.lineItems.reduce((sum, li) => sum + Number(li.total), 0);
+  calculateTotal(): Decimal {
+    return this.lineItems.reduce(
+      (sum, li) => sum.plus(new Decimal(li.total)),
+      new Decimal(0),
+    );
   }
 }

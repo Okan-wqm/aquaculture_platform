@@ -13,7 +13,8 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { MoneyColumn } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 // forwardRef removed - not needed with string-based lazy loading
 
 export enum InvoiceStatus {
@@ -130,42 +131,42 @@ export class Invoice {
   lineItems!: InvoiceLineItem[];
 
   @Field(() => Float)
-  // DecimalTransformer: subtotal is the base for invoice total calculation (subtotal + tax - discount).
-  // String arithmetic would concatenate values instead of summing them.
-  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  subtotal!: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  // Subtotal is the base for invoice total calculation (subtotal + tax - discount).
+  @MoneyColumn()
+  subtotal!: Decimal;
 
   @Field(() => TaxInfo, { nullable: true })
   @Column('jsonb', { nullable: true })
   tax?: TaxInfo;
 
   @Field(() => Float, { nullable: true })
-  // DecimalTransformer: discount is subtracted from subtotal. Nullable=true is safe;
-  // transformer returns null for null values (no arithmetic on null discount).
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  discount?: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  // Discount is subtracted from subtotal. Nullable=true is safe.
+  @MoneyColumn({ nullable: true })
+  discount?: Decimal;
 
   @Field({ nullable: true })
   @Column({ nullable: true, name: 'discount_code' })
   discountCode?: string;
 
   @Field(() => Float)
-  // DecimalTransformer: total is the authoritative invoice amount. Used in payment matching
-  // and due-amount calculation (total - amountPaid = amountDue).
-  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
-  total!: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  // Total is the authoritative invoice amount used in payment matching.
+  @MoneyColumn()
+  total!: Decimal;
 
   @Field(() => Float, { defaultValue: 0 })
-  // DecimalTransformer: amountPaid accumulates across multiple partial payments.
-  // Each payment increments this value; string addition would corrupt the running total.
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0, name: 'amount_paid', transformer: new DecimalTransformer() })
-  amountPaid!: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  // amountPaid accumulates across multiple partial payments.
+  @MoneyColumn({ default: 0, name: 'amount_paid' })
+  amountPaid!: Decimal;
 
   @Field(() => Float)
-  // DecimalTransformer: amountDue = total - amountPaid. Both operands must be numbers;
-  // without transformer this comparison always fails (string vs string).
-  @Column({ type: 'decimal', precision: 12, scale: 2, name: 'amount_due', transformer: new DecimalTransformer() })
-  amountDue!: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  // amountDue = total - amountPaid.
+  @MoneyColumn({ name: 'amount_due' })
+  amountDue!: Decimal;
 
   @Field()
   @Column({ default: 'USD' })

@@ -11,7 +11,7 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionUpdatedEvent } from '@platform/event-contracts';
-import { RedisService } from '@aquaculture/backend-common';
+import { AuditedOperation, RedisService, Money } from '@aquaculture/backend-common';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import { Subscription, SubscriptionStatus, BillingCycle } from '../entities/subscription.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from '../entities/scheduled-plan-change.entity';
@@ -36,6 +36,7 @@ const TIER_ORDER: Record<string, number> = {
   custom: 4,
 };
 
+@AuditedOperation({ resource: 'Subscription', action: 'CHANGE_PLAN' })
 @Injectable()
 @CommandHandler(ChangeSubscriptionPlanCommand)
 export class ChangeSubscriptionPlanHandler
@@ -114,12 +115,13 @@ export class ChangeSubscriptionPlanHandler
 
       const now = new Date();
 
-      // 5. Calculate pro-rata credit for the remaining period
+      // 5. Calculate pro-rata credit for the remaining period using Money
+      const pricingCurrency = subscription.pricing.currency || 'USD';
       const proRataCredit = this.calculateProRataCredit(
         subscription.currentPeriodStart,
         subscription.currentPeriodEnd,
-        Number(subscription.pricing.basePrice),
-        Number(newPlan.pricing.basePrice),
+        Money.of(subscription.pricing.basePrice, pricingCurrency),
+        Money.of(newPlan.pricing.basePrice, pricingCurrency),
         now,
       );
 
@@ -135,7 +137,7 @@ export class ChangeSubscriptionPlanHandler
         this.logger.log(
           `Immediate plan change for tenant ${tenantId}: ` +
           `${subscription.planTier} → ${newPlan.tier} ` +
-          `(pro-rata credit: $${proRataCredit.toFixed(2)})`,
+          `(pro-rata credit: ${proRataCredit})`,
         );
       } else if (isDowngrade) {
         // IP-2: DOWNGRADE — schedule for end of current billing period.
@@ -214,7 +216,7 @@ export class ChangeSubscriptionPlanHandler
             limits: savedSubscription.limits,
             billingCycle: savedSubscription.billingCycle,
             autoRenew: savedSubscription.autoRenew,
-            proRataCredit,
+            proRataCredit: proRataCredit.toDecimal().toNumber(),
             isUpgrade,
             isDowngrade,
             previousPlanTier,
@@ -236,34 +238,32 @@ export class ChangeSubscriptionPlanHandler
   /**
    * Calculate pro-rata credit for the unused portion of the current billing period.
    *
-   * Formula: remainingDays × (newPrice - oldPrice) / totalDays
+   * Formula: remainingDays x (newPrice - oldPrice) / totalDays
    *
    * If the result is negative (upgrade), the tenant owes additional amount.
    * If the result is positive (downgrade), the tenant gets a credit.
    *
-   * Returns the absolute credit amount (always >= 0 for upgrades).
+   * @returns Money representing the pro-rata credit/charge
    */
   private calculateProRataCredit(
     periodStart: Date,
     periodEnd: Date,
-    oldBasePrice: number,
-    newBasePrice: number,
+    oldBasePrice: Money,
+    newBasePrice: Money,
     changeDate: Date,
-  ): number {
+  ): Money {
     const totalMs = periodEnd.getTime() - periodStart.getTime();
     const remainingMs = periodEnd.getTime() - changeDate.getTime();
 
     if (totalMs <= 0 || remainingMs <= 0) {
-      return 0;
+      return Money.zero(oldBasePrice.currency);
     }
 
     const totalDays = totalMs / (1000 * 60 * 60 * 24);
     const remainingDays = remainingMs / (1000 * 60 * 60 * 24);
 
-    // Pro-rata = remaining days × (new price - old price) / total days
-    const proRata = (remainingDays * (newBasePrice - oldBasePrice)) / totalDays;
-
-    // Return the credit amount (positive for upgrade additional charge, negative for downgrade credit)
-    return Math.round(proRata * 100) / 100;
+    // Pro-rata = (newPrice - oldPrice) * remainingDays / totalDays
+    const priceDiff = newBasePrice.subtract(oldBasePrice);
+    return priceDiff.multiply(remainingDays).divide(totalDays);
   }
 }

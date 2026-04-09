@@ -3,10 +3,11 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
-import { RedisService } from '@aquaculture/backend-common';
+import { AuditedOperation, RedisService } from '@aquaculture/backend-common';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 
+@AuditedOperation({ resource: 'Subscription', action: 'CREATE' })
 @Injectable()
 @CommandHandler(CreateSubscriptionCommand)
 export class CreateSubscriptionHandler

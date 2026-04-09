@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import Decimal from 'decimal.js';
 import { UpdatePlanCommand } from '../commands/update-plan.command';
 import { Plan } from '../entities/plan.entity';
 
@@ -57,7 +58,7 @@ export class UpdatePlanHandler
       // Apply partial updates — SAFETY: these changes only affect NEW subscriptions.
       // Existing subscriptions snapshot pricing/limits at creation time.
       if (input.tier !== undefined) plan.tier = input.tier;
-      if (input.basePrice !== undefined) plan.basePrice = input.basePrice;
+      if (input.basePrice !== undefined) plan.basePrice = new Decimal(input.basePrice);
       if (input.currency !== undefined) plan.currency = input.currency;
       if (input.billingCycle !== undefined) plan.billingCycle = input.billingCycle;
       if (input.limits !== undefined) {
@@ -82,7 +83,7 @@ export class UpdatePlanHandler
           currency: input.pricing.currency || plan.currency,
         };
         // Keep top-level basePrice in sync
-        plan.basePrice = input.pricing.basePrice;
+        plan.basePrice = new Decimal(input.pricing.basePrice);
       }
       if (input.features !== undefined) plan.features = input.features;
       if (input.isPublic !== undefined) plan.isPublic = input.isPublic;

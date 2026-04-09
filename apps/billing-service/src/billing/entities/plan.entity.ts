@@ -10,7 +10,8 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType, Float, Int } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { MoneyColumn } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 import { BillingCycle, PlanTier, PlanLimits, PlanPricing } from './subscription.entity';
 
 /**
@@ -42,10 +43,10 @@ export class Plan {
   tier!: PlanTier;
 
   @Field(() => Float)
-  // DecimalTransformer: basePrice is used in subscription pricing calculations.
-  // When billing resolvers compute prorated amounts or upgrade diffs, numeric math is required.
-  @Column({ type: 'decimal', precision: 12, scale: 2, name: 'base_price', transformer: new DecimalTransformer() })
-  basePrice!: number;
+  // MoneyColumn: numeric(19,4) with lossless Decimal.js transformer.
+  // basePrice is used in subscription pricing calculations.
+  @MoneyColumn({ name: 'base_price' })
+  basePrice!: Decimal;
 
   @Field()
   @Column({ type: 'varchar', length: 3, default: 'USD' })

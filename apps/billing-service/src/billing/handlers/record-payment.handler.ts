@@ -3,48 +3,14 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, PaymentReceivedEvent } from '@platform/event-contracts';
+import { AuditedOperation, Money } from '@aquaculture/backend-common';
+import Decimal from 'decimal.js';
 import { RecordPaymentCommand } from '../commands/record-payment.command';
 import { Payment, PaymentStatus } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 import { randomUUID } from 'crypto';
 
-/**
- * Helper function for safe decimal arithmetic
- * Converts to integer cents first, then performs math to avoid floating point errors
- */
-/**
- * Safe decimal arithmetic for monetary values.
- *
- * BEFORE: `Math.round(a * 100) + Math.round(b * 100)` — integer promotion.
- * Fails for values with 3+ decimal places (e.g., metered billing per-unit costs
- * like $0.005/request) and overflows above ~90 billion. IEEE 754 double-precision
- * cannot represent all cent values exactly (0.1 + 0.2 !== 0.3).
- *
- * AFTER: String-based decimal arithmetic that handles arbitrary precision.
- * For enterprise billing, this eliminates rounding-drift over thousands of
- * invoices/payments without adding a BigDecimal library dependency.
- */
-function safeAdd(a: number, b: number): number {
-  // Determine max decimal places from both operands
-  const aStr = String(a);
-  const bStr = String(b);
-  const aDec = aStr.includes('.') ? aStr.split('.')[1]!.length : 0;
-  const bDec = bStr.includes('.') ? bStr.split('.')[1]!.length : 0;
-  const scale = Math.max(aDec, bDec, 2); // minimum 2 for cents
-  const factor = Math.pow(10, scale);
-  return Math.round(Math.round(a * factor) + Math.round(b * factor)) / factor;
-}
-
-function safeSubtract(a: number, b: number): number {
-  const aStr = String(a);
-  const bStr = String(b);
-  const aDec = aStr.includes('.') ? aStr.split('.')[1]!.length : 0;
-  const bDec = bStr.includes('.') ? bStr.split('.')[1]!.length : 0;
-  const scale = Math.max(aDec, bDec, 2);
-  const factor = Math.pow(10, scale);
-  return Math.round(Math.round(a * factor) - Math.round(b * factor)) / factor;
-}
-
+@AuditedOperation({ resource: 'Payment', action: 'CREATE' })
 @Injectable()
 @CommandHandler(RecordPaymentCommand)
 export class RecordPaymentHandler implements ICommandHandler<RecordPaymentCommand, Payment> {
@@ -105,19 +71,13 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
         );
       }
 
-      // ERROR HANDLING FIX: Validate amountDue to prevent NaN comparisons
-      // Number(undefined) and Number(null) both return NaN, which breaks comparisons
-      const amountDue = Number(invoice.amountDue);
-      if (isNaN(amountDue)) {
-        throw new BadRequestException(
-          `Invoice ${input.invoiceId} has invalid amount due value`,
-        );
-      }
+      // Validate payment amount against amount due using Money for precision
+      const amountDueMoney = Money.of(invoice.amountDue, invoice.currency);
+      const paymentMoney = Money.of(input.amount, paymentCurrency);
 
-      // Use safe decimal comparison (convert to cents for comparison)
-      if (input.amount > amountDue + 0.001) { // Small epsilon for floating point
+      if (paymentMoney.greaterThan(amountDueMoney)) {
         throw new BadRequestException(
-          `Payment amount ${input.amount} exceeds amount due ${amountDue}`,
+          `Payment amount ${paymentMoney} exceeds amount due ${amountDueMoney}`,
         );
       }
 
@@ -128,7 +88,7 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
         tenantId,
         transactionId,
         invoiceId: input.invoiceId,
-        amount: input.amount,
+        amount: paymentMoney.toDecimal(),
         currency: input.currency || invoice.currency,
         status: PaymentStatus.SUCCEEDED,
         paymentMethod: input.paymentMethod,
@@ -138,25 +98,29 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
         stripePaymentIntentId: input.stripePaymentIntentId,
         stripeChargeId: input.stripeChargeId,
         notes: input.notes,
-        refundedAmount: 0,
+        refundedAmount: new Decimal(0),
         createdBy: userId,
         updatedBy: userId,
       });
 
       const savedPayment = await manager.save(Payment, payment);
 
-      // Update invoice with safe decimal arithmetic
-      const newAmountPaid = safeAdd(Number(invoice.amountPaid), input.amount);
-      const newAmountDue = safeSubtract(Number(invoice.total), newAmountPaid);
+      // Update invoice with Money-based precision arithmetic
+      const currentPaidMoney = Money.of(invoice.amountPaid, invoice.currency);
+      const newAmountPaidMoney = currentPaidMoney.add(paymentMoney);
+      const totalMoney = Money.of(invoice.total, invoice.currency);
+      const newAmountDueMoney = totalMoney.subtract(newAmountPaidMoney);
 
-      invoice.amountPaid = newAmountPaid;
-      invoice.amountDue = Math.max(0, newAmountDue); // Prevent negative due to rounding
+      invoice.amountPaid = newAmountPaidMoney.toDecimal();
+      // Prevent negative due amount
+      invoice.amountDue = newAmountDueMoney.isNegative()
+        ? new Decimal(0)
+        : newAmountDueMoney.toDecimal();
 
-      // Use small epsilon for "fully paid" check
-      if (newAmountDue <= 0.01) {
+      if (newAmountDueMoney.isZero() || newAmountDueMoney.isNegative()) {
         invoice.status = InvoiceStatus.PAID;
         invoice.paidAt = new Date();
-        invoice.amountDue = 0; // Zero out any tiny remainder
+        invoice.amountDue = new Decimal(0);
       } else {
         invoice.status = InvoiceStatus.PARTIALLY_PAID;
       }
@@ -174,7 +138,7 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
           ...createBaseEvent<PaymentReceivedEvent>('PaymentReceived', tenantId, { userId }),
           paymentId: savedPayment.id,
           invoiceId: input.invoiceId,
-          amount: savedPayment.amount,
+          amount: savedPayment.amount.toNumber(),
           currency: savedPayment.currency,
           paymentMethod: savedPayment.paymentMethod,
           transactionId: savedPayment.transactionId,

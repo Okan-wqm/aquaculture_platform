@@ -300,11 +300,12 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-firstName" className={labelClass}>
                 <User className="w-4 h-4 inline mr-2" />
                 First Name <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-firstName"
                 type="text"
                 name="firstName"
                 value={formData.firstName}
@@ -315,10 +316,11 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-lastName" className={labelClass}>
                 Last Name <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-lastName"
                 type="text"
                 name="lastName"
                 value={formData.lastName}
@@ -329,11 +331,12 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-email" className={labelClass}>
                 <Mail className="w-4 h-4 inline mr-2" />
                 Email <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-email"
                 type="email"
                 name="email"
                 value={formData.email}
@@ -357,11 +360,12 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-dateOfBirth" className={labelClass}>
                 <Calendar className="w-4 h-4 inline mr-2" />
                 Date of Birth <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-dateOfBirth"
                 type="date"
                 name="dateOfBirth"
                 value={formData.dateOfBirth}
@@ -372,13 +376,14 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-nationalId" className={labelClass}>
                 <CreditCard className="w-4 h-4 inline mr-2" />
                 National ID <span className="text-red-500">*</span>
               </label>
               {/* HR-HIGH-017: Mask national ID in display mode. Only show full ID
                   during initial creation. In edit mode, show masked value. */}
               <input
+                id="employee-nationalId"
                 type="text"
                 name="nationalId"
                 value={isEditing ? maskNationalId(formData.nationalId) : formData.nationalId}
@@ -403,10 +408,11 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-contactEmail" className={labelClass}>
                 Contact Email <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-contactEmail"
                 type="email"
                 name="contactEmail"
                 value={formData.contactEmail}
@@ -417,10 +423,11 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-contactPhone" className={labelClass}>
                 Phone <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-contactPhone"
                 type="tel"
                 name="contactPhone"
                 value={formData.contactPhone}
@@ -431,8 +438,9 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>Emergency Contact Name</label>
+              <label htmlFor="employee-emergencyContact" className={labelClass}>Emergency Contact Name</label>
               <input
+                id="employee-emergencyContact"
                 type="text"
                 name="emergencyContact"
                 value={formData.emergencyContact}
@@ -443,8 +451,9 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>Emergency Phone</label>
+              <label htmlFor="employee-emergencyPhone" className={labelClass}>Emergency Phone</label>
               <input
+                id="employee-emergencyPhone"
                 type="tel"
                 name="emergencyPhone"
                 value={formData.emergencyPhone}
@@ -466,10 +475,11 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
-              <label className={labelClass}>
+              <label htmlFor="employee-street" className={labelClass}>
                 Street Address <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-street"
                 type="text"
                 name="street"
                 value={formData.street}
@@ -481,10 +491,11 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-city" className={labelClass}>
                 City <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-city"
                 type="text"
                 name="city"
                 value={formData.city}
@@ -496,10 +507,11 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-state" className={labelClass}>
                 State / Province <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-state"
                 type="text"
                 name="state"
                 value={formData.state}
@@ -511,10 +523,11 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-postalCode" className={labelClass}>
                 Postal Code <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-postalCode"
                 type="text"
                 name="postalCode"
                 value={formData.postalCode}
@@ -526,10 +539,11 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-country" className={labelClass}>
                 Country <span className="text-red-500">*</span>
               </label>
               <input
+                id="employee-country"
                 type="text"
                 name="country"
                 value={formData.country}
@@ -553,7 +567,7 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-departmentHrId" className={labelClass}>
                 Department
               </label>
               {/* WHY: Guard against empty department list — new tenants won't have departments yet.
@@ -569,6 +583,7 @@ const EmployeeFormPage: React.FC = () => {
                 </div>
               ) : (
                 <select
+                  id="employee-departmentHrId"
                   name="departmentHrId"
                   value={formData.departmentHrId}
                   onChange={handleDepartmentChange}
@@ -589,8 +604,9 @@ const EmployeeFormPage: React.FC = () => {
               )}
             </div>
             <div>
-              <label className={labelClass}>Position</label>
+              <label htmlFor="employee-position" className={labelClass}>Position</label>
               <input
+                id="employee-position"
                 type="text"
                 name="position"
                 value={formData.position}
@@ -601,11 +617,12 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-hireDate" className={labelClass}>
                 <Calendar className="w-4 h-4 inline mr-2" />
                 Hire Date
               </label>
               <input
+                id="employee-hireDate"
                 type="date"
                 name="hireDate"
                 value={formData.hireDate}
@@ -615,8 +632,9 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>Employment Type</label>
+              <label htmlFor="employee-employmentType" className={labelClass}>Employment Type</label>
               <select
+                id="employee-employmentType"
                 name="employmentType"
                 value={formData.employmentType}
                 onChange={handleChange}
@@ -641,10 +659,11 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelClass}>
+              <label htmlFor="employee-baseSalary" className={labelClass}>
                 Base Salary {!isEditing && <span className="text-red-500">*</span>}
               </label>
               <input
+                id="employee-baseSalary"
                 type="number"
                 name="baseSalary"
                 value={formData.baseSalary}
@@ -658,8 +677,9 @@ const EmployeeFormPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className={labelClass}>Currency</label>
+              <label htmlFor="employee-currency" className={labelClass}>Currency</label>
               <select
+                id="employee-currency"
                 name="currency"
                 value={formData.currency}
                 onChange={handleChange}
@@ -685,8 +705,9 @@ const EmployeeFormPage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className={labelClass}>Personnel Category</label>
+              <label htmlFor="employee-personnelCategory" className={labelClass}>Personnel Category</label>
               <select
+                id="employee-personnelCategory"
                 name="personnelCategory"
                 value={formData.personnelCategory}
                 onChange={handleChange}
@@ -699,8 +720,9 @@ const EmployeeFormPage: React.FC = () => {
               </select>
             </div>
             <div className="flex items-center">
-              <label className="flex items-center gap-3 cursor-pointer">
+              <label htmlFor="employee-seaWorthy" className="flex items-center gap-3 cursor-pointer">
                 <input
+                  id="employee-seaWorthy"
                   type="checkbox"
                   name="seaWorthy"
                   checked={formData.seaWorthy}

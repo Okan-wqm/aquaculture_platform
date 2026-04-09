@@ -220,10 +220,11 @@ function CreatePayrollModal({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="payroll-payPeriodType" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Pay Period Type <span className="text-red-500">*</span>
                   </label>
                   <select
+                    id="payroll-payPeriodType"
                     value={payPeriodType}
                     onChange={(e) => setPayPeriodType(e.target.value as PayPeriodType)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -237,10 +238,11 @@ function CreatePayrollModal({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="payroll-currency" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Currency
                   </label>
                   <select
+                    id="payroll-currency"
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -254,10 +256,11 @@ function CreatePayrollModal({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="payroll-periodStart" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Period Start <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="payroll-periodStart"
                     type="date"
                     value={payPeriodStart}
                     onChange={(e) => setPayPeriodStart(e.target.value)}
@@ -267,10 +270,11 @@ function CreatePayrollModal({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <label htmlFor="payroll-periodEnd" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Period End <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="payroll-periodEnd"
                     type="date"
                     value={payPeriodEnd}
                     onChange={(e) => setPayPeriodEnd(e.target.value)}
@@ -293,22 +297,26 @@ function CreatePayrollModal({
                   { label: 'Holiday', value: holidayHours, setter: setHolidayHours },
                   { label: 'Sick Leave', value: sickLeaveHours, setter: setSickLeaveHours },
                   { label: 'Vacation', value: vacationHours, setter: setVacationHours },
-                ].map(({ label, value, setter }) => (
-                  <div key={label}>
-                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                      {label}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="744"
-                      step="0.5"
-                      value={value}
-                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
-                ))}
+                ].map(({ label, value, setter }) => {
+                  const fieldId = `payroll-hours-${label.toLowerCase().replace(/\s+/g, '-')}`;
+                  return (
+                    <div key={label}>
+                      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {label}
+                      </label>
+                      <input
+                        id={fieldId}
+                        type="number"
+                        min="0"
+                        max="744"
+                        step="0.5"
+                        value={value}
+                        onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -324,21 +332,25 @@ function CreatePayrollModal({
                   { label: 'Bonus', value: bonus, setter: setBonus },
                   { label: 'Commission', value: commission, setter: setCommission },
                   { label: 'Allowances', value: allowances, setter: setAllowances },
-                ].map(({ label, value, setter }) => (
-                  <div key={label}>
-                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                      {label}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={value}
-                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
-                ))}
+                ].map(({ label, value, setter }) => {
+                  const fieldId = `payroll-earning-${label.toLowerCase().replace(/\s+/g, '-')}`;
+                  return (
+                    <div key={label}>
+                      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {label}
+                      </label>
+                      <input
+                        id={fieldId}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={value}
+                        onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                  );
+                })}
               </div>
               <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
                 Gross Pay: <span className="text-green-600 dark:text-green-400">{formatCurrency(grossPay, currency)}</span>
@@ -357,21 +369,25 @@ function CreatePayrollModal({
                   { label: 'Health Insurance', value: healthInsurance, setter: setHealthInsurance },
                   { label: 'Retirement', value: retirement, setter: setRetirement },
                   { label: 'Other', value: otherDeductions, setter: setOtherDeductions },
-                ].map(({ label, value, setter }) => (
-                  <div key={label}>
-                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                      {label}
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={value}
-                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
-                ))}
+                ].map(({ label, value, setter }) => {
+                  const fieldId = `payroll-deduction-${label.toLowerCase().replace(/\s+/g, '-')}`;
+                  return (
+                    <div key={label}>
+                      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {label}
+                      </label>
+                      <input
+                        id={fieldId}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={value}
+                        onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                  );
+                })}
               </div>
               <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
                 Total Deductions: <span className="text-red-600 dark:text-red-400">{formatCurrency(totalDeductions, currency)}</span>
@@ -392,10 +408,11 @@ function CreatePayrollModal({
 
             {/* Notes */}
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="payroll-notes" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Notes
               </label>
               <textarea
+                id="payroll-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
@@ -819,10 +836,11 @@ const PayrollPage: React.FC = () => {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="payroll-filter-status" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Status
               </label>
               <select
+                id="payroll-filter-status"
                 value={filter.status || ''}
                 onChange={(e) => handleStatusFilter(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"

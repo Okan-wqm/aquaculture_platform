@@ -217,10 +217,11 @@ export function LeavesPage() {
             <h3 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
               Reject Leave Request
             </h3>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="leave-reject-reason" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Reason <span className="text-red-500">*</span>
             </label>
             <textarea
+              id="leave-reject-reason"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               rows={3}
@@ -308,8 +309,10 @@ export function LeavesPage() {
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
+          <label htmlFor="leave-search" className="sr-only">Search leave requests</label>
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
+            id="leave-search"
             type="text"
             placeholder="Search requests..."
             value={searchQuery}
@@ -337,10 +340,11 @@ export function LeavesPage() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="leave-filter-status" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Status
               </label>
               <select
+                id="leave-filter-status"
                 value={filter.status || ''}
                 onChange={(e) => handleFilterChange('status', e.target.value as LeaveRequestStatus)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -354,10 +358,11 @@ export function LeavesPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="leave-filter-leaveType" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Leave Type
               </label>
               <select
+                id="leave-filter-leaveType"
                 value={filter.leaveTypeId || ''}
                 onChange={(e) => handleFilterChange('leaveTypeId', e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -372,10 +377,11 @@ export function LeavesPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="leave-filter-startDate" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Start Date
               </label>
               <input
+                id="leave-filter-startDate"
                 type="date"
                 value={filter.startDate || ''}
                 onChange={(e) => handleFilterChange('startDate', e.target.value)}
@@ -384,10 +390,11 @@ export function LeavesPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="leave-filter-endDate" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 End Date
               </label>
               <input
+                id="leave-filter-endDate"
                 type="date"
                 value={filter.endDate || ''}
                 onChange={(e) => handleFilterChange('endDate', e.target.value)}

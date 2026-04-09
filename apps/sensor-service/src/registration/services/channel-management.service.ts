@@ -221,15 +221,17 @@ export class ChannelManagementService {
     discoveredChannels: DiscoveredChannel[],
     replaceExisting = false,
   ): Promise<SensorDataChannel[]> {
-    // If replacing, delete existing channels
+    // If replacing, delete via the canonical tenant-scoped method (SENSOR-CRITICAL-002)
+    // IMPORTANT: Never use raw channelRepository.delete() — always use deleteChannelsForSensor()
+    // to ensure tenantId is included in destructive operations.
     if (replaceExisting) {
-      await this.channelRepository.delete({ sensorId });
+      await this.deleteChannelsForSensor(sensorId, tenantId);
     }
 
     // Pre-load all existing channels for this sensor in a single query (HIGH-008)
     const existingChannels = replaceExisting
       ? []
-      : await this.channelRepository.find({ where: { sensorId } });
+      : await this.channelRepository.find({ where: { sensorId, tenantId } });
     const existingByKey = new Map<string, SensorDataChannel>(
       existingChannels.map((c) => [c.channelKey, c]),
     );

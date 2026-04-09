@@ -144,6 +144,9 @@ export type {
   ValidationErrors,
 } from './validation';
 
+// Tenant-Scoped Query Keys (SECURITY: prevents cross-tenant cache leak)
+export { createTenantQueryKey } from './tenant-query-keys';
+
 // Specification Validation - Equipment type specification validation
 export {
   validateSpecifications,

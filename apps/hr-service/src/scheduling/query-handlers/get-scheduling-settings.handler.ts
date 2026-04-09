@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetSchedulingSettingsQuery } from '../queries/get-scheduling-settings.query';
 import { SchedulingSettings } from '../entities/scheduling-settings.entity';
+import { WeekDay } from '../../attendance/entities/shift.entity';
 
 @QueryHandler(GetSchedulingSettingsQuery)
 export class GetSchedulingSettingsHandler implements IQueryHandler<GetSchedulingSettingsQuery> {
@@ -25,7 +26,7 @@ export class GetSchedulingSettingsHandler implements IQueryHandler<GetScheduling
         standardWeeklyMinutes: 2700, // 45 hours
         maxOvertimeMinutesPerWeek: 720, // 12 hours
         maxOvertimeMinutesPerMonth: 2880, // 48 hours
-        workWeekStartDay: 'monday' as any,
+        workWeekStartDay: WeekDay.MONDAY,
         autoNotifyEmployees: true,
         notifyDaysBefore: 2,
         maxConsecutiveWorkDays: 6,

@@ -4,8 +4,12 @@ export * from './schema-manager.service';
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';
 
-// Tenant-Aware Repository
+// Tenant-Aware Repository (legacy request-scoped, HTTP-only)
 export * from './tenant-aware.repository';
+
+// Tenant-Scoped Repository (AsyncLocalStorage-based, works in HTTP + MQTT + cron + NATS)
+export * from './tenant-scoped-repository';
+export * from './tenant-scoped-repository.module';
 
 // Transformers
 export * from './decimal-transformer';

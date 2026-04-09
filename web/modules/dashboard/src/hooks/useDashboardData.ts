@@ -14,7 +14,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -219,22 +219,29 @@ export interface SensorReadingData {
 }
 
 // ============================================================================
-// Query Keys
+// Query Keys (tenant-scoped)
 // ============================================================================
 
+/**
+ * SECURITY: All dashboard query keys are tenant-scoped via createTenantQueryKey
+ * to prevent cross-tenant cache leaks when switching tenants or during admin
+ * impersonation. Every key starts with ['tenant', tenantId, 'dashboard', ...].
+ *
+ * @see FE-CRITICAL-014
+ */
 export const dashboardKeys = {
-  all: ['dashboard'] as const,
-  stats: () => [...dashboardKeys.all, 'stats'] as const,
-  tasks: () => [...dashboardKeys.all, 'tasks'] as const,
-  taskStats: () => [...dashboardKeys.all, 'taskStats'] as const,
-  alerts: () => [...dashboardKeys.all, 'alerts'] as const,
-  storage: () => [...dashboardKeys.all, 'storage'] as const,
-  waterQuality: () => [...dashboardKeys.all, 'waterQuality'] as const,
-  recentActivity: () => [...dashboardKeys.all, 'recentActivity'] as const,
-  harvestStats: (range: string) => [...dashboardKeys.all, 'harvestStats', range] as const,
-  batches: () => [...dashboardKeys.all, 'batches'] as const,
-  sensors: () => [...dashboardKeys.all, 'sensors'] as const,
-  sensorReadings: (ids: string[]) => [...dashboardKeys.all, 'sensorReadings', ...ids] as const,
+  all: (tenantId: string) => createTenantQueryKey(tenantId, 'dashboard'),
+  stats: (tenantId: string) => [...dashboardKeys.all(tenantId), 'stats'] as const,
+  tasks: (tenantId: string) => [...dashboardKeys.all(tenantId), 'tasks'] as const,
+  taskStats: (tenantId: string) => [...dashboardKeys.all(tenantId), 'taskStats'] as const,
+  alerts: (tenantId: string) => [...dashboardKeys.all(tenantId), 'alerts'] as const,
+  storage: (tenantId: string) => [...dashboardKeys.all(tenantId), 'storage'] as const,
+  waterQuality: (tenantId: string) => [...dashboardKeys.all(tenantId), 'waterQuality'] as const,
+  recentActivity: (tenantId: string) => [...dashboardKeys.all(tenantId), 'recentActivity'] as const,
+  harvestStats: (tenantId: string, range: string) => [...dashboardKeys.all(tenantId), 'harvestStats', range] as const,
+  batches: (tenantId: string) => [...dashboardKeys.all(tenantId), 'batches'] as const,
+  sensors: (tenantId: string) => [...dashboardKeys.all(tenantId), 'sensors'] as const,
+  sensorReadings: (tenantId: string, ids: string[]) => [...dashboardKeys.all(tenantId), 'sensorReadings', ...ids] as const,
 };
 
 // ============================================================================
@@ -437,8 +444,10 @@ const LATEST_READINGS_BATCH_QUERY = `
  * staleTime: 60 saniye
  */
 export function useDashboardStats() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.stats(),
+    queryKey: dashboardKeys.stats(tenantId!),
+    enabled: !!tenantId,
     staleTime: 60_000,
     queryFn: async (): Promise<DashboardKPI> => {
       // Build date range for harvest statistics: current year
@@ -545,8 +554,10 @@ export function useDashboardStats() {
  * staleTime: 30 saniye
  */
 export function useTodaysTasks() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.tasks(),
+    queryKey: dashboardKeys.tasks(tenantId!),
+    enabled: !!tenantId,
     staleTime: 30_000,
     queryFn: async (): Promise<DashboardTask[]> => {
       const result = await graphqlClient.request<{
@@ -563,8 +574,10 @@ export function useTodaysTasks() {
  * staleTime: 60 saniye
  */
 export function useTaskStats() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.taskStats(),
+    queryKey: dashboardKeys.taskStats(tenantId!),
+    enabled: !!tenantId,
     staleTime: 60_000,
     queryFn: async (): Promise<TaskStats> => {
       const result = await graphqlClient.request<{
@@ -581,8 +594,10 @@ export function useTaskStats() {
  * staleTime: 30 saniye
  */
 export function useAlertSummary() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.alerts(),
+    queryKey: dashboardKeys.alerts(tenantId!),
+    enabled: !!tenantId,
     staleTime: 30_000,
     queryFn: async () => {
       const result = await graphqlClient.request<{
@@ -613,8 +628,10 @@ export function useAlertSummary() {
  * staleTime: 60 saniye
  */
 export function useStorageOverview() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.storage(),
+    queryKey: dashboardKeys.storage(tenantId!),
+    enabled: !!tenantId,
     staleTime: 60_000,
     queryFn: async (): Promise<StorageOverviewData> => {
       const result = await graphqlClient.request<{
@@ -631,8 +648,10 @@ export function useStorageOverview() {
  * staleTime: 30 saniye
  */
 export function useCriticalWaterQuality() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.waterQuality(),
+    queryKey: dashboardKeys.waterQuality(tenantId!),
+    enabled: !!tenantId,
     staleTime: 30_000,
     queryFn: async (): Promise<WaterQualityMeasurement[]> => {
       const result = await graphqlClient.request<{
@@ -650,8 +669,10 @@ export function useCriticalWaterQuality() {
  * staleTime: 60 saniye
  */
 export function useRecentActivity(limit = 10) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: [...dashboardKeys.recentActivity(), limit],
+    queryKey: [...dashboardKeys.recentActivity(tenantId!), limit],
+    enabled: !!tenantId,
     staleTime: 60_000,
     queryFn: async (): Promise<RecentActivity[]> => {
       const [alertResult, taskResult] = await Promise.all([
@@ -756,10 +777,12 @@ function getDateRangeForAnalytics(range: string): { startDate: string; endDate: 
  * staleTime: 120 seconds (analytics data changes infrequently)
  */
 export function useHarvestStatistics(dateRangeKey: string) {
+  const { tenantId } = useAuth();
   const { startDate, endDate } = getDateRangeForAnalytics(dateRangeKey);
 
   return useQuery({
-    queryKey: dashboardKeys.harvestStats(dateRangeKey),
+    queryKey: dashboardKeys.harvestStats(tenantId!, dateRangeKey),
+    enabled: !!tenantId,
     staleTime: 120_000,
     queryFn: async (): Promise<HarvestStatisticsData> => {
       const result = await graphqlClient.request<{
@@ -779,8 +802,10 @@ export function useHarvestStatistics(dateRangeKey: string) {
  * staleTime: 120 seconds
  */
 export function useBatchesSummary() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.batches(),
+    queryKey: dashboardKeys.batches(tenantId!),
+    enabled: !!tenantId,
     staleTime: 120_000,
     queryFn: async (): Promise<BatchSummary[]> => {
       // TODO: Consider server-side pagination if >200 batches is a real use-case
@@ -798,8 +823,10 @@ export function useBatchesSummary() {
  * staleTime: 120 seconds
  */
 export function useSensorsList() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.sensors(),
+    queryKey: dashboardKeys.sensors(tenantId!),
+    enabled: !!tenantId,
     staleTime: 120_000,
     queryFn: async (): Promise<SensorSummary[]> => {
       const result = await graphqlClient.request<{
@@ -817,10 +844,11 @@ export function useSensorsList() {
  * staleTime: 30 seconds
  */
 export function useLatestSensorReadings(sensorIds: string[]) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: dashboardKeys.sensorReadings(sensorIds),
+    queryKey: dashboardKeys.sensorReadings(tenantId!, sensorIds),
     staleTime: 30_000,
-    enabled: sensorIds.length > 0,
+    enabled: !!tenantId && sensorIds.length > 0,
     queryFn: async (): Promise<SensorReadingData[]> => {
       const result = await graphqlClient.request<{
         latestReadingsBatch: SensorReadingData[];
@@ -861,6 +889,7 @@ const RESOLVE_ALERT_MUTATION = `
  */
 export function useAcknowledgeAlert() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (alertId: string) => {
@@ -869,10 +898,11 @@ export function useAcknowledgeAlert() {
       }>(ACKNOWLEDGE_ALERT_MUTATION, { input: { alertId } });
     },
     onSuccess: () => {
+      if (!tenantId) return;
       // Invalidate alert-related queries so the widget refreshes
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts() });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats() });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity() });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts(tenantId) });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats(tenantId) });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity(tenantId) });
     },
   });
 }
@@ -882,6 +912,7 @@ export function useAcknowledgeAlert() {
  */
 export function useResolveAlert() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (alertId: string) => {
@@ -890,10 +921,11 @@ export function useResolveAlert() {
       }>(RESOLVE_ALERT_MUTATION, { alertId });
     },
     onSuccess: () => {
+      if (!tenantId) return;
       // Invalidate alert-related queries so the widget refreshes
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts() });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats() });
-      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity() });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.alerts(tenantId) });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.stats(tenantId) });
+      queryClient.invalidateQueries({ queryKey: dashboardKeys.recentActivity(tenantId) });
     },
   });
 }

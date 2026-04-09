@@ -11,13 +11,17 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CreateWorkRotationCommand } from '../commands/create-work-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
 import { WorkArea } from '../entities/work-area.entity';
+import { CertificationValidationService } from '../certification-validation.service';
 
 @Injectable()
 @CommandHandler(CreateWorkRotationCommand)
 export class CreateWorkRotationHandler implements ICommandHandler<CreateWorkRotationCommand, WorkRotation> {
   private readonly logger = new Logger(CreateWorkRotationHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly certificationValidation: CertificationValidationService,
+  ) {}
 
   async execute(command: CreateWorkRotationCommand): Promise<WorkRotation> {
     const { tenantId, input, userId } = command;
@@ -52,6 +56,19 @@ export class CreateWorkRotationHandler implements ICommandHandler<CreateWorkRota
       if (!workArea) {
         throw new NotFoundException(`Work area not found or inactive: ${input.workAreaId}`);
       }
+
+      // LIFE-SAFETY: Validate employee holds all required certifications for this
+      // work area, and that none expire before the rotation ends. Uncertified workers
+      // performing hazardous aquaculture tasks (diving, chemical handling) risk injury
+      // or death. This gate runs inside the SERIALIZABLE transaction so no concurrent
+      // certification revocation can slip through.
+      await this.certificationValidation.validateEmployeeCertifications(
+        queryRunner.manager,
+        tenantId,
+        input.employeeId,
+        input.workAreaId,
+        endDate,
+      );
 
       // Check for overlapping rotations for the same employee
       const overlapping = await rotationRepo

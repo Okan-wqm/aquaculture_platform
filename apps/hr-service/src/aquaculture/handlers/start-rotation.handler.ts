@@ -13,6 +13,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { StartRotationCommand } from '../commands/start-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
 import { Employee, PersonnelCategory } from '../../hr/entities/employee.entity';
+import { CertificationValidationService } from '../certification-validation.service';
 
 @Injectable()
 @CommandHandler(StartRotationCommand)
@@ -22,6 +23,7 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
   constructor(
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
+    private readonly certificationValidation: CertificationValidationService,
   ) {}
 
   async execute(command: StartRotationCommand): Promise<WorkRotation> {
@@ -76,6 +78,17 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
         );
       }
 
+      // LIFE-SAFETY: Re-validate certifications at start time. A certification
+      // may have been revoked or expired between scheduling and actual start.
+      // This is the last safety gate before the employee is deployed.
+      await this.certificationValidation.validateEmployeeCertifications(
+        queryRunner.manager,
+        tenantId,
+        rotation.employeeId,
+        rotation.workAreaId,
+        new Date(rotation.endDate),
+      );
+
       rotation.status = RotationStatus.IN_PROGRESS;
       rotation.actualStartTime = actualStartDate ? new Date(actualStartDate) : new Date();
       rotation.updatedBy = userId;
@@ -122,7 +135,11 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
 

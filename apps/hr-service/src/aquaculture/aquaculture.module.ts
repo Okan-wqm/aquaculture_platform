@@ -6,9 +6,11 @@ import { Employee } from '../hr/entities/employee.entity';
 import { WorkRotation } from './entities/work-rotation.entity';
 import { SafetyTrainingRecord } from './entities/safety-training-record.entity';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { EmployeeCertification } from '../training/entities/employee-certification.entity';
 import { AquacultureResolver } from './aquaculture.resolver';
 import { AquacultureQueryHandlers } from './query-handlers';
 import { AquacultureCommandHandlers } from './handlers';
+import { CertificationValidationService } from './certification-validation.service';
 import { HRModule } from '../hr/hr.module';
 
 @Module({
@@ -19,6 +21,7 @@ import { HRModule } from '../hr/hr.module';
       SafetyTrainingRecord,
       AttendanceRecord,
       Employee,
+      EmployeeCertification,
     ]),
     HRModule,
     CqrsModule,
@@ -27,7 +30,8 @@ import { HRModule } from '../hr/hr.module';
     AquacultureResolver,
     ...AquacultureQueryHandlers,
     ...AquacultureCommandHandlers,
+    CertificationValidationService,
   ],
-  exports: [TypeOrmModule],
+  exports: [TypeOrmModule, CertificationValidationService],
 })
 export class AquacultureModule {}

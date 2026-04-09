@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Header,
   Sidebar,
@@ -327,6 +328,7 @@ const moduleUserBaseNavigation: NavigationItem[] = [
 const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { user, logout, modules } = useAuthContext();
   const { tenant } = useTenantContext();
 
@@ -438,15 +440,26 @@ const MainLayout: React.FC = () => {
   );
 
   /**
-   * Logout handler — always navigate to /login even if logout throws
+   * Logout handler — purges tenant-scoped query cache before navigating
+   * to /login. This prevents stale cross-tenant data from lingering in
+   * the cache when a different user logs in on the same browser tab.
+   *
+   * SECURITY: removeQueries (not invalidateQueries) is used because we
+   * want to destroy the data, not refetch it with potentially invalid
+   * credentials (FE-CRITICAL-014/015/016).
    */
   const handleLogout = useCallback(async () => {
+    // SECURITY: Capture tenantId before logout clears it from state
+    const currentTenantId = user?.tenantId;
     try {
       await logout();
     } finally {
+      if (currentTenantId) {
+        queryClient.removeQueries({ queryKey: ['tenant', currentTenantId] });
+      }
       navigate('/login');
     }
-  }, [logout, navigate]);
+  }, [logout, navigate, queryClient, user?.tenantId]);
 
   /**
    * User menu items — memoized to avoid recreating on every render

@@ -288,7 +288,7 @@ export class Employee {
 
   @Field({ nullable: true })
   @Column({ nullable: true })
-  currentRotationId?: string;
+  currentRotationId?: string | null;
 
   /**
    * IANA timezone string for the employee's local timezone (e.g., 'Asia/Manila')

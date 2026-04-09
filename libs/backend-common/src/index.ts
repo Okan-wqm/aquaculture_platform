@@ -100,3 +100,7 @@ export * from './monitoring';
 
 // WebSocket - Shared CORS config helper with production fail-closed policy
 export * from './websocket';
+
+// Monetary - Immutable Money value object with Decimal.js precision
+// Replaces parseFloat()-based DecimalTransformer for all financial arithmetic
+export * from './monetary';

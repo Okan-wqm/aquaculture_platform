@@ -44,7 +44,7 @@
 import { useEffect } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ─── Configuration ──────────────────────────────────────────────────
 
@@ -69,7 +69,13 @@ function resolveFarmSocketUrl(): string {
   return `${baseUrl}/farms`;
 }
 
-/** Event → React Query key prefix invalidation map. */
+/**
+ * Event → React Query key prefix invalidation map (domain segments only).
+ *
+ * SECURITY: These are the domain-specific segments only. The tenant prefix
+ * is prepended at invalidation time via createTenantQueryKey, ensuring all
+ * invalidations are scoped to the active tenant (FE-CRITICAL-016).
+ */
 const INVALIDATION_MAP = {
   batchCreated: [
     ['batches', 'list'],
@@ -160,9 +166,13 @@ export function useFarmRealtimeStream(): void {
 
     /**
      * Generic handler factory: invalidates the mapped prefixes for this
-     * event type. React Query's `invalidateQueries` with a partial key
-     * matches every query whose key starts with the given prefix, so
-     * we re-fetch the batch list, detail, tank list, etc. in one pass.
+     * event type. Each domain prefix is scoped to the current tenant via
+     * createTenantQueryKey, ensuring invalidations never cross tenant
+     * boundaries (FE-CRITICAL-016).
+     *
+     * React Query's `invalidateQueries` with a partial key matches every
+     * query whose key starts with the given prefix, so we re-fetch the
+     * batch list, detail, tank list, etc. in one pass.
      */
     const handlers: Array<{ event: FarmEventName; fn: () => void }> = (
       Object.keys(INVALIDATION_MAP) as FarmEventName[]
@@ -171,10 +181,10 @@ export function useFarmRealtimeStream(): void {
       fn: () => {
         const prefixes = INVALIDATION_MAP[event];
         for (const prefix of prefixes) {
-          // `QueryKey` in @tanstack/react-query is `readonly unknown[]`,
-          // so the `const satisfies` readonly tuples pass through
-          // unchanged. No cast required.
-          void queryClient.invalidateQueries({ queryKey: prefix });
+          // SECURITY: Prepend tenant prefix to ensure invalidation is
+          // scoped to the active tenant's cache entries only.
+          const tenantScopedKey = createTenantQueryKey(tenantId!, ...prefix);
+          void queryClient.invalidateQueries({ queryKey: tenantScopedKey });
         }
       },
     }));

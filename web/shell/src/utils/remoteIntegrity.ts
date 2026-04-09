@@ -96,14 +96,93 @@ function reportViolation(src: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// createElement patch
+// Shared script src validation logic
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates a script src value against the allowlist and applies SRI hash
+ * pins when available. Returns the (possibly cleared) src value.
+ *
+ * SECURITY: This is the single enforcement point for both createElement and
+ * setAttribute interception paths, ensuring consistent policy application.
+ *
+ * @param src - The script src URL to validate
+ * @param scriptElement - The script element to apply integrity attributes to
+ * @returns The validated src (empty string if blocked)
+ */
+function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptElement): string {
+  if (!isRemoteEntryScript(src)) {
+    return src;
+  }
+
+  if (!isAllowedRemoteUrl(src)) {
+    reportViolation(src);
+    return '';
+  }
+
+  // Apply hash pin if registered
+  const pin = REMOTE_HASH_PINS[src];
+  if (pin) {
+    scriptElement.integrity = pin;
+    scriptElement.crossOrigin = 'anonymous';
+  } else if (import.meta.env.DEV) {
+    // Warn in development when no hash pin is registered.
+    // In production this is expected until CI populates REMOTE_HASH_PINS.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[SH-SEC-04] No integrity hash pinned for remote entry: ${src}. ` +
+        'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.'
+    );
+  } else if (import.meta.env.PROD) {
+    // SEC-M02: Runtime warning when SRI hash map is empty in production.
+    // This indicates the CI/CD pipeline has not yet populated REMOTE_HASH_PINS.
+    // Remote modules will still load (allowlist permits them), but without
+    // integrity verification, a CDN or proxy compromise could inject
+    // malicious code. Dispatch a security event for monitoring/alerting.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[SH-SEC-04] PRODUCTION: No SRI hash pinned for remote entry: ${src}. ` +
+        'CI/CD must populate REMOTE_HASH_PINS for subresource integrity enforcement.'
+    );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('aquaculture:security-violation', {
+          detail: {
+            type: 'SRI_HASH_MISSING',
+            src,
+            timestamp: Date.now(),
+            severity: 'warning',
+          },
+        })
+      );
+    }
+  }
+
+  return src;
+}
+
+// ---------------------------------------------------------------------------
+// createElement patch (on Document.prototype)
 // ---------------------------------------------------------------------------
 
 let patchApplied = false;
 
 /**
- * Installs a `document.createElement` patch that intercepts dynamically
- * injected <script> elements whose `src` matches a remoteEntry pattern.
+ * Installs prototype-level patches that intercept dynamically injected
+ * <script> elements whose `src` matches a remoteEntry pattern.
+ *
+ * Two interception layers are installed:
+ *
+ *   1. `Document.prototype.createElement` — intercepts script element
+ *      creation and overrides the `src` property descriptor on each
+ *      new script element to validate against the allowlist.
+ *
+ *   2. `Element.prototype.setAttribute` — intercepts `setAttribute('src', ...)`
+ *      calls on script elements, preventing bypass via attribute manipulation
+ *      instead of property assignment.
+ *
+ * SECURITY: Patches are applied to prototypes (not instances) so they
+ * cover all document contexts including iframes and sandboxed contexts.
  *
  * For each intercepted script:
  *  - If the `src` is NOT in the allowlist, the element's `src` is cleared and
@@ -111,99 +190,86 @@ let patchApplied = false;
  *  - If a hash pin is registered for the `src`, the `integrity` attribute is
  *    set so the browser enforces SRI natively.
  *
- * Must be called once, as early as possible in application bootstrap (before
- * any import() of remote modules).
+ * Must be called once, as early as possible — BEFORE any library imports
+ * (React, ReactDOM, etc.) to ensure the guard is active when those
+ * libraries execute.
  */
 export function installRemoteIntegrityGuard(): void {
   if (patchApplied || typeof document === 'undefined') return;
   patchApplied = true;
 
-  const originalCreateElement = document.createElement.bind(document);
+  // ── Layer 1: Document.prototype.createElement patch ──
+  // SECURITY: Patching the prototype (not the instance) ensures coverage
+  // across all document contexts — iframes, sandboxed contexts, or any
+  // code that obtains a fresh document reference will still be intercepted.
+  const originalCreateElement = Document.prototype.createElement;
 
-  // Use a type assertion so we can replace the overloaded DOM method while
-  // keeping the return type compatible.
-  (document as Document & { createElement: typeof document.createElement }).createElement =
-    function patchedCreateElement<K extends keyof HTMLElementTagNameMap>(
-      tagName: K,
-      options?: ElementCreationOptions
-    ): HTMLElementTagNameMap[K] {
-      const element = originalCreateElement(tagName, options);
+  Document.prototype.createElement = function patchedCreateElement<
+    K extends keyof HTMLElementTagNameMap,
+  >(
+    this: Document,
+    tagName: K,
+    options?: ElementCreationOptions
+  ): HTMLElementTagNameMap[K] {
+    const element = originalCreateElement.call(this, tagName, options);
 
-      if (tagName.toLowerCase() !== 'script') {
-        return element;
-      }
+    if (tagName.toLowerCase() !== 'script') {
+      return element;
+    }
 
-      const script = element as HTMLScriptElement;
+    const script = element as HTMLScriptElement;
 
-      // Intercept src assignment via property descriptor override
-      let _src = '';
-      const descriptor = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+    // Intercept src assignment via property descriptor override
+    let _src = '';
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLScriptElement.prototype,
+      'src'
+    );
 
-      Object.defineProperty(script, 'src', {
-        get() {
-          return _src;
-        },
-        set(value: string) {
-          _src = value;
+    Object.defineProperty(script, 'src', {
+      get() {
+        return _src;
+      },
+      set(value: string) {
+        const validatedSrc = validateAndEnforceScriptSrc(value, script);
+        _src = validatedSrc;
+        if (descriptor?.set) {
+          descriptor.set.call(this, validatedSrc);
+        }
+      },
+      configurable: true,
+      enumerable: true,
+    });
 
-          if (isRemoteEntryScript(value)) {
-            if (!isAllowedRemoteUrl(value)) {
-              reportViolation(value);
-              // Block by leaving src empty — script won't load
-              _src = '';
-              if (descriptor?.set) {
-                descriptor.set.call(this, '');
-              }
-              return;
-            }
+    return element as HTMLElementTagNameMap[K];
+  } as typeof Document.prototype.createElement;
 
-            // Apply hash pin if registered
-            const pin = REMOTE_HASH_PINS[value];
-            if (pin) {
-              script.integrity = pin;
-              script.crossOrigin = 'anonymous';
-            } else if (import.meta.env.DEV) {
-              // Warn in development when no hash pin is registered.
-              // In production this is expected until CI populates REMOTE_HASH_PINS.
-              // eslint-disable-next-line no-console
-              console.warn(
-                `[SH-SEC-04] No integrity hash pinned for remote entry: ${value}. ` +
-                  'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.'
-              );
-            } else if (import.meta.env.PROD) {
-              // SEC-M02: Runtime warning when SRI hash map is empty in production.
-              // This indicates the CI/CD pipeline has not yet populated REMOTE_HASH_PINS.
-              // Remote modules will still load (allowlist permits them), but without
-              // integrity verification, a CDN or proxy compromise could inject
-              // malicious code. Dispatch a security event for monitoring/alerting.
-              // eslint-disable-next-line no-console
-              console.warn(
-                `[SH-SEC-04] PRODUCTION: No SRI hash pinned for remote entry: ${value}. ` +
-                  'CI/CD must populate REMOTE_HASH_PINS for subresource integrity enforcement.'
-              );
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(
-                  new CustomEvent('aquaculture:security-violation', {
-                    detail: {
-                      type: 'SRI_HASH_MISSING',
-                      src: value,
-                      timestamp: Date.now(),
-                      severity: 'warning',
-                    },
-                  })
-                );
-              }
-            }
-          }
+  // ── Layer 2: Element.prototype.setAttribute patch ──
+  // SECURITY: Intercepts `el.setAttribute('src', url)` on script elements.
+  // Without this, an attacker can bypass the createElement src property
+  // descriptor by using setAttribute directly.
+  const originalSetAttribute = Element.prototype.setAttribute;
 
-          if (descriptor?.set) {
-            descriptor.set.call(this, _src);
-          }
-        },
-        configurable: true,
-        enumerable: true,
-      });
+  Element.prototype.setAttribute = function patchedSetAttribute(
+    this: Element,
+    name: string,
+    value: string
+  ): void {
+    // Only intercept 'src' attribute on script elements
+    if (
+      name.toLowerCase() === 'src' &&
+      this instanceof HTMLScriptElement
+    ) {
+      const validatedSrc = validateAndEnforceScriptSrc(
+        value,
+        this as HTMLScriptElement
+      );
+      // If blocked, set empty src to prevent loading
+      originalSetAttribute.call(this, name, validatedSrc);
+      return;
+    }
 
-      return element as HTMLElementTagNameMap[K];
-    };
+    // Pass through for all non-script or non-src attributes
+    originalSetAttribute.call(this, name, value);
+  };
 }

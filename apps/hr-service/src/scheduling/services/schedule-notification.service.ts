@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 
 // Optional microservices support - stub interface when module not available
@@ -257,7 +257,7 @@ export class ScheduleNotificationService {
         tenantId,
         weekStartDate,
         status: WeeklyPlanStatus.PUBLISHED,
-        notifiedAt: null as any, // TypeORM uses null for IS NULL
+        notifiedAt: IsNull(),
         isDeleted: false,
       },
     });

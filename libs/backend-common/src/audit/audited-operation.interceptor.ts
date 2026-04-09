@@ -1,0 +1,488 @@
+import {
+  Injectable,
+  NestInterceptor,
+  ExecutionContext,
+  CallHandler,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { DataSource, QueryRunner } from 'typeorm';
+import { Observable, from, throwError } from 'rxjs';
+import { switchMap, catchError } from 'rxjs/operators';
+
+import {
+  AUDITED_OPERATION_KEY,
+  AuditedOperationOptions,
+  AuditedOperationStatus,
+} from './audited-operation.decorator';
+import { AuditLogEntity, AuditSeverity } from './audit-log.entity';
+
+/**
+ * Keys that must never appear in audit log metadata.
+ * Prevents accidental leakage of secrets into the audit trail.
+ */
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'token',
+  'secret',
+  'accesstoken',
+  'refreshtoken',
+  'authorization',
+  'creditcard',
+  'ssn',
+  'cvv',
+  'pin',
+  'apikey',
+  'privatekey',
+]);
+
+/**
+ * Maximum depth for sanitizing nested objects
+ */
+const MAX_SANITIZE_DEPTH = 3;
+
+/**
+ * AuditedOperationInterceptor
+ *
+ * NestJS interceptor that implements the @AuditedOperation() decorator contract.
+ *
+ * ## Key differences from the legacy AuditLogInterceptor:
+ *
+ * | Aspect                | Legacy AuditLogInterceptor      | AuditedOperationInterceptor       |
+ * |-----------------------|---------------------------------|-----------------------------------|
+ * | Audit write mode      | Fire-and-forget (.catch)        | AWAITED — failure = operation failure |
+ * | Transaction support   | None (separate write)           | Uses same QueryRunner if available |
+ * | Failure handling      | Swallows silently               | Throws InternalServerErrorException |
+ * | Error audit           | Also fire-and-forget            | AWAITED — guaranteed persistence  |
+ * | CQRS support          | HTTP/GraphQL only               | HTTP, GraphQL, AND CQRS handlers  |
+ *
+ * ## How it works:
+ *
+ * 1. Reads @AuditedOperation() metadata via Reflector (checks both handler and class)
+ * 2. Extracts user identity from request context (JWT) or CQRS command metadata
+ * 3. Extracts tenantId from request context or command
+ * 4. BEFORE handler: captures timestamp, userId, tenantId, action, resource
+ * 5. AFTER handler: writes audit entry (SUCCESS) — AWAITED
+ * 6. On handler failure: writes audit entry (FAILED) with error message — AWAITED
+ * 7. On audit write failure: throws InternalServerErrorException (NEVER swallows)
+ *
+ * ## Transaction integration:
+ *
+ * If the request object carries a `queryRunner` property (set by a transactional
+ * middleware or decorator), the audit row is written through that QueryRunner so
+ * it participates in the same DB transaction. If the transaction rolls back, the
+ * audit row rolls back too — no phantom audits for failed operations.
+ *
+ * If no QueryRunner is available (e.g. GraphQL resolver without explicit txn),
+ * the audit is written as a separate operation but is still AWAITED — never
+ * fire-and-forget.
+ */
+@Injectable()
+export class AuditedOperationInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditedOperationInterceptor.name);
+
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly dataSource: DataSource,
+  ) {}
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    // ── Read metadata ──
+    // Check handler method first, then fall back to class (for @CommandHandler)
+    const options =
+      this.reflector.get<AuditedOperationOptions | undefined>(
+        AUDITED_OPERATION_KEY,
+        context.getHandler(),
+      ) ??
+      this.reflector.get<AuditedOperationOptions | undefined>(
+        AUDITED_OPERATION_KEY,
+        context.getClass(),
+      );
+
+    if (!options) {
+      return next.handle();
+    }
+
+    // ── Pre-execution capture ──
+    const capturedAt = new Date();
+    const requestCtx = this.extractRequestContext(context);
+    const extractedDetails = this.extractDetails(options, context);
+
+    return next.handle().pipe(
+      // ── Success path ──
+      switchMap((result: unknown) => {
+        const resourceId = this.resolveResourceId(options, result);
+        return from(
+          this.writeAuditEntry(
+            options,
+            requestCtx,
+            capturedAt,
+            AuditedOperationStatus.SUCCESS,
+            resourceId,
+            extractedDetails,
+            null,
+          ),
+        ).pipe(
+          // After audit write succeeds, return the original result
+          switchMap(() => [result]),
+        );
+      }),
+      // ── Failure path ──
+      catchError((handlerError: Error) => {
+        return from(
+          this.writeAuditEntry(
+            options,
+            requestCtx,
+            capturedAt,
+            AuditedOperationStatus.FAILED,
+            null,
+            extractedDetails,
+            handlerError.message,
+          ),
+        ).pipe(
+          // After audit write succeeds, re-throw the original handler error
+          switchMap(() => throwError(() => handlerError)),
+          // If audit write ALSO fails, throw an InternalServerError that
+          // wraps both the original error and the audit failure
+          catchError((auditWriteError: Error) => {
+            this.logger.error(
+              `AUDIT_WRITE_FAILURE: Could not persist FAILED audit entry ` +
+                `for ${options.action} on ${options.resource}. ` +
+                `Original error: ${handlerError.message}. ` +
+                `Audit error: ${auditWriteError.message}`,
+            );
+            return throwError(
+              () =>
+                new InternalServerErrorException(
+                  `Operation failed and audit trail could not be written. ` +
+                    `Original: ${handlerError.message}`,
+                ),
+            );
+          }),
+        );
+      }),
+      // ── Audit write failure on SUCCESS path ──
+      // The switchMap above can fail if writeAuditEntry rejects.
+      // We need a top-level catch for that scenario.
+      catchError((error: Error) => {
+        // If this is already an InternalServerErrorException from our audit
+        // failure handler above, just re-throw it
+        if (error instanceof InternalServerErrorException) {
+          return throwError(() => error);
+        }
+        // This catches audit write failures on the SUCCESS path
+        this.logger.error(
+          `AUDIT_WRITE_FAILURE: Could not persist SUCCESS audit entry ` +
+            `for ${options.action} on ${options.resource}. ` +
+            `Error: ${error.message}`,
+        );
+        return throwError(
+          () =>
+            new InternalServerErrorException(
+              'Operation succeeded but audit trail could not be written. ' +
+                'The operation has been aborted for compliance.',
+            ),
+        );
+      }),
+    );
+  }
+
+  /**
+   * Write the audit entry to the database.
+   *
+   * If a QueryRunner is available on the request, uses it so the audit row
+   * participates in the same transaction as the business operation.
+   * Otherwise writes directly via the DataSource manager.
+   *
+   * IMPORTANT: This method is always AWAITED — never fire-and-forget.
+   *
+   * @throws Error if the database write fails (caller must handle)
+   */
+  private async writeAuditEntry(
+    options: AuditedOperationOptions,
+    ctx: RequestContext,
+    capturedAt: Date,
+    status: AuditedOperationStatus,
+    resourceId: string | null,
+    extractedDetails: Record<string, unknown> | null,
+    errorMessage: string | null,
+  ): Promise<void> {
+    const metadata: Record<string, unknown> = {};
+
+    if (options.description) {
+      metadata['description'] = options.description;
+    }
+    if (extractedDetails && Object.keys(extractedDetails).length > 0) {
+      metadata['details'] = this.sanitizeObject(extractedDetails);
+    }
+    if (errorMessage) {
+      metadata['error'] = errorMessage;
+    }
+    metadata['status'] = status;
+
+    const auditEntry: Partial<AuditLogEntity> = {
+      action: `${options.action}_${options.resource}`.toUpperCase(),
+      resource: options.resource,
+      resourceId,
+      userId: ctx.userId,
+      userEmail: ctx.userEmail,
+      tenantId: ctx.tenantId,
+      schemaName: ctx.schemaName,
+      metadata: Object.keys(metadata).length > 0 ? metadata : null,
+      ip: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      severity: status === AuditedOperationStatus.FAILED
+        ? AuditSeverity.ERROR
+        : AuditSeverity.INFO,
+      correlationId: ctx.correlationId,
+    };
+
+    // ── Transaction-aware write ──
+    if (ctx.queryRunner && !ctx.queryRunner.isReleased) {
+      // IMPORTANT: Write through the same QueryRunner so the audit row
+      // is part of the same transaction as the business operation.
+      await ctx.queryRunner.manager.save(AuditLogEntity, auditEntry);
+    } else {
+      // No transaction available — write directly but AWAIT the result.
+      // This is still better than fire-and-forget because failures propagate.
+      await this.dataSource.getRepository(AuditLogEntity).save(auditEntry);
+    }
+  }
+
+  // ── Context extraction helpers ──
+
+  /**
+   * Extract request context from the execution context.
+   * Supports HTTP, GraphQL, and RPC (CQRS) execution contexts.
+   */
+  private extractRequestContext(context: ExecutionContext): RequestContext {
+    const contextType = context.getType<string>();
+
+    if (contextType === 'graphql') {
+      return this.extractFromGraphQL(context);
+    }
+
+    if (contextType === 'http') {
+      return this.extractFromHttp(context);
+    }
+
+    // RPC / CQRS context — try to extract from handler arguments
+    return this.extractFromRpc(context);
+  }
+
+  /**
+   * Extract context from an HTTP request (REST controllers)
+   */
+  private extractFromHttp(context: ExecutionContext): RequestContext {
+    const request = context.switchToHttp().getRequest<RequestLike>();
+    return this.buildContextFromRequest(request);
+  }
+
+  /**
+   * Extract context from a GraphQL execution context
+   */
+  private extractFromGraphQL(context: ExecutionContext): RequestContext {
+    const gqlCtx = GqlExecutionContext.create(context);
+    const request = gqlCtx.getContext().req as RequestLike | undefined;
+    return this.buildContextFromRequest(request);
+  }
+
+  /**
+   * Extract context from an RPC/CQRS execution context.
+   * CQRS commands often carry tenantId and userId as properties.
+   */
+  private extractFromRpc(context: ExecutionContext): RequestContext {
+    const args = context.getArgs<unknown[]>();
+    const command = args[0] as Record<string, unknown> | undefined;
+
+    return {
+      userId: (command?.['userId'] as string) ?? null,
+      userEmail: (command?.['userEmail'] as string) ?? null,
+      tenantId: (command?.['tenantId'] as string) ?? null,
+      schemaName: (command?.['schemaName'] as string) ?? null,
+      ipAddress: (command?.['ipAddress'] as string) ?? null,
+      userAgent: null,
+      correlationId: (command?.['correlationId'] as string) ?? null,
+      queryRunner: (command?.['queryRunner'] as QueryRunner) ?? null,
+    };
+  }
+
+  /**
+   * Build a RequestContext from an HTTP-like request object.
+   */
+  private buildContextFromRequest(request: RequestLike | undefined): RequestContext {
+    if (!request) {
+      return {
+        userId: null,
+        userEmail: null,
+        tenantId: null,
+        schemaName: null,
+        ipAddress: null,
+        userAgent: null,
+        correlationId: null,
+        queryRunner: null,
+      };
+    }
+
+    const user = request.user;
+    const headers = request.headers ?? {};
+
+    return {
+      userId: user?.sub ?? user?.id ?? null,
+      userEmail: user?.email ?? null,
+      tenantId: user?.tenantId ?? (headers['x-tenant-id'] as string) ?? null,
+      schemaName: (headers['x-schema-name'] as string) ?? null,
+      ipAddress: this.extractIp(request),
+      userAgent: (headers['user-agent'] as string) ?? null,
+      correlationId: (headers['x-correlation-id'] as string) ?? null,
+      queryRunner: (request as Record<string, unknown>)['queryRunner'] as QueryRunner ?? null,
+    };
+  }
+
+  /**
+   * Extract client IP from the request.
+   * Considers X-Forwarded-For for proxied requests.
+   */
+  private extractIp(request: RequestLike): string | null {
+    const forwarded = request.headers?.['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0]?.trim() ?? null;
+    }
+    return request.ip ?? null;
+  }
+
+  /**
+   * Extract additional details using the decorator's extractDetails function.
+   */
+  private extractDetails(
+    options: AuditedOperationOptions,
+    context: ExecutionContext,
+  ): Record<string, unknown> | null {
+    if (!options.extractDetails) {
+      return null;
+    }
+
+    try {
+      const args = context.getArgs<unknown[]>();
+      return options.extractDetails(args);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to extract audit details for ${options.action} on ${options.resource}: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Resolve the resource ID from the handler result.
+   * Uses custom extractor if provided, otherwise looks for common patterns.
+   */
+  private resolveResourceId(
+    options: AuditedOperationOptions,
+    result: unknown,
+  ): string | null {
+    // ── Custom extractor ──
+    if (options.extractResourceId) {
+      try {
+        return options.extractResourceId(result);
+      } catch {
+        return null;
+      }
+    }
+
+    // ── Default extraction ──
+    if (result === null || result === undefined) {
+      return null;
+    }
+    if (typeof result === 'string') {
+      return result;
+    }
+    if (typeof result === 'number') {
+      return String(result);
+    }
+    if (typeof result === 'object') {
+      const obj = result as Record<string, unknown>;
+      if (typeof obj['id'] === 'string') {
+        return obj['id'];
+      }
+      if (typeof obj['id'] === 'number') {
+        return String(obj['id']);
+      }
+    }
+    return null;
+  }
+
+  // ── Sanitization ──
+
+  /**
+   * Sanitize an object by removing sensitive keys and truncating deep nesting.
+   * Prevents passwords, tokens, and other secrets from appearing in audit logs.
+   */
+  private sanitizeObject(
+    obj: Record<string, unknown>,
+    depth = 0,
+  ): Record<string, unknown> {
+    if (depth >= MAX_SANITIZE_DEPTH) {
+      return { _truncated: true };
+    }
+
+    const result: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(obj)) {
+      if (SENSITIVE_KEYS.has(key.toLowerCase())) {
+        result[key] = '[REDACTED]';
+        continue;
+      }
+
+      if (value === null || value === undefined) {
+        result[key] = value;
+      } else if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+        result[key] = this.sanitizeObject(
+          value as Record<string, unknown>,
+          depth + 1,
+        );
+      } else if (Array.isArray(value)) {
+        result[key] = value.slice(0, 10);
+      } else {
+        result[key] = value;
+      }
+    }
+
+    return result;
+  }
+}
+
+/**
+ * Minimal request shape for extracting audit context.
+ * Avoids tight coupling to Express/Fastify types.
+ */
+interface RequestLike {
+  user?: {
+    sub?: string;
+    id?: string;
+    email?: string;
+    tenantId?: string | null;
+    [key: string]: unknown;
+  };
+  headers?: Record<string, string | string[] | undefined>;
+  body?: unknown;
+  ip?: string;
+}
+
+/**
+ * Extracted request context for audited operations.
+ * Includes QueryRunner reference for transaction-aware writes.
+ */
+interface RequestContext {
+  userId: string | null;
+  userEmail: string | null;
+  tenantId: string | null;
+  schemaName: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  correlationId: string | null;
+  queryRunner: QueryRunner | null;
+}

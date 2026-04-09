@@ -219,8 +219,7 @@ export class ProvisioningService {
       throw new BadRequestException('Device has no provisioning token');
     }
 
-    // Require the caller to present the correct provisioning token
-    if (device.provisioningToken !== provisioningToken) {
+    if (!this.validateProvisioningToken(device.provisioningToken, provisioningToken)) {
       throw new UnauthorizedException('Invalid provisioning token');
     }
 
@@ -286,19 +285,9 @@ export class ProvisioningService {
       });
     }
 
-    // Validate token
-    // Hash both tokens to get constant-length buffers, preventing length-based timing leaks
-    const tokenHash = crypto.createHash('sha256').update(token).digest();
-    const storedHash = crypto.createHash('sha256').update(device.provisioningToken || '').digest();
-    // DEBUG: Log token diagnostics (hash prefixes only - no credential exposure)
-    this.logger.debug(
-      `Token check for ${device.deviceCode}: received_len=${token.length}, stored_len=${(device.provisioningToken || '').length}, ` +
-      `received_hash=${tokenHash.toString('hex').substring(0, 12)}, stored_hash=${storedHash.toString('hex').substring(0, 12)}, ` +
-      `received_first4=${token.substring(0, 4)}****, stored_first4=${(device.provisioningToken || '').substring(0, 4)}****`
-    );
-    if (!device.provisioningToken || !crypto.timingSafeEqual(tokenHash, storedHash)) {
-      this.logger.warn(`Activation failed: invalid token for device ${device.deviceCode}. ` +
-        `received_hash_prefix=${tokenHash.toString('hex').substring(0, 12)}, stored_hash_prefix=${storedHash.toString('hex').substring(0, 12)}`);
+    // Validate token via single source of truth (SENSOR-CRITICAL-001)
+    if (!this.validateProvisioningToken(device.provisioningToken, token)) {
+      this.logger.warn(`Activation failed: invalid token for device ${device.deviceCode}`);
       throw new UnauthorizedException({
         success: false,
         error: 'Invalid provisioning token',
@@ -830,5 +819,28 @@ export class ProvisioningService {
     limit = 20,
   ): Promise<{ items: import('./entities/device-event.entity').DeviceEvent[]; total: number; page: number; limit: number }> {
     return this.deviceEventService.getDeviceEvents(tenantId, deviceId, eventType, page, limit);
+  }
+
+  /**
+   * SECURITY: Single source of truth for provisioning token validation.
+   *
+   * Uses SHA-256 hashing + crypto.timingSafeEqual to prevent:
+   * - Timing side-channel attacks (constant-time comparison)
+   * - Length-based leaks (hash normalizes to 32 bytes)
+   *
+   * All code paths that compare provisioning tokens MUST use this method.
+   * Direct `===` comparison on tokens is FORBIDDEN (SENSOR-CRITICAL-001).
+   *
+   * @param storedToken - The token stored on the device entity (may be null)
+   * @param providedToken - The token provided by the caller
+   * @returns true if tokens match, false otherwise
+   */
+  private validateProvisioningToken(storedToken: string | null | undefined, providedToken: string): boolean {
+    if (!storedToken) {
+      return false;
+    }
+    const providedHash = crypto.createHash('sha256').update(providedToken).digest();
+    const storedHash = crypto.createHash('sha256').update(storedToken).digest();
+    return crypto.timingSafeEqual(providedHash, storedHash);
   }
 }

@@ -10,14 +10,13 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, TenantProvider, ConfiguredBrowserRouter } from '@aquaculture/shared-ui';
-import { installRemoteIntegrityGuard } from './utils/remoteIntegrity';
 import App from './App';
 import './styles/index.css';
 
-// SH-SEC-04: Install the remote module integrity guard before any lazy imports
-// execute. This patches document.createElement to intercept dynamically injected
-// <script> elements and validate their origin against the allowlist.
-installRemoteIntegrityGuard();
+// SECURITY: Remote integrity guard is installed in main.tsx (before this
+// module loads) to ensure Document.prototype.createElement and
+// Element.prototype.setAttribute patches are active before React/ReactDOM
+// execute. See FE-CRITICAL-003.
 
 // ============================================================================
 // Query Client Configuration

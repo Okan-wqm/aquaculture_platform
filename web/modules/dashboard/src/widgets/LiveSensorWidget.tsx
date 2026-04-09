@@ -7,7 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Badge, formatRelativeTime, graphqlClient } from '@aquaculture/shared-ui';
+import { Card, Badge, formatRelativeTime, graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { SensorIcon } from '../components/icons';
 
@@ -77,11 +77,14 @@ export const LiveSensorWidget: React.FC<LiveSensorWidgetProps> = ({
   className = '',
   pollingInterval = 15_000,
 }) => {
-  // Sensor info query (fetch once, long staleTime)
+  const { tenantId } = useAuth();
+
+  // SECURITY: Tenant-scoped query keys prevent cross-tenant sensor data leaks
+  // when switching tenants or during admin impersonation (FE-CRITICAL-015).
   const sensorInfoQuery = useQuery({
-    queryKey: ['sensor', 'info', sensorId],
+    queryKey: createTenantQueryKey(tenantId!, 'sensor', 'info', sensorId),
     staleTime: 5 * 60_000, // 5 min
-    enabled: !!sensorId,
+    enabled: !!sensorId && !!tenantId,
     queryFn: async () => {
       const result = await graphqlClient.request<{ sensor: SensorInfo }>(
         SENSOR_INFO_QUERY,
@@ -93,10 +96,10 @@ export const LiveSensorWidget: React.FC<LiveSensorWidgetProps> = ({
 
   // Latest reading query with polling
   const readingQuery = useQuery({
-    queryKey: ['sensor', 'latestReading', sensorId],
+    queryKey: createTenantQueryKey(tenantId!, 'sensor', 'latestReading', sensorId),
     staleTime: 10_000, // 10s
     refetchInterval: pollingInterval,
-    enabled: !!sensorId,
+    enabled: !!sensorId && !!tenantId,
     queryFn: async () => {
       const result = await graphqlClient.request<{
         latestReading: SensorReading | null;

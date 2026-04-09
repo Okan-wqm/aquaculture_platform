@@ -10,6 +10,11 @@
 //! - Graceful shutdown coordinator
 //! - Granular state management
 
+// SECURITY: Clippy safety lints are set to `deny` in Cargo.toml to prevent
+// panic-prone code (unwrap/expect/indexing) from reaching production.
+// Test code is exempt — panicking on assertion failure is idiomatic in tests.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
 mod backup; // v1.2.4: Backup and restore functionality
 mod bounded;

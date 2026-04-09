@@ -294,8 +294,10 @@ pub struct MqttConfig {
     #[serde(default = "default_keepalive")]
     pub keepalive_secs: u64,
 
-    /// Clean session flag (false to preserve QoS 1/2 messages)
-    #[serde(default = "default_true")]
+    /// Clean session flag — default `false` to preserve QoS 1/2 messages across
+    /// reconnects. Setting `true` discards server-side session state on every
+    /// connect, losing any messages queued by the broker during the disconnect window.
+    #[serde(default)]
     pub clean_session: bool,
 
     /// Last Will topic for device status (optional)

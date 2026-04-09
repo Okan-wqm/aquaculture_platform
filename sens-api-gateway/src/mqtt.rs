@@ -21,7 +21,6 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, Transport};
 use secrecy::ExposeSecret;
-use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -219,11 +218,13 @@ impl MqttClient {
             .ok_or_else(|| AgentError::Mqtt("Tenant ID not configured".into()))?;
         let topics = config.mqtt.topics.resolve(tenant_id, &config.device_id);
 
-        // Generate a unique client_id that includes the username and a random UUID component.
-        // Using the username alone as client_id allows an attacker who knows the device_id
-        // to force-disconnect the legitimate session by connecting with the same client_id
-        // (MQTT 3.1.1 section 3.1.4 — broker disconnects the older session).
-        let client_id = format!("{}-{}", username, Uuid::new_v4().simple());
+        // SECURITY: Derive client_id deterministically from device_code so the broker
+        // can resume the persistent session (clean_session=false) across reconnects.
+        // A random UUID would create a new session on every restart, losing QoS 1/2
+        // messages queued by the broker during the disconnect window.
+        // The username prefix prevents cross-device collision; device_code is unique
+        // per physical device (e.g. "RPI-A1B2C3D4").
+        let client_id = format!("{}-{}", username, config.device_code);
 
         // Create MQTT options
         let mut options = MqttOptions::new(
@@ -236,6 +237,12 @@ impl MqttClient {
         options.set_credentials(username, password.expose_secret());
         options.set_keep_alive(Duration::from_secs(config.mqtt.keepalive_secs));
         options.set_clean_session(config.mqtt.clean_session);
+
+        // SECURITY: Limit max incoming/outgoing packet size to 1 MiB to prevent
+        // pre-authentication OOM DoS via oversized PUBLISH packets. Without this
+        // limit, a malicious broker or MITM can send an arbitrarily large packet
+        // that exhausts memory on the constrained edge device.
+        options.set_max_packet_size(1_048_576, 1_048_576);
 
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
         if config.mqtt.tls.enabled {
@@ -408,8 +415,10 @@ impl MqttClient {
                         connack.code, connack.session_present
                     );
 
-                    // Resubscribe after reconnection: when clean_session=true (default),
-                    // the broker drops all subscriptions on disconnect. Skip on first
+                    // Resubscribe after reconnection: when clean_session=true,
+                    // the broker drops all subscriptions on disconnect.
+                    // Default is now false (persistent session), but resubscribe if
+                    // session_present=false (broker lost session). Skip on first
                     // connect since new() already calls subscribe().
                     if !first_connect || !connack.session_present {
                         if !first_connect {

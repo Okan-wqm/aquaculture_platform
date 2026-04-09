@@ -194,16 +194,22 @@ strip = true        # Strip symbols
 
 # IoT-specific Clippy lints for safety and reliability
 # IEC 62443 SL2 FR3: Input validation
+# SECURITY: Safety-critical lints use "deny" (not "warn") to prevent panic-prone
+# code from reaching production. An unwrap/expect in a hot path (e.g. LoRa crypto)
+# panics the entire edge agent on malformed input.
 [lints.clippy]
-unwrap_used = "warn"         # Prefer explicit error handling
-expect_used = "warn"         # Document panic conditions
-indexing_slicing = "warn"    # Use .get() for bounds safety
-large_stack_arrays = "warn"  # Prevent stack overflow on embedded
-todo = "warn"                # Track incomplete code
-unimplemented = "warn"       # No unimplemented panics in production
-dbg_macro = "warn"           # No debug macros in release
-print_stdout = "warn"        # Use tracing instead
-print_stderr = "warn"        # Use tracing instead
+unwrap_used = "deny"         # SECURITY: panic on malformed input crashes the agent
+expect_used = "deny"         # SECURITY: same as unwrap — use map_err + ? instead
+indexing_slicing = "deny"    # SECURITY: OOB panic — use .get() for bounds safety
+large_stack_arrays = "deny"  # Prevent stack overflow on embedded
+todo = "deny"                # No incomplete code in production
+unimplemented = "deny"       # No unimplemented panics in production
+dbg_macro = "deny"           # No debug macros in release
+print_stdout = "deny"        # Use tracing instead
+print_stderr = "deny"        # Use tracing instead
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"  # SECURITY: require unsafe block inside unsafe fn
 
 [[bin]]
 name = "suderra-agent"

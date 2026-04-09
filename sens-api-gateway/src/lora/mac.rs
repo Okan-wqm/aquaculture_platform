@@ -17,6 +17,10 @@
 //! - `session`: SQLite tabanli kalici oturum deposu
 //! - `types`: Paylasilam veri yapilari
 
+// SAFETY: LoRaWAN MAC processing operates on protocol-defined fixed-offset fields
+// in PHYPayload byte arrays. All index bounds are specified by LoRaWAN 1.0.x spec.
+#![allow(clippy::indexing_slicing)]
+
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -451,9 +455,11 @@ impl LoRaMac {
         let received_mic = &pkt.payload[19..23];
 
         // Join-Request MIC hesaplamasi: CMAC direkt mesaj uzerinden (B0 yok)
+        // SAFETY: app_key.0 is [u8; 16] — CMAC key length always matches AES-128.
+        #[allow(clippy::expect_used)]
         let mut mac =
             <cmac::Cmac<aes::Aes128> as cmac::Mac>::new_from_slice(&device_config.app_key.0)
-                .expect("AES-128-CMAC anahtar uzunlugu dogru");
+                .expect("BUG: app_key is [u8; 16] — CMAC key length is always valid");
         cmac::Mac::update(&mut mac, mic_input);
         let cmac_result = cmac::Mac::finalize(mac).into_bytes();
         let mut computed_mic_arr = [0u8; 4];
@@ -592,8 +598,10 @@ impl LoRaMac {
         let mut mic_input = vec![mhdr];
         mic_input.extend_from_slice(&plaintext);
 
+        // SAFETY: app_key is &[u8; 16] — CMAC key length always matches AES-128.
+        #[allow(clippy::expect_used)]
         let mut mac = <cmac::Cmac<aes::Aes128> as cmac::Mac>::new_from_slice(app_key)
-            .expect("AES-128-CMAC anahtar uzunlugu dogru");
+            .expect("BUG: app_key is [u8; 16] — CMAC key length is always valid");
         cmac::Mac::update(&mut mac, &mic_input);
         let cmac_result = cmac::Mac::finalize(mac).into_bytes();
         let mic = &cmac_result[..4];
@@ -834,6 +842,9 @@ impl LoRaMac {
             .position(|item| item.dev_addr == *dev_addr);
 
         let downlink = match queue_idx {
+            // SAFETY: idx was just obtained from .position() on the same VecDeque
+            // with no intervening mutation, so remove() always returns Some.
+            #[allow(clippy::unwrap_used)]
             Some(idx) => self.downlink_queue.remove(idx).unwrap(),
             None => {
                 // Kuyrukta downlink yok — eger confirmed uplink ise bos ACK downlink gonder

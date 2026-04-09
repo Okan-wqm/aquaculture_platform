@@ -45,8 +45,11 @@ use super::types::{DevAddr, SessionKeys};
 /// ```
 pub fn compute_mic(key: &[u8; 16], b0: &[u8; 16], msg: &[u8]) -> [u8; 4] {
     // AES-128-CMAC hesapla: once B0 blogu, sonra mesaj verisi
+    // SAFETY: key is always 16 bytes ([u8; 16]), matching AES-128 key size.
+    // new_from_slice only fails if the slice length != cipher key size.
+    #[allow(clippy::expect_used)]
     let mut mac = <Cmac<Aes128> as Mac>::new_from_slice(key)
-        .expect("AES-128-CMAC anahtar uzunlugu her zaman 16 byte");
+        .expect("BUG: key is [u8; 16] — CMAC key length is always valid");
 
     mac.update(b0);
     mac.update(msg);

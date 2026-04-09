@@ -94,6 +94,22 @@ export class CertificationType {
   @Column({ default: false })
   isDivingRequired!: boolean; // Required for diving work
 
+  /**
+   * HR-MEDIUM-005: STCW Basic Safety Training (BST) flag.
+   *
+   * Maritime crew operating on marine aquaculture sites must hold STCW BST
+   * certification per IMO STCW Convention. When true, crew assignment to
+   * marine/offshore work areas validates that the employee holds an active
+   * certification of this type.
+   *
+   * Seed data should create a CertificationType with:
+   *   code: 'STCW-BST', isSTCW: true, isOffshoreRequired: true,
+   *   requirement: MANDATORY, category: SAFETY
+   */
+  @Field()
+  @Column({ default: false })
+  isSTCW!: boolean;
+
   @Field(() => [String], { nullable: true })
   @Column('simple-array', { nullable: true })
   applicableWorkAreas?: string[]; // Work areas where this cert is required

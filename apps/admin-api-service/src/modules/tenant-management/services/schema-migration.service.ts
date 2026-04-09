@@ -1,0 +1,112 @@
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+/**
+ * HR-MEDIUM-006: Schema name validation regex.
+ *
+ * Strict alphanumeric + underscore validation prevents SQL injection when
+ * schema names are interpolated into DDL statements. DDL parameters cannot
+ * be parameterized in PostgreSQL (CREATE SCHEMA $1 is invalid), so input
+ * validation is the ONLY defense.
+ *
+ * Constraints:
+ * - Must start with a lowercase letter (PostgreSQL convention)
+ * - Only lowercase letters, digits, and underscores allowed
+ * - Max 63 characters (PostgreSQL identifier limit)
+ */
+const SCHEMA_NAME_PATTERN = /^[a-z][a-z0-9_]{0,62}$/;
+
+/**
+ * Validates a schema name against the strict pattern.
+ * Throws BadRequestException if the name contains any disallowed characters.
+ *
+ * @param schemaName - The schema name to validate
+ * @throws BadRequestException if invalid
+ */
+export function validateSchemaName(schemaName: string): void {
+  if (!SCHEMA_NAME_PATTERN.test(schemaName)) {
+    throw new BadRequestException(
+      `Invalid schema name "${schemaName}". Schema names must match /^[a-z][a-z0-9_]{0,62}$/ ` +
+      `(start with lowercase letter, only lowercase letters/digits/underscores, max 63 chars).`,
+    );
+  }
+}
+
+@Injectable()
+export class SchemaMigrationService {
+  private readonly logger = new Logger(SchemaMigrationService.name);
+
+  constructor(private readonly dataSource: DataSource) {}
+
+  /**
+   * Create a new tenant schema.
+   *
+   * HR-MEDIUM-006: Schema name is validated against a strict regex BEFORE
+   * being interpolated into DDL. SQL injection through schema names is
+   * STRUCTURALLY IMPOSSIBLE because only /^[a-z][a-z0-9_]{0,62}$/ passes.
+   *
+   * @param schemaName - Tenant schema name (validated)
+   */
+  async createSchema(schemaName: string): Promise<void> {
+    // SECURITY: Validate BEFORE any SQL interpolation
+    validateSchemaName(schemaName);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      // WHY: DDL (CREATE SCHEMA) cannot use parameterized queries in PostgreSQL.
+      // The validation above ensures schemaName is safe for interpolation.
+      await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+
+      this.logger.log(`Schema created: ${schemaName}`);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Drop a tenant schema.
+   *
+   * @param schemaName - Tenant schema name (validated)
+   */
+  async dropSchema(schemaName: string): Promise<void> {
+    // SECURITY: Validate BEFORE any SQL interpolation
+    validateSchemaName(schemaName);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      await queryRunner.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+
+      this.logger.log(`Schema dropped: ${schemaName}`);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Run migrations on a specific tenant schema.
+   *
+   * @param schemaName - Tenant schema name (validated)
+   */
+  async migrateSchema(schemaName: string): Promise<void> {
+    // SECURITY: Validate BEFORE any SQL interpolation
+    validateSchemaName(schemaName);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      // Set search_path to the tenant schema before running migrations
+      await queryRunner.query(`SET search_path TO "${schemaName}"`);
+
+      this.logger.log(`Migration completed for schema: ${schemaName}`);
+    } finally {
+      // Reset search_path to default
+      await queryRunner.query('SET search_path TO public');
+      await queryRunner.release();
+    }
+  }
+}

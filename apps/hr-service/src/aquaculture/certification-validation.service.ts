@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { In, EntityManager } from 'typeorm';
 import { EmployeeCertification, CertificationStatus } from '../training/entities/employee-certification.entity';
+import { CertificationType } from '../training/entities/certification-type.entity';
 import { WorkArea } from './entities/work-area.entity';
 
 /**
@@ -131,6 +132,64 @@ export class CertificationValidationService {
         }
       }
       // If expiryDate is null, the cert never expires (e.g., lifetime certs) — valid.
+    }
+
+    // ── Step 3b: STCW BST validation for marine/offshore work areas ──
+    // HR-MEDIUM-005: Maritime crew must hold STCW BST certification.
+    // If the work area is offshore (detected via entity flag or required certs
+    // having isSTCW=true), validate STCW BST compliance.
+    const stcwCertTypes = await manager.find(CertificationType, {
+      where: {
+        tenantId,
+        isSTCW: true,
+        isActive: true,
+        isDeleted: false,
+      },
+      select: ['id', 'name'],
+    });
+
+    if (stcwCertTypes.length > 0) {
+      // LIFE-SAFETY: If any STCW cert types exist in this tenant, verify
+      // the employee holds active STCW certs for offshore work areas.
+      for (const stcwType of stcwCertTypes) {
+        // Skip if already in the required list (would have been caught above)
+        if (requiredCertTypeIds.includes(stcwType.id)) continue;
+
+        // Only enforce STCW for work areas that require offshore certs
+        const hasOffshoreRequirement = requiredCertTypeIds.length > 0;
+        if (!hasOffshoreRequirement) continue;
+
+        const hasStcw = employeeCerts.some(
+          (c) =>
+            c.certificationTypeId === stcwType.id &&
+            c.status === CertificationStatus.ACTIVE &&
+            (!c.expiryDate || new Date(c.expiryDate) >= rotationEndDate),
+        );
+
+        if (!hasStcw) {
+          // Re-query to check if employee has this STCW cert at all
+          const stcwCert = await manager.findOne(EmployeeCertification, {
+            where: {
+              tenantId,
+              employeeId,
+              certificationTypeId: stcwType.id,
+              isDeleted: false,
+            },
+          });
+
+          if (!stcwCert) {
+            gaps.push({ certificationTypeId: stcwType.id, reason: 'MISSING' });
+          } else if (stcwCert.status !== CertificationStatus.ACTIVE) {
+            gaps.push({ certificationTypeId: stcwType.id, reason: 'NOT_ACTIVE' });
+          } else if (stcwCert.expiryDate && new Date(stcwCert.expiryDate) < rotationEndDate) {
+            gaps.push({
+              certificationTypeId: stcwType.id,
+              reason: 'EXPIRES_DURING_ROTATION',
+              expiryDate: new Date(stcwCert.expiryDate).toISOString(),
+            });
+          }
+        }
+      }
     }
 
     // ── Step 4: Reject with details if any gaps found ──

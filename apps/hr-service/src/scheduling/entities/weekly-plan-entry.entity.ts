@@ -86,13 +86,23 @@ export class WeeklyPlanEntry {
   @JoinColumn({ name: 'leaveRequestId' })
   leaveRequest?: LeaveRequest;
 
+  /**
+   * HR-MEDIUM-003: Changed from `time` (no timezone) to `timestamptz`.
+   * When employees move between sites in different timezones, `time` without
+   * timezone makes shift boundaries ambiguous. With `timestamptz`, PostgreSQL
+   * stores the absolute UTC instant and converts to/from the session timezone.
+   *
+   * BREAKING CHANGE: Column type changed from `time` to `timestamptz`.
+   * Migration required: ALTER COLUMN planned_start_time TYPE timestamptz.
+   */
   @Field({ nullable: true })
-  @Column({ type: 'time', nullable: true })
-  plannedStartTime?: string; // HH:mm, overrides shift if set
+  @Column({ type: 'timestamptz', nullable: true })
+  plannedStartTime?: Date; // UTC instant, overrides shift if set
 
+  /** HR-MEDIUM-003: See plannedStartTime for rationale. */
   @Field({ nullable: true })
-  @Column({ type: 'time', nullable: true })
-  plannedEndTime?: string; // HH:mm, overrides shift if set
+  @Column({ type: 'timestamptz', nullable: true })
+  plannedEndTime?: Date; // UTC instant, overrides shift if set
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })

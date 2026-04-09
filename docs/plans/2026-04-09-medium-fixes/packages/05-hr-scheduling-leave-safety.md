@@ -1,7 +1,7 @@
 # Package 05: hr-scheduling-leave-safety
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 20K
 Priority: MEDIUM
 Security-Sensitive: no

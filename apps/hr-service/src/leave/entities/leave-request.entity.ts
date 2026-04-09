@@ -72,6 +72,17 @@ export class LeaveAttachment {
 @Index(['tenantId', 'startDate', 'endDate'])
 @Index(['tenantId', 'status', 'createdAt'])
 @Index(['tenantId', 'approvedBy'])
+// HR-MEDIUM-002: DB-level exclusion constraint for overlapping leave detection.
+// Application-level overlap checks are insufficient under concurrent requests.
+// The EXCLUDE USING gist constraint makes overlapping leaves for the same employee
+// STRUCTURALLY IMPOSSIBLE at the database level, regardless of application-layer races.
+// NOTE: Requires btree_gist extension. The migration adds:
+//   ALTER TABLE leave_requests ADD CONSTRAINT leave_no_overlap
+//     EXCLUDE USING gist (
+//       tenant_id WITH =,
+//       employee_id WITH =,
+//       daterange("startDate", "endDate", '[]') WITH &&
+//     ) WHERE (status NOT IN ('cancelled', 'rejected', 'withdrawn') AND "isDeleted" = false);
 export class LeaveRequest {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

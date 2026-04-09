@@ -426,8 +426,10 @@ impl ScriptStorage {
         // Fast path: return existing cache if not dirty
         {
             let cache = self.active_cache.read().await;
-            if cache.is_some() && !*self.dirty_rx.borrow() {
-                return cache.as_ref().unwrap().clone();
+            if let Some(cached) = cache.as_ref() {
+                if !*self.dirty_rx.borrow() {
+                    return cached.clone();
+                }
             }
         }
 

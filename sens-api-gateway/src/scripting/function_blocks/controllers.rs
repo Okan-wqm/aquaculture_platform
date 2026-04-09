@@ -174,10 +174,9 @@ impl FunctionBlock for PID {
         let now = std::time::Instant::now();
 
         // Calculate dt in seconds
-        let dt = if self.first_run || self.last_time.is_none() {
-            self.sample_time_ms as f64 / 1000.0
-        } else {
-            self.last_time.unwrap().elapsed().as_secs_f64()
+        let dt = match self.last_time {
+            Some(t) if !self.first_run => t.elapsed().as_secs_f64(),
+            _ => self.sample_time_ms as f64 / 1000.0,
         };
 
         // Prevent division by zero or huge dt

@@ -18,8 +18,10 @@ static INTERPOLATION_REGEX: OnceLock<regex::Regex> = OnceLock::new();
 /// Get or initialize the interpolation regex
 fn get_interpolation_regex() -> &'static regex::Regex {
     INTERPOLATION_REGEX.get_or_init(|| {
+        // SAFETY: This is a compile-time constant regex pattern; it cannot fail.
+        #[allow(clippy::expect_used)]
         regex::Regex::new(r"\$\{([^}]+)\}")
-            .expect("Invalid interpolation regex pattern - this is a bug")
+            .expect("BUG: static regex pattern is always valid")
     })
 }
 
@@ -173,14 +175,18 @@ impl ScriptContext {
                                     self.timezone_offset_secs
                                 );
                                 // v1.2.6: UTC offset (0) is always valid per chrono spec
-                                FixedOffset::east_opt(0).expect("UTC offset 0 is always valid")
+                                // SAFETY: east_opt(0) always returns Some — 0 is within valid range.
+                                #[allow(clippy::expect_used)]
+                                FixedOffset::east_opt(0).expect("BUG: UTC offset 0 is always valid")
                             }
                         };
                         offset.from_utc_datetime(&utc_now.naive_utc())
                     } else {
                         // v1.2.6: UTC offset (0) is always valid per chrono spec
+                        // SAFETY: east_opt(0) always returns Some — 0 is within valid range.
+                        #[allow(clippy::expect_used)]
                         FixedOffset::east_opt(0)
-                            .expect("UTC offset 0 is always valid")
+                            .expect("BUG: UTC offset 0 is always valid")
                             .from_utc_datetime(&utc_now.naive_utc())
                     };
                     match source_name {

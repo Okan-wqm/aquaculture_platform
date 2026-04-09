@@ -8,11 +8,12 @@ import {
   ObjectType,
   Field,
 } from '@nestjs/graphql';
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Tenant, CurrentUser } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
 import { InAppNotificationService } from '../services/in-app.service';
+import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 import { DeviceToken } from '../entities/device-token.entity';
 
 /**
@@ -62,6 +63,7 @@ export class NotificationResolver {
 
   constructor(
     private readonly inAppService: InAppNotificationService,
+    private readonly dlqService: DeadLetterQueueService,
     @InjectRepository(DeviceToken)
     private readonly deviceTokenRepository: Repository<DeviceToken>,
   ) {}
@@ -130,6 +132,24 @@ export class NotificationResolver {
     @Tenant() tenantId: string,
   ): Promise<boolean> {
     return await this.inAppService.markAllAsRead(user.sub, tenantId);
+  }
+
+  // ── DLQ Management (SUPER_ADMIN only) ─────────────────────────────
+
+  /**
+   * Query dead-lettered events for a tenant.
+   *
+   * SECURITY: Restricted to SUPER_ADMIN to prevent unauthorized replay
+   * or inspection of failed events which may contain sensitive payloads.
+   * @see PLAT-MEDIUM-004 (DLQ has no RBAC)
+   */
+  @Query(() => Int, { name: 'deadLetterCount' })
+  @Roles(Role.SUPER_ADMIN)
+  async deadLetterCount(
+    @Tenant() tenantId: string,
+  ): Promise<number> {
+    const result = await this.dlqService.getDeadLetterEvents(tenantId, 0, 0);
+    return result.total;
   }
 
   /**

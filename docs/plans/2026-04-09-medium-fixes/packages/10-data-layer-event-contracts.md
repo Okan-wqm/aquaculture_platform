@@ -1,7 +1,7 @@
 # Package 10: data-layer-event-contracts
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 20K
 Priority: MEDIUM
 Security-Sensitive: no

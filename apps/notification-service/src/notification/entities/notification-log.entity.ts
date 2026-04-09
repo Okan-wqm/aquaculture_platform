@@ -37,6 +37,13 @@ export enum NotificationChannel {
 @Entity('notification_logs')
 @Index(['tenantId', 'sentAt'])
 @Index(['channel', 'status'])
+/**
+ * Composite index for unread notification queries:
+ *   WHERE tenant_id = ? AND recipient = ? AND channel = 'in_app'
+ * Without this index, the unread badge count query performs a full table scan.
+ * @see DATA-MEDIUM-021
+ */
+@Index('IDX_notification_tenant_recipient_channel', ['tenantId', 'recipient', 'channel'])
 export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

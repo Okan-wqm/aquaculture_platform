@@ -104,12 +104,20 @@ export class ThrottlerGuard implements CanActivate {
 
       const errorMessage = config.errorMessage || 'Too many requests. Please try again later.';
 
+      // IMPORTANT: Set Retry-After header BEFORE throwing so the exception filter
+      // does not need to know about rate limiting internals. RFC 6585 §4 requires
+      // 429 responses to include Retry-After so clients can implement correct backoff.
+      const retryAfterSeconds = result.retryAfter ?? Math.ceil(config.ttl);
+      if (response?.setHeader) {
+        response.setHeader('Retry-After', retryAfterSeconds.toString());
+      }
+
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
           message: errorMessage,
           error: 'Too Many Requests',
-          retryAfter: result.retryAfter,
+          retryAfter: retryAfterSeconds,
         },
         HttpStatus.TOO_MANY_REQUESTS,
       );

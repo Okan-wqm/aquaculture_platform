@@ -117,6 +117,13 @@ export interface MortalityDocument {
 @Index(['tenantId', 'severity'])
 @Index(['batchId', 'recordDate'])
 @Index(['tankId', 'recordDate'])
+/**
+ * Composite index for batch history ORDER BY createdAt DESC queries.
+ * Without this, the query planner falls back to a sequential scan
+ * when sorting mortality records by creation time within a batch.
+ * @see DATA-MEDIUM-023
+ */
+@Index('IDX_mortality_batch_created_desc', ['batchId', 'createdAt'])
 export class MortalityRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

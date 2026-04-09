@@ -10,7 +10,13 @@
 export interface IEvent {
   eventId: string;
   eventType: string;
-  timestamp: Date;
+  /**
+   * ISO 8601 timestamp string.
+   * Aligned with BaseEvent.timestamp (string, not Date) to match
+   * JSONB wire format and prevent type lie.
+   * @see DATA-MEDIUM-011
+   */
+  timestamp: string;
   tenantId?: string;
   correlationId?: string;
   causationId?: string;

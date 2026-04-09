@@ -18,9 +18,15 @@ export interface BaseEvent {
   eventType: string;
 
   /**
-   * When the event occurred
+   * When the event occurred (ISO 8601 string).
+   *
+   * WHY string not Date: JSONB serialization converts Date to ISO 8601 string
+   * on the wire. Declaring Date here makes the TypeScript interface lie about
+   * the runtime type. Consumers that need Date should call `new Date(event.timestamp)`.
+   *
+   * @example "2026-04-09T14:30:00.000Z"
    */
-  timestamp: Date;
+  timestamp: string;
 
   /**
    * Tenant identifier for multi-tenancy.
@@ -38,14 +44,13 @@ export interface BaseEvent {
    *
    * Examples: subscriptionId, batchId, sensorId, employeeId, paymentId
    */
-  aggregateId?: string;
+  aggregateId: string;
 
   /**
    * Type name of the domain aggregate (e.g., 'Subscription', 'Batch', 'Sensor', 'Employee').
    * Paired with aggregateId to enable aggregate-type-aware event routing and replay.
-   * Optional for backwards compatibility with existing event publishers.
    */
-  aggregateType?: string;
+  aggregateType: string;
 
   /**
    * Correlation ID for distributed tracing
@@ -104,12 +109,15 @@ export type PlanTier = 'starter' | 'professional' | 'enterprise';
 export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
 
 /**
- * Create a base event with auto-generated eventId, timestamp, and version.
+ * Create a base event with auto-generated eventId, timestamp (ISO 8601 string), and version.
+ *
+ * `aggregateId` and `aggregateType` are required so that every event is properly
+ * associated with a domain aggregate for event-sourced replay and per-entity audit trails.
  *
  * Usage:
  * ```typescript
  * const event: TenantCreatedEvent = {
- *   ...createBaseEvent('TenantCreated', tenantId),
+ *   ...createBaseEvent('TenantCreated', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
  *   name: tenant.name,
  *   slug: tenant.slug,
  * };
@@ -118,14 +126,16 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
 export function createBaseEvent<T extends BaseEvent>(
   eventType: T['eventType'],
   tenantId: string,
-  overrides?: Partial<Pick<BaseEvent, 'correlationId' | 'causationId' | 'userId' | 'version'>>,
-): Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version'> & { eventType: T['eventType'] } & Partial<BaseEvent> {
+  overrides?: Partial<Pick<BaseEvent, 'correlationId' | 'causationId' | 'userId' | 'version' | 'aggregateId' | 'aggregateType'>>,
+): Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent> {
   return {
     eventId: crypto.randomUUID(),
     eventType,
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
     tenantId,
     version: 1,
+    aggregateId: '',
+    aggregateType: '',
     ...overrides,
-  } as Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version'> & { eventType: T['eventType'] } & Partial<BaseEvent>;
+  } as Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent>;
 }

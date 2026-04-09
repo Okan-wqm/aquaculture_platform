@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import {
@@ -7,6 +7,7 @@ import {
   ConfigEnvironment,
 } from '../entities/configuration.entity';
 import { EncryptionService } from './encryption.service';
+import { RedisService } from '@aquaculture/backend-common';
 
 interface CacheEntry {
   value: Configuration;
@@ -16,16 +17,21 @@ interface CacheEntry {
 
 const MAX_CACHE_SIZE = 1000;
 const CACHE_TTL_MS = 60_000; // 1 minute
+/** Redis cache TTL in seconds — longer than in-memory because Redis is shared across pods */
+const REDIS_CACHE_TTL_SECONDS = 120;
 
 @Injectable()
 export class ConfigurationService implements OnModuleInit {
   private readonly logger = new Logger(ConfigurationService.name);
+  /** L1 in-memory cache (per-pod, fast) */
   private cache = new Map<string, CacheEntry>();
 
   constructor(
     @InjectRepository(Configuration)
     private readonly configRepository: Repository<Configuration>,
     private readonly encryptionService: EncryptionService,
+    /** L2 Redis cache (shared across pods). @Optional to allow graceful degradation. */
+    @Optional() private readonly redisService?: RedisService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -44,13 +50,31 @@ export class ConfigurationService implements OnModuleInit {
   ): Promise<T> {
     const cacheKey = `${tenantId}:${service}:${key}`;
 
-    // Check cache
+    // ── L1: in-memory cache ──
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
       cached.lastAccessed = Date.now();
       return this.getDecryptedTypedValue<T>(cached.value);
     }
 
+    // ── L2: Redis cache (cross-pod) ──
+    if (this.redisService) {
+      try {
+        const redisKey = `config:${cacheKey}`;
+        const redisValue = await this.redisService.get(redisKey);
+        if (redisValue) {
+          const config = JSON.parse(redisValue) as Configuration;
+          // Promote to L1
+          this.setCacheEntry(cacheKey, config);
+          return this.getDecryptedTypedValue<T>(config);
+        }
+      } catch (err) {
+        // Redis unavailable: fall through to DB — graceful degradation
+        this.logger.debug(`Redis cache miss/error for ${cacheKey}: ${err}`);
+      }
+    }
+
+    // ── L3: Database ──
     // Single query with tenant + global fallback
     const whereConditions: FindOptionsWhere<Configuration>[] = [
       { tenantId, service, key, isActive: true },
@@ -139,9 +163,15 @@ export class ConfigurationService implements OnModuleInit {
    * Called by command handlers after successful writes.
    * When a global config is updated, all per-tenant entries caching that global
    * fallback are also purged to prevent stale reads across tenants.
+   *
+   * Invalidates both L1 (in-memory) and L2 (Redis) caches so that
+   * config updates on one pod are visible to other pods immediately.
+   * @see PLAT-MEDIUM-007 (config cache is local-only per-pod)
    */
   invalidateCache(tenantId: string, service: string, key: string): void {
     const cacheKey = `${tenantId}:${service}:${key}`;
+
+    // ── L1: in-memory ──
     this.cache.delete(cacheKey);
 
     if (tenantId === 'global') {
@@ -155,6 +185,25 @@ export class ConfigurationService implements OnModuleInit {
     } else {
       // Tenant-specific update: also purge the global cache entry
       this.cache.delete(`global:${service}:${key}`);
+    }
+
+    // ── L2: Redis (cross-pod) ──
+    if (this.redisService) {
+      const redisKey = `config:${cacheKey}`;
+      this.redisService.del(redisKey).catch((err) => {
+        this.logger.warn(`Failed to invalidate Redis cache for ${redisKey}: ${err}`);
+      });
+
+      if (tenantId === 'global') {
+        // Purge all tenant-specific Redis entries for this service:key
+        this.redisService.deletePattern(`config:*:${service}:${key}`).catch((err) => {
+          this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
+        });
+      } else {
+        this.redisService.del(`config:global:${service}:${key}`).catch((err) => {
+          this.logger.warn(`Failed to invalidate Redis global cache for ${service}:${key}: ${err}`);
+        });
+      }
     }
   }
 
@@ -255,9 +304,11 @@ export class ConfigurationService implements OnModuleInit {
 
   /**
    * Set cache entry with LRU eviction when max size is exceeded.
+   * Writes to both L1 (in-memory) and L2 (Redis) for cross-pod consistency.
+   * @see PLAT-MEDIUM-007 (config cache is local-only per-pod)
    */
   private setCacheEntry(key: string, value: Configuration): void {
-    // Evict oldest entry if cache is full
+    // ── L1: in-memory with LRU eviction ──
     if (this.cache.size >= MAX_CACHE_SIZE) {
       let oldestKey = '';
       let oldestAccess = Infinity;
@@ -280,5 +331,19 @@ export class ConfigurationService implements OnModuleInit {
       expiry: now + CACHE_TTL_MS,
       lastAccessed: now,
     });
+
+    // ── L2: Redis (cross-pod, longer TTL) ──
+    if (this.redisService) {
+      const redisKey = `config:${key}`;
+      // SECURITY: Do not cache secret values in Redis — they are decrypted on read
+      // and should not be stored in a shared cache in plaintext.
+      if (!value.isSecret) {
+        this.redisService
+          .set(redisKey, JSON.stringify(value), REDIS_CACHE_TTL_SECONDS)
+          .catch((err) => {
+            this.logger.debug(`Failed to write Redis cache for ${redisKey}: ${err}`);
+          });
+      }
+    }
   }
 }

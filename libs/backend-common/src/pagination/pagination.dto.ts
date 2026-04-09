@@ -294,3 +294,111 @@ export function safeSortField(
 export function safeSortOrder(requested: string | undefined): 'ASC' | 'DESC' {
   return requested?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 }
+
+// ============================================================================
+// KEYSET (CURSOR) PAGINATION
+// ============================================================================
+
+/**
+ * Keyset pagination input — the platform-wide cursor-based alternative.
+ *
+ * Uses the last-seen ID (or composite cursor) for efficient pagination
+ * that avoids the O(offset) row skip cost of OFFSET/LIMIT.
+ *
+ * For large datasets (e.g., sensor readings, audit logs), keyset pagination
+ * is required to maintain constant query time regardless of page depth.
+ *
+ * @see DATA-MEDIUM-017 (cursor pagination uses OFFSET instead of keyset)
+ */
+@InputType({ isAbstract: true })
+export class KeysetPaginationInput {
+  @Field(() => Int, { nullable: true, defaultValue: 20, description: 'Items per page (max 100)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  /**
+   * Opaque cursor from the previous page's `nextCursor` field.
+   * When null, returns the first page.
+   *
+   * The cursor encodes the last-seen sort key + ID, allowing the query
+   * to use a WHERE clause (e.g., `WHERE (createdAt, id) < (:cursorDate, :cursorId)`)
+   * instead of OFFSET.
+   */
+  @Field({ nullable: true, description: 'Opaque cursor from previous page (null for first page)' })
+  @IsOptional()
+  @IsString()
+  cursor?: string;
+
+  @Field({ nullable: true, defaultValue: 'createdAt', description: 'Sort field' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
+  sortBy?: string;
+
+  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction' })
+  @IsOptional()
+  @IsEnum(SortOrder)
+  sortOrder?: SortOrder;
+}
+
+/**
+ * Keyset pagination result — includes cursor for next page.
+ */
+export interface IKeysetPaginatedResult<T> {
+  items: T[];
+  /** Opaque cursor to pass as `cursor` in the next request. Null if no more pages. */
+  nextCursor: string | null;
+  /** Whether there are more items after this page. */
+  hasNextPage: boolean;
+}
+
+/**
+ * Encode a keyset cursor from sort value and ID.
+ *
+ * @param sortValue - The value of the sort field for the last item (Date or string)
+ * @param id        - The ID of the last item (UUID)
+ * @returns Base64-encoded cursor string
+ */
+export function encodeKeysetCursor(sortValue: string | Date, id: string): string {
+  const val = sortValue instanceof Date ? sortValue.toISOString() : sortValue;
+  return Buffer.from(JSON.stringify({ v: val, id })).toString('base64url');
+}
+
+/**
+ * Decode a keyset cursor.
+ *
+ * @param cursor - Base64-encoded cursor string
+ * @returns Decoded sort value and ID, or null if invalid
+ */
+export function decodeKeysetCursor(cursor: string): { v: string; id: string } | null {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (typeof decoded.v === 'string' && typeof decoded.id === 'string') {
+      return decoded;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Creates a typed keyset paginated response class for GraphQL.
+ */
+export function KeysetPaginatedResponse<T>(classRef: Type<T>): Type<IKeysetPaginatedResult<T>> {
+  @ObjectType({ isAbstract: true })
+  abstract class KeysetPaginatedResponseClass implements IKeysetPaginatedResult<T> {
+    @Field(() => [classRef], { description: 'Array of items' })
+    items!: T[];
+
+    @Field({ nullable: true, description: 'Cursor for the next page (null if no more pages)' })
+    nextCursor!: string | null;
+
+    @Field(() => Boolean, { description: 'Whether there are more items' })
+    hasNextPage!: boolean;
+  }
+  return KeysetPaginatedResponseClass as Type<IKeysetPaginatedResult<T>>;
+}

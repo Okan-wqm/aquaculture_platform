@@ -181,3 +181,110 @@ export function alkMeqToMg(meqPerL: number): number {
 export function tempCToK(tempC: number): number {
   return tempC + 273.15;
 }
+
+// ============================================================================
+// ION BALANCE (meq/L based)
+// ============================================================================
+
+/**
+ * Ion concentration in milliequivalents per liter (meq/L).
+ *
+ * WHY meq/L not mg/L or %:
+ * Ion balance must account for ionic charge. A simple percentage of
+ * mg/L concentrations is misleading for mixed-valence solutions
+ * (e.g., Ca²⁺ contributes 2 equivalents per mole vs Na⁺ at 1).
+ * meq/L normalizes by charge, giving a physically meaningful balance.
+ *
+ * @see PLAT-MEDIUM-006 (ion balance uses % instead of meq/L)
+ */
+export interface IonConcentrationMeqL {
+  /** Ion name (e.g. 'Ca2+', 'Mg2+', 'Na+', 'K+', 'HCO3-', 'SO42-', 'Cl-') */
+  ion: string;
+  /** Concentration in milliequivalents per liter */
+  meqL: number;
+}
+
+/**
+ * Result of an ion balance calculation in meq/L.
+ */
+export interface IonBalanceResult {
+  /** Sum of cation concentrations (meq/L) */
+  totalCationsMeqL: number;
+  /** Sum of anion concentrations (meq/L) */
+  totalAnionsMeqL: number;
+  /**
+   * Ion balance error as a percentage:
+   *   IBE = ((cations - anions) / (cations + anions)) * 100
+   *
+   * Acceptable range: -5% to +5% (APHA Standard Methods 1030E)
+   */
+  ionBalanceErrorPercent: number;
+  /** Whether the balance is within acceptable limits (|IBE| <= 5%) */
+  isAcceptable: boolean;
+}
+
+/**
+ * Convert mg/L to meq/L for a given ion.
+ *
+ * @param mgL     - Concentration in mg/L
+ * @param molarMass - Molar mass of the ion (g/mol)
+ * @param charge    - Absolute ionic charge (e.g. 2 for Ca²⁺, 1 for Na⁺)
+ * @returns Concentration in meq/L
+ */
+export function mgLToMeqL(mgL: number, molarMass: number, charge: number): number {
+  if (molarMass <= 0 || charge <= 0) return 0;
+  return (mgL / molarMass) * charge;
+}
+
+/**
+ * Calculate ion balance using milliequivalent concentrations.
+ *
+ * This is the correct method for aquaculture water chemistry per
+ * APHA Standard Methods 1030E. Simple percentage-based balance
+ * is inaccurate for mixed-valence ion solutions.
+ *
+ * @param cations - Array of cation concentrations in meq/L
+ * @param anions  - Array of anion concentrations in meq/L
+ * @returns Ion balance result with error percentage and acceptability
+ */
+export function calcIonBalance(
+  cations: IonConcentrationMeqL[],
+  anions: IonConcentrationMeqL[],
+): IonBalanceResult {
+  const totalCationsMeqL = cations.reduce((sum, c) => sum + c.meqL, 0);
+  const totalAnionsMeqL = anions.reduce((sum, a) => sum + a.meqL, 0);
+
+  const denominator = totalCationsMeqL + totalAnionsMeqL;
+  const ionBalanceErrorPercent = denominator > 0
+    ? ((totalCationsMeqL - totalAnionsMeqL) / denominator) * 100
+    : 0;
+
+  return {
+    totalCationsMeqL,
+    totalAnionsMeqL,
+    ionBalanceErrorPercent,
+    isAcceptable: Math.abs(ionBalanceErrorPercent) <= 5,
+  };
+}
+
+/**
+ * Common aquaculture ion molar masses and charges for convenience.
+ * Use with `mgLToMeqL()` for converting field measurements.
+ */
+export const COMMON_IONS = {
+  // Cations
+  'Ca2+':  { molarMass: 40.078,  charge: 2 },
+  'Mg2+':  { molarMass: 24.305,  charge: 2 },
+  'Na+':   { molarMass: 22.990,  charge: 1 },
+  'K+':    { molarMass: 39.098,  charge: 1 },
+  'Fe2+':  { molarMass: 55.845,  charge: 2 },
+  'Fe3+':  { molarMass: 55.845,  charge: 3 },
+  'NH4+':  { molarMass: 18.039,  charge: 1 },
+  // Anions
+  'HCO3-': { molarMass: 61.017,  charge: 1 },
+  'CO32-': { molarMass: 60.009,  charge: 2 },
+  'SO42-': { molarMass: 96.062,  charge: 2 },
+  'Cl-':   { molarMass: 35.453,  charge: 1 },
+  'NO3-':  { molarMass: 62.004,  charge: 1 },
+  'F-':    { molarMass: 18.998,  charge: 1 },
+} as const;

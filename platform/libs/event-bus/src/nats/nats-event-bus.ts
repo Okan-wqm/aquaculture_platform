@@ -604,14 +604,17 @@ export class NatsEventBus
   }
 
   /**
-   * Serialize event to JSON string
+   * Serialize event to JSON string.
+   *
+   * timestamp is always a string (ISO 8601) per BaseEvent contract.
+   * Legacy callers that somehow pass a Date are handled via duck-typing.
    */
   private serializeEvent<TEvent extends IEvent>(event: TEvent): string {
     return JSON.stringify({
       ...event,
       timestamp:
-        event.timestamp instanceof Date
-          ? event.timestamp.toISOString()
+        typeof event.timestamp === 'object' && event.timestamp !== null
+          ? (event.timestamp as unknown as Date).toISOString()
           : event.timestamp,
     });
   }
@@ -703,7 +706,7 @@ export function createEvent(
   return {
     eventId: crypto.randomUUID(),
     eventType,
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
     tenantId,
     metadata,
   };

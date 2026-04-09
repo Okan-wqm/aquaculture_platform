@@ -70,19 +70,49 @@ const shouldRetryQuery = (failureCount: number, error: unknown): boolean => {
   return false;
 };
 
+/**
+ * Per-domain staleTime strategy (FE-MEDIUM-026).
+ *
+ * A flat staleTime across all queries wastes bandwidth on real-time data
+ * (sensors, batches) while under-caching reference data (species, config).
+ * TanStack Query v5 does not support prefix-based staleTime natively, so we
+ * use a `defaultOptions.queries.staleTime` callback that inspects the query
+ * key and returns the appropriate value.
+ *
+ * Domain categories:
+ *   REALTIME  (30s)  — sensor readings, batch status, tank occupancy, alarms
+ *   STANDARD  (120s) — lists, dashboards, aggregations
+ *   REFERENCE (600s) — species list, farm config, equipment types, i18n
+ */
+const REALTIME_PREFIXES = ['sensors', 'batches', 'tanks', 'alarms', 'feeding', 'mortalityRecords', 'batchOperations', 'harvestRecords'];
+const REFERENCE_PREFIXES = ['species', 'config', 'equipmentTypes', 'farmConfig', 'i18n', 'permissions', 'roles', 'modules'];
+
+function resolveStaleTime(query: { queryKey: readonly unknown[] }): number {
+  // Walk the query key to find the first string segment after the tenant prefix.
+  // Tenant-scoped keys look like ['tenant', tenantId, 'domain', ...].
+  const segments = query.queryKey;
+  const domainSegment = typeof segments[0] === 'string' && segments[0] === 'tenant'
+    ? (typeof segments[2] === 'string' ? segments[2] : '')
+    : (typeof segments[0] === 'string' ? segments[0] : '');
+
+  if (REALTIME_PREFIXES.includes(domainSegment)) return 30_000;      // 30 seconds
+  if (REFERENCE_PREFIXES.includes(domainSegment)) return 600_000;    // 10 minutes
+  return 120_000;                                                     // 2 minutes default
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // 5 minutes stale time
-      staleTime: 5 * 60 * 1000,
+      // FE-MEDIUM-026: Per-domain staleTime replaces flat 5min global
+      staleTime: resolveStaleTime,
       // 30 minutes cache time
       gcTime: 30 * 60 * 1000,
       // Smart retry with exponential backoff (replaces blind `retry: 3`)
       retry: shouldRetryQuery,
       retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 30000),
-      // Refetch on network reconnect
+      // FE-MEDIUM-025: Use TanStack Query built-in refetch instead of manual polling
       refetchOnReconnect: true,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
     },
     mutations: {
       retry: false,

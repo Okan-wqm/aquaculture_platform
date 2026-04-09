@@ -41,7 +41,7 @@
  * @see Phase C of farm domain real-time visibility plan.
  */
 
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
@@ -141,11 +141,35 @@ export function useFarmRealtimeStream(): void {
   const queryClient = useQueryClient();
   const { tenantId, token } = useAuth();
 
+  // FE-MEDIUM-032: Hold a ref to the active socket so token changes can
+  // patch auth.token in-place without tearing down the entire connection.
+  const socketRef = React.useRef<Socket | null>(null);
+
+  // FE-MEDIUM-032: Keep latest token in a ref so the reconnect_attempt
+  // handler always uses the freshest token without the effect re-running.
+  const tokenRef = React.useRef(token);
+  tokenRef.current = token;
+
+  // FE-MEDIUM-032: When the token changes but the socket is still connected,
+  // update auth.token in-place instead of recreating the connection.
+  React.useEffect(() => {
+    if (socketRef.current && token && socketRef.current.connected) {
+      (socketRef.current as unknown as { auth: { token: string } }).auth = { token };
+    }
+  }, [token]);
+
   useEffect(() => {
     // Gate: only connect after auth is established. Without a token the
     // socket handshake would be rejected by FarmGateway (401) and the
     // client would keep reconnecting uselessly.
     if (!token || !tenantId) return;
+
+    // FE-MEDIUM-032: If a socket already exists and is connected, skip
+    // recreation. The token-only effect above patches auth.token in-place.
+    // Only recreate when tenantId changes (which implies a different room).
+    if (socketRef.current && socketRef.current.connected) {
+      return;
+    }
 
     const url = resolveFarmSocketUrl();
 
@@ -158,10 +182,18 @@ export function useFarmRealtimeStream(): void {
       auth: { token },
     });
 
-    // Refresh token on every reconnect attempt so an expired JWT does
-    // not lock the connection out after a long-lived session.
+    // FE-MEDIUM-032: Store socket ref so the token-only effect above can
+    // patch auth.token in-place without tearing down the connection.
+    socketRef.current = socket;
+
+    // FE-MEDIUM-032: Update auth.token in-place on reconnect attempts.
+    // Uses tokenRef to always read the latest token from the ref, so the
+    // handler closure doesn't go stale when the token refreshes.
     socket.on('reconnect_attempt', () => {
-      (socket as unknown as { auth: { token: string } }).auth = { token };
+      const currentToken = tokenRef.current;
+      if (currentToken) {
+        (socket as unknown as { auth: { token: string } }).auth = { token: currentToken };
+      }
     });
 
     /**
@@ -194,6 +226,7 @@ export function useFarmRealtimeStream(): void {
     }
 
     return () => {
+      socketRef.current = null;
       for (const { event, fn } of handlers) {
         socket.off(event, fn);
       }

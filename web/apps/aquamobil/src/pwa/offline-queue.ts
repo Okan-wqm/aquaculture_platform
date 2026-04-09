@@ -78,6 +78,10 @@ async function decryptString(iv: string, ciphertext: string): Promise<string> {
 // Internal stored shape — payload is replaced by encrypted envelope
 interface StoredOperation extends Omit<QueuedOperation, 'payload'> {
   _enc: { iv: string; ciphertext: string };
+  // FE-MEDIUM-030: Store plaintext resourceId for dedup comparison.
+  // This is NOT sensitive data (it's a UUID/composite key), so storing it
+  // unencrypted is safe and avoids the expensive decrypt-to-compare path.
+  _resourceId: string;
 }
 
 // ============================================================================
@@ -151,14 +155,17 @@ export async function queueOperation(
   if (resourceId) {
     const nowMs = Date.now();
     const allEntries = await entries<string, StoredOperation>(queueStore);
+    // FE-MEDIUM-030: Compare type + resourceId + time window for dedup.
+    // Previously only type + time were checked, causing two offline edits to
+    // different resources (same hook/type) to collide — the second was silently
+    // dropped. The _resourceId field is stored in plaintext on StoredOperation
+    // so we can compare without expensive decryption.
     const isDuplicate = allEntries.some(([key, op]) => {
       if (!String(key).startsWith(QUEUE_PREFIX)) return false;
       if (op.type !== type) return false;
+      if (op._resourceId !== resourceId) return false;
       const opTimeMs = new Date(op.createdAt).getTime();
       if (Math.abs(nowMs - opTimeMs) >= DEDUP_WINDOW_MS) return false;
-      // Decrypt is expensive and unnecessary — compare type + createdAt window.
-      // For a true resourceId match we'd need to decrypt, but within a 5s window
-      // the same type from the same user is almost certainly a duplicate.
       return true;
     });
     if (isDuplicate) {
@@ -177,6 +184,8 @@ export async function queueOperation(
     id,
     type,
     _enc,
+    // FE-MEDIUM-030: Persist resourceId in plaintext for O(1) dedup comparison
+    _resourceId: resourceId,
     createdAt: new Date().toISOString(),
     retryCount: 0,
     status: 'pending',

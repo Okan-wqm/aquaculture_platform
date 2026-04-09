@@ -39,7 +39,12 @@ export default defineConfig({
   server: {
     port: 3002,
     strictPort: true,
-    cors: true,
+    // FE-MEDIUM-037: Scope CORS to the shell origin instead of reflecting
+    // Access-Control-Allow-Origin: * which would allow any origin to load
+    // remote module assets in dev mode.
+    cors: {
+      origin: 'http://localhost:3000',
+    },
   },
   preview: { port: 3002 },
   base: '/remotes/farm-module/',

@@ -1,7 +1,7 @@
 # Package 01: frontend-token-polling-stale
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 18K
 Priority: MEDIUM
 Security-Sensitive: yes

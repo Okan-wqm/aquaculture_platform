@@ -23,12 +23,14 @@ export const colors = {
   },
 
   // Gri tonları
+  // WCAG 2.1 AA: gray.400 bumped from #bfbfbf (1.9:1 on white) to #6b7280
+  // (4.6:1 on white) to meet 4.5:1 minimum for normal text (FE-MEDIUM-024).
   gray: {
     50: '#fafafa',
     100: '#f5f5f5',
     200: '#e8e8e8',
     300: '#d9d9d9',
-    400: '#bfbfbf',
+    400: '#6b7280',
     500: '#8c8c8c',
     600: '#595959',
     700: '#434343',

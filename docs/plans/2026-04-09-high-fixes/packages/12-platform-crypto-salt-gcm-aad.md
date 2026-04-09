@@ -1,7 +1,7 @@
 # Package 12: platform-crypto-salt-gcm-aad
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 22K
 Priority: HIGH
 Security-Sensitive: yes

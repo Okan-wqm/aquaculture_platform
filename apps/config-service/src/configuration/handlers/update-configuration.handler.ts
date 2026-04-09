@@ -55,9 +55,10 @@ export class UpdateConfigurationHandler
       }
 
       // Encrypt new value if this is a secret config
+      // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       if (input.value !== undefined) {
         if (configuration.isSecret && this.encryptionService.isAvailable()) {
-          configuration.value = this.encryptionService.encrypt(input.value);
+          configuration.value = this.encryptionService.encrypt(input.value, configuration.tenantId, configuration.key);
         } else {
           configuration.value = input.value;
         }

@@ -11,6 +11,8 @@ import { VfdParameterAuditLog } from '../entities/vfd-parameter-audit-log.entity
 import { VfdChangeSetService } from './vfd-change-set.service';
 import { VfdParameterWriterService } from './vfd-parameter-writer.service';
 import { VfdChangeSetStatus, VfdAuditAction } from '../../vfd/entities/vfd.enums';
+import { RiskEvaluatorService } from '../risk/risk-evaluator.service';
+import { RiskLevel } from '../risk/parameter-risk-rules';
 
 interface SensorReadingEvent {
   tenantId: string;
@@ -54,6 +56,7 @@ export class VfdAutomationRuleService {
     private readonly auditLogRepository: Repository<VfdParameterAuditLog>,
     private readonly changeSetService: VfdChangeSetService,
     private readonly parameterWriterService: VfdParameterWriterService,
+    private readonly riskEvaluator: RiskEvaluatorService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -247,6 +250,39 @@ export class VfdAutomationRuleService {
     this.logger.log(
       `Automation rule "${rule.name}" (${rule.id}) triggered by sensor ${sensorTag}=${sensorValue}`,
     );
+
+    // LIFE-SAFETY: Evaluate risk tier for the aggregate parameter changes.
+    // If the batch risk is HIGH or CRITICAL, block automatic execution and
+    // require explicit human override. This prevents VFD motor speed changes
+    // during dangerous conditions (e.g., low dissolved oxygen).
+    // @see SENSOR-MEDIUM-005
+    const batchRisk = this.riskEvaluator.evaluateBatchRisk(
+      rule.parameterChanges.map((pc) => ({
+        parameterName: pc.parameterName,
+        value: pc.value,
+      })),
+    );
+
+    if (batchRisk.riskLevel === RiskLevel.HIGH || batchRisk.riskLevel === RiskLevel.CRITICAL) {
+      this.logger.warn(
+        `LIFE-SAFETY: Automation rule "${rule.name}" (${rule.id}) BLOCKED — ` +
+        `risk tier ${batchRisk.riskLevel} detected. ` +
+        `Warnings: ${batchRisk.warnings.join('; ')}. ` +
+        `Sensor ${sensorTag}=${sensorValue}. Requires explicit override.`,
+      );
+
+      this.eventEmitter.emit('vfd.automation.blocked', {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        tenantId: rule.tenantId,
+        sensorTag,
+        sensorValue,
+        riskLevel: batchRisk.riskLevel,
+        warnings: batchRisk.warnings,
+      });
+
+      return;
+    }
 
     // Create change sets for each target device
     for (const deviceId of rule.targetVfdDeviceIds) {

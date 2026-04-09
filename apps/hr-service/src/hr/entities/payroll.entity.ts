@@ -104,14 +104,18 @@ export class Payroll {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  // REMOVED: @Index() on tenantId — redundant with composite indexes
+  // that start with tenantId (e.g., the unique composite on tenantId+employeeId+payPeriod).
+  // @see DB-MEDIUM-002
   @Field()
   @Column()
-  @Index()
   tenantId!: string;
 
+  // REMOVED: @Index() on employeeId — redundant with the unique composite index
+  // on (tenantId, employeeId, payPeriodStart, payPeriodEnd).
+  // @see DB-MEDIUM-002
   @Field()
   @Column()
-  @Index()
   employeeId!: string;
 
   @Field(() => Employee)
@@ -143,18 +147,98 @@ export class Payroll {
   @Column('jsonb')
   workHours!: WorkHours;
 
-  @Field(() => EarningsBreakdown)
-  @Column('jsonb')
-  earnings!: EarningsBreakdown;
-
-  @Field(() => DeductionsBreakdown)
-  @Column('jsonb')
-  deductions!: DeductionsBreakdown;
+  // ── Flattened Earnings Columns ──
+  // IMPORTANT: Earnings breakdown previously stored as a single JSONB column.
+  // Flattened to typed numeric columns for:
+  // 1. Type safety: prevents NaN from string arithmetic on JSONB values
+  // 2. Query performance: direct column aggregation (SUM, AVG) without JSON extraction
+  // 3. Schema enforcement: database rejects invalid types at write time
+  // @see DB-MEDIUM-004
 
   @Field(() => Float)
-  // DecimalTransformer: netPay = grossPay - totalDeductions. Both operands are stored in
-  // jsonb (EarningsBreakdown/DeductionsBreakdown) and this column holds the computed result.
-  // String subtraction produces NaN, leading to incorrect pay slips displayed to employees.
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
+  earningsBaseSalary!: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  earningsOvertime?: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  earningsBonus?: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  earningsCommission?: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  earningsAllowances?: number;
+
+  @Field(() => Float)
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
+  earningsGrossPay!: number;
+
+  // ── Flattened Deductions Columns ──
+  // @see DB-MEDIUM-004
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  deductionsTax?: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  deductionsSocialSecurity?: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  deductionsHealthInsurance?: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  deductionsRetirement?: number;
+
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  deductionsOther?: number;
+
+  @Field(() => Float)
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
+  deductionsTotal!: number;
+
+  /**
+   * Virtual getter providing the legacy EarningsBreakdown shape for backward compatibility.
+   * GraphQL resolvers can use this to maintain the nested response structure.
+   */
+  get earnings(): EarningsBreakdown {
+    return {
+      baseSalary: this.earningsBaseSalary,
+      overtime: this.earningsOvertime,
+      bonus: this.earningsBonus,
+      commission: this.earningsCommission,
+      allowances: this.earningsAllowances,
+      grossPay: this.earningsGrossPay,
+    };
+  }
+
+  /**
+   * Virtual getter providing the legacy DeductionsBreakdown shape for backward compatibility.
+   */
+  get deductions(): DeductionsBreakdown {
+    return {
+      tax: this.deductionsTax,
+      socialSecurity: this.deductionsSocialSecurity,
+      healthInsurance: this.deductionsHealthInsurance,
+      retirement: this.deductionsRetirement,
+      otherDeductions: this.deductionsOther,
+      totalDeductions: this.deductionsTotal,
+    };
+  }
+
+  @Field(() => Float)
+  // DecimalTransformer: netPay = earningsGrossPay - deductionsTotal.
+  // Both operands are now typed decimal columns (not JSONB), eliminating
+  // the NaN risk from string arithmetic.
   @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   netPay!: number;
 

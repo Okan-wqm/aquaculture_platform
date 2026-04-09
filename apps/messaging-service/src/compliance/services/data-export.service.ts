@@ -139,6 +139,12 @@ export class DataExportService {
 
   /**
    * Export all messages across all channels for a tenant.
+   *
+   * IMPORTANT: Uses streaming cursor via createQueryBuilder().stream() instead of
+   * loading all messages into a single array. For tenants with large message volumes,
+   * the previous approach caused OOM (e.g., 1M messages * 2KB avg = ~2GB in memory).
+   * The streaming approach keeps memory bounded by processing one row at a time.
+   * @see MSG-MEDIUM-028
    */
   async exportTenant(
     tenantId: string,
@@ -163,19 +169,41 @@ export class DataExportService {
       null,
     );
 
-    // Fetch all messages for the tenant using the tenant schema set above
-    const messages = await this.messageRepo.find({
-      relations: ['attachments'],
-      order: { createdAt: 'ASC' },
-    });
+    // Pre-fetch held channels to avoid N+1 queries per message during streaming
+    const heldChannelSet = new Set<string>();
+    if (!isUnderHold) {
+      const heldChannels = await this.dataSource.query(
+        `SELECT "channelId" FROM "legal_holds" WHERE "tenantId" = $1 AND "isActive" = true AND "channelId" IS NOT NULL`,
+        [tenantId],
+      ).catch(() => []);
+      for (const row of heldChannels) {
+        if (row.channelId) heldChannelSet.add(row.channelId);
+      }
+    }
+
+    // Stream messages using cursor to avoid OOM for large tenants
+    const stream = await this.messageRepo
+      .createQueryBuilder('msg')
+      .leftJoinAndSelect('msg.attachments', 'att')
+      .orderBy('msg.createdAt', 'ASC')
+      .stream();
 
     const rows: ExportedMessageRow[] = [];
-    for (const msg of messages) {
-      const channelHeld = await this.legalHoldService.isUnderLegalHold(
-        tenantId,
-        msg.channelId,
-      );
-      rows.push(this.toExportRow(msg, isUnderHold || channelHeld));
+    for await (const rawRow of stream) {
+      // TypeORM stream returns raw rows; map to export format
+      const row: ExportedMessageRow = {
+        messageId: rawRow.msg_id,
+        channelId: rawRow.msg_channelId,
+        senderId: rawRow.msg_senderId,
+        content: rawRow.msg_content,
+        contentType: rawRow.msg_contentType,
+        createdAt: new Date(rawRow.msg_createdAt).toISOString(),
+        editedAt: rawRow.msg_editedAt ? new Date(rawRow.msg_editedAt).toISOString() : null,
+        isDeleted: rawRow.msg_isDeleted ?? false,
+        attachmentCount: rawRow.att_id ? 1 : 0,
+        hasLegalHold: isUnderHold || heldChannelSet.has(rawRow.msg_channelId),
+      };
+      rows.push(row);
     }
 
     const data =

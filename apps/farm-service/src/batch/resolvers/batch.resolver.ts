@@ -73,6 +73,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
+import { BatchLocationDataLoader } from '../dataloaders/batch-location.dataloader';
+import { BatchFeedAssignmentDataLoader } from '../dataloaders/batch-feed-assignment.dataloader';
+
+// Entities for field resolvers
+import { BatchLocation } from '../entities/batch-location.entity';
+import { BatchFeedAssignment } from '../entities/batch-feed-assignment.entity';
 
 // Register enums (only those not already registered in their entity/types files)
 // ArrivalMethod → registered in batch.types.ts
@@ -105,6 +111,8 @@ export class BatchResolver {
     @InjectRepository(BatchDocument)
     private readonly documentRepository: Repository<BatchDocument>,
     private readonly batchDocumentDataLoader: BatchDocumentDataLoader,
+    private readonly batchLocationDataLoader: BatchLocationDataLoader,
+    private readonly batchFeedAssignmentDataLoader: BatchFeedAssignmentDataLoader,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -366,6 +374,21 @@ export class BatchResolver {
   @ResolveField(() => Int, { name: 'daysInProduction' })
   getDaysInProduction(@Parent() batch: Batch): number {
     return batch.getDaysInProduction();
+  }
+
+  // ── FARM-MEDIUM-005: DataLoader field resolvers (eliminates N+1) ───────────
+  // All relational field resolvers use DataLoaders to batch queries across a
+  // GraphQL execution tick. For a page of 20 batches: 1 query per relation
+  // instead of 20.
+
+  @ResolveField(() => [BatchLocation], { name: 'locations' })
+  async getLocations(@Parent() batch: Batch): Promise<BatchLocation[]> {
+    return this.batchLocationDataLoader.load(batch.id);
+  }
+
+  @ResolveField(() => [BatchFeedAssignment], { name: 'feedAssignments' })
+  async getFeedAssignments(@Parent() batch: Batch): Promise<BatchFeedAssignment[]> {
+    return this.batchFeedAssignmentDataLoader.load(batch.id);
   }
 
   // ── Document field resolvers — DataLoader pattern (eliminates N+1) ─────────

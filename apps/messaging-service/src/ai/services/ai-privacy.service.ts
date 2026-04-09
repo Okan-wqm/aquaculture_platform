@@ -11,8 +11,17 @@ import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
-/** Redis TTL for cached consent/settings (10 minutes). */
-const CACHE_TTL_SECONDS = 600;
+/**
+ * Redis TTL for cached consent/settings (60 seconds).
+ * SECURITY: Reduced from 600s (10 minutes) to 60s. When a user revokes AI consent,
+ * AI features must stop within a reasonable window. 10 minutes was too long —
+ * a user who revokes consent would still have their messages analyzed for up to
+ * 10 minutes. 60s is the maximum acceptable staleness for consent decisions.
+ * Additionally, consent changes now explicitly invalidate the cache (see
+ * updateUserAiConsent and updateTenantAiSetting).
+ * @see MSG-MEDIUM-037
+ */
+const CACHE_TTL_SECONDS = 60;
 
 /** Redis key prefix for tenant AI settings. */
 const TENANT_KEY_PREFIX = 'ai:tenant:';

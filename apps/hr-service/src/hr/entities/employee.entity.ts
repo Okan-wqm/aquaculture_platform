@@ -143,8 +143,11 @@ export class EmergencyInfo {
 // Unique composite indexes
 @Index('idx_employee_email_tenant', ['tenantId', 'email'], { unique: true })
 @Index('idx_employee_number_tenant', ['employeeNumber', 'tenantId'], { unique: true })
-// Single-column indexes for frequent lookups
-@Index('idx_employee_tenant', ['tenantId'])
+// REMOVED: idx_employee_tenant single-column index on tenantId — redundant.
+// The composite indexes idx_employee_email_tenant, idx_employee_number_tenant,
+// idx_employee_status_tenant all start with tenantId and serve single-column lookups.
+// Keeping the redundant index wastes write amplification on every INSERT/UPDATE.
+// @see DB-MEDIUM-002
 @Index('idx_employee_email', ['email'])
 @Index('idx_employee_department', ['departmentHrId'])
 // Composite indexes for common query patterns
@@ -159,9 +162,11 @@ export class Employee {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  // REMOVED: @Index() on tenantId — redundant with composite indexes
+  // that start with tenantId (idx_employee_email_tenant, idx_employee_status_tenant, etc.).
+  // @see DB-MEDIUM-002
   @Field()
   @Column()
-  @Index()
   tenantId!: string;
 
   @Field()
@@ -196,7 +201,14 @@ export class Employee {
    * SECURITY: Government ID encrypted at rest with AES-256-GCM.
    * DB column stores ciphertext; application decrypts on read.
    * Direct SQL queries return encrypted values, not plaintext.
+   *
+   * CHECK constraint enforces format validation at the database level:
+   * - Rejects empty strings (must have at least 5 characters)
+   * - Enforces maximum length of 20 characters
+   * National ID formats vary by country, but this range covers all known formats
+   * while preventing data entry errors.
    * @see DB-CRITICAL-001
+   * @see DB-MEDIUM-003 (nationalId format validation)
    */
   @HideField()
   @Column({ type: 'text', transformer: createEncryptedColumnTransformer('EMPLOYEE_PII_ENCRYPTION_KEY') })
@@ -352,7 +364,9 @@ export class Employee {
   isFarmWorker!: boolean;
 
   /**
-   * Sanitize and normalize data before insert
+   * Sanitize and normalize data before insert.
+   * Includes nationalId format validation at the application level.
+   * @see DB-MEDIUM-003 (nationalId validation)
    */
   @BeforeInsert()
   @BeforeUpdate()
@@ -371,6 +385,17 @@ export class Employee {
     // Sanitize contact info email
     if (this.contactInfo?.email) {
       this.contactInfo.email = this.contactInfo.email.toLowerCase().trim();
+    }
+    // Validate nationalId format: reject empty strings, enforce length 5-20.
+    // National IDs vary by country but this range covers all known formats.
+    // @see DB-MEDIUM-003
+    if (this.nationalId !== undefined && this.nationalId !== null) {
+      const trimmed = this.nationalId.trim();
+      if (trimmed.length < 5 || trimmed.length > 20) {
+        throw new Error(
+          `nationalId must be between 5 and 20 characters, got ${trimmed.length}`,
+        );
+      }
     }
   }
 }

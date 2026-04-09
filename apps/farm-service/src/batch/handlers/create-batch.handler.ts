@@ -61,14 +61,6 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       throw new BadRequestException(`Species ${payload.speciesId} bulunamadı veya aktif değil`);
     }
 
-    // Batch numarası oluştur (outside transaction for code generation)
-    const generatedCode = payload.batchNumber ? null : await this.codeGenerator.generateCode({
-      prefix: 'B',
-      tenantId,
-      entityType: 'Batch',
-    });
-    const batchNumber = payload.batchNumber || generatedCode?.code || `B-${new Date().getFullYear()}-${Date.now()}`;
-
     // Başlangıç biomass hesapla
     const initialBiomass = (payload.initialQuantity * payload.initialAvgWeightG) / 1000;
 
@@ -93,6 +85,20 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
 
     let savedBatch: Batch;
     try {
+      // ── FARM-MEDIUM-001: Generate batch number INSIDE the transaction ──
+      // Previously code generation happened outside this transaction. Although
+      // CodeGeneratorService uses its own pessimistic_write lock on the
+      // code_sequences table, a gap existed: the generated code could be
+      // assigned to a batch that later fails to save, wasting the sequence
+      // number. Moving it inside ensures the code is only consumed when the
+      // batch write commits atomically.
+      const generatedCode = payload.batchNumber ? null : await this.codeGenerator.generateCode({
+        prefix: 'B',
+        tenantId,
+        entityType: 'Batch',
+      });
+      const batchNumber = payload.batchNumber || generatedCode?.code || `B-${new Date().getFullYear()}-${Date.now()}`;
+
       // Batch entity oluştur
       const batch = queryRunner.manager.create(Batch, {
         tenantId,
@@ -393,6 +399,12 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
               maxBiomass > 0 ? (location.biomass / maxBiomass) * 100 : 0;
             const isOverCapacity = capacityUsedPercent > 100;
 
+            // ── FARM-MEDIUM-002: Derive maxDensity from tank config ──
+            // Without maxDensity, downstream density calculations produce
+            // NaN/Infinity when dividing by zero. Default from tank specs,
+            // fall back to safe industry default of 30 kg/m3.
+            const maxDensity = Number(specs?.maxDensity || 30);
+
             if (tankBatch) {
               // Update existing TankBatch (mixed batch scenario)
               tankBatch.isMixedBatch = true;
@@ -405,8 +417,8 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
                     tankBatch.totalQuantity
                   : avgWeightG;
               tankBatch.densityKgM3 = density;
-              tankBatch.capacityUsedPercent = capacityUsedPercent;
-              tankBatch.isOverCapacity = isOverCapacity;
+              tankBatch.capacityUsedPercent = maxDensity > 0 ? (density / maxDensity) * 100 : 0;
+              tankBatch.isOverCapacity = density > maxDensity;
 
               // Add to batch details
               const batchDetails = tankBatch.batchDetails || [];
@@ -426,6 +438,9 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
               );
             } else {
               // Create new TankBatch
+              // FARM-MEDIUM-002: capacityUsedPercent and isOverCapacity
+              // are derived from maxDensity (tank config) — never from
+              // maxBiomass alone, which can be zero for unconfigured tanks.
               tankBatch = queryRunner.manager.create(TankBatch, {
                 tenantId,
                 tankId,
@@ -439,8 +454,8 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
                 totalBiomassKg: location.biomass,
                 currentBiomassKg: location.biomass,
                 densityKgM3: density,
-                capacityUsedPercent: capacityUsedPercent,
-                isOverCapacity: isOverCapacity,
+                capacityUsedPercent: maxDensity > 0 ? (density / maxDensity) * 100 : 0,
+                isOverCapacity: density > maxDensity,
                 isMixedBatch: false,
                 /** Cleaner fish fields default to zero for production batches.
                  *  TypeORM create() sends explicit null for omitted fields,

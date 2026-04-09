@@ -13,6 +13,7 @@ import { ClientProxy } from '@nestjs/microservices';
 import Redis from 'ioredis';
 
 import { MessageAttachment } from '../entities/message-attachment.entity';
+import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
 /** Default per-tenant storage quota: 10 GB in bytes. */
@@ -45,6 +46,8 @@ export class StorageQuotaService {
   constructor(
     @InjectRepository(MessageAttachment)
     private readonly attachmentRepo: Repository<MessageAttachment>,
+    @InjectRepository(MessagingOutbox)
+    private readonly outboxRepo: Repository<MessagingOutbox>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     @Inject('NATS_SERVICE')
@@ -156,15 +159,25 @@ export class StorageQuotaService {
     }
 
     // Check warning threshold
+    // IMPORTANT: Route StorageWarning through transactional outbox instead of
+    // direct eventBus emit. If NATS is down when quota is breached, direct emit
+    // silently loses the event. Outbox guarantees at-least-once delivery.
+    // @see MSG-MEDIUM-008
     const usageAfterUpload = (used + newFileSize) / quota;
     if (usageAfterUpload >= STORAGE_WARNING_THRESHOLD) {
-      this.natsClient.emit('events.StorageWarning', {
-        tenantId,
-        usedBytes: used + newFileSize,
-        quotaBytes: quota,
-        usagePercentage: Math.round(usageAfterUpload * 100),
-        timestamp: new Date().toISOString(),
-      });
+      await this.outboxRepo.save(
+        this.outboxRepo.create({
+          tenantId,
+          eventType: 'StorageWarning',
+          payload: {
+            tenantId,
+            usedBytes: used + newFileSize,
+            quotaBytes: quota,
+            usagePercentage: Math.round(usageAfterUpload * 100),
+            timestamp: new Date().toISOString(),
+          },
+        }),
+      );
       this.logger.warn(
         `Tenant ${tenantId} storage at ${Math.round(usageAfterUpload * 100)}% ` +
         `(${used + newFileSize}/${quota} bytes)`,

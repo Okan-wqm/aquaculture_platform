@@ -340,6 +340,9 @@ export class AiChatBridgeService {
           )
         : null;
 
+      // IMPORTANT: Set isAiGenerated=true for compliance and transparency.
+      // Users must be able to distinguish AI-generated content from human messages.
+      // @see MSG-MEDIUM-038 (AI message attribution)
       const message = manager.create(Message, {
         id: messageId,
         channelId,
@@ -350,6 +353,7 @@ export class AiChatBridgeService {
         forwardedFrom: null,
         idempotencyKey: messageId,
         isDeleted: false,
+        isAiGenerated: true,
         createdAt: now,
         editedAt: null,
         metadata: sanitizedMetadata,

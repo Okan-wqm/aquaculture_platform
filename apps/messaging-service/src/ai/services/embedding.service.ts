@@ -162,34 +162,43 @@ export class EmbeddingService implements OnModuleDestroy {
       return;
     }
 
-    // Write embeddings back to messages table
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    // Write embeddings back to messages table using per-item error tracking.
+    // IMPORTANT: Previous implementation used a single transaction for the entire batch.
+    // If any single embedding write failed mid-way (e.g., 50/100), ALL successfully
+    // written embeddings were rolled back, wasting the AI API call cost and delaying
+    // the entire batch until next cycle. Per-item approach: commit each successful
+    // embedding individually, track failed items for retry on the next cycle.
+    // @see MSG-MEDIUM-041
+    let successCount = 0;
+    let failCount = 0;
 
-    try {
-      for (let i = 0; i < consentedMessages.length; i++) {
-        const embedding = response.embeddings[i];
-        if (!embedding) continue;
+    for (let i = 0; i < consentedMessages.length; i++) {
+      const embedding = response.embeddings[i];
+      if (!embedding) continue;
 
+      try {
         const vectorStr = `[${embedding.join(',')}]`;
-        await queryRunner.query(
+        await this.dataSource.query(
           `UPDATE "messages" SET "embedding" = $1::vector
            WHERE "id" = $2 AND "createdAt" = $3`,
           [vectorStr, consentedMessages[i]!.id, consentedMessages[i]!.createdAt],
         );
+        successCount++;
+      } catch (err: unknown) {
+        failCount++;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Embedding write failed for message ${consentedMessages[i]!.id}: ${errMsg}. ` +
+          'Will retry on next batch cycle.',
+        );
       }
+    }
 
-      await queryRunner.commitTransaction();
+    if (successCount > 0) {
       this.logger.log(
-        `Embedded ${consentedMessages.length} messages successfully`,
+        `Embedded ${successCount}/${consentedMessages.length} messages successfully` +
+        (failCount > 0 ? ` (${failCount} failed, will retry)` : ''),
       );
-    } catch (err: unknown) {
-      await queryRunner.rollbackTransaction();
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Embedding write-back failed: ${message}`);
-    } finally {
-      await queryRunner.release();
     }
   }
 }

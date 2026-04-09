@@ -408,9 +408,18 @@ export class ImpersonationController {
     );
   }
 
+  /**
+   * SECURITY (ADMIN-MEDIUM-001): Passes request IP to validateSession
+   * for IP binding enforcement. A token bound to IP A is rejected when
+   * presented from IP B.
+   */
   @Get('sessions/validate')
-  async validateSession(@Headers('x-impersonation-token') token: string) {
-    const context = await this.impersonationService.validateSession(token);
+  async validateSession(
+    @Headers('x-impersonation-token') token: string,
+    @Req() req: Request,
+  ) {
+    const requestIp = (req.ip || req.socket.remoteAddress) ?? undefined;
+    const context = await this.impersonationService.validateSession(token, requestIp);
     return { valid: !!context, context };
   }
 

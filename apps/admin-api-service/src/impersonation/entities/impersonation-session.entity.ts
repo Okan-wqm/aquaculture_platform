@@ -85,7 +85,13 @@ export class ImpersonationSession {
   @Column({ type: 'jsonb', nullable: true })
   permissions?: ImpersonationPermissions;
 
+  /**
+   * SECURITY (ADMIN-MEDIUM-001): Source IP captured at session creation.
+   * Every subsequent request MUST be validated against this IP.
+   * A stolen token used from a different IP is rejected.
+   */
   @Column({ type: 'inet', nullable: true })
+  @Index()
   ipAddress?: string;
 
   @Column({ type: 'text', nullable: true })
@@ -96,6 +102,15 @@ export class ImpersonationSession {
 
   @Column({ type: 'text', nullable: true })
   impersonationToken?: string;
+
+  /**
+   * ADMIN-MEDIUM-004: Whether the admin completed MFA before starting this session.
+   * Enables the session list UI to show MFA status inline and simplifies
+   * guard logic (check one field instead of joining a separate MFA table).
+   * Default false -- set to true by the auth flow after MFA challenge passes.
+   */
+  @Column({ type: 'boolean', default: false })
+  mfaCompleted!: boolean;
 
   @Column()
   expiresAt!: Date;

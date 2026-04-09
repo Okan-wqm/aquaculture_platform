@@ -27,6 +27,9 @@ import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
+import { AuditLogService } from '../../audit/audit.service';
+import { AuditSeverity } from '../../audit/audit.entity';
+import { getAuthUser } from '../../shared/authenticated-request';
 
 // Fix: H8 -- per-route throttle for sensitive database operations
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common';
@@ -238,6 +241,12 @@ export class DatabaseExplorerController {
      */
     @InjectDataSource('explorer-readonly')
     private readonly dataSource: DataSource,
+    /**
+     * SECURITY (ADMIN-MEDIUM-002): All explorer queries are persisted to the
+     * compliance_audit_log table for SOC 2 compliance. Previously only written
+     * to Logger (volatile, not queryable by auditors).
+     */
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -418,10 +427,18 @@ export class DatabaseExplorerController {
         maskSensitiveData(row, columnsWithSensitive),
       );
 
-      // Audit log for data access
+      // ADMIN-MEDIUM-002: Persist to compliance_audit_log (SOC 2 requirement).
+      // Logger-only audit was volatile and not queryable by compliance auditors.
       this.logger.log(
         `[AUDIT] Data access: ${schema}.${table} (page=${page}, rows=${rows.length})`,
       );
+      this.auditLogService.log({
+        action: 'DATABASE_EXPLORER_READ',
+        entityType: 'DatabaseTable',
+        entityId: `${schema}.${table}`,
+        performedBy: 'SUPER_ADMIN',
+        details: { schema, table, page, limit, rowsReturned: rows.length },
+      }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
 
       return {
         tableName: table,
@@ -488,10 +505,18 @@ export class DatabaseExplorerController {
         maskSensitiveData(row, columnsWithSensitive),
       );
 
-      // Audit log for export
+      // ADMIN-MEDIUM-002: Persist data export to compliance_audit_log.
       this.logger.warn(
         `[AUDIT] Data export: ${schema}.${table} (format=${format}, rows=${rows.length})`,
       );
+      this.auditLogService.log({
+        action: 'DATABASE_EXPLORER_EXPORT',
+        entityType: 'DatabaseTable',
+        entityId: `${schema}.${table}`,
+        performedBy: 'SUPER_ADMIN',
+        severity: AuditSeverity.WARNING,
+        details: { schema, table, format, rowsExported: rows.length },
+      }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
 
       if (format === 'json') {
         res.setHeader('Content-Type', 'application/json');
@@ -911,9 +936,26 @@ export class DatabaseExplorerController {
       await queryRunner.query('SET statement_timeout = 30000'); // 30 seconds
 
       const result = await queryRunner.query(sql, params);
+
+      // ADMIN-MEDIUM-002: Persist raw SQL execution to compliance_audit_log.
+      // Raw SQL queries are the highest-risk explorer operation and MUST be
+      // recorded for SOC 2 evidence. The full SQL text (truncated to 2000 chars)
+      // is stored for forensic analysis.
       this.logger.warn(
         `SECURITY AUDIT: Raw SQL query executed by SUPER_ADMIN: ${sql.substring(0, 100)}...`,
       );
+      this.auditLogService.log({
+        action: 'DATABASE_EXPLORER_RAW_SQL',
+        entityType: 'DatabaseQuery',
+        performedBy: 'SUPER_ADMIN',
+        severity: AuditSeverity.WARNING,
+        details: {
+          sql: sql.substring(0, 2000),
+          paramCount: (params as unknown[]).length,
+          rowCount: result.length,
+        },
+      }).catch((err: Error) => this.logger.warn(`Audit log failed: ${err.message}`));
+
       return {
         rows: result,
         rowCount: result.length,

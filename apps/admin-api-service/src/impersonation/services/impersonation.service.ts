@@ -666,7 +666,18 @@ export class ImpersonationService {
   // Session Validation
   // ============================================================================
 
-  async validateSession(token: string): Promise<ImpersonationContext | null> {
+  /**
+   * Validate an impersonation session token.
+   *
+   * SECURITY (ADMIN-MEDIUM-001): When `requestIp` is provided, the session's
+   * bound IP is checked. A stolen impersonation token used from a different
+   * IP is rejected -- the attacker would need both the token AND access from
+   * the original admin's IP.
+   *
+   * @param token - Raw impersonation token (will be hashed for DB lookup)
+   * @param requestIp - Optional IP of the current request for IP binding validation
+   */
+  async validateSession(token: string, requestIp?: string): Promise<ImpersonationContext | null> {
     // C-5 fix: compare by hash since we store SHA-256(token) in DB
     const tokenHash = this.hashToken(token);
     const session = await this.sessionRepo.findOne({
@@ -680,6 +691,18 @@ export class ImpersonationService {
     // Check expiration
     if (session.expiresAt < new Date()) {
       await this.expireSession(session);
+      return null;
+    }
+
+    // SECURITY (ADMIN-MEDIUM-001): IP binding validation.
+    // If the session was created with an IP address, every subsequent request
+    // MUST originate from the same IP. This prevents a stolen impersonation
+    // token from being usable from a different network location.
+    if (requestIp && session.ipAddress && session.ipAddress !== requestIp) {
+      this.logger.warn(
+        `SECURITY: Impersonation session ${session.id} IP mismatch: ` +
+        `bound=${session.ipAddress}, request=${requestIp}. Token rejected.`,
+      );
       return null;
     }
 

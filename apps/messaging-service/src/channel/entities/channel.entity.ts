@@ -53,8 +53,13 @@ export class Channel {
   @Column({ type: 'varchar', length: 20, default: ChannelType.GROUP })
   type: ChannelType;
 
+  /**
+   * Channel display name. Limited to 100 characters to reduce index storage
+   * overhead. varchar(255) was wasteful since channel names are typically short.
+   * @see DB-MEDIUM-006
+   */
   @Field(() => String, { nullable: true })
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ type: 'varchar', length: 100, nullable: true })
   name: string | null;
 
   @Field(() => String, { nullable: true })

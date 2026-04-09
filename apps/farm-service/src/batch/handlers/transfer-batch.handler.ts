@@ -401,9 +401,12 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         cleanerFishQuantity: 0,
       });
     } else if (tankBatch) {
+      // FARM-MEDIUM-003: Math.max(0) guards prevent negative fish count / biomass
+      // when concurrent operations produce stale reads (even with pessimistic locks,
+      // the delta might be computed from a stale snapshot in edge cases).
       // Ensure numeric operations (database may return decimal columns as strings)
-      tankBatch.totalQuantity = Number(tankBatch.totalQuantity) + quantityDelta;
-      tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + biomassDelta;
+      tankBatch.totalQuantity = Math.max(0, Number(tankBatch.totalQuantity) + quantityDelta);
+      tankBatch.totalBiomassKg = Math.max(0, Number(tankBatch.totalBiomassKg) + biomassDelta);
 
       if (tankBatch.totalQuantity > 0) {
         tankBatch.avgWeightG = (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity;

@@ -1,8 +1,10 @@
-import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, EntityManager } from 'typeorm';
+import Redis from 'ioredis';
 
 import { LegalHold } from '../entities/legal-hold.entity';
+import { REDIS_CLIENT } from '../../shared/redis.provider';
 
 /**
  * Manages legal holds on messaging data.
@@ -21,6 +23,8 @@ export class LegalHoldService {
   constructor(
     @InjectRepository(LegalHold)
     private readonly holdRepo: Repository<LegalHold>,
+    @Optional() @Inject(REDIS_CLIENT)
+    private readonly redis?: Redis,
   ) {}
 
   /**
@@ -95,6 +99,11 @@ export class LegalHoldService {
     });
     const saved = await repo.save(hold);
 
+    // IMPORTANT: Invalidate any cached legal hold status on toggle to prevent
+    // stale cache from allowing deletion of held messages during the staleness window.
+    // @see MSG-MEDIUM-023
+    await this.invalidateLegalHoldCache(tenantId, channelId);
+
     this.logger.log(
       `Legal hold activated: id=${saved.id}, tenant=${tenantId}, ` +
       `channel=${channelId ?? 'all'}, legalMatter=${legalMatterId}, by=${userId}`,
@@ -122,6 +131,10 @@ export class LegalHoldService {
     hold.releasedBy = userId;
     hold.releasedAt = new Date();
     const saved = await repo.save(hold);
+
+    // IMPORTANT: Invalidate cached legal hold status on release.
+    // @see MSG-MEDIUM-023
+    await this.invalidateLegalHoldCache(hold.tenantId, hold.channelId ?? null);
 
     this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
     return saved;
@@ -200,5 +213,35 @@ export class LegalHoldService {
       where: { tenantId, isActive: true },
       order: { startedAt: 'DESC' },
     });
+  }
+
+  /**
+   * Invalidate Redis cache for legal hold status when a hold is toggled.
+   * Prevents stale cached legal hold status from allowing deletion of
+   * messages that are now under legal hold (or vice versa).
+   *
+   * Cache key pattern: msg:legal_hold:{tenantId}:{channelId|'all'}
+   * @see MSG-MEDIUM-023
+   */
+  private async invalidateLegalHoldCache(
+    tenantId: string,
+    channelId: string | null,
+  ): Promise<void> {
+    if (!this.redis) return;
+
+    try {
+      const channelKey = channelId ?? 'all';
+      const cacheKey = `msg:legal_hold:${tenantId}:${channelKey}`;
+      await this.redis.del(cacheKey);
+
+      // Also invalidate the tenant-wide key since it affects all channels
+      if (channelId) {
+        await this.redis.del(`msg:legal_hold:${tenantId}:all`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Legal hold cache invalidation failed: ${message}`);
+      // Non-fatal — cache will expire naturally via TTL
+    }
   }
 }

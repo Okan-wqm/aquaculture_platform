@@ -59,8 +59,13 @@ export class PresenceService {
   /**
    * Mark a user as offline immediately and update last-seen.
    *
+   * IMPORTANT: This method performs an explicit Redis DEL on the presence key
+   * rather than relying on key TTL expiry. Without this, the user appears
+   * online to others for up to PRESENCE_TTL seconds after disconnect.
+   *
    * SECURITY: Uses Redis MULTI/EXEC for atomic updates.
    * @see MSG-HIGH-044 (presence tracking race condition)
+   * @see MSG-MEDIUM-043 (explicit presence cleanup on disconnect)
    */
   async setOffline(tenantId: string, userId: string): Promise<void> {
     try {
@@ -71,6 +76,21 @@ export class PresenceService {
     } catch (err) {
       this.logger.warn(`setOffline failed for ${userId}: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * Handle WebSocket disconnect event. Cleans up presence immediately
+   * instead of waiting for Redis key TTL expiry.
+   *
+   * IMPORTANT: WebSocket gateways MUST call this method in their
+   * handleDisconnect() lifecycle hook. Failure to do so means the user
+   * appears online for up to PRESENCE_TTL (${PRESENCE_TTL}s) after
+   * disconnecting.
+   *
+   * @see MSG-MEDIUM-043 (explicit presence cleanup on disconnect)
+   */
+  async handleDisconnect(tenantId: string, userId: string): Promise<void> {
+    await this.setOffline(tenantId, userId);
   }
 
   /**

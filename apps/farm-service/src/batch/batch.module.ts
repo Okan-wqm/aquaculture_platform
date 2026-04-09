@@ -39,6 +39,8 @@ import { BatchDomainService } from './services/batch-domain.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
 import { BatchDocumentDataLoader } from './dataloaders/batch-document.dataloader';
+import { BatchLocationDataLoader } from './dataloaders/batch-location.dataloader';
+import { BatchFeedAssignmentDataLoader } from './dataloaders/batch-feed-assignment.dataloader';
 
 // Growth entities for calculators
 import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
@@ -84,6 +86,8 @@ import { BatchResolvers } from './resolvers';
     SGRCalculatorService,
     BiomassCalculatorService,
     BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
+    BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
+    BatchFeedAssignmentDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,

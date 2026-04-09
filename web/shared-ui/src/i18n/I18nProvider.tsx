@@ -132,7 +132,7 @@ export function useI18n(): I18nContextValue {
   return {
     locale: 'en',
     t: (key: MessageKey, vars?: Record<string, string | number>): string => {
-      let message = en[key] ?? key;
+      let message: string = en[key] ?? key;
       if (vars) {
         for (const [varName, value] of Object.entries(vars)) {
           message = message.replace(new RegExp(`\\{${varName}\\}`, 'g'), String(value));

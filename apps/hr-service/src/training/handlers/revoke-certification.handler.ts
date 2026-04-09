@@ -21,18 +21,17 @@ export class RevokeCertificationHandler
   /**
    * Re-evaluate employee's seaWorthy flag after a certification change.
    * If any mandatory offshore certification is missing (not ACTIVE), set seaWorthy = false.
+   *
+   * HR-HIGH-014: Uses queryRunner.manager.find/update directly instead of getRepository().
+   * All queries include tenantId in WHERE clause for defense-in-depth tenant isolation.
    */
   private async updateSeaWorthyStatus(
     manager: EntityManager,
     employeeId: string,
     tenantId: string,
   ): Promise<void> {
-    const certTypeRepo = manager.getRepository(CertificationType);
-    const empCertRepo = manager.getRepository(EmployeeCertification);
-    const employeeRepo = manager.getRepository(Employee);
-
-    // Find all mandatory offshore certification types for this tenant
-    const mandatoryCerts = await certTypeRepo.find({
+    // SECURITY: All queries include tenantId — no getRepository() bypass
+    const mandatoryCerts = await manager.find(CertificationType, {
       where: {
         tenantId,
         isOffshoreRequired: true,
@@ -42,13 +41,11 @@ export class RevokeCertificationHandler
       },
     });
 
-    // If there are no mandatory offshore certs defined, nothing to check
     if (mandatoryCerts.length === 0) {
       return;
     }
 
-    // Find all ACTIVE certifications for this employee
-    const activeCerts = await empCertRepo.find({
+    const activeCerts = await manager.find(EmployeeCertification, {
       where: {
         employeeId,
         tenantId,
@@ -62,7 +59,9 @@ export class RevokeCertificationHandler
     );
 
     if (!allMandatoryMet) {
-      await employeeRepo.update(
+      // SECURITY: tenantId in WHERE prevents cross-tenant update
+      await manager.update(
+        Employee,
         { id: employeeId, tenantId },
         { seaWorthy: false },
       );
@@ -80,9 +79,9 @@ export class RevokeCertificationHandler
     await queryRunner.startTransaction();
 
     try {
-      const certificationRepo = queryRunner.manager.getRepository(EmployeeCertification);
-
-      const certification = await certificationRepo.findOne({
+      // HR-HIGH-014: Use queryRunner.manager directly (not getRepository)
+      // to ensure all queries use the transaction's connection and include tenantId.
+      const certification = await queryRunner.manager.findOne(EmployeeCertification, {
         where: { id: certificationId, tenantId, isDeleted: false },
       });
 
@@ -100,7 +99,7 @@ export class RevokeCertificationHandler
       certification.revocationReason = reason;
       certification.updatedBy = userId;
 
-      await certificationRepo.save(certification);
+      await queryRunner.manager.save(EmployeeCertification, certification);
 
       // After revoking, check if employee still meets all mandatory offshore certifications.
       // If not, set seaWorthy = false.

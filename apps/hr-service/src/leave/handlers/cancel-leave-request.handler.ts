@@ -27,10 +27,9 @@ export class CancelLeaveRequestHandler
     await queryRunner.startTransaction();
 
     try {
-      const leaveRequestRepo = queryRunner.manager.getRepository(LeaveRequest);
-      const leaveBalanceRepo = queryRunner.manager.getRepository(LeaveBalance);
-
-      const leaveRequest = await leaveRequestRepo.findOne({
+      // HR-HIGH-014: Use queryRunner.manager directly (not getRepository)
+      // to ensure all queries participate in the transaction.
+      const leaveRequest = await queryRunner.manager.findOne(LeaveRequest, {
         where: { id: leaveRequestId, tenantId, isDeleted: false },
       });
 
@@ -74,7 +73,7 @@ export class CancelLeaveRequestHandler
       const currentYear = new Date(leaveRequest.startDate).getFullYear();
       // Pessimistic lock: concurrent cancel calls on the same leave request
       // could both read the same balance snapshot and corrupt it.
-      const leaveBalance = await leaveBalanceRepo.findOne({
+      const leaveBalance = await queryRunner.manager.findOne(LeaveBalance, {
         where: {
           tenantId,
           employeeId: leaveRequest.employeeId,
@@ -101,7 +100,7 @@ export class CancelLeaveRequestHandler
           );
         }
         leaveBalance.updatedBy = userId;
-        await leaveBalanceRepo.save(leaveBalance);
+        await queryRunner.manager.save(LeaveBalance, leaveBalance);
       }
 
       // Update leave request
@@ -120,12 +119,14 @@ export class CancelLeaveRequestHandler
       ];
       leaveRequest.updatedBy = userId;
 
-      const savedRequest = await leaveRequestRepo.save(leaveRequest);
+      const savedRequest = await queryRunner.manager.save(LeaveRequest, leaveRequest);
 
       await queryRunner.commitTransaction();
 
-      // Publish event for notification/audit purposes
-      this.eventBus.publish(createLeaveCancelledEvent(savedRequest, userId, reason));
+      // HR-HIGH-016: Await the event publish to prevent floating promise.
+      // A fire-and-forget publish means cancellation may silently fail
+      // with no error propagated to caller.
+      await this.eventBus.publish(createLeaveCancelledEvent(savedRequest, userId, reason));
 
       return savedRequest;
     } catch (error) {

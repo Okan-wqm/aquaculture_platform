@@ -12,6 +12,8 @@ import {
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
+import { OutboxModule } from '@platform/outbox';
+import { HrOutbox } from './hr/entities/hr-outbox.entity';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
@@ -121,6 +123,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
           Payroll,
           PayrollAudit,
           DepartmentHR,
+          HrOutbox,
           // Leave
           LeaveType,
           LeaveBalance,
@@ -273,6 +276,12 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     SchedulingModule,
     PerformanceModule,
     HealthModule,
+    /**
+     * HR-HIGH-015: Transactional outbox for at-least-once event delivery.
+     * Replaces fire-and-forget EventBus.publish() with outbox pattern.
+     * The OutboxWorkerService polls hr_outbox and publishes to NATS.
+     */
+    OutboxModule.forFeature(HrOutbox),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /**

@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { maskNationalId } from '../utils/pii-mask';
 import {
   ArrowLeft,
   Save,
@@ -375,10 +376,12 @@ const EmployeeFormPage: React.FC = () => {
                 <CreditCard className="w-4 h-4 inline mr-2" />
                 National ID <span className="text-red-500">*</span>
               </label>
+              {/* HR-HIGH-017: Mask national ID in display mode. Only show full ID
+                  during initial creation. In edit mode, show masked value. */}
               <input
                 type="text"
                 name="nationalId"
-                value={formData.nationalId}
+                value={isEditing ? maskNationalId(formData.nationalId) : formData.nationalId}
                 onChange={handleChange}
                 className={isEditing ? inputDisabledClass : inputClass}
                 disabled={isEditing}

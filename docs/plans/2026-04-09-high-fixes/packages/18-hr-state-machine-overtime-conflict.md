@@ -1,7 +1,7 @@
 # Package 18: hr-state-machine-overtime-conflict
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 30K
 Priority: HIGH
 Security-Sensitive: no

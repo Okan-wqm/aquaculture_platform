@@ -22,9 +22,9 @@ export class VerifyCertificationHandler
     await queryRunner.startTransaction();
 
     try {
-      const certificationRepo = queryRunner.manager.getRepository(EmployeeCertification);
-
-      const certification = await certificationRepo.findOne({
+      // HR-HIGH-014: Use queryRunner.manager directly (not getRepository)
+      // to ensure all queries include tenantId for tenant isolation.
+      const certification = await queryRunner.manager.findOne(EmployeeCertification, {
         where: { id: certificationId, tenantId, isDeleted: false },
       });
 
@@ -48,7 +48,7 @@ export class VerifyCertificationHandler
 
       certification.updatedBy = userId;
 
-      await certificationRepo.save(certification);
+      await queryRunner.manager.save(EmployeeCertification, certification);
 
       // Re-fetch with relations on the SAME connection before commit
       const result = await queryRunner.manager.findOne(EmployeeCertification, {

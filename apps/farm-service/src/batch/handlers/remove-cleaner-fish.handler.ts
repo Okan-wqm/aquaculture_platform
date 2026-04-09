@@ -6,11 +6,10 @@
  *
  * @module Batch/Handlers
  */
-import { Injectable, BadRequestException, NotFoundException, Inject, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
 import { RemoveCleanerFishCommand } from '../commands/remove-cleaner-fish.command';
 import { Batch, BatchType } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
@@ -33,8 +32,6 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
   ) {}
 
   async execute(command: RemoveCleanerFishCommand): Promise<Batch> {

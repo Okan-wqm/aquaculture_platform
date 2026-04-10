@@ -316,8 +316,8 @@ export class Employee {
   emergencyInfo?: EmergencyInfo;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
-  currentRotationId?: string | null;
+  @Column({ type: 'uuid', nullable: true })
+  currentRotationId!: string | null;
 
   /**
    * IANA timezone string for the employee's local timezone (e.g., 'Asia/Manila')

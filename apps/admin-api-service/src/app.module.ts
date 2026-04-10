@@ -11,6 +11,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
 import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
+import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -75,6 +76,7 @@ import { UsersModule } from './users/users.module';
         // Matches the pattern used by farm-service and messaging-service.
         migrations: [
           ConvertTimestampToTimestamptz1781500000000,
+          AddMfaCompletedToImpersonationSessions1782100000000,
         ],
         logging: configService.get<string>('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation

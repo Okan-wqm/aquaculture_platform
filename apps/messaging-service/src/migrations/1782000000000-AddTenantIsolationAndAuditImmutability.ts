@@ -55,10 +55,18 @@ export class AddTenantIsolationAndAuditImmutability1782000000000
       ADD COLUMN IF NOT EXISTS "updatedBy" uuid;
     `);
 
-    // ── 5. Add idempotency unique constraint to messages ──
+    // ── 5. Add idempotency index to messages ──
+    // WHY non-unique: "messages" is partitioned by RANGE on "createdAt".
+    // PostgreSQL requires UNIQUE constraints on partitioned tables to include
+    // ALL partition key columns. Since "idempotencyKey" + "tenantId" + "createdAt"
+    // would be a very wide key with low selectivity on createdAt, we use a
+    // non-unique index instead. Deduplication is enforced at the application
+    // layer via Redis SET NX (see send-message.handler.ts IDEMPOTENCY_TTL).
+    // The index supports efficient lookups for idempotency key collision detection.
     await queryRunner.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS "idx_messages_idempotency"
-      ON "messages" ("tenantId", "idempotencyKey");
+      CREATE INDEX IF NOT EXISTS "idx_messages_idempotency"
+      ON "messages" ("tenantId", "idempotencyKey")
+      WHERE "idempotencyKey" IS NOT NULL;
     `);
 
     // ── 6. Add idempotencyKey and isDeadLettered to messaging_outbox ──

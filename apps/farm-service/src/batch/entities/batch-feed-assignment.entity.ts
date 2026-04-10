@@ -16,6 +16,13 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
+import {
+  ObjectType,
+  Field,
+  ID,
+  Int,
+} from '@nestjs/graphql';
+import { GraphQLJSON } from 'graphql-scalars';
 // Type-only import for TypeScript type checking
 import type { Batch } from './batch.entity';
 
@@ -31,17 +38,21 @@ export interface FeedAssignmentEntry {
   priority: number;     // For overlapping ranges (lower = higher priority)
 }
 
+@ObjectType()
 @Entity('batch_feed_assignments')
 @Index(['tenantId', 'batchId'], { unique: true })
 @Index(['tenantId', 'isActive'])
 export class BatchFeedAssignment {
+  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Field()
   @Column('uuid')
   @Index()
   tenantId: string;
 
+  @Field()
   @Column('uuid')
   @Index()
   batchId: string;
@@ -59,12 +70,15 @@ export class BatchFeedAssignment {
    *   { feedId: 'ghi', feedCode: 'FEED-FIN', feedName: 'Finisher Feed', minWeightG: 50, maxWeightG: 999999, priority: 1 },
    * ]
    */
+  @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb', default: [] })
   feedAssignments: FeedAssignmentEntry[];
 
+  @Field()
   @Column({ default: true })
   isActive: boolean;
 
+  @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
@@ -72,10 +86,12 @@ export class BatchFeedAssignment {
   // SOFT DELETE
   // -------------------------------------------------------------------------
 
+  @Field()
   @Column({ default: false })
   @Index()
   isDeleted: boolean;
 
+  @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   deletedAt?: Date;
 
@@ -86,9 +102,11 @@ export class BatchFeedAssignment {
   // AUDIT
   // -------------------------------------------------------------------------
 
+  @Field()
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
+  @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
@@ -98,6 +116,7 @@ export class BatchFeedAssignment {
   @Column('uuid', { nullable: true })
   updatedBy?: string;
 
+  @Field(() => Int)
   @VersionColumn()
   version: number;
 

@@ -24,10 +24,16 @@ export class AuditLogImmutability1782000000000 implements MigrationInterface {
   name = 'AuditLogImmutability1782000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // ── Step 1: Add legalHold column ──
+    // ── Step 1a: Add legalHold column to audit_logs ──
     await queryRunner.query(`
       ALTER TABLE "audit_logs"
       ADD COLUMN IF NOT EXISTS "legalHold" boolean NOT NULL DEFAULT false
+    `);
+
+    // ── Step 1b: Add mfaCompleted column to impersonation_sessions ──
+    await queryRunner.query(`
+      ALTER TABLE "impersonation_sessions"
+      ADD COLUMN IF NOT EXISTS "mfaCompleted" boolean NOT NULL DEFAULT false
     `);
 
     // ── Step 2: BEFORE UPDATE trigger — prevent all modifications ──

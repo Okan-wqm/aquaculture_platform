@@ -773,7 +773,7 @@ export class ProvisioningService {
     device.lifecycleState = row.lifecycle_state;
     device.provisioningToken = row.provisioning_token;
     device.tokenExpiresAt = row.token_expires_at ? new Date(row.token_expires_at) : undefined;
-    device.tokenUsedAt = row.token_used_at ? new Date(row.token_used_at) : undefined;
+    device.tokenUsedAt = row.token_used_at ? new Date(row.token_used_at) : null;
     device.mqttClientId = row.mqtt_client_id;
     device.mqttPasswordHash = row.mqtt_password_hash;
     device.fingerprint = row.fingerprint;

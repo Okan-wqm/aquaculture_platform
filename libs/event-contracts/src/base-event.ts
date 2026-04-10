@@ -1,4 +1,21 @@
 /**
+ * Branded type for event IDs. Can ONLY be produced by `createBaseEvent()`.
+ *
+ * ARCHITECTURAL INVARIANT: This branded type makes inline event construction
+ * a compile-time error. You CANNOT assign a plain `string` to `EventId`:
+ *
+ *   // COMPILE ERROR — cannot assign string to EventId:
+ *   const event = { eventId: crypto.randomUUID(), ... }
+ *
+ *   // CORRECT — use the factory:
+ *   const event = { ...createBaseEvent('EventType', tenantId), ... }
+ *
+ * This prevents the class of bugs where inline event construction skips
+ * required fields (timestamp format, aggregateId, version, etc.).
+ */
+export type EventId = string & { readonly __brand: unique symbol };
+
+/**
  * Base Event Contract - All events must implement these properties
  * Designed for enterprise multi-tenant aquaculture platform
  *
@@ -8,9 +25,9 @@
  */
 export interface BaseEvent {
   /**
-   * Unique event identifier
+   * Unique event identifier — branded type, only producible by createBaseEvent()
    */
-  eventId: string;
+  eventId: EventId;
 
   /**
    * Event type name for routing (PascalCase, e.g. 'TenantCreated')
@@ -44,13 +61,13 @@ export interface BaseEvent {
    *
    * Examples: subscriptionId, batchId, sensorId, employeeId, paymentId
    */
-  aggregateId: string;
+  aggregateId?: string;
 
   /**
    * Type name of the domain aggregate (e.g., 'Subscription', 'Batch', 'Sensor', 'Employee').
    * Paired with aggregateId to enable aggregate-type-aware event routing and replay.
    */
-  aggregateType: string;
+  aggregateType?: string;
 
   /**
    * Correlation ID for distributed tracing
@@ -129,7 +146,7 @@ export function createBaseEvent<T extends BaseEvent>(
   overrides?: Partial<Pick<BaseEvent, 'correlationId' | 'causationId' | 'userId' | 'version' | 'aggregateId' | 'aggregateType'>>,
 ): Pick<BaseEvent, 'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'> & { eventType: T['eventType'] } & Partial<BaseEvent> {
   return {
-    eventId: crypto.randomUUID(),
+    eventId: crypto.randomUUID() as EventId,
     eventType,
     timestamp: new Date().toISOString(),
     tenantId,

@@ -256,7 +256,7 @@ export class DatabaseExplorerController {
    *
    * @returns A connected QueryRunner in read-only transaction mode
    */
-  private async createReadOnlyQueryRunner(): ReturnType<DataSource['createQueryRunner']> {
+  private async createReadOnlyQueryRunner(): Promise<ReturnType<DataSource['createQueryRunner']>> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     // SECURITY: Defense-in-depth — SET TRANSACTION READ ONLY on every query

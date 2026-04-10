@@ -3,7 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 export interface SystemMetrics {
-  timestamp: Date;
+  timestamp: string;
   database: DatabaseMetrics;
   platform: PlatformMetrics;
   resources: ResourceMetrics;

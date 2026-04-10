@@ -478,7 +478,7 @@ export class SecurityIncident {
 
   // Audit trail
   @Column({ type: 'jsonb', nullable: true })
-  timeline?: { timestamp: Date; action: string; actor: string; details?: string }[] | null;
+  timeline?: { timestamp: string; action: string; actor: string; details?: string }[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
@@ -673,7 +673,7 @@ export class DataRequest {
 
   // Audit trail
   @Column({ type: 'jsonb', nullable: true })
-  auditTrail?: { timestamp: Date; action: string; actor: string; details?: string }[] | null;
+  auditTrail?: { timestamp: string; action: string; actor: string; details?: string }[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;

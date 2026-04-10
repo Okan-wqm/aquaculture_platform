@@ -180,8 +180,8 @@ export class CreateTenantHandler
           );
 
           // Emit failure event for monitoring/alerting (flat-object pattern)
-          const failedStep = provisionResult.steps?.find((s: { success: boolean }) => !s.success);
-          const completedCount = provisionResult.steps?.filter((s: { success: boolean }) => s.success).length ?? 0;
+          const failedStep = provisionResult.steps?.find((s) => s.status === 'failed');
+          const completedCount = provisionResult.steps?.filter((s) => s.status === 'completed').length ?? 0;
           await this.eventBus.publish({
             eventId: crypto.randomUUID(),
             eventType: 'TenantProvisioningFailed',

@@ -39,7 +39,7 @@ export interface ImpersonationAction {
   action: string;
   resource: string;
   resourceId?: string;
-  timestamp: Date;
+  timestamp: string;
   details?: Record<string, unknown>;
 }
 
@@ -132,7 +132,7 @@ export class ImpersonationSession {
     type: string;
     id: string;
     action: string;
-    timestamp: Date;
+    timestamp: string;
   }>;
 
   @Column({ type: 'jsonb', nullable: true })

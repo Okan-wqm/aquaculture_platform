@@ -39,7 +39,7 @@ export interface UsageEvent {
   meterType: MeterType;
   quantity: number;
   unit: string;
-  timestamp: Date;
+  timestamp: string;
   metadata?: Record<string, unknown>;
   source?: string;
   userId?: string;
@@ -82,7 +82,7 @@ export interface MeterReading {
   periodEnd: Date;
   limit?: number;
   percentageUsed?: number;
-  lastUpdated: Date;
+  lastUpdated: string;
   eventCount: number;
 }
 
@@ -116,7 +116,7 @@ export interface ThresholdBreachEvent {
   currentValue: number;
   limit: number;
   percentageUsed: number;
-  timestamp: Date;
+  timestamp: string;
 }
 
 /**
@@ -125,7 +125,7 @@ export interface ThresholdBreachEvent {
 export interface UsageEventBatch {
   events: UsageEvent[];
   batchId: string;
-  timestamp: Date;
+  timestamp: string;
 }
 
 @Injectable()

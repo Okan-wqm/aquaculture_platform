@@ -164,13 +164,13 @@ export class TenantUsageMetrics {
   /**
    * Included quantities (from subscription)
    */
-  @Column('jsonb', { type: 'jsonb', nullable: true })
+  @Column('jsonb', { nullable: true })
   includedQuantities!: Record<string, number> | null;
 
   /**
    * Overage quantities (usage - included)
    */
-  @Column('jsonb', { type: 'jsonb', nullable: true })
+  @Column('jsonb', { nullable: true })
   overageQuantities!: Record<string, number> | null;
 
   /**
@@ -190,7 +190,7 @@ export class TenantUsageMetrics {
   /**
    * Reference to invoice if billed
    */
-  @Column('uuid', { type: 'varchar', nullable: true })
+  @Column('uuid', { nullable: true })
   invoiceId!: string | null;
 
   @Field()

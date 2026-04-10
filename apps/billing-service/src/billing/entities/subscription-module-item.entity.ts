@@ -219,7 +219,7 @@ export class SubscriptionModuleItem {
   /**
    * Custom configuration for this module
    */
-  @Column('jsonb', { type: 'jsonb', nullable: true })
+  @Column('jsonb', { nullable: true })
   configuration!: Record<string, unknown> | null;
 
   /**

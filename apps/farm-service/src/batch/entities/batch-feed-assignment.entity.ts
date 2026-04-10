@@ -22,7 +22,7 @@ import {
   ID,
   Int,
 } from '@nestjs/graphql';
-import { GraphQLJSON } from 'graphql-scalars';
+import GraphQLJSON from 'graphql-type-json';
 // Type-only import for TypeScript type checking
 import type { Batch } from './batch.entity';
 

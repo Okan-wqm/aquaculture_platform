@@ -55,6 +55,12 @@ export class AddTenantIsolationAndAuditImmutability1782000000000
       ADD COLUMN IF NOT EXISTS "updatedBy" uuid;
     `);
 
+    // ── 4b. Add idempotencyKey column to messages ──
+    await queryRunner.query(`
+      ALTER TABLE "messages"
+      ADD COLUMN IF NOT EXISTS "idempotencyKey" varchar(255);
+    `);
+
     // ── 5. Add idempotency index to messages ──
     // WHY non-unique: "messages" is partitioned by RANGE on "createdAt".
     // PostgreSQL requires UNIQUE constraints on partitioned tables to include
@@ -69,7 +75,13 @@ export class AddTenantIsolationAndAuditImmutability1782000000000
       WHERE "idempotencyKey" IS NOT NULL;
     `);
 
-    // ── 6. Add idempotencyKey and isDeadLettered to messaging_outbox ──
+    // ── 6. Add tenantId, idempotencyKey and isDeadLettered to messaging_outbox ──
+    // WHY: messaging_outbox was created before tenant isolation was added.
+    // tenantId is required for per-tenant event routing and dead-letter metrics.
+    await queryRunner.query(`
+      ALTER TABLE "messaging_outbox"
+      ADD COLUMN IF NOT EXISTS "tenantId" uuid;
+    `);
     await queryRunner.query(`
       ALTER TABLE "messaging_outbox"
       ADD COLUMN IF NOT EXISTS "idempotencyKey" varchar(255);

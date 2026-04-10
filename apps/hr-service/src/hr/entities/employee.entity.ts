@@ -315,7 +315,7 @@ export class Employee {
   @Column('jsonb', { nullable: true })
   emergencyInfo?: EmergencyInfo;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   currentRotationId!: string | null;
 

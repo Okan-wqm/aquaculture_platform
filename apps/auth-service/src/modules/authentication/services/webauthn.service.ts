@@ -625,7 +625,7 @@ export class WebAuthnService {
         entityId: userId,
         details: {
           ...details,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
         severity,
       });

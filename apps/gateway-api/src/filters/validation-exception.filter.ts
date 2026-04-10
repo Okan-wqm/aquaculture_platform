@@ -406,7 +406,7 @@ export class ValidationExceptionFilter implements ExceptionFilter {
         validationErrors,
       },
       meta: {
-        timestamp: new Date().toISOString().toISOString(),
+        timestamp: new Date().toISOString(),
         path: request.originalUrl || request.url,
         method: request.method,
         statusCode: HttpStatus.UNPROCESSABLE_ENTITY,

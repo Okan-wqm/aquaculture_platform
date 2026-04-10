@@ -16,7 +16,7 @@ export interface TraceSpan {
 }
 
 export interface SpanLog {
-  timestamp: Date;
+  timestamp: string;
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
   fields?: Record<string, unknown>;

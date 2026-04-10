@@ -355,7 +355,7 @@ export class ProcessService {
         tagMappings,
         version: 1,
       },
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
     };
 
     try {

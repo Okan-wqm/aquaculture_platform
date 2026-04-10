@@ -59,7 +59,7 @@ export class ResponseInterceptor<T>
               limit: (data as Record<string, unknown>).limit as number,
               totalPages: (data as Record<string, unknown>)
                 .totalPages as number,
-              timestamp: new Date().toISOString().toISOString(),
+              timestamp: new Date().toISOString(),
             },
           };
         }
@@ -68,7 +68,7 @@ export class ResponseInterceptor<T>
           success: true,
           data,
           meta: {
-            timestamp: new Date().toISOString().toISOString(),
+            timestamp: new Date().toISOString(),
           },
         };
       }),

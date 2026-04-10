@@ -38,7 +38,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const errorResponse = {
       statusCode,
       message: this.isProduction ? this.sanitizeMessage(message) : message,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       path: request.url,
       correlationId: request.headers?.['x-correlation-id'],
     };
@@ -63,7 +63,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const errorResponse = {
       statusCode,
       message: sanitizedMessage,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       correlationId: request?.headers?.['x-correlation-id'],
     };
 

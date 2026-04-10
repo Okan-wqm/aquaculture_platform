@@ -265,7 +265,7 @@ export class ScadaPackageService {
       commandId,
       command: 'deploy_scada_package',
       params: packagePayload,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
     };
 
     // Create SCADA deploy log entry before sending MQTT (TASK 1)

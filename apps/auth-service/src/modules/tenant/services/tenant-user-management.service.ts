@@ -358,7 +358,7 @@ export class TenantUserManagementService {
               newValue: { roleId: input.roleId },
               details: {
                 newRoleName: newRole.name,
-                timestamp: new Date().toISOString().toISOString(),
+                timestamp: new Date().toISOString(),
               },
               severity: AuditLogSeverity.WARNING,
             });
@@ -446,7 +446,7 @@ export class TenantUserManagementService {
         details: {
           targetEmail: user.email,
           targetRole: user.role,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
         severity: AuditLogSeverity.WARNING,
       });
@@ -623,7 +623,7 @@ export class TenantUserManagementService {
         },
         details: {
           assignmentId,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
         severity: AuditLogSeverity.WARNING,
       });

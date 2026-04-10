@@ -231,7 +231,7 @@ export class TenantService {
           slug: saved.slug,
           plan: saved.plan,
           status: saved.status,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
         severity: AuditLogSeverity.INFO,
       });

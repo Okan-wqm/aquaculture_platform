@@ -382,7 +382,7 @@ export class TemplateRendererService {
   private enrichContext(context: TemplateContext): Record<string, unknown> {
     const enriched: Record<string, unknown> = {
       ...context,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       severityColor: context.severity ? SEVERITY_COLORS[context.severity] : '#6b7280',
     };
 

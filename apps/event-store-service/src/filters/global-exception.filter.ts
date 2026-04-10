@@ -34,7 +34,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode,
       message,
       error,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       path: request.url,
       requestId: request.headers['x-request-id'] as string | undefined,
     };

@@ -1013,7 +1013,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
         commandId,
         command: 'ping',
-        timestamp: new Date().toISOString().toISOString(),
+        timestamp: new Date().toISOString(),
       });
       this.logger.debug(`Ping sent to ${device.deviceCode} (${commandId})`);
     } catch (error) {
@@ -1081,7 +1081,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         commandId: randomUUID(),
         command: 'reboot',
         reason: safeReason,
-        timestamp: new Date().toISOString().toISOString(),
+        timestamp: new Date().toISOString(),
       });
 
       this.logger.log(`Reboot command sent to ${device.deviceCode}`);
@@ -1388,7 +1388,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           commandId,
           command: 'update_io_config',
           params: agentConfig,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
       );
 
@@ -1398,7 +1398,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           commandId: randomUUID(),
           command: 'update_lora_devices',
           params: { devices: agentConfig.lorawan.devices },
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         };
         await mqtt.publish(
           `tenants/${device.tenantId}/devices/${device.id}/commands`,
@@ -1453,7 +1453,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         commandId: randomUUID(),
         command: 'config',
         config,
-        timestamp: new Date().toISOString().toISOString(),
+        timestamp: new Date().toISOString(),
       });
 
       this.logger.log(`Config update sent to ${device.deviceCode}`);
@@ -1553,7 +1553,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
             // Ör: NO (Normally Open) röle durumlarında fiziksel çıkışı ters çevirmek gerekir
             invert_value: ioConfig.invertValue ?? false,
           },
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
           // Audit trail — hangi kullanıcı bu komutu tetikledi
           ...(userId ? { triggeredBy: userId } : {}),
         },
@@ -1667,7 +1667,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         {
           commandId,
           command: 'scan_hardware',
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
       );
       this.logger.log(`scan_hardware command sent to ${device.deviceCode} (${commandId})`);
@@ -2067,7 +2067,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           commandId: randomUUID(),
           command: 'update_lora_devices',
           params: { devices },
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
       );
       this.logger.log(
@@ -2152,7 +2152,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
             f_port: fPort,
             confirmed,
           },
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
       );
 
@@ -2295,7 +2295,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           target_version: resolvedVersion,
           github_repo: repo,
         },
-        timestamp: new Date().toISOString().toISOString(),
+        timestamp: new Date().toISOString(),
       },
     );
 

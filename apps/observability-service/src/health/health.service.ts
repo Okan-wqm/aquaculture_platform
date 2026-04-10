@@ -43,7 +43,7 @@ export class HealthService {
         external: memoryUsage.external,
         rss: memoryUsage.rss,
       },
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
     };
   }
 }

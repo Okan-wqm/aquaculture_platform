@@ -78,7 +78,7 @@ export class HealthService {
         rss: memoryUsage.rss,
       },
       smtp: smtpStatus,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
     };
   }
 }

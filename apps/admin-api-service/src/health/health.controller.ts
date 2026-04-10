@@ -109,7 +109,7 @@ export class HealthController {
   } {
     return {
       status: 'ok',
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: process.env.APP_VERSION || '0.0.0',
       service: 'admin-api-service',
@@ -134,7 +134,7 @@ export class HealthController {
 
     res.status(httpStatus).json({
       status,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
     });
   }
 

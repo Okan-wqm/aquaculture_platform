@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { PrometheusService } from '../prometheus/prometheus.service';
 
 export interface AggregatedMetrics {
-  timestamp: Date;
+  timestamp: string;
   status: 'ok' | 'partial' | 'error';
   tenants: TenantMetrics;
   sensors: SensorMetrics;
@@ -137,7 +137,7 @@ export class MetricsAggregatorService {
       };
 
       // Update Prometheus metrics
-      this.updatePrometheusMetrics(this.lastAggregation);
+      this.updatePrometheusMetrics(this.lastAggregation!);
 
       this.logger.debug(`Metrics aggregation completed (status=${status})`);
     } catch (error) {

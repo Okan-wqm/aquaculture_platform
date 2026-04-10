@@ -223,7 +223,7 @@ export class UserLifecycleService {
           email: savedUser.email,
           role: savedUser.role,
           tenantRoleId: input.roleId,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
         severity: AuditLogSeverity.INFO,
       });
@@ -314,7 +314,7 @@ export class UserLifecycleService {
           targetEmail: user.email,
           targetRole: user.role,
           refreshTokensRevoked: true,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
         severity: AuditLogSeverity.WARNING,
       });

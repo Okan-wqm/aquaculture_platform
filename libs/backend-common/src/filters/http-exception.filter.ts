@@ -115,7 +115,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const errorResponse = {
       statusCode: status,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
       message,
@@ -181,7 +181,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const errorResponse = {
       statusCode: status,
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       path: request?.url,
       method: request?.method,
       message,
@@ -224,7 +224,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       extensions: {
         code,
         statusCode: status,
-        timestamp: new Date().toISOString().toISOString(),
+        timestamp: new Date().toISOString(),
         correlationId,
       },
     });
@@ -295,7 +295,7 @@ export class GraphQLExceptionFilter implements GqlExceptionFilter {
       extensions: {
         code,
         statusCode: status,
-        timestamp: new Date().toISOString().toISOString(),
+        timestamp: new Date().toISOString(),
         correlationId,
         details,
       },

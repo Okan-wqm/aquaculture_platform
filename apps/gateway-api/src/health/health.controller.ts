@@ -106,7 +106,7 @@ export class HealthController {
   } {
     return {
       status: 'ok',
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: process.env.APP_VERSION || '0.0.0',
       service: 'gateway-api',
@@ -143,7 +143,7 @@ export class HealthController {
   ping(): { message: 'pong'; timestamp: string } {
     return {
       message: 'pong',
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
     };
   }
 }

@@ -48,8 +48,8 @@ export interface WatchdogViolation {
   details: string;
   /** Number of offending rows (when applicable) */
   rowCount?: number;
-  /** When the violation was detected */
-  timestamp: Date;
+  /** When the violation was detected (ISO 8601) */
+  timestamp: string;
 }
 
 /**

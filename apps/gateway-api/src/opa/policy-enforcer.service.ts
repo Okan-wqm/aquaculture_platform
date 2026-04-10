@@ -587,7 +587,7 @@ export class PolicyEnforcerService implements OnModuleInit {
     decision: AuthorizationDecision,
   ): void {
     const auditEntry = {
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       subjectId: context.subject.id,
       subjectType: context.subject.type,
       tenantId: context.subject.tenantId,
@@ -612,7 +612,7 @@ export class PolicyEnforcerService implements OnModuleInit {
     context: AuthorizationContext,
   ): void {
     const auditEntry = {
-      timestamp: new Date().toISOString().toISOString(),
+      timestamp: new Date().toISOString(),
       type: 'policy_obligation',
       obligationType: obligation.type,
       obligationAction: obligation.action,

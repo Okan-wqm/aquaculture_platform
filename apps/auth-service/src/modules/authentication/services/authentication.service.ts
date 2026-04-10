@@ -119,7 +119,7 @@ export class AuthenticationService {
         details: {
           success: details.success,
           reason: details.reason,
-          timestamp: new Date().toISOString().toISOString(),
+          timestamp: new Date().toISOString(),
         },
         severity,
         ipAddress: details.ipAddress,

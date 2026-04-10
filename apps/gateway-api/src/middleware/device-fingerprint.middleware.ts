@@ -23,7 +23,7 @@ export interface DeviceFingerprint {
   timezone?: string;
   platform?: string;
   ip: string;
-  timestamp: Date;
+  timestamp: string;
 }
 
 /**

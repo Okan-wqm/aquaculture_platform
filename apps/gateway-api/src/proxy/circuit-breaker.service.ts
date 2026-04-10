@@ -59,7 +59,7 @@ export interface CircuitEvent {
   serviceName: string;
   previousState: CircuitState;
   newState: CircuitState;
-  timestamp: Date;
+  timestamp: string;
   stats: CircuitStats;
 }
 

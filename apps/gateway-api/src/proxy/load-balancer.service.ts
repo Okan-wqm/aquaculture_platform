@@ -114,7 +114,8 @@ export interface HealthCheckResult {
   responseTime?: number;
   statusCode?: number;
   error?: string;
-  timestamp: Date;
+  /** ISO 8601 string — serialized for JSON health/metrics responses */
+  timestamp: string;
 }
 
 /**

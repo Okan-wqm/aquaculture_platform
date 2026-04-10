@@ -18,7 +18,7 @@ export interface ServiceHealth {
  */
 export interface HealthStatus {
   status: 'healthy' | 'unhealthy' | 'degraded';
-  timestamp: Date;
+  timestamp: string;
   uptime: number;
   version: string;
   services: ServiceHealth[];
@@ -37,7 +37,7 @@ export interface HealthStatus {
  */
 export interface PublicHealthStatus {
   status: 'healthy' | 'unhealthy' | 'degraded';
-  timestamp: Date;
+  timestamp: string;
 }
 
 /**

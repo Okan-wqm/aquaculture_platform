@@ -198,7 +198,7 @@ export class EdgeDevice {
   } | null;
 
   // Agent Version
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', name: 'agent_version', length: 30, nullable: true })
   agentVersion!: string | null;
 

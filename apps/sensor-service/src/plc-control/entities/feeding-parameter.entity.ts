@@ -179,12 +179,12 @@ export class FeedingParameter {
   acknowledgedAt?: Date;
 
   @Field({ nullable: true })
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   activatedAt?: Date;
 
-  @Field({ nullable: true })
-  @Column({ nullable: true })
-  errorMessage?: string | null;
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'text', nullable: true })
+  errorMessage!: string | null;
 
   // Checksum for integrity verification
   @Field({ nullable: true })

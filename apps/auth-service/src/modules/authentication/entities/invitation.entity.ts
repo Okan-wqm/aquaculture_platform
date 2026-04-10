@@ -78,8 +78,8 @@ export class Invitation {
   tenantId?: string | null;
 
   @Field(() => [String], { nullable: true })
-  @Column('simple-array', { nullable: true })
-  moduleIds?: string[] | null;
+  @Column('simple-array', { type: 'jsonb', nullable: true })
+  moduleIds!: string[] | null;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })

@@ -100,7 +100,7 @@ export class CustomPlan {
   /**
    * Base plan this was derived from (if any)
    */
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { type: 'varchar', nullable: true })
   basePlanId!: string | null;
 
   @ManyToOne(() => PlanDefinition, { nullable: true })
@@ -182,7 +182,7 @@ export class CustomPlan {
   /**
    * Admin who approved this plan
    */
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { type: 'varchar', nullable: true })
   approvedBy!: string | null;
 
   /**
@@ -206,7 +206,7 @@ export class CustomPlan {
   /**
    * Reference to created subscription (after activation)
    */
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { type: 'varchar', nullable: true })
   subscriptionId!: string | null;
 
   @CreateDateColumn()
@@ -215,10 +215,10 @@ export class CustomPlan {
   @UpdateDateColumn()
   updatedAt!: Date;
 
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { type: 'varchar', nullable: true })
   createdBy!: string | null;
 
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { type: 'varchar', nullable: true })
   updatedBy!: string | null;
 
   // ============================================

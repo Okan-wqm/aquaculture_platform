@@ -69,10 +69,10 @@ export class TenantUsageMetricsReadOnly {
   @Column('decimal', { precision: 12, scale: 2, nullable: true })
   calculatedCost!: number | null;
 
-  @Column('jsonb', { nullable: true })
+  @Column('jsonb', { type: 'jsonb', nullable: true })
   includedQuantities!: Record<string, number> | null;
 
-  @Column('jsonb', { nullable: true })
+  @Column('jsonb', { type: 'jsonb', nullable: true })
   overageQuantities!: Record<string, number> | null;
 
   @Column({ default: false })
@@ -81,7 +81,7 @@ export class TenantUsageMetricsReadOnly {
   @Column({ type: 'timestamptz', nullable: true })
   finalizedAt!: Date | null;
 
-  @Column('uuid', { nullable: true })
+  @Column('uuid', { type: 'varchar', nullable: true })
   invoiceId!: string | null;
 
   @CreateDateColumn()

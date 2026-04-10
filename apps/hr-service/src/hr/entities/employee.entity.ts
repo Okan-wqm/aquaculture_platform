@@ -312,7 +312,7 @@ export class Employee {
   departmentHr?: DepartmentHR;
 
   @HideField()
-  @Column('jsonb', { nullable: true })
+  @Column('jsonb', { type: 'varchar', nullable: true })
   emergencyInfo?: EmergencyInfo;
 
   @Field(() => String, { nullable: true })

@@ -4,6 +4,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } f
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 import { Repository, DataSource } from 'typeorm';
 
 /**
@@ -489,10 +490,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish real-time event for WebSocket clients
       if (this.eventBus) {
         await this.eventBus.publish({
-          eventId: randomUUID(),
-          eventType: 'EdgeDeviceHeartbeat',
-          timestamp: new Date().toISOString(),
-          tenantId: device.tenantId,
+          ...createBaseEvent('EdgeDeviceHeartbeat', device.tenantId, { aggregateId: device.id, aggregateType: 'EdgeDevice' }),
           deviceId: device.id,
           deviceCode: device.deviceCode,
           isOnline: device.isOnline,
@@ -500,7 +498,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           memoryUsage: device.memoryUsage,
           storageUsage: device.storageUsage,
           temperatureCelsius: device.temperatureCelsius,
-          version: 1,
         });
       }
     }
@@ -587,15 +584,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Emit event so WebSocket subscribers (dashboard UI) get instant feedback
       if (this.eventBus) {
         await this.eventBus.publish({
-          eventId: randomUUID(),
-          eventType: 'IoConfigPushResult',
-          timestamp: new Date().toISOString(),
-          tenantId: tenantId || SYSTEM_TENANT_ID,
+          ...createBaseEvent('IoConfigPushResult', tenantId || SYSTEM_TENANT_ID, { aggregateId: deviceCode, aggregateType: 'EdgeDevice' }),
           deviceCode,
           commandId: payload.commandId,
           success: payload.success ?? false,
           error: payload.error,
-          version: 1,
         });
       }
     }
@@ -707,17 +700,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // Publish response event for command tracking
     if (this.eventBus) {
       await this.eventBus.publish({
-        eventId: randomUUID(),
-        eventType: 'EdgeDeviceResponse',
-        timestamp: new Date().toISOString(),
-        tenantId: tenantId || SYSTEM_TENANT_ID,
+        ...createBaseEvent('EdgeDeviceResponse', tenantId || SYSTEM_TENANT_ID, { aggregateId: deviceCode, aggregateType: 'EdgeDevice' }),
         deviceCode,
         commandId: payload.commandId,
         success: payload.success,
         command: payload.command,
         data: payload.data,
         error: payload.error,
-        version: 1,
       });
     }
   }
@@ -881,10 +870,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish real-time event for WebSocket clients
       if (this.eventBus) {
         await this.eventBus.publish({
-          eventId: randomUUID(),
-          eventType: 'EdgeDeviceHeartbeat',
-          timestamp: new Date().toISOString(),
-          tenantId: device.tenantId,
+          ...createBaseEvent('EdgeDeviceHeartbeat', device.tenantId, { aggregateId: device.id, aggregateType: 'EdgeDevice' }),
           deviceId: device.id,
           deviceCode: device.deviceCode,
           isOnline: device.isOnline,
@@ -893,7 +879,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           storageUsage: device.storageUsage,
           temperatureCelsius: device.temperatureCelsius,
           uptimeSeconds: device.uptimeSeconds,
-          version: 1,
         });
       }
     } else {
@@ -1041,13 +1026,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     if (this.eventBus) {
       // ARCH-C01: Serialize tags to JSON string — flat-object contract
       await this.eventBus.publish({
-        eventId: randomUUID(),
-        eventType: 'EdgeDeviceIoData',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent('EdgeDeviceIoData', tenantId, { aggregateId: deviceCode, aggregateType: 'EdgeDevice', version: 2 }),
         deviceCode,
         tagsJson: JSON.stringify(tags),
-        version: 2,
       });
     }
 
@@ -1221,14 +1202,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       if (this.eventBus) {
         // ARCH-C01: Serialize alarms to JSON string — flat-object contract
         await this.eventBus.publish({
-          eventId: randomUUID(),
-          eventType: 'EdgeDeviceAlarm',
-          timestamp: new Date().toISOString(),
-          tenantId,
+          ...createBaseEvent('EdgeDeviceAlarm', tenantId, { aggregateId: deviceCode, aggregateType: 'EdgeDevice', version: 2 }),
           deviceCode,
           alarmsJson: JSON.stringify(alarms),
           alarmCount: alarms.length,
-          version: 2,
         });
       }
 
@@ -1403,10 +1380,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish to EventBus for WebSocket bridge — frontend LoRa device listesini canlı günceller
       if (this.eventBus) {
         await this.eventBus.publish({
-          eventId: randomUUID(),
-          eventType: 'LoRaDeviceEvent',
-          timestamp: new Date().toISOString(),
-          tenantId,
+          ...createBaseEvent('LoRaDeviceEvent', tenantId, { aggregateId: deviceCode, aggregateType: 'EdgeDevice' }),
           deviceCode,
           loraEventType: eventType,
           devEui,
@@ -1414,7 +1388,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           snr: payload.snr,
           frameCountUp: payload.frame_count_up,
           devAddr: payload.dev_addr,
-          version: 1,
         });
       }
     } catch (error) {
@@ -1438,10 +1411,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await this.eventBus.publish({
-        eventId: randomUUID(),
-        eventType: 'SensorReading',
-        timestamp,
-        tenantId: sensor.tenantId,
+        ...createBaseEvent('SensorReading', sensor.tenantId, { aggregateId: sensor.id, aggregateType: 'Sensor' }),
+        timestamp: timestamp.toISOString(),
         sensorId: sensor.id,
         readings: data,
         version: 1,

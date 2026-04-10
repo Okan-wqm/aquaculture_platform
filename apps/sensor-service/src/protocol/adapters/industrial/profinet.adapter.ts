@@ -44,7 +44,7 @@ export class ProfinetAdapter extends BaseProtocolAdapter<ProfinetConfiguration> 
 
   // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
   async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
-    return { timestamp: new Date().toISOString(), values: {}, quality: 100, source: 'profinet' };
+    return { timestamp: new Date(), values: {}, quality: 100, source: 'profinet' };
   }
 
   validateConfiguration(config: unknown): ValidationResult {

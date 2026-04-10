@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { DepartmentDeletedEvent } from '@platform/event-contracts';
+import { DepartmentDeletedEvent , createBaseEvent } from '@platform/event-contracts';
 import { DeleteDepartmentCommand } from '../commands/delete-department.command';
 import { Department } from '../entities/department.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -126,7 +126,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
         .createQueryBuilder()
         .update(System)
         .set({
-          departmentId: null as string | null,
+          departmentId: undefined,
           updatedBy: userId,
         })
         .where('tenantId = :tenantId', { tenantId })
@@ -151,16 +151,12 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
     if (this.eventBus) {
       try {
         const event: DepartmentDeletedEvent = {
-          eventId: randomUUID(),
-          eventType: 'DepartmentDeleted',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<DepartmentDeletedEvent>('DepartmentDeleted', tenantId),
           departmentId: department.id,
           siteId: department.siteId ?? '',
           name: department.name,
           code: department.code,
           deletedAt: new Date(),
-          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published DepartmentDeletedEvent for department ${department.id}`);

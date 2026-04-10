@@ -313,8 +313,10 @@ export class ConflictDetectionService {
       const nextEntry = sortedEntries[i + 1]!;
 
       // If both entries have end/start times, check rest period
-      const currentEndTime = currentEntry.plannedEndTime || currentEntry.shift?.endTime;
-      const nextStartTime = nextEntry.plannedStartTime || nextEntry.shift?.startTime;
+      const currentEndTimeRaw = currentEntry.plannedEndTime || currentEntry.shift?.endTime;
+      const nextStartTimeRaw = nextEntry.plannedStartTime || nextEntry.shift?.startTime;
+      const currentEndTime = currentEndTimeRaw instanceof Date ? currentEndTimeRaw.toISOString() : currentEndTimeRaw;
+      const nextStartTime = nextStartTimeRaw instanceof Date ? nextStartTimeRaw.toISOString() : nextStartTimeRaw;
 
       if (currentEndTime && nextStartTime) {
         // Calculate rest minutes (simplified - assumes consecutive days)

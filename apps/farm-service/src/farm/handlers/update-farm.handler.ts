@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { UpdateFarmCommand } from '../commands/update-farm.command';
 import { Farm } from '../entities/farm.entity';
 import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 
 /**
  * Update Farm Command Handler
@@ -62,20 +63,10 @@ export class UpdateFarmHandler
 
     // Publish domain event
     await this.eventBus?.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'FarmUpdated',
-      timestamp: new Date().toISOString(),
-      payload: {
-        farmId: savedFarm.id,
-        tenantId: savedFarm.tenantId,
-        name: savedFarm.name,
-        location: savedFarm.location,
-      },
-      metadata: {
-        tenantId: savedFarm.tenantId,
-        userId: command.userId,
-        source: 'farm-service',
-      },
+      ...createBaseEvent('FarmUpdated', savedFarm.tenantId, { aggregateId: savedFarm.id, aggregateType: 'Farm', userId: command.userId }),
+      farmId: savedFarm.id,
+      name: savedFarm.name,
+      location: savedFarm.location,
     });
 
     this.logger.log(`Farm "${savedFarm.name}" updated with ID ${savedFarm.id}`);

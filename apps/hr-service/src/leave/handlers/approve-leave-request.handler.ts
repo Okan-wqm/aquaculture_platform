@@ -89,7 +89,7 @@ export class ApproveLeaveRequestHandler
         {
           action: 'approved',
           actorId: userId,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(),
           notes: notes || 'Leave request approved',
         },
       ];

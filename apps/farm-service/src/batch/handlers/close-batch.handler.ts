@@ -25,6 +25,7 @@ import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BatchClosedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 
@@ -122,14 +123,9 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
       // publish API. With OutboxPublisher.enqueue<BaseEvent>, the cast to the
       // typed contract is enforced.
       const closedEvent: BatchClosedEvent = {
-        eventId: randomUUID(),
-        eventType: 'BatchClosed',
-        timestamp: closedAt,
-        tenantId,
-        version: 1,
+        ...createBaseEvent<BatchClosedEvent>('BatchClosed', tenantId, { aggregateId: savedBatch.id, aggregateType: 'Batch' }),
+        timestamp: closedAt.toISOString(),
         userId: closedBy,
-        aggregateId: savedBatch.id,
-        aggregateType: 'Batch',
         batchId: savedBatch.id,
         closeReason: reason,
         finalQuantity: finalMetrics.finalQuantity,

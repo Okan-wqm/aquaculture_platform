@@ -12,7 +12,7 @@ import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 import { SchemaManagerService, Role } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
-import { UserInvitedEvent } from '@platform/event-contracts';
+import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -412,10 +412,7 @@ export class UserLifecycleService {
     const actionUrl = `${baseUrl}/accept-invitation/${invitationToken}`;
 
     const event: UserInvitedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'UserInvited',
-      timestamp: new Date().toISOString(),
-      tenantId: tenant.id,
+      ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: user.id, aggregateType: 'User' }),
       userId: user.id,
       email: user.email,
       firstName: user.firstName || undefined,
@@ -425,7 +422,6 @@ export class UserLifecycleService {
       invitedBy: user.invitedBy || undefined,
       credentialType: 'reset_token',
       actionUrl,
-      version: 1,
     };
 
     await this.eventBus.publish(event);

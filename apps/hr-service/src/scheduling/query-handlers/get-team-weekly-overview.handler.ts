@@ -207,8 +207,8 @@ export class GetTeamWeeklyOverviewHandler implements IQueryHandler<GetTeamWeekly
             entryType: entry.entryType,
             shiftCode: entry.shift?.code,
             shiftName: entry.shift?.name,
-            startTime: entry.plannedStartTime || entry.shift?.startTime,
-            endTime: entry.plannedEndTime || entry.shift?.endTime,
+            startTime: (entry.plannedStartTime?.toISOString()) || entry.shift?.startTime,
+            endTime: (entry.plannedEndTime?.toISOString()) || entry.shift?.endTime,
             plannedMinutes: entry.plannedMinutes,
           };
 

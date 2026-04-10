@@ -158,8 +158,8 @@ export class CopyWeeklyPlanHandler implements ICommandHandler<CopyWeeklyPlanComm
           shiftId = sourceEntry.shiftId;
           isOffDay = sourceEntry.isOffDay;
           plannedMinutes = sourceEntry.plannedMinutes;
-          plannedStartTime = sourceEntry.plannedStartTime;
-          plannedEndTime = sourceEntry.plannedEndTime;
+          plannedStartTime = sourceEntry.plannedStartTime?.toISOString();
+          plannedEndTime = sourceEntry.plannedEndTime?.toISOString();
 
           if (entryType === WeeklyPlanEntryType.WORK || entryType === WeeklyPlanEntryType.TRAINING) {
             plannedWorkDays++;

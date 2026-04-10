@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { SiteUpdatedEvent } from '@platform/event-contracts';
+import { SiteUpdatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { UpdateSiteCommand } from '../commands/update-site.command';
 import { Site } from '../entities/site.entity';
 
@@ -72,15 +72,11 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Sit
     if (this.eventBus) {
       try {
         const event: SiteUpdatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'SiteUpdated',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<SiteUpdatedEvent>('SiteUpdated', tenantId),
           siteId: updatedSite.id,
           name: updatedSite.name,
           code: updatedSite.code,
           status: updatedSite.status,
-          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published SiteUpdatedEvent for site ${updatedSite.id}`);

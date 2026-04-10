@@ -106,7 +106,7 @@ export class CoapAdapter extends BaseProtocolAdapter<CoapConfiguration> {
 
     // Placeholder - implement with actual CoAP library
     return {
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       values: {},
       quality: 100,
       source: 'coap',

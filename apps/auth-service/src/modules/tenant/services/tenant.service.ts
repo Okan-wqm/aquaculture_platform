@@ -17,6 +17,7 @@ import {
   TenantStatusChangedEvent,
   TenantModulesAssignedEvent,
   UserInvitedEvent,
+  createBaseEvent,
 } from '@platform/event-contracts';
 import * as crypto from 'crypto';
 import { Repository, DataSource, MoreThan, Between } from 'typeorm';
@@ -207,13 +208,9 @@ export class TenantService {
 
     // Publish event
     const event: TenantCreatedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantCreated',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
+      ...createBaseEvent<TenantCreatedEvent>('TenantCreated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
       name: saved.name,
       slug: saved.slug,
-      version: 1,
     };
 
     await this.eventBus.publish(event);
@@ -291,10 +288,7 @@ export class TenantService {
       const actionUrl = `${baseUrl}/auth/set-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
 
       const userInvitedEvent: UserInvitedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'UserInvited',
-        timestamp: new Date().toISOString(),
-        tenantId: tenant.id,
+        ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: savedUser.id, aggregateType: 'User' }),
         userId: savedUser.id,
         email: savedUser.email,
         firstName: savedUser.firstName || undefined,
@@ -303,7 +297,6 @@ export class TenantService {
         tenantName: tenant.name,
         credentialType: 'reset_token',
         actionUrl,
-        version: 1,
       };
 
       // Publish event - notification service will handle email sending
@@ -367,12 +360,8 @@ export class TenantService {
 
     // Publish event
     const event: TenantUpdatedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantUpdated',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
+      ...createBaseEvent<TenantUpdatedEvent>('TenantUpdated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
       name: input.name,
-      version: 1,
     };
 
     await this.eventBus.publish(event);
@@ -390,23 +379,15 @@ export class TenantService {
 
     // Publish TenantActivatedEvent
     const activatedEvent: TenantActivatedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantActivated',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
-      version: 1,
+      ...createBaseEvent<TenantActivatedEvent>('TenantActivated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
     };
     await this.eventBus.publish(activatedEvent);
 
     // Publish TenantStatusChangedEvent for generic status-change consumers
     const statusChangedEvent: TenantStatusChangedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantStatusChanged',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
+      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
       previousStatus,
       newStatus: TenantStatus.ACTIVE,
-      version: 1,
     };
     await this.eventBus.publish(statusChangedEvent);
 
@@ -423,25 +404,17 @@ export class TenantService {
 
     // Publish TenantSuspendedEvent
     const suspendedEvent: TenantSuspendedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantSuspended',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
+      ...createBaseEvent<TenantSuspendedEvent>('TenantSuspended', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
       reason,
-      version: 1,
     };
     await this.eventBus.publish(suspendedEvent);
 
     // Publish TenantStatusChangedEvent for generic status-change consumers
     const statusChangedEvent: TenantStatusChangedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantStatusChanged',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
+      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
       previousStatus,
       newStatus: TenantStatus.SUSPENDED,
       reason,
-      version: 1,
     };
     await this.eventBus.publish(statusChangedEvent);
 
@@ -459,14 +432,10 @@ export class TenantService {
     // Publish TenantStatusChangedEvent — no specific CancelledEvent needed,
     // generic status change is sufficient for this transition
     const statusChangedEvent: TenantStatusChangedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantStatusChanged',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
+      ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
       previousStatus,
       newStatus: TenantStatus.CANCELLED,
       reason,
-      version: 1,
     };
     await this.eventBus.publish(statusChangedEvent);
 
@@ -515,14 +484,10 @@ export class TenantService {
 
     // Publish TenantModulesAssignedEvent
     const modulesAssignedEvent: TenantModulesAssignedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantModulesAssigned',
-      timestamp: new Date().toISOString(),
-      tenantId: tenant.id,
+      ...createBaseEvent<TenantModulesAssignedEvent>('TenantModulesAssigned', tenant.id, { aggregateId: tenant.id, aggregateType: 'Tenant' }),
       moduleIds: modules.map(mod => mod.id),
       moduleCodes: input.moduleCodes,
       assignedBy: tenant.createdBy ?? 'system',
-      version: 1,
     };
     await this.eventBus.publish(modulesAssignedEvent);
 
@@ -1063,12 +1028,8 @@ export class TenantService {
 
     // Publish TenantUpdatedEvent for consistency — settings changes are tenant updates
     const event: TenantUpdatedEvent = {
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantUpdated',
-      timestamp: new Date().toISOString(),
-      tenantId: saved.id,
+      ...createBaseEvent<TenantUpdatedEvent>('TenantUpdated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
       name: input.name,
-      version: 1,
     };
     await this.eventBus.publish(event);
 

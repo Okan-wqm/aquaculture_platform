@@ -129,7 +129,7 @@ export function adaptTankToEquipment(tank: Tank): Equipment {
   adapted.volume = Number(tank.volume) || 0;
   adapted.currentBiomass = Number(tank.currentBiomass) || 0;
   adapted.currentCount = tank.currentCount || 0;
-  adapted.status = tank.status as EquipmentStatus;
+  adapted.status = (tank.status as string) as EquipmentStatus;
   adapted.isTank = true;
   adapted.isActive = tank.isActive;
   adapted.isDeleted = false;

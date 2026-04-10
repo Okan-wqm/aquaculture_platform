@@ -1,10 +1,9 @@
-import { randomUUID } from 'crypto';
-
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { IEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common';
 import {
   EscalationPolicy,
@@ -117,7 +116,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
   private escalationTimers: Map<string, NodeJS.Timeout> = new Map();
   private timerCheckInterval: NodeJS.Timeout | null = null;
   // Unique instance ID for distributed locking
-  private readonly instanceId = randomUUID();
+  private readonly instanceId = crypto.randomUUID();
 
   constructor(
     @InjectRepository(AlertIncident)
@@ -381,15 +380,11 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       // Publish NATS event so notification-service can react to escalations
       if (this.eventBus) {
         await this.eventBus.publish({
-          eventId: randomUUID(),
-          eventType: 'AlertEscalated',
-          timestamp: new Date().toISOString(),
-          tenantId: incident.tenantId,
+          ...createBaseEvent('AlertEscalated', incident.tenantId, { aggregateId: incident.id, aggregateType: 'AlertIncident' }),
           incidentId: incident.id,
           level,
           action,
           policyId: policy.id,
-          version: 1,
         });
       }
 
@@ -476,7 +471,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     // Record acknowledgment
     state.acknowledgments.push({
       userId,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       level: state.currentLevel,
       message,
     });

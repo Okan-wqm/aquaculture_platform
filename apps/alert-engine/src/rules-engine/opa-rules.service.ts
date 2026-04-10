@@ -325,7 +325,7 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
           }
         : undefined,
       decisionId: data.decision_id,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     };
   }
 
@@ -511,7 +511,7 @@ export class OpaRulesService implements OnModuleInit, OnModuleDestroy {
         reasons: result.reasons,
         timestamp: result.timestamp,
       } as PolicyResult,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       labels: tenantId ? { tenantId } : undefined,
     };
 

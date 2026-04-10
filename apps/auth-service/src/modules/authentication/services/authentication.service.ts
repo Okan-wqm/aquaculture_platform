@@ -22,6 +22,7 @@ import {
   TOKEN_BLACKLIST,
 } from '@aquaculture/backend-common';
 import { IEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -170,12 +171,7 @@ export class AuthenticationService {
 
     // Publish event
     await this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'UserRegistered',
-      timestamp: new Date().toISOString(),
-      tenantId: savedUser.tenantId ?? 'system',
-      userId: savedUser.id,
-      version: 1,
+      ...createBaseEvent('UserRegistered', savedUser.tenantId ?? 'system', { aggregateId: savedUser.id, aggregateType: 'User', userId: savedUser.id }),
     });
 
     return this.tokenService.generateTokens(savedUser);
@@ -355,12 +351,7 @@ export class AuthenticationService {
           success: true,
         }),
         this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          eventType: 'UserLoggedIn',
-          timestamp: new Date().toISOString(),
-          tenantId: user.tenantId ?? 'system',
-          userId: user.id,
-          version: 1,
+          ...createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
         }),
       ]);
 
@@ -491,12 +482,7 @@ export class AuthenticationService {
       }),
       // Publish event (outside transaction - events can be retried)
       this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'InvitationAccepted',
-        timestamp: new Date().toISOString(),
-        tenantId: result.tenantId ?? 'system',
-        userId: result.id,
-        version: 1,
+        ...createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', { aggregateId: result.id, aggregateType: 'User', userId: result.id }),
       }),
     ]);
 
@@ -925,15 +911,10 @@ export class AuthenticationService {
 
       // Publish event for notification service to send reset email
       await this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'PasswordResetRequested',
-        timestamp: new Date().toISOString(),
-        tenantId: user.tenantId ?? 'system',
-        userId: user.id,
+        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id, version: 2 }),
         email: user.email,
         actionUrl,
         firstName: user.firstName ?? undefined,
-        version: 2,
       });
 
       // Audit log
@@ -1035,12 +1016,7 @@ export class AuthenticationService {
         success: true,
       }),
       this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'PasswordResetCompleted',
-        timestamp: new Date().toISOString(),
-        tenantId: user.tenantId ?? 'system',
-        userId: user.id,
-        version: 1,
+        ...createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
       }),
     ]);
 

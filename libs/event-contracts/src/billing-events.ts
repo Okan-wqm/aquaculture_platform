@@ -27,6 +27,8 @@ export interface SubscriptionFeatures {
   dataExportEnabled?: boolean;
   /** Whether API access is included. */
   apiAccessEnabled?: boolean;
+  /** Plan-specific numeric limits (e.g., maxApiCalls, maxStorageMb). */
+  limits?: Record<string, number>;
 }
 
 /**
@@ -53,6 +55,10 @@ export interface SubscriptionUpdatedEvent extends BaseEvent {
   monthlyPrice?: number;
   currency?: string;
   startDate?: Date;
+  /** Whether this update is a downgrade from a higher tier. */
+  isDowngrade?: boolean;
+  /** The plan tier before this update (e.g., 'professional' before downgrade to 'starter'). */
+  previousPlanTier?: PlanTier;
   /** Typed feature flags — replaces Record<string, unknown> for compile-time safety. */
   features?: SubscriptionFeatures;
 }

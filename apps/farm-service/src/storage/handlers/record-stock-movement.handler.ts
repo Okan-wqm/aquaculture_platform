@@ -6,6 +6,7 @@ import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
 import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
@@ -201,11 +202,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       // StockMovementRecorded: universal event for every stock change
       try {
         const movementEvent: StockMovementRecordedEvent = {
-          eventId: randomUUID(),
-          eventType: 'StockMovementRecorded',
-          timestamp: new Date().toISOString(),
-          tenantId,
-          version: 1,
+          ...createBaseEvent<StockMovementRecordedEvent>('StockMovementRecorded', tenantId),
           userId,
           movementId: saved.id,
           movementType: saved.movementType,
@@ -247,11 +244,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
 
           if (severity) {
             const lowStockEvent: LowStockDetectedEvent = {
-              eventId: randomUUID(),
-              eventType: 'LowStockDetected',
-              timestamp: new Date().toISOString(),
-              tenantId,
-              version: 1,
+              ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
               itemType,
               itemId,
               itemName: saved.itemName,

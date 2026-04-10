@@ -12,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, In } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { EquipmentUpdatedEvent } from '@platform/event-contracts';
+import { EquipmentUpdatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
 import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
@@ -252,14 +252,10 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
     if (this.eventBus) {
       try {
         const event: EquipmentUpdatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'EquipmentUpdated',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<EquipmentUpdatedEvent>('EquipmentUpdated', tenantId),
           equipmentId: updatedEquipment.id,
           name: updatedEquipment.name,
           status: updatedEquipment.status,
-          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published EquipmentUpdatedEvent for equipment ${updatedEquipment.id}`);
@@ -571,7 +567,6 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
         isPrimary: true,
         criticalityLevel: 3,
         createdAt: tank.createdAt,
-        updatedAt: tank.updatedAt,
         createdBy: tank.createdBy,
       }] as EquipmentSystem[];
     } else {

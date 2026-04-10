@@ -103,8 +103,8 @@ export class UpdatePlanEntryHandler implements ICommandHandler<UpdatePlanEntryCo
 
           // Calculate planned minutes based on custom times or shift defaults
           if (plannedStartTime && plannedEndTime) {
-            entry.plannedStartTime = plannedStartTime;
-            entry.plannedEndTime = plannedEndTime;
+            entry.plannedStartTime = new Date(plannedStartTime);
+            entry.plannedEndTime = new Date(plannedEndTime);
             entry.plannedMinutes = this.calculateMinutes(plannedStartTime, plannedEndTime);
           } else {
             entry.plannedStartTime = undefined;
@@ -114,8 +114,8 @@ export class UpdatePlanEntryHandler implements ICommandHandler<UpdatePlanEntryCo
         }
       } else if (plannedStartTime && plannedEndTime) {
         // Update custom times without changing shift
-        entry.plannedStartTime = plannedStartTime;
-        entry.plannedEndTime = plannedEndTime;
+        entry.plannedStartTime = new Date(plannedStartTime);
+        entry.plannedEndTime = new Date(plannedEndTime);
         entry.plannedMinutes = this.calculateMinutes(plannedStartTime, plannedEndTime);
       }
 

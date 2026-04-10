@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { SystemCreatedEvent } from '@platform/event-contracts';
+import { SystemCreatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateSystemCommand } from '../commands/create-system.command';
 import { System, SystemStatus } from '../entities/system.entity';
 import { Site } from '../../site/entities/site.entity';
@@ -119,10 +119,7 @@ export class CreateSystemHandler implements ICommandHandler<CreateSystemCommand,
     if (this.eventBus) {
       try {
         const event: SystemCreatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'SystemCreated',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<SystemCreatedEvent>('SystemCreated', tenantId),
           systemId: savedSystem.id,
           siteId: savedSystem.siteId,
           departmentId: savedSystem.departmentId,

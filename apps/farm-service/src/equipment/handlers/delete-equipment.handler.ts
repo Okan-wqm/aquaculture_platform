@@ -13,7 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { EquipmentDeletedEvent } from '@platform/event-contracts';
+import { EquipmentDeletedEvent , createBaseEvent } from '@platform/event-contracts';
 import { DeleteEquipmentCommand } from '../commands/delete-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
@@ -140,15 +140,11 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     if (this.eventBus) {
       try {
         const event: EquipmentDeletedEvent = {
-          eventId: randomUUID(),
-          eventType: 'EquipmentDeleted',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<EquipmentDeletedEvent>('EquipmentDeleted', tenantId),
           equipmentId: equipment.id,
           name: equipment.name,
           code: equipment.code,
           deletedAt: new Date(),
-          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published EquipmentDeletedEvent for equipment ${equipment.id}`);

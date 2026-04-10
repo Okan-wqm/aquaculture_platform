@@ -311,8 +311,8 @@ export class ScheduleNotificationService {
           entryType: entry.entryType,
           shiftName: shift?.name,
           shiftCode: shift?.code,
-          startTime: entry.plannedStartTime || shift?.startTime?.toString().slice(0, 5),
-          endTime: entry.plannedEndTime || shift?.endTime?.toString().slice(0, 5),
+          startTime: (entry.plannedStartTime instanceof Date ? entry.plannedStartTime.toISOString() : entry.plannedStartTime) || shift?.startTime?.toString().slice(0, 5),
+          endTime: (entry.plannedEndTime instanceof Date ? entry.plannedEndTime.toISOString() : entry.plannedEndTime) || shift?.endTime?.toString().slice(0, 5),
           totalHours: entry.plannedMinutes > 0 ? entry.plannedMinutes / 60 : undefined,
         };
       });

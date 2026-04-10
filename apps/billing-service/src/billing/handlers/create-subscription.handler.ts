@@ -155,9 +155,10 @@ export class CreateSubscriptionHandler
           currency: input.pricing.currency || 'USD',
           startDate: savedSubscription.startDate,
           features: {
-            limits: savedSubscription.limits,
-            billingCycle: savedSubscription.billingCycle,
-            autoRenew: savedSubscription.autoRenew,
+            maxFarms: savedSubscription.limits?.maxFarms,
+            maxPonds: savedSubscription.limits?.maxPonds,
+            maxSensors: savedSubscription.limits?.maxSensors,
+            maxUsers: savedSubscription.limits?.maxUsers,
           },
         };
         await this.eventBus?.publish(event);

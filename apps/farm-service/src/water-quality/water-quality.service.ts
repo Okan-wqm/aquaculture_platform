@@ -22,7 +22,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { OutboxPublisher } from '@platform/outbox';
-import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent } from '@platform/event-contracts';
+import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent , createBaseEvent } from '@platform/event-contracts';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource, ParameterStatus } from './entities/water-quality-measurement.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
@@ -210,11 +210,7 @@ export class WaterQualityService {
       // LIFE-SAFETY: Enqueue WaterQualityMeasurementCreatedEvent into the
       // transactional outbox BEFORE commit. Guaranteed delivery via outbox worker.
       const createdEvent: WaterQualityMeasurementCreatedEvent = {
-        eventId: randomUUID(),
-        eventType: 'WaterQualityMeasurementCreated',
-        tenantId,
-        timestamp: new Date().toISOString(),
-        version: 1,
+        ...createBaseEvent<WaterQualityMeasurementCreatedEvent>('WaterQualityMeasurementCreated', tenantId),
         measurementId: saved.id,
         equipmentId: saved.equipmentId ?? null,
         tankId: saved.tankId ?? null,
@@ -245,11 +241,7 @@ export class WaterQualityService {
         if (criticalParams.length > 0) {
           // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
           const criticalEvent: WaterQualityCriticalEvent = {
-            eventId: randomUUID(),
-            eventType: 'WaterQualityCritical',
-            tenantId,
-            timestamp: new Date().toISOString(),
-            version: 2,
+            ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId),
             measurementId: saved.id,
             equipmentId: saved.equipmentId ?? null,
             tankId: saved.tankId ?? null,
@@ -354,11 +346,7 @@ export class WaterQualityService {
       // Enqueue outbox events for each measurement (inside the same transaction)
       for (const measurement of saved) {
         const createdEvent: WaterQualityMeasurementCreatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'WaterQualityMeasurementCreated',
-          tenantId,
-          timestamp: new Date().toISOString(),
-          version: 1,
+          ...createBaseEvent<WaterQualityMeasurementCreatedEvent>('WaterQualityMeasurementCreated', tenantId),
           measurementId: measurement.id,
           equipmentId: measurement.equipmentId ?? null,
           tankId: measurement.tankId ?? null,
@@ -387,11 +375,7 @@ export class WaterQualityService {
           if (criticalParams.length > 0) {
             // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
             const criticalEvent: WaterQualityCriticalEvent = {
-              eventId: randomUUID(),
-              eventType: 'WaterQualityCritical',
-              tenantId,
-              timestamp: new Date().toISOString(),
-              version: 2,
+              ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId),
               measurementId: measurement.id,
               equipmentId: measurement.equipmentId ?? null,
               tankId: measurement.tankId ?? null,

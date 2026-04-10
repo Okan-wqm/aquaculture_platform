@@ -161,7 +161,7 @@ export class SiemensS7Adapter extends BaseProtocolAdapter<SiemensS7Configuration
     });
 
     this.updateLastActivity(handle);
-    return { timestamp: new Date().toISOString(), values, quality: 100, source: 'siemens_s7' };
+    return { timestamp: new Date(), values, quality: 100, source: 'siemens_s7' };
   }
 
   private buildS7Address(db: SiemensS7Configuration['dataBlocks'][0]): string {

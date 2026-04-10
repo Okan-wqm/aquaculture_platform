@@ -80,6 +80,7 @@ export interface MaintenanceSchedule {
  * EquipmentType.category === 'tank' için kullanılır
  */
 export interface TankSpecifications {
+  [key: string]: unknown;
   tankType: 'circular' | 'rectangular' | 'raceway' | 'd_end' | 'oval' | 'square' | 'other';
   material: 'fiberglass' | 'concrete' | 'hdpe' | 'steel' | 'stainless_steel' | 'pvc' | 'liner' | 'other';
   waterType: 'freshwater' | 'saltwater' | 'brackish';

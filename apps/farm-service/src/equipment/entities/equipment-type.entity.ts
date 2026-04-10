@@ -50,6 +50,7 @@ export interface SpecificationField {
 }
 
 export interface SpecificationSchema {
+  [key: string]: unknown;
   fields: SpecificationField[];
   groups?: Array<{
     name: string;

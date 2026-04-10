@@ -151,7 +151,7 @@ export class ModbusRtuAdapter extends BaseProtocolAdapter {
     this.updateLastActivity(handle);
 
     return {
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       values: { value: (value * config.scaling) + config.offset },
       quality: 100,
       source: 'modbus_rtu',

@@ -4,7 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { IEventBus } from '@platform/event-bus';
 
-import { TenantCreatedEvent } from '@platform/event-contracts';
+import { TenantCreatedEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { PlanTier, BillingCycle } from '../../billing/entities/plan-definition.entity';
@@ -117,13 +117,9 @@ export class CreateTenantHandler
       // Billing-relevant fields (tier, moduleIds) are carried by
       // TenantSubscriptionRequestedEvent published later in the flow.
       const tenantCreatedEvent: TenantCreatedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantCreated',
-        timestamp: new Date().toISOString(),
-        tenantId: savedTenant.id,
+        ...createBaseEvent<TenantCreatedEvent>('TenantCreated', savedTenant.id, { aggregateId: savedTenant.id, aggregateType: 'Tenant' }),
         slug: savedTenant.slug,
         name: savedTenant.name,
-        version: 1,
       };
       await this.eventBus.publish(tenantCreatedEvent);
 
@@ -183,10 +179,7 @@ export class CreateTenantHandler
           const failedStep = provisionResult.steps?.find((s) => s.status === 'failed');
           const completedCount = provisionResult.steps?.filter((s) => s.status === 'completed').length ?? 0;
           await this.eventBus.publish({
-            eventId: crypto.randomUUID(),
-            eventType: 'TenantProvisioningFailed',
-            timestamp: new Date().toISOString(),
-            tenantId: savedTenant.id,
+            ...createBaseEvent('TenantProvisioningFailed', savedTenant.id, { aggregateId: savedTenant.id, aggregateType: 'Tenant' }),
             error: provisionResult.error,
             stepCount: provisionResult.steps?.length ?? 0,
             durationMs: provisionDuration,
@@ -315,10 +308,7 @@ export class CreateTenantHandler
 
       // Publish subscription requested event for billing service via NATS
       await this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantSubscriptionRequested',
-        timestamp: new Date().toISOString(),
-        tenantId: tenant.id,
+        ...createBaseEvent('TenantSubscriptionRequested', tenant.id, { aggregateId: tenant.id, aggregateType: 'Tenant' }),
         tenantName: tenant.name,
         moduleIds: data.moduleIds || [],
         moduleQuantities: data.moduleQuantities,
@@ -327,7 +317,6 @@ export class CreateTenantHandler
         billingCycle: data.billingCycle || 'monthly',
         billingEmail: data.billingEmail || data.primaryContact?.email,
         createdBy,
-        version: 1,
       });
 
       this.logger.log(`Subscription event published for tenant ${tenant.id}`);

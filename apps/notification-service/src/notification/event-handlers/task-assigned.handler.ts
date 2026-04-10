@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
+import type { EventId } from '@platform/event-contracts';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 import { InAppNotificationService } from '../services/in-app.service';
 
@@ -41,10 +42,10 @@ class Semaphore {
 /**
  * Task Assigned Event interface
  */
-interface TaskAssignedEvent {
-  eventId: string;
+interface TaskAssignedEvent extends IEvent {
+  eventId: string | EventId;
   eventType: string;
-  timestamp: Date;
+  timestamp: string;
   payload: {
     taskId: string;
     title: string;
@@ -60,10 +61,10 @@ interface TaskAssignedEvent {
 /**
  * Task Overdue Event interface
  */
-interface TaskOverdueEvent {
-  eventId: string;
+interface TaskOverdueEvent extends IEvent {
+  eventId: string | EventId;
   eventType: string;
-  timestamp: Date;
+  timestamp: string;
   payload: {
     taskId: string;
     title: string;

@@ -17,7 +17,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
-import { FeedInventoryLowEvent } from '@platform/event-contracts';
+import { FeedInventoryLowEvent , createBaseEvent } from '@platform/event-contracts';
 import { ConsumeFeedInventoryCommand, ConsumptionReason } from '../commands/consume-feed-inventory.command';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 
@@ -102,10 +102,7 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
     if (saved.status === InventoryStatus.LOW_STOCK && this.eventBus) {
       try {
         const event: FeedInventoryLowEvent = {
-          eventId: randomUUID(),
-          eventType: 'FeedInventoryLow',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId),
           inventoryId: saved.id,
           feedId: saved.feedId,
           siteId: saved.siteId,

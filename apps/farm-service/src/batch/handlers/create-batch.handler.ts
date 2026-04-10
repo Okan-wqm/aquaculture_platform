@@ -17,7 +17,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { BatchCreatedEvent } from '@platform/event-contracts';
+import { BatchCreatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateBatchCommand } from '../commands/create-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
@@ -531,14 +531,8 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
         .map((loc) => loc.tankId || loc.pondId)
         .filter((id): id is string => !!id);
       const batchCreatedEvent: BatchCreatedEvent = {
-        eventId: randomUUID(),
-        eventType: 'BatchCreated',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<BatchCreatedEvent>('BatchCreated', tenantId, { aggregateId: savedBatch.id, aggregateType: 'Batch' }),
         userId: createdBy,
-        aggregateId: savedBatch.id,
-        aggregateType: 'Batch',
         batchId: savedBatch.id,
         tankIds: tankIds.length > 0 ? tankIds : undefined,
         name: savedBatch.batchNumber,

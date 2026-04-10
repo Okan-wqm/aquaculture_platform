@@ -12,6 +12,8 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
+import { createBaseEvent } from '@platform/event-contracts';
+
 import { AUDIT_LOG_KEY, AuditLogOptions } from '../decorators/audit-log.decorator';
 import { AuditLogService } from './audit-log.service';
 import { AuditSeverity } from './audit-log.entity';
@@ -173,11 +175,7 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
 
     const event = {
-      eventId: crypto.randomUUID(),
-      eventType: `audit.${options.action.toLowerCase()}`,
-      timestamp: new Date().toISOString(),
-      tenantId: requestCtx.tenantId ?? undefined,
-      userId: requestCtx.userId ?? undefined,
+      ...createBaseEvent(`audit.${options.action.toLowerCase()}`, requestCtx.tenantId ?? '', { userId: requestCtx.userId ?? undefined }),
       metadata: {
         action: options.action,
         resource: options.resource,

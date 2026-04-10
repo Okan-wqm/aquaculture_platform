@@ -13,6 +13,7 @@ import { CreatePondCommand } from '../commands/create-pond.command';
 import { Pond, WaterType, PondStatus } from '../entities/pond.entity';
 import { Farm } from '../entities/farm.entity';
 import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 
 /**
  * Create Pond Command Handler
@@ -81,22 +82,12 @@ export class CreatePondHandler
 
     // Publish domain event
     await this.eventBus?.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'PondCreated',
-      timestamp: new Date().toISOString(),
-      payload: {
-        pondId: savedPond.id,
-        farmId: savedPond.farmId,
-        tenantId: savedPond.tenantId,
-        name: savedPond.name,
-        capacity: savedPond.capacity,
-        waterType: savedPond.waterType,
-      },
-      metadata: {
-        tenantId: savedPond.tenantId,
-        userId: command.userId,
-        source: 'farm-service',
-      },
+      ...createBaseEvent('PondCreated', savedPond.tenantId, { aggregateId: savedPond.id, aggregateType: 'Pond', userId: command.userId }),
+      pondId: savedPond.id,
+      farmId: savedPond.farmId,
+      name: savedPond.name,
+      capacity: savedPond.capacity,
+      waterType: savedPond.waterType,
     });
 
     this.logger.log(`Pond "${savedPond.name}" created with ID ${savedPond.id}`);

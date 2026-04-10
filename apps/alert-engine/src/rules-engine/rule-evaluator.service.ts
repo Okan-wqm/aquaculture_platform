@@ -109,7 +109,7 @@ export class RuleEvaluatorService {
         matchedConditions,
         allResults,
         evaluationTime: Date.now() - startTime,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(),
       };
     } catch (error) {
       this.logger.error(`Error evaluating rule ${rule.id}: ${(error as Error).message}`);
@@ -136,7 +136,7 @@ export class RuleEvaluatorService {
           matchedConditions: [],
           allResults,
           evaluationTime: Date.now() - startTime,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(),
         };
       }
     }
@@ -146,7 +146,7 @@ export class RuleEvaluatorService {
       matchedConditions: rule.conditions,
       allResults,
       evaluationTime: Date.now() - startTime,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     };
   }
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 
 import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 
 import {
   NATS_EVENTS,
@@ -56,9 +57,7 @@ export class AutomationEventsPublisher {
       .publishTo(
         buildEventSubject(NATS_EVENTS.PROGRAM_SAVED, tenantId),
         {
-          eventId: crypto.randomUUID(),
-          eventType: 'AutomationProgramSaved',
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent('AutomationProgramSaved', tenantId, { aggregateId: programId, aggregateType: 'AutomationProgram' }),
           ...event,
         },
       )
@@ -98,9 +97,7 @@ export class AutomationEventsPublisher {
       .publishTo(
         buildEventSubject(NATS_EVENTS.PROGRAM_DEPLOYED, tenantId),
         {
-          eventId: crypto.randomUUID(),
-          eventType: 'AutomationProgramDeployed',
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent('AutomationProgramDeployed', tenantId, { aggregateId: programId, aggregateType: 'AutomationProgram' }),
           ...event,
         },
       )
@@ -135,10 +132,7 @@ export class AutomationEventsPublisher {
       .publishTo(
         buildEventSubject(NATS_EVENTS.TAGS_UPDATED, tenantId),
         {
-          eventId: crypto.randomUUID(),
-          eventType: 'AutomationTagsUpdated',
-          timestamp: new Date().toISOString(),
-          version: 1,
+          ...createBaseEvent('AutomationTagsUpdated', tenantId),
           ...event,
         },
       )
@@ -169,10 +163,7 @@ export class AutomationEventsPublisher {
       .publishTo(
         buildEventSubject(NATS_EVENTS.FB_DEFINITIONS_CHANGED, tenantId),
         {
-          eventId: crypto.randomUUID(),
-          eventType: 'AutomationFBDefinitionsChanged',
-          timestamp: new Date().toISOString(),
-          version: 1,
+          ...createBaseEvent('AutomationFBDefinitionsChanged', tenantId),
           ...event,
         },
       )

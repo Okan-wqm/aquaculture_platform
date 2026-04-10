@@ -8,6 +8,7 @@ import {
 import { EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { createBaseEvent } from '@platform/event-contracts';
 
 import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
 import {
@@ -312,13 +313,9 @@ export class ModuleAssignmentService {
 
     // Publish event
     this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'ModuleRemovedFromTenant',
-      timestamp: new Date().toISOString(),
-      tenantId,
+      ...createBaseEvent('ModuleRemovedFromTenant', tenantId, { aggregateId: moduleId, aggregateType: 'TenantModule' }),
       moduleId,
       removedBy,
-      version: 1,
     });
 
     // Create audit log
@@ -541,10 +538,7 @@ export class ModuleAssignmentService {
     assignedBy: string,
   ): void {
     this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'TenantModulesAssigned',
-      timestamp: new Date().toISOString(),
-      tenantId,
+      ...createBaseEvent('TenantModulesAssigned', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
       moduleIds,
       pricingMonthlyTotal: pricing?.monthlyTotal,
       pricingAnnualTotal: pricing?.annualTotal,

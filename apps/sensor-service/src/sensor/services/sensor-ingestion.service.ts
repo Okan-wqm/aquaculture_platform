@@ -21,6 +21,7 @@
 import { Injectable, Logger, Inject, Optional, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 import { Repository, DataSource, In } from 'typeorm';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
@@ -370,7 +371,7 @@ export class SensorIngestionService {
           readings: calibratedReadings,
           pondId: child.pondId,
           farmId: child.farmId,
-          timestamp: timestamp || new Date(),
+          timestamp: timestamp ?? new Date(),
           source: source || 'parent-routing',
         });
       }),
@@ -584,10 +585,8 @@ export class SensorIngestionService {
   private async publishReadingEvent(reading: SensorReading): Promise<void> {
     await this.eventBusCircuitBreaker.execute(() =>
       this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'SensorReading',
-        timestamp: reading.timestamp,
-        tenantId: reading.tenantId,
+        ...createBaseEvent('SensorReading', reading.tenantId, { aggregateId: reading.sensorId, aggregateType: 'Sensor', version: 2 }),
+        timestamp: reading.timestamp instanceof Date ? reading.timestamp.toISOString() : reading.timestamp,
         sensorId: reading.sensorId,
         farmId: reading.farmId,
         pondId: reading.pondId,
@@ -600,7 +599,6 @@ export class SensorIngestionService {
         readingNitrate: reading.readings.nitrate,
         readingTurbidity: reading.readings.turbidity,
         readingWaterLevel: reading.readings.waterLevel,
-        version: 2,
       }),
     );
   }
@@ -618,15 +616,12 @@ export class SensorIngestionService {
   ): Promise<void> {
     await this.eventBusCircuitBreaker.execute(() =>
       this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'ParentReadingRouted',
-        timestamp: timestamp || new Date(),
-        tenantId,
+        ...createBaseEvent('ParentReadingRouted', tenantId, { aggregateId: parentId, aggregateType: 'Sensor' }),
+        timestamp: timestamp ? timestamp.toISOString() : new Date().toISOString(),
         parentId,
         childCount,
         processedCount,
         errorCount,
-        version: 1,
       }),
     );
   }

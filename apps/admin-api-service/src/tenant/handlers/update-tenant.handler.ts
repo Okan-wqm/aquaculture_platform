@@ -9,6 +9,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner, Not } from 'typeorm';
 import { IEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { UpdateTenantCommand } from '../commands/tenant.commands';
@@ -167,13 +168,8 @@ export class UpdateTenantHandler
 
         // Publish domain event via NATS
         await this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          eventType: 'TenantUpdated',
-          timestamp: new Date().toISOString(),
-          tenantId,
+          ...createBaseEvent('TenantUpdated', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant', userId: updatedBy }),
           name: data.name,
-          userId: updatedBy,
-          version: 1,
         });
       }
 

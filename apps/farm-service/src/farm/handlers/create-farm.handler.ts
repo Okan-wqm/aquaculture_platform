@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { CreateFarmCommand } from '../commands/create-farm.command';
 import { Farm } from '../entities/farm.entity';
 import { NatsEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 
 /**
  * Create Farm Command Handler
@@ -70,15 +71,10 @@ export class CreateFarmHandler
 
     // Publish domain event
     await this.eventBus?.publish({
-      eventId: crypto.randomUUID(),
-      eventType: 'FarmCreated',
-      timestamp: new Date().toISOString(),
-      tenantId: savedFarm.tenantId,
+      ...createBaseEvent('FarmCreated', savedFarm.tenantId, { aggregateId: savedFarm.id, aggregateType: 'Farm', userId: command.userId }),
       farmId: savedFarm.id,
       name: savedFarm.name,
       location: savedFarm.location,
-      userId: command.userId,
-      version: 1,
     });
 
     this.logger.log(`Farm "${savedFarm.name}" created with ID ${savedFarm.id}`);

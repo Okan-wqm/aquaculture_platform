@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { SystemUpdatedEvent } from '@platform/event-contracts';
+import { SystemUpdatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { UpdateSystemCommand } from '../commands/update-system.command';
 import { System } from '../entities/system.entity';
 
@@ -96,15 +96,11 @@ export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand,
     if (this.eventBus) {
       try {
         const event: SystemUpdatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'SystemUpdated',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<SystemUpdatedEvent>('SystemUpdated', tenantId),
           systemId: updatedSystem.id,
           siteId: updatedSystem.siteId,
           name: updatedSystem.name,
           status: updatedSystem.status,
-          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published SystemUpdatedEvent for system ${updatedSystem.id}`);

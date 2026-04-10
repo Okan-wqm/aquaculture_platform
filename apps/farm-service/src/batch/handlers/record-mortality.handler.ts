@@ -24,6 +24,7 @@ import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { MortalityRecordedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { RecordMortalityCommand } from '../commands/record-mortality.command';
 import { Batch } from '../entities/batch.entity';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
@@ -207,14 +208,8 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       // either both commit or neither. OutboxWorkerService publishes to NATS
       // asynchronously with retry + dead-letter on failure.
       const mortalityEvent: MortalityRecordedEvent = {
-        eventId: randomUUID(),
-        eventType: 'MortalityRecorded',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<MortalityRecordedEvent>('MortalityRecorded', tenantId, { aggregateId: batchId, aggregateType: 'Batch' }),
         userId: recordedBy,
-        aggregateId: batchId,
-        aggregateType: 'Batch',
         batchId,
         tankId: payload.tankId,
         quantity: payload.quantity,

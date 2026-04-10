@@ -1,4 +1,4 @@
-import * as crypto from 'crypto';
+import { createBaseEvent } from '@platform/event-contracts';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Not } from 'typeorm';
@@ -441,10 +441,7 @@ export class AlertEvaluationService {
   ): Promise<void> {
     try {
       await this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        eventType: 'AlertTriggered',
-        timestamp: new Date().toISOString(),
-        tenantId: reading.tenantId,
+        ...createBaseEvent('AlertTriggered', reading.tenantId, { aggregateId: alertId, aggregateType: 'Alert', version: 2 }),
         alertId,
         ruleId: rule.id,
         ruleName: rule.name,
@@ -458,7 +455,6 @@ export class AlertEvaluationService {
         triggerParameter: condition.parameter,
         triggerValue: reading.readings[condition.parameter],
         triggerThreshold: condition.threshold,
-        version: 2,
       });
     } catch (error) {
       this.logger.error(
@@ -548,16 +544,12 @@ export class AlertEvaluationService {
         // Publish AlertResolved event so downstream services (notification, audit) are notified
         try {
           await this.eventBus.publish({
-            eventId: crypto.randomUUID(),
-            eventType: 'AlertResolved',
-            timestamp: new Date().toISOString(),
-            tenantId: reading.tenantId,
+            ...createBaseEvent('AlertResolved', reading.tenantId, { aggregateId: incident.id, aggregateType: 'AlertIncident' }),
             incidentId: incident.id,
             sensorId: reading.sensorId,
             severity: incident.severity,
             resolvedBy: 'SYSTEM_AUTO_RESOLVE',
             reason: 'Sensor readings returned to normal range',
-            version: 1,
           });
         } catch (pubErr) {
           this.logger.warn(

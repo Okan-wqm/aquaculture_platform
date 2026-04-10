@@ -19,7 +19,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, Optional, I
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
-import { FeedInventoryLowEvent } from '@platform/event-contracts';
+import { FeedInventoryLowEvent , createBaseEvent } from '@platform/event-contracts';
 
 // Entities
 import {
@@ -1245,10 +1245,7 @@ export class DailyFeedingExecutionService {
     if (feedInventory.quantityKg <= feedInventory.minStockKg && this.eventBus) {
       try {
         const event: FeedInventoryLowEvent = {
-          eventId: randomUUID(),
-          eventType: 'FeedInventoryLow',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId),
           inventoryId: feedInventory.id,
           feedId: feedInventory.feedId,
           siteId: feedInventory.siteId,

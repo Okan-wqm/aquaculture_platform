@@ -4,6 +4,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } f
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 import { Repository, DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
@@ -333,13 +334,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       if (this.eventBus && metrics.length > 0) {
         try {
           await this.eventBus.publish({
-            eventId: randomUUID(),
-            eventType: 'SensorReading',
-            timestamp: sourceTimestamp,
-            tenantId: sensor.tenantId,
+            ...createBaseEvent('SensorReading', sensor.tenantId, { aggregateId: sensor.id, aggregateType: 'Sensor' }),
+            timestamp: sourceTimestamp.toISOString(),
             sensorId: sensor.id,
             readings: data.values,
-            version: 1,
           });
         } catch (error) {
           this.logger.warn(`Failed to publish SensorReading event: ${(error as Error).message}`);

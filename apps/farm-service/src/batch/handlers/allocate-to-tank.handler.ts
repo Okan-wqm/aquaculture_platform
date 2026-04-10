@@ -22,6 +22,7 @@ import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BatchAllocatedToTankEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { AllocateToTankCommand, AllocationType } from '../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
@@ -260,14 +261,8 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       const allocationDate = payload.allocatedAt || new Date();
       const eventBiomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
       const allocationEvent: BatchAllocatedToTankEvent = {
-        eventId: randomUUID(),
-        eventType: 'BatchAllocatedToTank',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<BatchAllocatedToTankEvent>('BatchAllocatedToTank', tenantId, { aggregateId: batchId, aggregateType: 'Batch' }),
         userId: allocatedBy,
-        aggregateId: batchId,
-        aggregateType: 'Batch',
         batchId,
         tankId: payload.tankId,
         quantity: payload.quantity,

@@ -235,7 +235,7 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
       parameters,
       statusBits,
       rawValues,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       latencyMs: Date.now() - startTime,
       errors: errors.length > 0 ? errors : undefined,
     };

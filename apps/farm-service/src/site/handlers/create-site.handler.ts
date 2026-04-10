@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { SiteCreatedEvent } from '@platform/event-contracts';
+import { SiteCreatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateSiteCommand } from '../commands/create-site.command';
 import { Site, SiteStatus, SiteLocation, SiteAddress, SiteSettings } from '../entities/site.entity';
 
@@ -72,10 +72,7 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
     if (this.eventBus) {
       try {
         const event: SiteCreatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'SiteCreated',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<SiteCreatedEvent>('SiteCreated', tenantId),
           siteId: savedSite.id,
           name: savedSite.name,
           code: savedSite.code,

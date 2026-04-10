@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { EquipmentCreatedEvent } from '@platform/event-contracts';
+import { EquipmentCreatedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateEquipmentCommand } from '../commands/create-equipment.command';
 import { Equipment, EquipmentStatus, TankSpecifications } from '../entities/equipment.entity';
 import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
@@ -225,10 +225,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
     if (this.eventBus) {
       try {
         const event: EquipmentCreatedEvent = {
-          eventId: randomUUID(),
-          eventType: 'EquipmentCreated',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<EquipmentCreatedEvent>('EquipmentCreated', tenantId),
           equipmentId: savedEquipment.id,
           siteId: department.siteId ?? '',
           systemId: systems[0]?.id,

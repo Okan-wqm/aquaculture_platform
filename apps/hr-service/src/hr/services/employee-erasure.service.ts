@@ -134,7 +134,7 @@ export class EmployeeErasureService {
       await queryRunner.manager.update(
         AttendanceRecord,
         { employeeId, tenantId },
-        { isDeleted: true, deletedAt: new Date(), notes: 'GDPR erasure' },
+        { isDeleted: true, deletedAt: new Date() },
       );
 
       await queryRunner.commitTransaction();

@@ -34,7 +34,7 @@ export class HealthService {
 
     return {
       status: overallStatus,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
       checks: {
         database,

@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { SiteDeletedEvent } from '@platform/event-contracts';
+import { SiteDeletedEvent , createBaseEvent } from '@platform/event-contracts';
 import { DeleteSiteCommand } from '../commands/delete-site.command';
 import { Site } from '../entities/site.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -150,7 +150,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
         .createQueryBuilder()
         .update(Department)
         .set({
-          siteId: null as string | null,
+          siteId: undefined,
           updatedBy: userId,
         })
         .where('tenantId = :tenantId', { tenantId })
@@ -175,15 +175,11 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
     if (this.eventBus) {
       try {
         const event: SiteDeletedEvent = {
-          eventId: randomUUID(),
-          eventType: 'SiteDeleted',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<SiteDeletedEvent>('SiteDeleted', tenantId),
           siteId: site.id,
           name: site.name,
           code: site.code,
           deletedAt: new Date(),
-          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published SiteDeletedEvent for site ${site.id}`);

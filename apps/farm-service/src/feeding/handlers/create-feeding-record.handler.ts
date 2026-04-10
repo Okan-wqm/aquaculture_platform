@@ -21,7 +21,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { FeedInventoryLowEvent, FeedingRecordedEvent } from '@platform/event-contracts';
+import { FeedInventoryLowEvent, FeedingRecordedEvent , createBaseEvent } from '@platform/event-contracts';
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
 import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
@@ -143,14 +143,8 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       // connects farm operations to inventory management. With the outbox the
       // feeding record and integration event commit atomically.
       const feedingEvent: FeedingRecordedEvent = {
-        eventId: randomUUID(),
-        eventType: 'FeedingRecorded',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<FeedingRecordedEvent>('FeedingRecorded', tenantId, { aggregateId: payload.batchId, aggregateType: 'Batch' }),
         userId,
-        aggregateId: payload.batchId,
-        aggregateType: 'Batch',
         batchId: payload.batchId,
         tankId: payload.tankId,
         feedId: payload.feedId,
@@ -260,14 +254,8 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     // with the inventory update.
     if (feedInventory.quantityKg <= feedInventory.minStockKg) {
       const lowStockEvent: FeedInventoryLowEvent = {
-        eventId: randomUUID(),
-        eventType: 'FeedInventoryLow',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId, { aggregateId: feedInventory.id, aggregateType: 'FeedInventory' }),
         userId,
-        aggregateId: feedInventory.id,
-        aggregateType: 'FeedInventory',
         inventoryId: feedInventory.id,
         feedId: feedInventory.feedId,
         siteId: feedInventory.siteId,

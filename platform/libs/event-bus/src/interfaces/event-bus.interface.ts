@@ -8,7 +8,8 @@
  * Matches BaseEvent from event-contracts for compatibility
  */
 export interface IEvent {
-  eventId: string;
+  [key: string]: unknown;
+  eventId: string | import('@platform/event-contracts').EventId;
   eventType: string;
   /**
    * ISO 8601 timestamp string.
@@ -22,6 +23,7 @@ export interface IEvent {
   causationId?: string;
   userId?: string;
   version?: number;
+  retryCount?: number;
   metadata?: EventMetadata;
 }
 

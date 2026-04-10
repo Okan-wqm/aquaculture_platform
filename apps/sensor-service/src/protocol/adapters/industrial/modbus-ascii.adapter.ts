@@ -90,7 +90,7 @@ export class ModbusAsciiAdapter extends BaseProtocolAdapter {
   // eslint-disable-next-line @typescript-eslint/require-await
   async readData(handle: ConnectionHandle): Promise<SensorReadingData> {
     this.updateLastActivity(handle);
-    return { timestamp: new Date().toISOString(), values: {}, quality: 100, source: 'modbus_ascii' };
+    return { timestamp: new Date(), values: {}, quality: 100, source: 'modbus_ascii' };
   }
 
   validateConfiguration(config: unknown): ValidationResult {

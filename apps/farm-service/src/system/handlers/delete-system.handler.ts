@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { SystemDeletedEvent } from '@platform/event-contracts';
+import { SystemDeletedEvent , createBaseEvent } from '@platform/event-contracts';
 import { DeleteSystemCommand } from '../commands/delete-system.command';
 import { System } from '../entities/system.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -119,16 +119,12 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
     if (this.eventBus) {
       try {
         const event: SystemDeletedEvent = {
-          eventId: randomUUID(),
-          eventType: 'SystemDeleted',
-          tenantId,
-          timestamp: new Date().toISOString(),
+          ...createBaseEvent<SystemDeletedEvent>('SystemDeleted', tenantId),
           systemId: system.id,
           siteId: system.siteId,
           name: system.name,
           code: system.code,
           deletedAt: new Date(),
-          version: 1,
         };
         await this.eventBus.publish(event);
         this.logger.debug(`Published SystemDeletedEvent for system ${system.id}`);

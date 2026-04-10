@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { createBaseEvent } from '@platform/event-contracts';
 import type {
   MessagingEvent,
   MessageSentEvent,
@@ -135,7 +136,7 @@ export class MessagingEventHandler
           await this.eventBus.publish({
             ...(event as MessagingEvent),
             retryCount: dlqResult.retryCount,
-            eventId: crypto.randomUUID(),
+            ...createBaseEvent(event.eventType, event.tenantId),
           });
           this.logger.warn(
             `Messaging event ${eventType} re-published for retry attempt ${dlqResult.retryCount}`,

@@ -176,6 +176,7 @@ export interface TankCapacity {
  * Havalandırma sistemi bilgileri
  */
 export interface AerationInfo {
+  [key: string]: unknown;
   hasAeration: boolean;
   aerationType?: 'diffuser' | 'paddle_wheel' | 'venturi' | 'blower' | 'other';
   aeratorCount?: number;

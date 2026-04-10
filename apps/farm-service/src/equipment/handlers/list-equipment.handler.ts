@@ -441,7 +441,6 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
         isPrimary: true,
         criticalityLevel: 3,
         createdAt: tank.createdAt,
-        updatedAt: tank.updatedAt,
         createdBy: tank.createdBy,
       }] as EquipmentSystem[];
     } else {

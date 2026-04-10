@@ -238,7 +238,7 @@ export class AlertIncident {
     this.timeline.push({
       ...event,
       id: `evt-${crypto.randomUUID()}`,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       metadata: event.data,
     });
   }

@@ -46,7 +46,7 @@ export class BacnetIpAdapter extends BaseProtocolAdapter {
 
   // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
   async readData(_handle: ConnectionHandle): Promise<SensorReadingData> {
-    return { timestamp: new Date().toISOString(), values: {}, quality: 100, source: 'bacnet_ip' };
+    return { timestamp: new Date(), values: {}, quality: 100, source: 'bacnet_ip' };
   }
 
   validateConfiguration(config: unknown): ValidationResult {

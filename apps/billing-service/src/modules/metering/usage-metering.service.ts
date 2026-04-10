@@ -257,7 +257,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
               ...reading,
               periodStart: new Date(reading.periodStart),
               periodEnd: new Date(reading.periodEnd),
-              lastUpdated: new Date(reading.lastUpdated),
+              lastUpdated: reading.lastUpdated,
             });
           }
 
@@ -648,7 +648,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
         periodEnd: this.getPeriodEnd(config?.resetPeriod || 'monthly'),
         limit: config?.maxValue,
         percentageUsed: 0,
-        lastUpdated: now,
+        lastUpdated: now.toISOString(),
         eventCount: 0,
       };
 
@@ -758,7 +758,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
     meter.currentValue = 0;
     meter.percentageUsed = 0;
     meter.eventCount = 0;
-    meter.lastUpdated = new Date();
+    meter.lastUpdated = new Date().toISOString();
     meter.periodStart = this.getPeriodStart(this.meterConfigs.get(meterType)?.resetPeriod || 'monthly');
     meter.periodEnd = this.getPeriodEnd(this.meterConfigs.get(meterType)?.resetPeriod || 'monthly');
 

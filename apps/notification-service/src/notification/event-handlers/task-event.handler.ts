@@ -2,11 +2,7 @@ import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
-import { InAppNotificationService } from '../services/in-app.service';
-import { PushService } from '../services/push.service';
-import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
-import { DeviceToken } from '../entities/device-token.entity';
+import { createBaseEvent } from '@platform/event-contracts';
 import type {
   TaskEvent,
   TaskCreatedEvent,
@@ -15,6 +11,11 @@ import type {
   TaskCompletedEvent,
   TaskOverdueEvent,
 } from '@platform/event-contracts';
+import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
+import { InAppNotificationService } from '../services/in-app.service';
+import { PushService } from '../services/push.service';
+import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+import { DeviceToken } from '../entities/device-token.entity';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -166,7 +167,7 @@ export class TaskEventHandler
           await this.eventBus.publish({
             ...event,
             retryCount: dlqResult.retryCount,
-            eventId: crypto.randomUUID(),
+            ...createBaseEvent(event.eventType, event.tenantId, { aggregateId: event.taskId, aggregateType: 'Task' }),
           });
           this.logger.warn(
             `Task event ${eventType} (task ${event.taskId.substring(0, 8)}...) ` +

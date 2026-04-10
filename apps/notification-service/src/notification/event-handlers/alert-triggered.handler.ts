@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
+import { createBaseEvent, EventId } from '@platform/event-contracts';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 
@@ -62,10 +63,10 @@ function stripCrlf(str: string): string {
  * Alert Triggered Event interface (v2 — flat fields)
  * Upcaster in NatsEventBus converts v1 nested `triggeringData` to flat `triggerXxx` fields.
  */
-interface AlertTriggeredEvent {
-  eventId: string;
+interface AlertTriggeredEvent extends IEvent {
+  eventId: string | EventId;
   eventType: string;
-  timestamp: Date;
+  timestamp: string;
   tenantId: string;
   alertId: string;
   ruleId: string;
@@ -191,7 +192,7 @@ export class AlertTriggeredEventHandler
           severity,
           message: sanitizedMessage,
           sensorId: event.triggerSensorId,
-          timestamp: event.timestamp,
+          timestamp: new Date(event.timestamp),
         },
       );
     } catch (error) {
@@ -213,7 +214,7 @@ export class AlertTriggeredEventHandler
           await this.eventBus.publish({
             ...event,
             retryCount: dlqResult.retryCount,
-            eventId: crypto.randomUUID(),
+            ...createBaseEvent('AlertTriggered', event.tenantId, { aggregateId: event.alertId, aggregateType: 'Alert' }),
           });
           this.logger.warn(
             `Alert ${event.alertId} re-published for retry attempt ${dlqResult.retryCount}`,

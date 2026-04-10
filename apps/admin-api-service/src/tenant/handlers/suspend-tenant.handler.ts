@@ -14,6 +14,7 @@ import {
   TenantActivatedEvent,
   TenantArchivedEvent,
   TenantStatusChangedEvent,
+  createBaseEvent,
 } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../audit/audit.service';
@@ -93,26 +94,18 @@ export class SuspendTenantHandler
       });
 
       const suspendedEvent: TenantSuspendedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantSuspended',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent<TenantSuspendedEvent>('TenantSuspended', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
         reason: data.reason,
         suspendedBy,
-        version: 1,
       };
       await this.eventBus.publish(suspendedEvent);
 
       // Publish TenantStatusChangedEvent for generic status-change consumers
       const statusChangedEvent: TenantStatusChangedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantStatusChanged',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
         previousStatus,
         newStatus: TenantStatus.SUSPENDED,
         reason: data.reason,
-        version: 1,
       };
       await this.eventBus.publish(statusChangedEvent);
 
@@ -190,24 +183,16 @@ export class ActivateTenantHandler
       });
 
       const activatedEvent: TenantActivatedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantActivated',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent<TenantActivatedEvent>('TenantActivated', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
         activatedBy,
-        version: 1,
       };
       await this.eventBus.publish(activatedEvent);
 
       // Publish TenantStatusChangedEvent for generic status-change consumers
       const statusChangedEvent: TenantStatusChangedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantStatusChanged',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
         previousStatus,
         newStatus: TenantStatus.ACTIVE,
-        version: 1,
       };
       await this.eventBus.publish(statusChangedEvent);
 
@@ -281,14 +266,10 @@ export class DeactivateTenantHandler
       });
 
       const statusChangedEvent: TenantStatusChangedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantStatusChanged',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
         previousStatus,
         newStatus: TenantStatus.DEACTIVATED,
         reason,
-        version: 1,
       };
       await this.eventBus.publish(statusChangedEvent);
 
@@ -364,24 +345,16 @@ export class ArchiveTenantHandler
       });
 
       const archivedEvent: TenantArchivedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantArchived',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent<TenantArchivedEvent>('TenantArchived', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
         archivedBy,
-        version: 1,
       };
       await this.eventBus.publish(archivedEvent);
 
       // Publish TenantStatusChangedEvent for generic status-change consumers
       const statusChangedEvent: TenantStatusChangedEvent = {
-        eventId: crypto.randomUUID(),
-        eventType: 'TenantStatusChanged',
-        timestamp: new Date().toISOString(),
-        tenantId,
+        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
         previousStatus,
         newStatus: TenantStatus.ARCHIVED,
-        version: 1,
       };
       await this.eventBus.publish(statusChangedEvent);
 

@@ -23,6 +23,7 @@ import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { CullRecordedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { RecordCullCommand } from '../commands/record-cull.command';
 import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType, CullReason } from '../entities/tank-operation.entity';
@@ -165,14 +166,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       // either both commit or neither. OutboxWorkerService publishes to NATS
       // asynchronously with retry + dead-letter on failure.
       const cullEvent: CullRecordedEvent = {
-        eventId: randomUUID(),
-        eventType: 'CullRecorded',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<CullRecordedEvent>('CullRecorded', tenantId, { aggregateId: batchId, aggregateType: 'Batch' }),
         userId: recordedBy,
-        aggregateId: batchId,
-        aggregateType: 'Batch',
         batchId,
         tankId: payload.tankId,
         quantity: payload.quantity,

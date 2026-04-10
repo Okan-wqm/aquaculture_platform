@@ -87,7 +87,7 @@ export class TcpSocketAdapter extends BaseProtocolAdapter {
 
       socket.once('data', (data) => {
         cleanup();
-        resolve({ timestamp: new Date().toISOString(), values: { raw: data.toString() }, quality: 100, source: 'tcp_socket' });
+        resolve({ timestamp: new Date(), values: { raw: data.toString() }, quality: 100, source: 'tcp_socket' });
       });
 
       socket.once('error', (error) => {

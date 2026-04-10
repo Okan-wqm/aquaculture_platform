@@ -17,6 +17,7 @@ import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BatchStatusChangedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 
@@ -85,14 +86,9 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
 
       // Enqueue BatchStatusChangedEvent into the transactional outbox BEFORE commit.
       const statusEvent: BatchStatusChangedEvent = {
-        eventId: randomUUID(),
-        eventType: 'BatchStatusChanged',
-        timestamp: statusChangedAt,
-        tenantId,
-        version: 1,
+        ...createBaseEvent<BatchStatusChangedEvent>('BatchStatusChanged', tenantId, { aggregateId: savedBatch.id, aggregateType: 'Batch' }),
+        timestamp: statusChangedAt.toISOString(),
         userId: updatedBy,
-        aggregateId: savedBatch.id,
-        aggregateType: 'Batch',
         batchId: savedBatch.id,
         previousStatus,
         newStatus,

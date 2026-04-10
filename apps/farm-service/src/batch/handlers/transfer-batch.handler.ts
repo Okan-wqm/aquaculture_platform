@@ -24,6 +24,7 @@ import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BatchTransferredEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { TransferBatchCommand } from '../commands/transfer-batch.command';
 import { Batch } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
@@ -326,14 +327,8 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       // optional `reason` field. `biomassKg` uses the actual computed value,
       // not the pre-update batch state.
       const transferEvent: BatchTransferredEvent = {
-        eventId: randomUUID(),
-        eventType: 'BatchTransferred',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<BatchTransferredEvent>('BatchTransferred', tenantId, { aggregateId: batchId, aggregateType: 'Batch' }),
         userId: transferredBy,
-        aggregateId: batchId,
-        aggregateType: 'Batch',
         batchId,
         sourceTankId: payload.sourceTankId,
         destinationTankId: payload.destinationTankId,

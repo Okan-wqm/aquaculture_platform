@@ -24,6 +24,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { CreateHarvestRecordCommand, CreateHarvestRecordInput } from '../commands/create-harvest-record.command';
@@ -254,14 +255,8 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       // `totalQuantity`/`totalBiomassKg` — none of those are contract fields,
       // so consumers reading `event.harvestedQuantity` got `undefined`.
       const harvestEvent: BatchHarvestedEvent = {
-        eventId: randomUUID(),
-        eventType: 'BatchHarvested',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
+        ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', tenantId, { aggregateId: harvestRecord.batchId, aggregateType: 'Batch' }),
         userId: recordedBy,
-        aggregateId: harvestRecord.batchId,
-        aggregateType: 'Batch',
         batchId: harvestRecord.batchId,
         harvestedQuantity: harvestRecord.quantityHarvested,
         harvestedAt: harvestRecord.harvestDate,

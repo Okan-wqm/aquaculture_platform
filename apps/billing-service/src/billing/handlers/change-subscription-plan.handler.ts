@@ -212,14 +212,13 @@ export class ChangeSubscriptionPlanHandler
           tier: savedSubscription.planTier as SubscriptionUpdatedEvent['tier'],
           monthlyPrice: Number(savedSubscription.pricing.basePrice),
           currency: savedSubscription.pricing.currency || 'USD',
+          isDowngrade,
+          previousPlanTier: previousPlanTier as SubscriptionUpdatedEvent['previousPlanTier'],
           features: {
-            limits: savedSubscription.limits,
-            billingCycle: savedSubscription.billingCycle,
-            autoRenew: savedSubscription.autoRenew,
-            proRataCredit: proRataCredit.toDecimal().toNumber(),
-            isUpgrade,
-            isDowngrade,
-            previousPlanTier,
+            maxFarms: savedSubscription.limits?.maxFarms,
+            maxPonds: savedSubscription.limits?.maxPonds,
+            maxSensors: savedSubscription.limits?.maxSensors,
+            maxUsers: savedSubscription.limits?.maxUsers,
           },
         };
         await this.eventBus?.publish(event);

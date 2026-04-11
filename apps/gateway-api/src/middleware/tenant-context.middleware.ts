@@ -421,13 +421,14 @@ export class TenantContextMiddleware implements NestMiddleware {
     const isProduction = process.env['NODE_ENV'] === 'production';
 
     // Production: Delegate entirely to TenantLookupService (which has its own bounded cache)
+    // SECURITY: Fail closed — if TenantLookupService is missing in production, throw
+    // instead of returning null. Returning null would silently bypass tenant resolution.
     if (isProduction) {
       if (!this.tenantLookupService) {
-        this.logger.error(
-          'TenantLookupService not available in production. ' +
-          'Ensure TenantLookupService is properly injected.',
+        throw new Error(
+          'CRITICAL: TenantLookupService is not registered in production. ' +
+          'Register TenantLookupService in the gateway AppModule providers.',
         );
-        return null;
       }
 
       return this.tenantLookupService.lookupTenant(tenantId);

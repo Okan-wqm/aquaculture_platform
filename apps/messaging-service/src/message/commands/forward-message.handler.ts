@@ -99,8 +99,10 @@ export class ForwardMessageHandler
     const forwardedMessage = await this.dataSource.transaction(
       async (manager) => {
         // 3a. Create forwarded message
+        // SECURITY: tenantId MUST be set for RLS and event routing.
         const message = manager.create(Message, {
           id: messageId,
+          tenantId,
           channelId: targetChannelId,
           senderId: userId,
           content: sourceMessage.content,

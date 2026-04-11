@@ -53,7 +53,14 @@ const ParameterRow: React.FC<ParameterRowProps> = ({
       <td className="py-2 px-2 w-32">
         <NumberInput
           value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+          onChange={(e) => {
+            const parsed = parseFloat(e.target.value);
+            // WHY: Reject non-numeric input instead of silently coercing to 0.
+            // A zero-coercion masks data-entry mistakes and corrupts downstream
+            // nutrient calculations (0 mmol/L is valid and means "none present").
+            if (!Number.isFinite(parsed)) return;
+            onChange(parsed);
+          }}
           size="sm"
           step={0.01}
           min={0}

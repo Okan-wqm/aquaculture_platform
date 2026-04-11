@@ -73,11 +73,11 @@ export class VfdRegisterMapping {
   dataType!: VfdDataType;
 
   @Field(() => Float)
-  @Column({ type: 'float', name: 'scaling_factor', default: 1 })
+  @Column({ type: 'numeric', precision: 15, scale: 6, name: 'scaling_factor', default: 1 })
   scalingFactor!: number;
 
   @Field(() => Float)
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'numeric', precision: 15, scale: 6, default: 0 })
   offset!: number;
 
   @Field(() => String, { nullable: true })
@@ -125,11 +125,11 @@ export class VfdRegisterMapping {
   isCritical!: boolean;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'float', name: 'min_value', nullable: true })
+  @Column({ type: 'numeric', precision: 15, scale: 6, name: 'min_value', nullable: true })
   minValue?: number | null;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'float', name: 'max_value', nullable: true })
+  @Column({ type: 'numeric', precision: 15, scale: 6, name: 'max_value', nullable: true })
   maxValue?: number | null;
 
   @Field(() => GraphQLJSON, { nullable: true })

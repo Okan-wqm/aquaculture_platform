@@ -227,19 +227,19 @@ export class SensorDataChannel {
   // === Physical & Operational Bounds ===
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'physical_min', type: 'double precision', nullable: true })
+  @Column({ name: 'physical_min', type: 'numeric', precision: 15, scale: 6, nullable: true })
   physicalMin?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'physical_max', type: 'double precision', nullable: true })
+  @Column({ name: 'physical_max', type: 'numeric', precision: 15, scale: 6, nullable: true })
   physicalMax?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'operational_min', type: 'double precision', nullable: true })
+  @Column({ name: 'operational_min', type: 'numeric', precision: 15, scale: 6, nullable: true })
   operationalMin?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'operational_max', type: 'double precision', nullable: true })
+  @Column({ name: 'operational_max', type: 'numeric', precision: 15, scale: 6, nullable: true })
   operationalMax?: number;
 
   // === Data Path (for extracting from raw payload) ===

@@ -22,14 +22,18 @@ export class GetConfigurationHandler
     const { tenantId, service, key, environment } = query;
     const env = (environment as ConfigEnvironment) || ConfigEnvironment.ALL;
 
-    // Single query with both tenant-specific and global fallback
+    // IMPORTANT: System-wide configs use the reserved system tenant UUID,
+    // not the string 'global'. This ensures all tenant_id columns are valid UUIDs.
+    const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
+    // Single query with both tenant-specific and system-wide fallback
     const whereConditions: FindOptionsWhere<Configuration>[] = [
       { tenantId, service, key, environment: env, isActive: true },
     ];
 
-    if (tenantId !== 'global') {
+    if (tenantId !== SYSTEM_TENANT_ID) {
       whereConditions.push({
-        tenantId: 'global',
+        tenantId: SYSTEM_TENANT_ID,
         service,
         key,
         environment: env,
@@ -42,10 +46,10 @@ export class GetConfigurationHandler
       take: 2,
     });
 
-    // Prefer tenant-specific over global
+    // Prefer tenant-specific over system-wide
     const configuration =
       configurations.find((c) => c.tenantId === tenantId) ||
-      configurations.find((c) => c.tenantId === 'global');
+      configurations.find((c) => c.tenantId === SYSTEM_TENANT_ID);
 
     if (!configuration) {
       throw new NotFoundException(`Configuration not found: ${service}/${key}`);

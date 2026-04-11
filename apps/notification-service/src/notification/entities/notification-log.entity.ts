@@ -48,7 +48,7 @@ export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'tenant_id' })
+  @Column({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string;
 
   @Column({ name: 'channel', type: 'enum', enum: NotificationChannel })

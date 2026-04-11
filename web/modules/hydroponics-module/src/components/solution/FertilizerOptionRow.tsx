@@ -33,7 +33,14 @@ const FertilizerOptionRow: React.FC<FertilizerOptionRowProps> = ({
       <div className="w-28">
         <NumberInput
           value={purityPercent}
-          onChange={(e) => onPurityChange(parseFloat(e.target.value) || 0)}
+          onChange={(e) => {
+            const parsed = parseFloat(e.target.value);
+            // WHY: Reject non-numeric input instead of silently coercing to 0.
+            // A 0% purity fertilizer would produce division-by-zero or infinite
+            // grams-per-liter in stock solution calculations.
+            if (!Number.isFinite(parsed)) return;
+            onPurityChange(parsed);
+          }}
           size="sm"
           min={0}
           max={100}

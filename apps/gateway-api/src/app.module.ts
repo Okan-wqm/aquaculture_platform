@@ -54,6 +54,7 @@ import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 import { AiRoutesModule } from './routes/v2/ai.routes';
+import { TenantLookupService } from './services/tenant-lookup.service';
 
 // JwtPayload is imported from auth.guard.ts for consistency
 
@@ -569,6 +570,10 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     }),
   ],
   providers: [
+    // SECURITY: TenantLookupService is required for production tenant resolution.
+    // TenantContextMiddleware uses @Optional() @Inject(TenantLookupService), so
+    // registration here makes it available in production where it queries auth-service.
+    TenantLookupService,
     // Authentication strategy services (injected into AuthGuard)
     ApiKeyAuthStrategy,
     BasicAuthStrategy,

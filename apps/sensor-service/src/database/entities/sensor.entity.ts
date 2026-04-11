@@ -308,11 +308,11 @@ export class Sensor {
   unit?: string;
 
   @Field({ nullable: true })
-  @Column({ name: 'min_value', type: 'float', nullable: true })
+  @Column({ name: 'min_value', type: 'numeric', precision: 15, scale: 6, nullable: true })
   minValue?: number;
 
   @Field({ nullable: true })
-  @Column({ name: 'max_value', type: 'float', nullable: true })
+  @Column({ name: 'max_value', type: 'numeric', precision: 15, scale: 6, nullable: true })
   maxValue?: number;
 
   @Field({ nullable: true })

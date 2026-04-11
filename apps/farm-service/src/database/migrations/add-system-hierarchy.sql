@@ -6,8 +6,9 @@
 -- 2. system_id to equipment table (link equipment to systems)
 -- 3. parent_equipment_id to equipment table (self-referencing for nested equipment)
 
--- Set search path to farm schema
-SET search_path TO farm, public;
+-- WHY: No SET search_path here. All table references are fully schema-qualified
+-- to prevent connection state contamination in pooled environments.
+-- See: docs/plans/2026-04-10-v2-audit-fixes/packages/12-migration-search-path-fix.md
 
 -- ============================================================================
 -- 1. Add parent_system_id to systems table

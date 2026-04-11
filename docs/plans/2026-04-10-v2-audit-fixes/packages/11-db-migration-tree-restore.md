@@ -1,7 +1,7 @@
 # Package 11: db-migration-tree-restore
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 20K
 Priority: CRITICAL
 Security-Sensitive: no

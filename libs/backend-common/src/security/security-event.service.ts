@@ -1,9 +1,10 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import {
   SecurityEventType,
+  SecurityEvent,
   createBaseEvent,
-  SecurityEventBase,
 } from '@platform/event-contracts';
+import type { BaseEvent } from '@platform/event-contracts';
 import { IEventBus } from '@platform/event-bus';
 
 /**
@@ -146,13 +147,29 @@ export class SecurityEventService {
   }
 
   // -------------------------------------------------------------------
-  // Core publish logic
+  // Event type name map — maps SecurityEventType to the dedicated eventType discriminator.
+  // -------------------------------------------------------------------
+  private static readonly EVENT_TYPE_NAMES: Record<SecurityEventType, string> = {
+    [SecurityEventType.AUTH_LOGIN_FAILED]: 'AuthLoginFailed',
+    [SecurityEventType.AUTH_LOGIN_SUCCESS]: 'AuthLoginSuccess',
+    [SecurityEventType.AUTH_TOKEN_REJECTED]: 'AuthTokenRejected',
+    [SecurityEventType.AUTH_TOKEN_BLACKLISTED]: 'AuthTokenBlacklisted',
+    [SecurityEventType.AUTH_PASSWORD_RESET]: 'AuthPasswordReset',
+    [SecurityEventType.RATE_LIMIT_EXCEEDED]: 'RateLimitExceeded',
+    [SecurityEventType.CSP_VIOLATION]: 'CspViolation',
+    [SecurityEventType.TENANT_ACCESS_DENIED]: 'TenantAccessDenied',
+    [SecurityEventType.SERVICE_IDENTITY_REJECTED]: 'ServiceIdentityRejected',
+    [SecurityEventType.SUSPICIOUS_ACTIVITY]: 'SuspiciousActivity',
+  };
+
+  // -------------------------------------------------------------------
+  // Core publish logic — flat event fields, no nested details bag.
   // -------------------------------------------------------------------
 
   private async publish(
     securityEventType: SecurityEventType,
     opts: SecurityEventOptions,
-    details: Record<string, unknown>,
+    flatFields: Record<string, unknown>,
   ): Promise<void> {
     if (!this.eventBus) {
       this.logger.debug(
@@ -169,8 +186,9 @@ export class SecurityEventService {
     }
 
     try {
-      const base = createBaseEvent<SecurityEventBase>(
-        'SecurityEvent',
+      const eventTypeName = SecurityEventService.EVENT_TYPE_NAMES[securityEventType];
+      const base = createBaseEvent<BaseEvent>(
+        eventTypeName,
         opts.tenantId ?? 'system',
         {
           userId: opts.userId,
@@ -178,12 +196,13 @@ export class SecurityEventService {
         },
       );
 
-      const event: SecurityEventBase = {
+      // Flat event: all fields at the top level, no nested details bag
+      const event = {
         ...base,
         securityEventType,
         ip: opts.ip,
         userAgent: opts.userAgent,
-        details,
+        ...flatFields,
         version: 1,
       };
 

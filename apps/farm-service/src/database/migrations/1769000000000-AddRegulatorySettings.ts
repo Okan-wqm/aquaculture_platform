@@ -23,19 +23,13 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // =========================================================================
-    // 1. ENSURE WE'RE IN FARM SCHEMA (SOURCE SCHEMA)
-    // =========================================================================
-    await queryRunner.query(`SET search_path TO farm, public`);
-    this.logger.log('Set search_path to farm schema');
-
-    // =========================================================================
-    // 2. CREATE SOURCE TABLE IN FARM SCHEMA
+    // 1. CREATE SOURCE TABLE IN FARM SCHEMA (schema-qualified, no search_path mutation)
     // =========================================================================
     const tableExists = await this.tableExistsInSchema(queryRunner, 'farm', 'regulatory_settings');
 
     if (!tableExists) {
       await queryRunner.query(`
-        CREATE TABLE "regulatory_settings" (
+        CREATE TABLE "farm"."regulatory_settings" (
           "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           "tenant_id" UUID NOT NULL,
 
@@ -72,10 +66,10 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
       `);
       this.logger.log('Created regulatory_settings table in farm schema');
 
-      // Create index
+      // Create index (schema-qualified)
       await queryRunner.query(`
         CREATE INDEX "IDX_regulatory_settings_tenant_id"
-        ON "regulatory_settings" ("tenant_id")
+        ON "farm"."regulatory_settings" ("tenant_id")
       `);
       this.logger.log('Created index on regulatory_settings.tenant_id');
     } else {
@@ -139,11 +133,10 @@ export class AddRegulatorySettings1769000000000 implements MigrationInterface {
     }
 
     // =========================================================================
-    // 2. DROP FROM FARM SCHEMA (SOURCE)
+    // 2. DROP FROM FARM SCHEMA (SOURCE) — schema-qualified, no search_path mutation
     // =========================================================================
-    await queryRunner.query(`SET search_path TO farm, public`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_regulatory_settings_tenant_id"`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "regulatory_settings"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "farm"."IDX_regulatory_settings_tenant_id"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "farm"."regulatory_settings"`);
     this.logger.log('Dropped regulatory_settings from farm schema');
 
     this.logger.log('AddRegulatorySettings migration rollback completed');

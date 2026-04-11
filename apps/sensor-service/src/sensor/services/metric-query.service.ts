@@ -292,14 +292,33 @@ export class MetricQueryService {
     return results;
   }
 
+  // IMPORTANT: Default lookback window for getLastReadings(). This bounds
+  // the time range so TimescaleDB chunk pruning is effective and a single
+  // channel query cannot scan the entire retention window.
+  private static readonly DEFAULT_LOOKBACK_HOURS = 24;
+
   /**
-   * Get last N readings for a channel
+   * Get last N readings for a channel.
+   *
+   * @param channelId  - UUID of the sensor data channel
+   * @param tenantId   - UUID of the tenant (isolation boundary)
+   * @param count      - Maximum number of readings to return (default 100, max 10000)
+   * @param lookbackHours - Time window to search within (default 24h). This
+   *   ensures TimescaleDB chunk pruning is effective. If no data is found
+   *   within the window, an empty array is returned rather than scanning
+   *   the full hypertable.
+   * @returns Array of readings ordered by time DESC
    */
   async getLastReadings(
     channelId: string,
     tenantId: string,
     count = 100,
+    lookbackHours: number = MetricQueryService.DEFAULT_LOOKBACK_HOURS,
   ): Promise<{ time: Date; value: number; qualityCode: number }[]> {
+    // SECURITY: Clamp inputs to safe ranges
+    const safeCount = Math.min(Math.max(1, count), 10000);
+    const safeLookback = Math.min(Math.max(1, lookbackHours), 8760); // max 1 year
+
     const query = `
       SELECT
         time,
@@ -308,11 +327,13 @@ export class MetricQueryService {
       FROM sensor_metrics
       WHERE channel_id = $1
         AND tenant_id = $2
+        AND time >= NOW() - make_interval(hours => $3)
       ORDER BY time DESC
-      LIMIT $3
+      LIMIT $4
     `;
 
-    const results: { time: Date; value: number; qualityCode: number }[] = await this.dataSource.query(query, [channelId, tenantId, count]);
+    const results: { time: Date; value: number; qualityCode: number }[] =
+      await this.dataSource.query(query, [channelId, tenantId, safeLookback, safeCount]);
     return results;
   }
 

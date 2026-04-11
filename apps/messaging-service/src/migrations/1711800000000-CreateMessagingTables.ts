@@ -241,9 +241,7 @@ export class CreateMessagingTables1711800000000 implements MigrationInterface {
         PRIMARY KEY ("id", "receiptCreatedAt"),
 
         CONSTRAINT "chk_receipt_status"
-          CHECK ("status" IN ('delivered', 'read')),
-        CONSTRAINT "uq_receipt_message_user"
-          UNIQUE ("messageId", "userId", "receiptCreatedAt")
+          CHECK ("status" IN ('delivered', 'read'))
       ) PARTITION BY RANGE ("receiptCreatedAt");
     `);
 
@@ -263,6 +261,15 @@ export class CreateMessagingTables1711800000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_receipts_message"
         ON "${s}"."message_receipts" ("messageId");
+    `);
+
+    // SECURITY: Enforce logical receipt uniqueness (messageId + userId) independent
+    // of the partition column. The original UNIQUE constraint included receiptCreatedAt,
+    // allowing duplicate logical receipts across partition boundaries.
+    // A unique index on (messageId, userId) works across all partitions.
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_receipt_message_user_logical"
+        ON "${s}"."message_receipts" ("messageId", "userId");
     `);
 
     // ------------------------------------------------------------------

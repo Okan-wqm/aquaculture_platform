@@ -59,10 +59,11 @@ export class Configuration {
   @Field(() => ID)
   id!: string;
 
-  @Column({ length: 100, name: 'tenant_id' })
+  /** SYSTEM_TENANT_ID ('00000000-0000-0000-0000-000000000000') for system-wide configs */
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   @Field()
-  tenantId!: string; // 'global' for system-wide configs
+  tenantId!: string;
 
   @Column({ length: 100 })
   @Index()
@@ -187,7 +188,7 @@ export class ConfigurationHistory {
   @Field()
   configurationId!: string;
 
-  @Column({ length: 100, name: 'tenant_id' })
+  @Column({ type: 'uuid', name: 'tenant_id' })
   @Field()
   tenantId!: string;
 

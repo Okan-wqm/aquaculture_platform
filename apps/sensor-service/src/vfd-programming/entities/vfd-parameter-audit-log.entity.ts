@@ -41,11 +41,11 @@ export class VfdParameterAuditLog {
   parameterName!: string;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'float', name: 'previous_value', nullable: true })
+  @Column({ type: 'numeric', precision: 15, scale: 6, name: 'previous_value', nullable: true })
   previousValue?: number;
 
   @Field(() => Float)
-  @Column({ type: 'float', name: 'new_value' })
+  @Column({ type: 'numeric', precision: 15, scale: 6, name: 'new_value' })
   newValue!: number;
 
   @Field(() => VfdAuditAction)

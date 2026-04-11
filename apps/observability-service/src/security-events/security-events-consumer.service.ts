@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { SecurityEventBase } from '@platform/event-contracts';
+import type { SecurityEvent } from '@platform/event-contracts';
 import { SecurityMetricsService } from './security-metrics.service';
 
 /**
@@ -28,7 +28,7 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
       await this.eventBus.subscribeTo(
         'events.security.events.>',
         {
-          handle: async (event: SecurityEventBase) => {
+          handle: async (event: SecurityEvent) => {
             await this.handleSecurityEvent(event);
           },
           getEventType: () => 'security.events.>',
@@ -60,11 +60,12 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
   /**
    * Handle an incoming security event: log + metric.
    */
-  private async handleSecurityEvent(event: SecurityEventBase): Promise<void> {
+  private async handleSecurityEvent(event: SecurityEvent): Promise<void> {
     const eventType = event.securityEventType ?? event.eventType ?? 'unknown';
     const shortType = this.toShortLabel(eventType);
 
     // Structured log entry for log aggregation (ELK, Loki, etc.)
+    // All fields are flat at the top level — no nested details bag.
     this.logger.warn('Security event received', {
       securityEventType: eventType,
       eventId: event.eventId,
@@ -72,7 +73,6 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
       userId: event.userId,
       ip: event.ip,
       userAgent: event.userAgent,
-      details: event.details,
       timestamp: event.timestamp,
     });
 

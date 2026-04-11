@@ -157,8 +157,10 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
         enrichedMetadata['voiceDurationSeconds'] = voiceDurationSeconds;
       }
 
+      // SECURITY: tenantId MUST be set on every message row for RLS and event routing.
       const message = manager.create(Message, {
         id: messageId,
+        tenantId,
         channelId,
         senderId,
         content: sanitizedContent,

@@ -92,7 +92,7 @@ export class AlertIncident {
   id!: string;
 
   @Field()
-  @Column({ name: 'tenant_id' })
+  @Column({ name: 'tenant_id', type: 'uuid' })
   @Index()
   tenantId!: string;
 

@@ -132,31 +132,31 @@ export class UnifiedTag {
   engUnit?: string;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'eng_min', type: 'float', nullable: true })
+  @Column({ name: 'eng_min', type: 'numeric', precision: 15, scale: 6, nullable: true })
   engMin?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'eng_max', type: 'float', nullable: true })
+  @Column({ name: 'eng_max', type: 'numeric', precision: 15, scale: 6, nullable: true })
   engMax?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_hh', type: 'float', nullable: true })
+  @Column({ name: 'alarm_hh', type: 'numeric', precision: 15, scale: 6, nullable: true })
   alarmHH?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_h', type: 'float', nullable: true })
+  @Column({ name: 'alarm_h', type: 'numeric', precision: 15, scale: 6, nullable: true })
   alarmH?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_l', type: 'float', nullable: true })
+  @Column({ name: 'alarm_l', type: 'numeric', precision: 15, scale: 6, nullable: true })
   alarmL?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ name: 'alarm_ll', type: 'float', nullable: true })
+  @Column({ name: 'alarm_ll', type: 'numeric', precision: 15, scale: 6, nullable: true })
   alarmLL?: number;
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'float', nullable: true })
+  @Column({ type: 'numeric', precision: 15, scale: 6, nullable: true })
   deadband?: number;
 
   @Field(() => GraphQLJSON)

@@ -1,3 +1,5 @@
+import Decimal from 'decimal.js';
+
 // ============================================================================
 // Molar Masses (g/mol)
 // ============================================================================
@@ -44,59 +46,153 @@ export const VALENCE: Record<string, number> = {
 };
 
 // ============================================================================
+// Input Validation
+// ============================================================================
+
+/**
+ * Validates a numeric input and returns a Decimal.
+ * Throws a descriptive error instead of silently coercing to 0.
+ *
+ * WHY: Silent coercion to 0 masks data-entry mistakes and corrupts
+ * downstream calculations. A NaN or undefined concentration that becomes 0
+ * is indistinguishable from "no nutrient present", leading to under-dosing
+ * or overdosing in the final recipe.
+ *
+ * @param value   - The numeric input to validate
+ * @param context - Human-readable label for error messages (e.g. "mmol for K")
+ * @returns A validated Decimal instance
+ * @throws Error if the value is not a finite number
+ */
+export function validateNumericInput(value: number, context: string): Decimal {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    throw new Error(
+      `Invalid numeric input for ${context}: received ${String(value)}. ` +
+      `Expected a finite number.`,
+    );
+  }
+  return new Decimal(value);
+}
+
+// ============================================================================
 // Conversion Functions
 // ============================================================================
 
-/** Convert mmol/L to mg/L */
+/**
+ * Convert mmol/L to mg/L using exact decimal arithmetic.
+ *
+ * @param mmol    - Concentration in mmol/L
+ * @param element - Element or compound key (must exist in MOLAR_MASS)
+ * @returns Concentration in mg/L
+ * @throws Error if mmol is not a finite number
+ */
 export function mmolToMgL(mmol: number, element: string): number {
   const mass = MOLAR_MASS[element];
   if (!mass) return 0;
-  return mmol * mass;
+  const d = validateNumericInput(mmol, `mmol for ${element}`);
+  return d.times(mass).toNumber();
 }
 
-/** Convert mg/L to mmol/L */
+/**
+ * Convert mg/L to mmol/L using exact decimal arithmetic.
+ *
+ * @param mgL     - Concentration in mg/L
+ * @param element - Element or compound key
+ * @returns Concentration in mmol/L
+ * @throws Error if mgL is not a finite number
+ */
 export function mgLToMmol(mgL: number, element: string): number {
   const mass = MOLAR_MASS[element];
   if (!mass) return 0;
-  return mgL / mass;
+  const d = validateNumericInput(mgL, `mg/L for ${element}`);
+  return d.dividedBy(mass).toNumber();
 }
 
-/** Convert mmol/L to meq/L */
+/**
+ * Convert mmol/L to meq/L using exact decimal arithmetic.
+ *
+ * @param mmol    - Concentration in mmol/L
+ * @param element - Element or compound key (must exist in VALENCE)
+ * @returns Concentration in meq/L
+ * @throws Error if mmol is not a finite number
+ */
 export function mmolToMeqL(mmol: number, element: string): number {
   const valence = VALENCE[element];
   if (!valence) return 0;
-  return mmol * valence;
+  const d = validateNumericInput(mmol, `mmol for ${element}`);
+  return d.times(valence).toNumber();
 }
 
-/** Convert meq/L to mmol/L */
+/**
+ * Convert meq/L to mmol/L using exact decimal arithmetic.
+ *
+ * @param meqL    - Concentration in meq/L
+ * @param element - Element or compound key
+ * @returns Concentration in mmol/L
+ * @throws Error if meqL is not a finite number
+ */
 export function meqLToMmol(meqL: number, element: string): number {
   const valence = VALENCE[element];
   if (!valence) return 0;
-  return meqL / valence;
+  const d = validateNumericInput(meqL, `meq/L for ${element}`);
+  return d.dividedBy(valence).toNumber();
 }
 
-/** Convert umol/L to ug/L (ppb) */
+/**
+ * Convert umol/L to ug/L (ppb) using exact decimal arithmetic.
+ *
+ * @param umol    - Concentration in umol/L
+ * @param element - Element or compound key
+ * @returns Concentration in ug/L
+ * @throws Error if umol is not a finite number
+ */
 export function umolToUgL(umol: number, element: string): number {
   const mass = MOLAR_MASS[element];
   if (!mass) return 0;
-  return umol * mass;
+  const d = validateNumericInput(umol, `umol for ${element}`);
+  return d.times(mass).toNumber();
 }
 
-/** Convert ug/L (ppb) to umol/L */
+/**
+ * Convert ug/L (ppb) to umol/L using exact decimal arithmetic.
+ *
+ * @param ugL     - Concentration in ug/L
+ * @param element - Element or compound key
+ * @returns Concentration in umol/L
+ * @throws Error if ugL is not a finite number
+ */
 export function ugLToUmol(ugL: number, element: string): number {
   const mass = MOLAR_MASS[element];
   if (!mass) return 0;
-  return ugL / mass;
+  const d = validateNumericInput(ugL, `ug/L for ${element}`);
+  return d.dividedBy(mass).toNumber();
 }
 
-/** Convert umol/L to mg/L (ppm) - same as umolToUgL / 1000 */
+/**
+ * Convert umol/L to mg/L (ppm) using exact decimal arithmetic.
+ *
+ * @param umol    - Concentration in umol/L
+ * @param element - Element or compound key
+ * @returns Concentration in mg/L (ppm)
+ * @throws Error if umol is not a finite number
+ */
 export function umolToMgL(umol: number, element: string): number {
-  return umolToUgL(umol, element) / 1000;
+  const mass = MOLAR_MASS[element];
+  if (!mass) return 0;
+  const d = validateNumericInput(umol, `umol for ${element}`);
+  return d.times(mass).dividedBy(1000).toNumber();
 }
 
-/** Convert mg/L (ppm) to umol/L */
+/**
+ * Convert mg/L (ppm) to umol/L using exact decimal arithmetic.
+ *
+ * @param mgL     - Concentration in mg/L
+ * @param element - Element or compound key
+ * @returns Concentration in umol/L
+ * @throws Error if mgL is not a finite number
+ */
 export function mgLToUmol(mgL: number, element: string): number {
   const mass = MOLAR_MASS[element];
   if (!mass) return 0;
-  return (mgL * 1000) / mass;
+  const d = validateNumericInput(mgL, `mg/L for ${element}`);
+  return d.times(1000).dividedBy(mass).toNumber();
 }

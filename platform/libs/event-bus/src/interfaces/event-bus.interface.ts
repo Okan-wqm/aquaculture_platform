@@ -8,7 +8,6 @@
  * Matches BaseEvent from event-contracts for compatibility
  */
 export interface IEvent {
-  [key: string]: unknown;
   eventId: string | import('@platform/event-contracts').EventId;
   eventType: string;
   /**

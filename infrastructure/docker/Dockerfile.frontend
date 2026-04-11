@@ -44,7 +44,7 @@ RUN cd web/${MODULE_NAME} && npm run build
 # Stage 4: Production with Nginx
 # -----------------------------------------------------------------------------
 # SECURITY: Pin nginx by digest for immutable, reproducible builds.
-FROM nginx:1.27.3-alpine@sha256:a5127daff3d6f4a3c3f7d2cfb7832aee2127d99b6e21d2b1e0d2d3e1a0a7c8b0 AS production
+FROM nginx:1.27.3-alpine@sha256:679a5fd058f6ca754a561846fe27927e408074431d63556e8fc588fc38be6901 AS production
 
 # Install envsubst for runtime configuration
 RUN apk add --no-cache gettext

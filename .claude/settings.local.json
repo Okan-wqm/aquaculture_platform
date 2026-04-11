@@ -537,7 +537,8 @@
       "Bash(sed -n '655,670p' /var/aqua-saas/.github/workflows/deploy-digitalocean.yml)",
       "Bash(sed -n '460,490p' /var/aqua-saas/apps/sensor-service/src/plc-control/services/plc-connection.service.ts)",
       "Bash(sed -n '180,190p' /var/aqua-saas/apps/messaging-service/src/gdpr/gdpr.service.ts)",
-      "Bash(awk '{print $1}')"
+      "Bash(awk '{print $1}')",
+      "Bash(docker manifest:*)"
     ],
     "deny": [],
     "ask": []

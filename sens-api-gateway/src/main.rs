@@ -1050,6 +1050,51 @@ async fn run_agent(
         SafeStateManager::from_config(&state_guard.config)
     };
 
+    // ── LIFE-SAFETY: Apply safe-state BEFORE any control runtime starts ──
+    // CRITICAL-001: The previous boot sequence started the script engine, command
+    // handlers, telemetry, and I/O loops before driving actuator outputs to a
+    // known fail-safe state. On an industrial aquaculture edge node, this meant
+    // pumps, valves, and relays could remain in their prior energized state during
+    // boot — a life-safety violation.
+    //
+    // safe_state_manager.apply() MUST execute here, after hardware init but before
+    // ANY runtime actor or script engine starts. If any output cannot be driven to
+    // safe-state, the agent enters degraded mode and surfaces a hard fault.
+    {
+        let state_guard = state.read().await;
+        let modbus_ref = state_guard.modbus_handle.as_ref();
+        let gpio_ref = state_guard.gpio_handle.as_ref();
+        let i2c_ref = state_guard.i2c_handle.as_ref();
+
+        let safe_count = safe_state_manager
+            .apply(modbus_ref, gpio_ref, i2c_ref)
+            .await;
+
+        if safe_count == 0 && (!state_guard.config.gpio.is_empty()
+            || !state_guard.config.modbus.is_empty()
+            || !state_guard.config.i2c.is_empty())
+        {
+            // LIFE-SAFETY: Hardware is configured but no outputs reached safe-state.
+            // Enter degraded mode — do NOT proceed to normal runtime.
+            error!(
+                "LIFE-SAFETY: safe-state application failed — 0 of {} configured outputs \
+                 reached safe-state. Entering degraded/disabled mode. \
+                 Manual intervention required.",
+                state_guard.config.gpio.len()
+                    + state_guard.config.modbus.len()
+                    + state_guard.config.i2c.len()
+            );
+            return Err(anyhow::anyhow!(
+                "LIFE-SAFETY: Boot aborted — safe-state could not be applied to any actuator output"
+            ));
+        }
+
+        info!(
+            "LIFE-SAFETY: boot safe-state applied ({} outputs driven to fail-safe before runtime start)",
+            safe_count
+        );
+    }
+
     // Step 5: Create shutdown coordinator for graceful termination
     let mut shutdown_coordinator = ShutdownCoordinator::new();
 

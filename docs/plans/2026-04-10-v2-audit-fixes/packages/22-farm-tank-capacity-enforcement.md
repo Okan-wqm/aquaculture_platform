@@ -1,7 +1,7 @@
 # Package 22: farm-tank-capacity-enforcement
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 10K
 Priority: HIGH
 Security-Sensitive: no

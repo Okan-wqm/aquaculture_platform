@@ -1,7 +1,7 @@
 # Package 21: farm-batch-close-fixes
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 14K
 Priority: HIGH
 Security-Sensitive: no

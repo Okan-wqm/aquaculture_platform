@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 
 export interface TraceSpan {
   traceId: string;
@@ -65,8 +65,10 @@ export class TracingService implements OnModuleDestroy {
    * Start a new trace
    */
   startTrace(operationName: string, service: string): TraceContext {
-    const traceId = randomUUID();
-    const spanId = randomUUID();
+    // W3C Trace Context compliance: traceId must be 32 hex chars, spanId must be 16 hex chars.
+    // Previously used randomUUID() which produces hyphenated UUID format, not valid W3C IDs.
+    const traceId = randomBytes(16).toString('hex'); // 32 hex chars
+    const spanId = randomBytes(8).toString('hex');   // 16 hex chars
 
     const span: TraceSpan = {
       traceId,
@@ -97,7 +99,8 @@ export class TracingService implements OnModuleDestroy {
     operationName: string,
     service: string,
   ): TraceContext {
-    const spanId = randomUUID();
+    // W3C Trace Context compliance: spanId must be 16 hex chars
+    const spanId = randomBytes(8).toString('hex');
 
     const span: TraceSpan = {
       traceId: context.traceId,

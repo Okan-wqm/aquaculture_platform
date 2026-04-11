@@ -1,7 +1,7 @@
 # Package 23: fe-csp-remove-unsafe-inline
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 8K
 Priority: HIGH
 Security-Sensitive: yes

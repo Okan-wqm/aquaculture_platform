@@ -1,7 +1,7 @@
 # Package 24: supply-chain-immutable-pins
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 18K
 Priority: HIGH
 Security-Sensitive: yes

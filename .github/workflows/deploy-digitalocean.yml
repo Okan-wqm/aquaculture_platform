@@ -286,7 +286,7 @@ jobs:
             nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Install Linux platform binaries
         timeout-minutes: 3
@@ -431,7 +431,7 @@ jobs:
             nx-deploy-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
 
       - name: Install Linux platform binaries
         timeout-minutes: 3

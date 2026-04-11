@@ -1,7 +1,7 @@
 /**
  * CloseBatchHandler Unit Tests
  *
- * IP-3: CQRS handler test coverage — batch closure with reason validation.
+ * IP-3: CQRS handler test coverage -- batch closure with reason validation.
  */
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { CloseBatchHandler } from '../../handlers/close-batch.handler';
@@ -36,7 +36,7 @@ describe('CloseBatchHandler', () => {
     mockBatchRepo.save.mockResolvedValueOnce({ ...batch, status: BatchStatus.CLOSED });
 
     const result = await handler.execute(
-      new CloseBatchCommand(TENANT, 'batch-1', BatchCloseReason.HARVEST_COMPLETED, USER),
+      new CloseBatchCommand({ tenantId: TENANT, batchId: 'batch-1', reason: BatchCloseReason.HARVEST_COMPLETED, closedBy: USER }),
     );
 
     expect(result.status).toBe(BatchStatus.CLOSED);
@@ -47,7 +47,7 @@ describe('CloseBatchHandler', () => {
     mockBatchRepo.findOne.mockResolvedValueOnce(batch);
 
     await expect(
-      handler.execute(new CloseBatchCommand(TENANT, 'batch-1', BatchCloseReason.OTHER, USER)),
+      handler.execute(new CloseBatchCommand({ tenantId: TENANT, batchId: 'batch-1', reason: BatchCloseReason.OTHER, closedBy: USER })),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -56,7 +56,7 @@ describe('CloseBatchHandler', () => {
     mockBatchRepo.findOne.mockResolvedValueOnce(batch);
 
     await expect(
-      handler.execute(new CloseBatchCommand(TENANT, 'batch-1', BatchCloseReason.HARVEST_COMPLETED, USER)),
+      handler.execute(new CloseBatchCommand({ tenantId: TENANT, batchId: 'batch-1', reason: BatchCloseReason.HARVEST_COMPLETED, closedBy: USER })),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -64,7 +64,7 @@ describe('CloseBatchHandler', () => {
     mockBatchRepo.findOne.mockResolvedValueOnce(null);
 
     await expect(
-      handler.execute(new CloseBatchCommand(TENANT, 'nonexistent', BatchCloseReason.OTHER, USER)),
+      handler.execute(new CloseBatchCommand({ tenantId: TENANT, batchId: 'nonexistent', reason: BatchCloseReason.OTHER, closedBy: USER })),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -78,9 +78,18 @@ describe('CloseBatchHandler', () => {
     mockBatchRepo.save.mockResolvedValueOnce({ ...batch, status: BatchStatus.CLOSED });
 
     const result = await handler.execute(
-      new CloseBatchCommand(TENANT, 'batch-1', BatchCloseReason.FAILED, USER),
+      new CloseBatchCommand({ tenantId: TENANT, batchId: 'batch-1', reason: BatchCloseReason.FAILED, closedBy: USER }),
     );
 
     expect(result.status).toBe(BatchStatus.CLOSED);
+  });
+
+  it('should reject OTHER reason for ACTIVE batch (restricted to terminal statuses)', async () => {
+    const batch = { id: 'batch-1', tenantId: TENANT, status: BatchStatus.ACTIVE } as Batch;
+    mockBatchRepo.findOne.mockResolvedValueOnce(batch);
+
+    await expect(
+      handler.execute(new CloseBatchCommand({ tenantId: TENANT, batchId: 'batch-1', reason: BatchCloseReason.OTHER, closedBy: USER })),
+    ).rejects.toThrow(BadRequestException);
   });
 });

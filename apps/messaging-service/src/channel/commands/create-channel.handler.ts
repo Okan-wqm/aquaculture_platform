@@ -130,7 +130,9 @@ export class CreateChannelHandler
     await queryRunner.startTransaction();
 
     try {
+      // SECURITY: tenantId MUST be set on every channel row for RLS and event routing.
       const channel = queryRunner.manager.create(Channel, {
+        tenantId,
         type: ChannelType.DIRECT,
         name: null,
         description: null,
@@ -150,8 +152,10 @@ export class CreateChannelHandler
       await queryRunner.manager.save(ChannelMember, members);
 
       // Outbox event
+      // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
       await queryRunner.manager.save(
         queryRunner.manager.create(MessagingOutbox, {
+          tenantId,
           eventType: 'ChannelCreated',
           payload: {
             eventId: uuidv4(),
@@ -223,8 +227,10 @@ export class CreateChannelHandler
       await queryRunner.manager.save(ChannelMember, members);
 
       // Outbox event
+      // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
       await queryRunner.manager.save(
         queryRunner.manager.create(MessagingOutbox, {
+          tenantId,
           eventType: 'ChannelCreated',
           payload: {
             eventId: uuidv4(),

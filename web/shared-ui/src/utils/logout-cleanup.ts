@@ -100,13 +100,16 @@ function clearBrowserStorage(): void {
     // sessionStorage unavailable
   }
 
-  // SECURITY: Remove known auth/tenant keys from localStorage
+  // SECURITY: Remove known auth/tenant keys and sensitive data from localStorage.
+  // admin_sql_query_history must be cleared to prevent sensitive SQL from
+  // persisting on shared devices after logout.
   const authKeys = [
     'tenant_id',
     'consent_banner_dismissed',
     'auth_state',
     'refresh_token', // should never exist but defensive
     'access_token',  // should never exist but defensive
+    'admin_sql_query_history', // sensitive SQL queries from DB explorer
   ];
 
   try {

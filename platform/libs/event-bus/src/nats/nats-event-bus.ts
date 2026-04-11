@@ -149,11 +149,21 @@ export class NatsEventBus
       // Activate any subscriptions that were registered before connect completed
       await this.activatePendingSubscriptions();
     } catch (error) {
+      // SECURITY: Fail closed — if NATS is unavailable in production, the service
+      // MUST NOT boot as healthy. Silent event bus failure means async workflows
+      // are disabled while the service appears operational.
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (isProduction) {
+        this.logger.error(
+          `CRITICAL: Failed to connect to NATS in production. Service startup aborted. ` +
+          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        throw error;
+      }
       this.logger.warn(
-        `Failed to connect to NATS on startup. Service will continue without event bus. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to connect to NATS on startup (non-production). Service will continue without event bus. ` +
+        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
-      // Don't throw - allow service to start without NATS
-      // Background reconnection will be attempted
       this.scheduleReconnect();
     }
   }
@@ -562,18 +572,29 @@ export class NatsEventBus
               const event = this.deserializeEvent(this.codec.decode(msg.data));
               const handlers = this.handlers.get(subject) ?? [];
 
+              // SECURITY: Handler failures must NOT be swallowed while the
+              // message is acked. A swallowed handler error permanently loses
+              // the event for that handler. Route failures to retry/DLQ instead.
+              let handlerFailed = false;
               for (const handler of handlers) {
                 try {
                   await handler.handle(event);
                 } catch (handlerError) {
+                  handlerFailed = true;
                   this.logger.error(
-                    `Handler error for ${event.eventType}`,
+                    `Handler error for ${event.eventType} — message will be NAK'd for retry`,
                     handlerError,
                   );
                 }
               }
 
-              msg.ack();
+              if (handlerFailed) {
+                const redeliveryCount = msg.info?.redeliveryCount ?? 0;
+                const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
+                msg.nak(backoffMs);
+              } else {
+                msg.ack();
+              }
             } catch (error) {
               this.logger.error(`Message processing error on ${subject}`, error);
               // Exponential backoff on NAK: redelivery delay doubles per attempt

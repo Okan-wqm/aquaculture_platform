@@ -130,20 +130,31 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       const maxDensity = specs?.maxDensity || 30;
       const volume = equipment.volume || specs?.volume || 0;
 
-      // Kapasite kontrolü - sadece uyarı, bloklama yok
+      // LIFE-SAFETY: Hard capacity enforcement — reject over-capacity allocations.
+      // The previous implementation logged a warning and proceeded, allowing unsafe
+      // stocking density. This now blocks the allocation entirely.
       const biomassKg = (payload.quantity * payload.avgWeightG) / 1000;
       const currentBiomass = equipment.currentBiomass || 0;
       const availableCapacity = maxBiomass - currentBiomass;
 
-      if (biomassKg > availableCapacity) {
-        this.logger.warn(
-          `Equipment ${equipment.code} capacity exceeded. Adding biomass: ${biomassKg.toFixed(2)} kg, ` +
-          `Available capacity: ${availableCapacity.toFixed(2)} kg. Proceeding anyway.`
+      if (maxBiomass > 0 && biomassKg > availableCapacity) {
+        throw new BadRequestException(
+          `Equipment ${equipment.code} kapasite asimi. Eklenen biyokütle: ${biomassKg.toFixed(2)} kg, ` +
+          `Mevcut kapasite: ${availableCapacity.toFixed(2)} kg. Stoklama reddedildi.`
         );
       }
 
       const effectiveVolume = volume;
       const densityKgM3 = effectiveVolume ? biomassKg / Number(effectiveVolume) : 0;
+
+      // LIFE-SAFETY: Check projected density against maxDensity.
+      // Exceeding stocking density is an animal welfare violation.
+      if (maxDensity > 0 && densityKgM3 > maxDensity) {
+        throw new BadRequestException(
+          `Equipment ${equipment.code} yogunluk limiti asimi. Hesaplanan yogunluk: ${densityKgM3.toFixed(2)} kg/m3, ` +
+          `Maksimum yogunluk: ${maxDensity} kg/m3. Stoklama reddedildi.`
+        );
+      }
 
       // Allocation kaydı oluştur
       const allocation = queryRunner.manager.create(TankAllocation, {

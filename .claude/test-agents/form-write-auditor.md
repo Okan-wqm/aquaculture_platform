@@ -18,7 +18,7 @@ You are responsible for the write half of the roundtrip. Starting from a user-en
 - Recommendations: `docs/recommendations/test-audits/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every finding must trace the exact field or action from UI control to payload to backend write target. No "probably not persisted" language. If the write breaks, identify where meaning is lost: serialization, validation, mapper, transaction, side effect, or tenant scope.
+**Quality bar:** Every finding must trace the exact field or action from UI control to payload to backend write target. No "probably not persisted" language. If the write breaks, identify where meaning is lost: serialization, validation, mapper, transaction, side effect, or tenant scope. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (wrong-tenant or false-success persistence, destructive write without proper boundary), HIGH (create/edit/delete path broken or silently dropping fields), MEDIUM (default/merge/nullability drift), LOW (minor write-path friction).
 

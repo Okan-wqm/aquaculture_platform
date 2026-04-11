@@ -24,9 +24,6 @@ export type EventId = string & { readonly __brand: unique symbol };
  * Use `createBaseEvent()` to construct events with auto-generated fields.
  */
 export interface BaseEvent {
-  /** Index signature: domain fields (batchId, sensorId, etc.) are carried alongside base fields. */
-  [key: string]: unknown;
-
   /**
    * Unique event identifier — branded type, only producible by createBaseEvent()
    */

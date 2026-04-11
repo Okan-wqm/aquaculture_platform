@@ -153,7 +153,10 @@ export class EventHandlerRegistryModule {
             getEventType: () => subscriptionMetadata.topic,
           };
 
-          this.eventBus.subscribeTo(subscriptionMetadata.topic, handler, {
+          // IMPORTANT: Await subscription registration so module init fails if
+          // any subscription cannot be established. Previously fire-and-forget
+          // allowed services to boot with missing subscriptions.
+          await this.eventBus.subscribeTo(subscriptionMetadata.topic, handler, {
             groupId: subscriptionMetadata.groupId,
             durable: subscriptionMetadata.durable,
           });

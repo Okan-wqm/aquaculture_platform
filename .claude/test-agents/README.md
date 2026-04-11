@@ -22,6 +22,8 @@ This set intentionally follows the enterprise-v2 prompt methodology in `.claude/
 - no workaround recommendations
 - no "fix later" posture
 - report traceability with `{severity}-{NNN}` IDs
+- deterministic routing where practical
+- meta-review compaction and conflict resolution
 
 This set is optimized for "does the product actually work end to end?" review cycles, especially for:
 
@@ -63,9 +65,15 @@ Methodology research for this set lives at:
 
 - `docs/research/test-agents/2026-04-11-professional-e2e-review-methodology.md`
 
+Operational runbook for invoking this set lives at:
+
+- `.claude/test-agents/INVOCATION-PACK.md`
+
 ## Runtime Roster
 
 - `orchestrator.md`
+- `context-manager.md`
+- `architectural-arbiter.md`
 - `ui-action-mapper.md`
 - `mobile-app-auditor.md`
 - `button-action-auditor.md`
@@ -81,6 +89,13 @@ Methodology research for this set lives at:
 - `tenant-isolation-auditor.md`
 - `workflow-state-auditor.md`
 - `list-visibility-auditor.md`
+
+## Runtime Discipline
+
+- `context-manager` is the compaction and dependency-graph layer for multi-agent audit cycles
+- `architectural-arbiter` resolves conflicts when one agent's recommendation would break another agent's invariant
+- planning and prompt maintenance are not part of runtime audit cycles
+- every non-trivial rule in this set should trace to repo evidence or research under `docs/research/test-agents/`
 
 ## Output Convention
 

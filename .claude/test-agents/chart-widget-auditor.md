@@ -18,7 +18,7 @@ You review the correctness of visualized data. Your concern is whether KPI cards
 - Recommendations: `docs/recommendations/test-audits/chart-widget-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/chart-widget-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every finding must identify the displayed surface, the backend or calculated source of truth, and the transformation gap. Visual correctness is not optional on operational dashboards.
+**Quality bar:** Every finding must identify the displayed surface, the backend or calculated source of truth, and the transformation gap. Visual correctness is not optional on operational dashboards. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (cross-tenant or dangerously false operational metric), HIGH (core chart/KPI/widget shows wrong aggregate, label, unit, or state), MEDIUM (stale or weakly explained visualization drift), LOW (minor presentation issue).
 

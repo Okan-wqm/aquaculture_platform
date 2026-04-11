@@ -193,7 +193,10 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       }
 
       // 4c. INSERT outbox event
+      // SECURITY: tenantId MUST be set at the entity level (not just inside payload)
+      // for per-tenant NATS subject routing in the outbox worker.
       const outboxEvent = manager.create(MessagingOutbox, {
+        tenantId,
         eventType: 'MessageSent',
         payload: {
           eventId: uuidv4(),

@@ -182,21 +182,27 @@ export class NotificationDispatcherService implements OnModuleInit {
       WEBHOOK_ENCRYPTION_KEY = createHash('sha256').update(envKey).digest();
       return;
     }
-    const strictMode = this.configService.get<string>('REQUIRE_WEBHOOK_ENCRYPTION_KEY') === 'true';
-    if (strictMode) {
+
+    // SECURITY: In production, the encryption key is MANDATORY. No fallback.
+    // The deterministic dev key allows any attacker who reads the source code
+    // to decrypt all webhook URLs. This is unacceptable in production.
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    if (isProduction) {
       throw new Error(
-        'WEBHOOK_ENCRYPTION_KEY must be set (≥32 chars). ' +
-        'Service startup aborted (REQUIRE_WEBHOOK_ENCRYPTION_KEY=true).',
+        'CRITICAL: WEBHOOK_ENCRYPTION_KEY must be set (>=32 chars) in production. ' +
+        'Deterministic fallback key is NOT acceptable for production deployments. ' +
+        'Service startup aborted to prevent insecure webhook URL storage.',
       );
     }
-    // Fallback — logs CRITICAL to alert ops to provision the key
+
+    // Non-production: use dev fallback with clear warning
     WEBHOOK_ENCRYPTION_KEY = createHash('sha256')
       .update('aquaculture-webhook-dev-key')
       .digest();
-    this.logger.error(
+    this.logger.warn(
       'WEBHOOK_ENCRYPTION_KEY is not set or too short (<32 chars). ' +
       'Using insecure dev fallback — webhook retry URLs are NOT securely encrypted. ' +
-      'Set WEBHOOK_ENCRYPTION_KEY (≥32 chars) and REQUIRE_WEBHOOK_ENCRYPTION_KEY=true in production.',
+      'Set WEBHOOK_ENCRYPTION_KEY (>=32 chars) for production.',
     );
   }
 

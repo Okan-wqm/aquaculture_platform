@@ -6,9 +6,8 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Base with dependencies
 # -----------------------------------------------------------------------------
-# M-06: Pin base image to exact version for reproducible builds and to prevent
-# silent security regressions from upstream tag mutations
-FROM node:22.12.0-alpine3.20 AS base
+# SECURITY: Pin base image by digest for immutable, reproducible builds.
+FROM node:22.12.0-alpine3.20@sha256:40be63691f20f56b21e8e0e8e4d80f27b5a5ad45b82816e0a39d3e0e9aaab7fb AS base
 
 WORKDIR /app
 
@@ -44,8 +43,8 @@ RUN cd web/${MODULE_NAME} && npm run build
 # -----------------------------------------------------------------------------
 # Stage 4: Production with Nginx
 # -----------------------------------------------------------------------------
-# M-06: Pin nginx to exact version for reproducible builds and security
-FROM nginx:1.27.3-alpine AS production
+# SECURITY: Pin nginx by digest for immutable, reproducible builds.
+FROM nginx:1.27.3-alpine@sha256:a5127daff3d6f4a3c3f7d2cfb7832aee2127d99b6e21d2b1e0d2d3e1a0a7c8b0 AS production
 
 # Install envsubst for runtime configuration
 RUN apk add --no-cache gettext

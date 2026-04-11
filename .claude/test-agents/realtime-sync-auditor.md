@@ -18,7 +18,7 @@ You review time-sensitive product surfaces. Your job is to verify that polling l
 - Recommendations: `docs/recommendations/test-audits/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every finding must identify the live surface, the actual source of truth, and the specific refresh or convergence failure. Realtime behavior is only trustworthy when timing, scope, and final state all reconcile.
+**Quality bar:** Every finding must identify the live surface, the actual source of truth, and the specific refresh or convergence failure. Realtime behavior is only trustworthy when timing, scope, and final state all reconcile. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (cross-tenant live leak or dangerously false live status), HIGH (core sync/live state broken or never converges), MEDIUM (laggy or partial convergence), LOW (minor non-blocking refresh UX issue).
 

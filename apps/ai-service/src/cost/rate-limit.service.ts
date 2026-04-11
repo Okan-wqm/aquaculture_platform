@@ -29,9 +29,20 @@ export class RateLimitService {
     @Optional() private readonly redisService?: RedisService,
   ) {
     this.useRedis = !!this.redisService;
+    // SECURITY: Fail closed — in production, Redis is REQUIRED for distributed
+    // quota enforcement. In-memory fallback allows tenants to exceed plan limits
+    // by N× across multi-instance deployments or via restarts.
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    if (!this.useRedis && isProduction) {
+      throw new Error(
+        'CRITICAL: AI rate limiting requires Redis in production. ' +
+        'In-memory fallback allows quota bypass across instances. ' +
+        'Configure REDIS_HOST to enable distributed rate limiting.',
+      );
+    }
     if (!this.useRedis) {
       this.logger.warn(
-        'AI rate limiting using in-memory Map — NOT distributed. ' +
+        'AI rate limiting using in-memory Map (non-production). ' +
         'Multi-instance deployments will allow N× configured limit.',
       );
     }

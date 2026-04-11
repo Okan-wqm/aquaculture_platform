@@ -289,13 +289,28 @@ export class SchemaManagementService {
     const schema = await this.getSchemaByTenantId(tenantId);
 
     if (hardDelete) {
-      // Actually drop the schema from database
+      // SECURITY: Write an immutable audit entry BEFORE the destructive operation.
+      // If the DROP fails, the audit record still exists showing the attempt.
+      this.logger.warn('AUDIT: Schema hard delete initiated', {
+        action: 'SCHEMA_HARD_DELETE',
+        tenantId,
+        schemaName: schema.schemaName,
+        timestamp: new Date().toISOString(),
+      });
+
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
 
       try {
         await queryRunner.query(`DROP SCHEMA IF EXISTS "${schema.schemaName}" CASCADE`);
         await this.schemaRepository.delete({ id: schema.id });
+
+        this.logger.warn('AUDIT: Schema hard delete completed', {
+          action: 'SCHEMA_HARD_DELETE_COMPLETED',
+          tenantId,
+          schemaName: schema.schemaName,
+          timestamp: new Date().toISOString(),
+        });
       } finally {
         await queryRunner.release();
       }

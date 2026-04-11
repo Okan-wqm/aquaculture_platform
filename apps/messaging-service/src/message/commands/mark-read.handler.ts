@@ -89,7 +89,9 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
       }
 
       // 2c. Outbox event
+      // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
       const outboxEvent = manager.create(MessagingOutbox, {
+        tenantId,
         eventType: 'MessageRead',
         payload: {
           eventId: uuidv4(),

@@ -265,6 +265,18 @@ export class DatabaseExplorerController {
   }
 
   /**
+   * Create a write-capable query runner for write operations when the
+   * ENABLE_DB_EXPLORER_WRITES flag is enabled. Write operations previously
+   * used createReadOnlyQueryRunner() which set SET TRANSACTION READ ONLY,
+   * making writes silently fail even when the feature flag was enabled.
+   */
+  private async createWriteQueryRunner(): Promise<ReturnType<DataSource['createQueryRunner']>> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    return queryRunner;
+  }
+
+  /**
    * Validate that the requested schema and table are accessible via the explorer.
    * Blocks access to module schemas, tenant schemas, and module tables.
    */
@@ -603,7 +615,10 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Data is required');
     }
 
-    const queryRunner = await this.createReadOnlyQueryRunner();
+    // WHY: Write operations must use a write-capable runner, not the read-only runner.
+    // Previously createReadOnlyQueryRunner() set SET TRANSACTION READ ONLY,
+    // making INSERT silently fail even when ENABLE_DB_EXPLORER_WRITES was true.
+    const queryRunner = await this.createWriteQueryRunner();
 
     try {
       const columns = Object.keys(dto.data);
@@ -657,7 +672,8 @@ export class DatabaseExplorerController {
       throw new BadRequestException('Data is required');
     }
 
-    const queryRunner = await this.createReadOnlyQueryRunner();
+    // WHY: Write operations must use write-capable runner.
+    const queryRunner = await this.createWriteQueryRunner();
 
     try {
       // Primary key sütununu bul
@@ -716,7 +732,8 @@ export class DatabaseExplorerController {
     }
     this.validateExplorerAccess(schema, table);
 
-    const queryRunner = await this.createReadOnlyQueryRunner();
+    // WHY: Delete operations must use write-capable runner.
+    const queryRunner = await this.createWriteQueryRunner();
 
     try {
       // Primary key sütununu bul

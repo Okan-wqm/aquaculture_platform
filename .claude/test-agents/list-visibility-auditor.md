@@ -18,7 +18,7 @@ You specialize in what users see after a change. Your focus is not the write its
 - Recommendations: `docs/recommendations/test-audits/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** A write is not considered complete until the correct post-write surfaces reflect it. Every finding must name the write origin, the surfaces that should update, and the cache/query/projection reason they do not.
+**Quality bar:** A write is not considered complete until the correct post-write surfaces reflect it. Every finding must name the write origin, the surfaces that should update, and the cache/query/projection reason they do not. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (cross-tenant or dangerously misleading post-write visibility), HIGH (core list/detail/search never reflects real state), MEDIUM (stale invalidation or partial visibility drift), LOW (non-blocking count/badge divergence).
 

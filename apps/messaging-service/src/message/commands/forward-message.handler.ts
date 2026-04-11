@@ -142,7 +142,9 @@ export class ForwardMessageHandler
         }
 
         // 3c. Outbox event
+        // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
         const outboxEvent = manager.create(MessagingOutbox, {
+          tenantId,
           eventType: 'MessageForwarded',
           payload: {
             eventId: uuidv4(),

@@ -43,6 +43,13 @@ export default defineConfig({
   build: {
     target: 'esnext',
   },
+  // Fix: tenant-admin React tests require jsdom environment for DOM APIs.
+  // Without this, Vitest runs in node environment where document/window are undefined.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
+  },
   server: {
     port: 5175,
     strictPort: true,

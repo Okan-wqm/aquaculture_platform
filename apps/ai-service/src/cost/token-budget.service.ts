@@ -26,9 +26,20 @@ export class TokenBudgetService {
     @Optional() private readonly redisService?: RedisService,
   ) {
     this.useRedis = !!this.redisService;
+    // SECURITY: Fail closed — in production, Redis is REQUIRED for distributed
+    // token budget enforcement. In-memory fallback allows tenants to exceed
+    // monthly budgets via restarts or multi-instance scaling.
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    if (!this.useRedis && isProduction) {
+      throw new Error(
+        'CRITICAL: AI token budget requires Redis in production. ' +
+        'In-memory fallback allows budget bypass across instances. ' +
+        'Configure REDIS_HOST to enable distributed budget enforcement.',
+      );
+    }
     if (!this.useRedis) {
       this.logger.warn(
-        'AI token budget using in-memory Map — NOT distributed. ' +
+        'AI token budget using in-memory Map (non-production). ' +
         'Multi-instance deployments will have separate counters. ' +
         'Data will be lost on service restart.',
       );

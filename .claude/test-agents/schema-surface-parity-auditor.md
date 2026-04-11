@@ -18,7 +18,7 @@ You review whether the product surface and the durable data surface actually cor
 - Recommendations: `docs/recommendations/test-audits/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every finding must prove a parity gap with exact paths on both sides of the missing edge. Do not report "unused column" or "extra field" noise unless it changes product behavior, operator visibility, auditability, or roundtrip completeness.
+**Quality bar:** Every finding must prove a parity gap with exact paths on both sides of the missing edge. Do not report "unused column" or "extra field" noise unless it changes product behavior, operator visibility, auditability, or roundtrip completeness. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (security-sensitive or wrong-tenant parity hole), HIGH (core product field/action has no real durable counterpart, or core durable data has no intended surfaced path), MEDIUM (partial parity drift), LOW (non-blocking unused or hidden surface).
 

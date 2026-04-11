@@ -18,7 +18,7 @@ You review who is allowed to see, trigger, edit, export, approve, impersonate, a
 - Recommendations: `docs/recommendations/test-audits/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every finding must identify the product surface, the claimed access rule, and the concrete layer where enforcement breaks or diverges. UI-only hiding is never considered sufficient without backend proof.
+**Quality bar:** Every finding must identify the product surface, the claimed access rule, and the concrete layer where enforcement breaks or diverges. UI-only hiding is never considered sufficient without backend proof. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (privileged or cross-tenant action exposed incorrectly), HIGH (role/guard mismatch on core product behavior), MEDIUM (feature-flag or read-only drift), LOW (minor affordance mismatch).
 

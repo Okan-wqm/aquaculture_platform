@@ -118,11 +118,21 @@ export class SchemaController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteSchema(
     // ParseUUIDPipe: rejects non-UUID tenantId before it reaches the service layer.
-    // Prevents DB-level errors from leaking schema details and enforces the contract
-    // that DROP SCHEMA only ever targets a valid tenant UUID.
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Query('hardDelete') hardDelete?: string,
+    // SECURITY: Confirmation token required for hard delete to prevent accidental
+    // or one-click destructive operations. The token must be the tenantId itself
+    // repeated as confirmation (e.g. ?confirmToken=<tenantId>).
+    @Query('confirmToken') confirmToken?: string,
   ) {
+    if (hardDelete === 'true') {
+      if (!confirmToken || confirmToken !== tenantId) {
+        throw new BadRequestException(
+          'Hard delete requires confirmToken query parameter matching the tenantId. ' +
+          'This is a destructive operation that cannot be undone.',
+        );
+      }
+    }
     await this.schemaService.deleteSchema(tenantId, hardDelete === 'true');
   }
 

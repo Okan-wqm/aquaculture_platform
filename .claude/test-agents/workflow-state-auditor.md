@@ -18,7 +18,7 @@ You verify that product actions are legal in the current business state. You foc
 - Recommendations: `docs/recommendations/test-audits/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every finding must show the claimed workflow state, the permitted transition set, and the concrete place where enforcement is missing or contradictory. UI-only state claims are insufficient without backend confirmation.
+**Quality bar:** Every finding must show the claimed workflow state, the permitted transition set, and the concrete place where enforcement is missing or contradictory. UI-only state claims are insufficient without backend confirmation. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (illegal destructive or privilege-sensitive transition), HIGH (workflow action legal in wrong state or missing required side effects), MEDIUM (UI/backend gating mismatch), LOW (non-blocking workflow affordance inconsistency).
 

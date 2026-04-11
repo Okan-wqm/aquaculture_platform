@@ -67,13 +67,18 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
         throw new BadRequestException(`Batch ${batchId} zaten kapatılmış`);
       }
 
-      // Close reason'a göre önceki status kontrolü
+      // SECURITY: BatchCloseReason.OTHER bypasses the lifecycle invariant.
+      // It is restricted to admin-only override paths. Regular users MUST
+      // close batches through the correct lifecycle (harvest, transfer, fail, cancel).
+      // This prevents premature closure of ACTIVE batches via OTHER reason.
       const allowedPreviousStatuses: Record<BatchCloseReason, BatchStatus[]> = {
         [BatchCloseReason.HARVEST_COMPLETED]: [BatchStatus.HARVESTED, BatchStatus.HARVESTING],
         [BatchCloseReason.TRANSFERRED]: [BatchStatus.TRANSFERRED],
         [BatchCloseReason.FAILED]: [BatchStatus.FAILED, BatchStatus.QUARANTINE, BatchStatus.ACTIVE, BatchStatus.GROWING],
         [BatchCloseReason.CANCELLED]: [BatchStatus.QUARANTINE, BatchStatus.ACTIVE],
-        [BatchCloseReason.OTHER]: Object.values(BatchStatus).filter(s => s !== BatchStatus.CLOSED),
+        // OTHER is restricted to terminal/non-operational statuses only:
+        // HARVESTED, TRANSFERRED, FAILED. Active/growing batches cannot be closed via OTHER.
+        [BatchCloseReason.OTHER]: [BatchStatus.HARVESTED, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
       };
 
       if (!allowedPreviousStatuses[reason].includes(batch.status)) {

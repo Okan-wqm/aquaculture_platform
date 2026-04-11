@@ -407,7 +407,11 @@ export class BackupRestoreService {
         '-p', pg.port,
         '-U', pg.user,
         '-d', pg.db,
-        `--schema=${backup.schemaName}`,
+        // WHY: Use restore.targetSchemaName, not backup.schemaName.
+        // Previously the restore always restored to the backup's original schema,
+        // ignoring the user-specified target. This made the targetSchemaName
+        // parameter accepted but silently discarded.
+        `--schema=${restore.targetSchemaName}`,
         '--clean',
         '--if-exists',
       ];

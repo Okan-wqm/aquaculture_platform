@@ -211,7 +211,7 @@ mqtt:
   broker: "${safeMqttBroker}"
   port: ${safeMqttPort}
   tls:
-    enabled: true
+    enabled: ${mqttTlsEnabled}
   keepalive_secs: 60
   clean_session: false
 
@@ -305,7 +305,7 @@ mqtt:
   broker: "${safeMqttBroker}"
   port: ${safeMqttPort}
   tls:
-    enabled: true
+    enabled: ${mqttTlsEnabled}
   keepalive_secs: 60
   clean_session: false
 

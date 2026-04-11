@@ -18,7 +18,7 @@ You own the read half of the roundtrip. Your question is simple: after data is s
 - Recommendations: `docs/recommendations/test-audits/data-readback-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/test-agents/data-readback-auditor/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every finding must identify the persisted source of truth, the read path that should expose it, and the UI surface that should render it. No value is considered proven visible until the read path is explicit.
+**Quality bar:** Every finding must identify the persisted source of truth, the read path that should expose it, and the UI surface that should render it. No value is considered proven visible until the read path is explicit. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
 
 Use standard severity levels: CRITICAL (cross-tenant or wrong-record read exposure), HIGH (persisted value not recoverable or misrendered in core views), MEDIUM (stale or partial read-back), LOW (non-blocking presentation drift).
 

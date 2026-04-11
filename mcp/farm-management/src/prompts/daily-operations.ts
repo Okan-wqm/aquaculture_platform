@@ -75,15 +75,19 @@ export function getDailyOperationsMessages(
   args: { siteId?: string },
 ): Array<{ role: 'user' | 'assistant'; content: { type: 'text'; text: string } }> {
 
+  // SECURITY: Validate siteId as a UUID to prevent prompt injection.
+  // User-controlled prompt arguments must be bounded identifiers, not free text.
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (args.siteId && !UUID_PATTERN.test(args.siteId)) {
+    throw new Error(`Invalid siteId format: expected UUID, got "${args.siteId.substring(0, 40)}"`);
+  }
+
   // ── Kapsam Belirleme ──────────────────────────────────────────
-  // siteId verilmişse sadece o site incelenir ('site' scope)
-  // siteId verilmemişse tüm çiftlik incelenir ('farm' scope)
   const scope = args.siteId ? 'site' : 'farm';
 
   // ── Entity Filtresi ───────────────────────────────────────────
-  // site scope'unda entityId parametresi tool çağrılarına eklenir
-  // farm scope'unda bu parametre boş bırakılır (tüm çiftlik taranır)
-  const entityClause = args.siteId ? `, entityId: "${args.siteId}"` : '';
+  // SECURITY: siteId is JSON-encoded to prevent injection into prompt text.
+  const entityClause = args.siteId ? `, entityId: ${JSON.stringify(args.siteId)}` : '';
 
   // ── Mesaj Oluşturma ───────────────────────────────────────────
   // AI'ya sıralı talimatlar verilir:
@@ -97,11 +101,11 @@ export function getDailyOperationsMessages(
       type: 'text',
       text: `Günlük operasyon brifingimi hazırla. Şu adımları takip et:
 
-1. Önce \`get_farm_snapshot\`${args.siteId ? `(siteId: "${args.siteId}")` : ''} tool'unu çağırarak çiftliğin genel durumunu al.
+1. Önce \`get_farm_snapshot\`${args.siteId ? `(siteId: ${JSON.stringify(args.siteId)})` : ''} tool'unu çağırarak çiftliğin genel durumunu al.
 
-2. Sonra \`detect_anomalies\`(scope: "${scope}"${entityClause}) tool'unu çağırarak aktif anomalileri tespit et.
+2. Sonra \`detect_anomalies\`(scope: ${JSON.stringify(scope)}${entityClause}) tool'unu çağırarak aktif anomalileri tespit et.
 
-3. Son olarak \`assess_risk\`(scope: "${scope}"${entityClause}, includeOpportunities: true) tool'unu çağırarak risk değerlendirmesi yap.
+3. Son olarak \`assess_risk\`(scope: ${JSON.stringify(scope)}${entityClause}, includeOpportunities: true) tool'unu çağırarak risk değerlendirmesi yap.
 
 4. Tüm sonuçları birleştirerek aşağıdaki formatta Türkçe brifing hazırla:
    - GENEL DURUM: Site/tank/batch sayıları, aktif üretim durumu

@@ -342,8 +342,16 @@ export class BatchResolver {
     @Args('notes', { nullable: true }) notes?: string,
   ): Promise<Batch> {
     this.logger.log(`Closing batch: ${id} with reason: ${reason}`);
+    // WHY: Using typed options object prevents argument transposition.
+    // Previously, user.sub was stored as notes and notes as closedBy.
     return this.commandBus.execute(
-      new CloseBatchCommand(tenantId, id, reason, user.sub, notes),
+      new CloseBatchCommand({
+        tenantId,
+        batchId: id,
+        reason,
+        closedBy: user.sub,
+        notes,
+      }),
     );
   }
 

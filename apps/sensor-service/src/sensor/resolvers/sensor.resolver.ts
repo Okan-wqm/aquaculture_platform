@@ -119,17 +119,21 @@ export class SensorResolver {
     @Args('status', { type: () => SensorStatus, nullable: true })
     status?: SensorStatus,
   ): Promise<Sensor[]> {
-    const skip = (page - 1) * limit;
+    // SECURITY: Clamp page and limit BEFORE computing skip to prevent
+    // tenant-level query DoS via large OFFSET values.
+    // Previously, skip was computed from unbounded page/limit before clamping.
+    const safePage = Math.max(1, Math.min(page, 10000));
+    const safeLimit = Math.max(1, Math.min(limit, 200));
+    const skip = (safePage - 1) * safeLimit;
 
     const where: Record<string, unknown> = { tenantId };
     if (pondId) where['pondId'] = pondId;
     if (status) where['status'] = status;
 
-    const safeTake = Math.min(limit, 200);
     return await this.sensorRepository.find({
       where,
       skip,
-      take: safeTake,
+      take: safeLimit,
       order: { createdAt: 'DESC' },
     });
   }

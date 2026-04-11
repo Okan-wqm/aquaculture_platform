@@ -159,9 +159,14 @@ export class TenantProvisioningService {
       };
     }
 
-    // MED-005 fix: Atomically claim the tenant to prevent TOCTOU races.
+    // SECURITY: Atomically claim the tenant for provisioning by setting status
+    // to PROVISIONING to prevent TOCTOU races. The tenant stays in a non-ACTIVE
+    // state until the full provisioning saga completes successfully.
+    // Previously, the tenant was set to ACTIVE here, before schema creation,
+    // role setup, and admin creation, allowing partially provisioned tenants
+    // to become visible as active.
     const [, rowsAffected] = await this.dataSource.query(
-      `UPDATE auth.tenants SET status = 'ACTIVE', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
+      `UPDATE auth.tenants SET status = 'PROVISIONING', "updatedAt" = NOW() WHERE id = $1 AND status = $2`,
       [tenantId, TenantStatus.PENDING],
     );
     if ((rowsAffected as number) === 0) {
@@ -176,7 +181,8 @@ export class TenantProvisioningService {
         error: 'Tenant provisioning already in progress or completed by a concurrent request',
       };
     }
-    tenant.status = TenantStatus.ACTIVE;
+    // Keep as PENDING internally — will be set to ACTIVE only after full saga success
+    tenant.status = TenantStatus.PENDING;
 
     // Build the saga with steps + compensating actions
     const saga = new ProvisioningSagaService();

@@ -217,10 +217,19 @@ export class GraphQLClient {
     // GraphQL spec: errors[] doluysa bir veya birden fazla hata var
     if (response.errors && response.errors.length > 0) {
       if (response.data) {
-        // Kısmi başarı — data mevcut ama hatalar da var, data'yı döndür
-        logger.warn(`GraphQL kısmi hata — ${response.errors.length} hata, data mevcut`);
-        // Kısmi hata sonuçlarını cache'leme — tutarsız veri riski
-        return response.data;
+        // SECURITY: Partial failure MUST NOT be silently converted to success.
+        // Downstream tools would reason over incomplete data as authoritative.
+        // Throw with a clear partial-failure indicator so callers can handle it.
+        const errorMessages = response.errors.map((e: { message: string }) => e.message).join('; ');
+        logger.error(
+          `GraphQL partial failure — ${response.errors.length} errors with partial data. ` +
+          `Errors: ${errorMessages}`
+        );
+        throw new GraphQLError(
+          `Partial GraphQL failure: ${response.errors.length} errors occurred. ` +
+          `Data may be incomplete. Errors: ${errorMessages}`,
+          { extensions: { code: 'PARTIAL_FAILURE', errorCount: response.errors.length } },
+        );
       }
       // Tam hata — data yok, hata fırlat
       const primaryError = response.errors[0]!;

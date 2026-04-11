@@ -3306,9 +3306,8 @@ impl CommandHandler {
         )
     }
 
-    /// Force failover to backup broker
-    // TODO: Wire FailoverMqttClient — call failover_manager().force_failover()
-    //       and reconnect_to_backup() to actually switch brokers.
+    /// Force failover to backup broker.
+    /// Wired to FailoverManager for actual broker transition.
     async fn cmd_failover_force(&self) -> (bool, Value, Option<String>) {
         info!("Executing failover_force command");
 
@@ -3331,24 +3330,45 @@ impl CommandHandler {
             );
         }
 
-        // Note: Actual failover would be triggered through the FailoverMqttClient
-        // This command signals the intent; the MQTT client handles the transition
-        warn!("Manual failover to backup broker requested via command");
-
-        (
-            true,
-            json!({
-                "action": "failover_initiated",
-                "target": failover_config.backup_broker,
-                "message": "Failover to backup broker has been initiated"
-            }),
-            None,
-        )
+        // Wire into FailoverManager for actual broker transition
+        match state.failover_manager.as_ref() {
+            Some(fm) => {
+                match fm.force_failover().await {
+                    Ok(()) => {
+                        warn!("Manual failover to backup broker completed successfully");
+                        (
+                            true,
+                            json!({
+                                "action": "failover_completed",
+                                "target": failover_config.backup_broker,
+                                "message": "Failover to backup broker completed"
+                            }),
+                            None,
+                        )
+                    }
+                    Err(e) => {
+                        error!("Manual failover FAILED: {}", e);
+                        (
+                            false,
+                            json!(null),
+                            Some(format!("Failover failed: {}", e)),
+                        )
+                    }
+                }
+            }
+            None => {
+                error!("FailoverManager not initialized — cannot perform failover");
+                (
+                    false,
+                    json!(null),
+                    Some("FailoverManager not initialized. MQTT failover wiring incomplete.".to_string()),
+                )
+            }
+        }
     }
 
-    /// Force recovery to primary broker
-    // TODO: Wire FailoverMqttClient — call failover_manager().force_recovery()
-    //       and reconnect_to_primary() to switch back to the primary broker.
+    /// Force recovery to primary broker.
+    /// Wired to FailoverManager for actual broker transition.
     async fn cmd_failover_recover(&self) -> (bool, Value, Option<String>) {
         info!("Executing failover_recover command");
 
@@ -3374,18 +3394,41 @@ impl CommandHandler {
             }
         };
 
-        // Note: Actual recovery would be triggered through the FailoverMqttClient
-        warn!("Manual recovery to primary broker requested via command");
-
-        (
-            true,
-            json!({
-                "action": "recovery_initiated",
-                "target": primary_broker,
-                "message": "Recovery to primary broker has been initiated"
-            }),
-            None,
-        )
+        // Wire into FailoverManager for actual broker recovery
+        match state.failover_manager.as_ref() {
+            Some(fm) => {
+                match fm.force_recovery().await {
+                    Ok(()) => {
+                        warn!("Manual recovery to primary broker completed successfully");
+                        (
+                            true,
+                            json!({
+                                "action": "recovery_completed",
+                                "target": primary_broker,
+                                "message": "Recovery to primary broker completed"
+                            }),
+                            None,
+                        )
+                    }
+                    Err(e) => {
+                        error!("Manual recovery FAILED: {}", e);
+                        (
+                            false,
+                            json!(null),
+                            Some(format!("Recovery failed: {}", e)),
+                        )
+                    }
+                }
+            }
+            None => {
+                error!("FailoverManager not initialized — cannot perform recovery");
+                (
+                    false,
+                    json!(null),
+                    Some("FailoverManager not initialized. MQTT failover wiring incomplete.".to_string()),
+                )
+            }
+        }
     }
 
     // ========================================================================

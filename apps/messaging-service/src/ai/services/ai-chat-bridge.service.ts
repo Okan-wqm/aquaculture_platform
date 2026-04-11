@@ -343,8 +343,10 @@ export class AiChatBridgeService {
       // IMPORTANT: Set isAiGenerated=true for compliance and transparency.
       // Users must be able to distinguish AI-generated content from human messages.
       // @see MSG-MEDIUM-038 (AI message attribution)
+      // SECURITY: tenantId MUST be set on every message row for RLS and event routing.
       const message = manager.create(Message, {
         id: messageId,
+        tenantId,
         channelId,
         senderId: AI_USER_ID,
         content: sanitizedContent,

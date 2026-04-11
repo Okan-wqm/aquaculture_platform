@@ -365,7 +365,7 @@ services:
   # ===========================================================================
 
   gateway-api:
-    image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:${TAG:-latest}
     container_name: aqua-gateway
     restart: unless-stopped
     environment:
@@ -473,7 +473,7 @@ services:
       start_period: 120s
 
   auth-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:${TAG:-latest}
     container_name: aqua-auth
     restart: unless-stopped
     environment:
@@ -526,7 +526,7 @@ services:
       start_period: 60s
 
   farm-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:${TAG:-latest}
     container_name: aqua-farm
     restart: unless-stopped
     environment:
@@ -576,7 +576,7 @@ services:
       start_period: 120s
 
   sensor-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:${TAG:-latest}
     container_name: aqua-sensor
     restart: unless-stopped
     environment:
@@ -638,7 +638,7 @@ services:
       start_period: 90s
 
   admin-api-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:-latest}
     container_name: aqua-admin-api
     restart: unless-stopped
     environment:
@@ -691,7 +691,7 @@ services:
       start_period: 60s
 
   alert-engine:
-    image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:${TAG:-latest}
     container_name: aqua-alert
     restart: unless-stopped
     environment:
@@ -736,7 +736,7 @@ services:
       start_period: 60s
 
   billing-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/billing-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/billing-service:${TAG:-latest}
     container_name: aqua-billing
     restart: unless-stopped
     environment:
@@ -781,7 +781,7 @@ services:
       start_period: 60s
 
   hr-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:${TAG:-latest}
     container_name: aqua-hr
     restart: unless-stopped
     environment:
@@ -826,7 +826,7 @@ services:
       start_period: 60s
 
   hydroponics-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-service:${TAG:-latest}
     container_name: aqua-hydroponics
     restart: unless-stopped
     environment:
@@ -871,7 +871,7 @@ services:
       start_period: 60s
 
   notification-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:${TAG:-latest}
     container_name: aqua-notification
     restart: unless-stopped
     environment:
@@ -921,7 +921,7 @@ services:
       start_period: 60s
 
   observability-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/observability-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/observability-service:${TAG:-latest}
     container_name: aqua-observability
     restart: unless-stopped
     environment:
@@ -958,7 +958,7 @@ services:
       start_period: 60s
 
   config-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/config-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/config-service:${TAG:-latest}
     container_name: aqua-config
     restart: unless-stopped
     environment:
@@ -1008,7 +1008,7 @@ services:
       start_period: 60s
 
   messaging-service:
-    image: ghcr.io/okan-wqm/aquaculture_platform/messaging-service:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/messaging-service:${TAG:-latest}
     container_name: aqua-messaging
     restart: unless-stopped
     environment:
@@ -1074,7 +1074,7 @@ services:
   # ===========================================================================
 
   shell:
-    image: ghcr.io/okan-wqm/aquaculture_platform/shell:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/shell:${TAG:-latest}
     container_name: aqua-shell
     restart: unless-stopped
     tmpfs:
@@ -1089,7 +1089,7 @@ services:
           memory: 64M
 
   dashboard:
-    image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:${TAG:-latest}
     container_name: aqua-dashboard
     restart: unless-stopped
     read_only: true
@@ -1105,7 +1105,7 @@ services:
           memory: 64M
 
   farm-module:
-    image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:${TAG:-latest}
     container_name: aqua-farm-module
     restart: unless-stopped
     read_only: true
@@ -1121,7 +1121,7 @@ services:
           memory: 64M
 
   sensor-module:
-    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:${TAG:-latest}
     container_name: aqua-sensor-module
     restart: unless-stopped
     read_only: true
@@ -1137,7 +1137,7 @@ services:
           memory: 64M
 
   admin-panel:
-    image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:${TAG:-latest}
     container_name: aqua-admin-panel
     restart: unless-stopped
     read_only: true
@@ -1153,7 +1153,7 @@ services:
           memory: 64M
 
   tenant-admin:
-    image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:${TAG:-latest}
     container_name: aqua-tenant-admin
     restart: unless-stopped
     read_only: true
@@ -1169,7 +1169,7 @@ services:
           memory: 64M
 
   hr-module:
-    image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:${TAG:-latest}
     container_name: aqua-hr-module
     restart: unless-stopped
     read_only: true
@@ -1185,7 +1185,7 @@ services:
           memory: 64M
 
   hydroponics-module:
-    image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:${TAG:-latest}
     container_name: aqua-hydroponics-module
     restart: unless-stopped
     read_only: true
@@ -1201,7 +1201,7 @@ services:
           memory: 64M
 
   aquamobil:
-    image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:latest
+    image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:${TAG:-latest}
     container_name: aqua-mobile
     restart: unless-stopped
     read_only: true

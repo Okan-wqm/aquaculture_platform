@@ -114,18 +114,22 @@ const SCADA_ICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox
 
 /// Service worker with cache-first strategy for PWA offline support
 const SERVICE_WORKER_JS: &str = r#"const CACHE_NAME = 'scada-v1';
+// IMPORTANT: All precached assets MUST be same-origin paths only.
+// External CDN URLs cause all-or-nothing install failure when the edge
+// device has no internet access, defeating the offline PWA guarantee.
+// All third-party libraries are vendored into /libs/ during the build.
 const PRECACHE_URLS = [
   '/scada',
   '/libs/aquaculture-nodes.umd.js',
   '/manifest.webmanifest',
   '/icons/scada-192.svg',
-  'https://unpkg.com/react@18/umd/react.production.min.js',
-  'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
-  'https://unpkg.com/react-is@18/umd/react-is.production.min.js',
-  'https://unpkg.com/prop-types@15/prop-types.min.js',
-  'https://unpkg.com/reactflow@11.11.4/dist/style.css',
-  'https://unpkg.com/reactflow@11.11.4/dist/umd/index.js',
-  'https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.min.js'
+  '/libs/vendor/react.production.min.js',
+  '/libs/vendor/react-dom.production.min.js',
+  '/libs/vendor/react-is.production.min.js',
+  '/libs/vendor/prop-types.min.js',
+  '/libs/vendor/reactflow-style.css',
+  '/libs/vendor/reactflow.umd.js',
+  '/libs/vendor/recharts.min.js'
 ];
 
 self.addEventListener('install', function(event) {

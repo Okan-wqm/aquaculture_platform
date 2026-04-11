@@ -28,8 +28,8 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
       await this.eventBus.subscribeTo(
         'events.security.events.>',
         {
-          handle: async (event: SecurityEvent) => {
-            await this.handleSecurityEvent(event);
+          handle: async (event) => {
+            await this.handleSecurityEvent(event as unknown as SecurityEvent);
           },
           getEventType: () => 'security.events.>',
         },
@@ -61,7 +61,7 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
    * Handle an incoming security event: log + metric.
    */
   private async handleSecurityEvent(event: SecurityEvent): Promise<void> {
-    const eventType = event.securityEventType ?? event.eventType ?? 'unknown';
+    const eventType = event.securityEventType ?? 'unknown';
     const shortType = this.toShortLabel(eventType);
 
     // Structured log entry for log aggregation (ELK, Loki, etc.)

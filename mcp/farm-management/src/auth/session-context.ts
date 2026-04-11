@@ -223,6 +223,16 @@ export function createSessionContext(token?: string): SessionContext {
   // Adım 3: JWT'yi decode et
   const payload = decodeJwt(jwtToken);
 
+  // SECURITY: Reject refresh tokens as session credentials.
+  // Refresh tokens should only be used to obtain new access tokens,
+  // never proxied as bearer tokens to backend services.
+  if (payload.type === 'refresh') {
+    throw new Error(
+      'Refresh token cannot be used as a session credential. ' +
+      'Only access tokens are accepted for MCP session creation.'
+    );
+  }
+
   // Adım 4: SessionContext oluştur
   const session: SessionContext = {
     token: jwtToken,

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { maskEmail, maskPhone } from '../utils/pii-mask';
 import {
   ArrowLeft,
   Edit,
@@ -109,14 +110,17 @@ const EmployeeDetailPage: React.FC = () => {
           </div>
 
           <div className="mt-6 space-y-4">
+            {/* SECURITY: PII is masked by default. Full PII requires HR_ADMIN role.
+                maskEmail and maskPhone from pii-mask.ts are applied to prevent
+                unmasked contact info exposure to MODULE_USER-level users. */}
             <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
               <Mail className="w-5 h-5" />
-              <span>{employee.email}</span>
+              <span>{maskEmail(employee.email)}</span>
             </div>
             {employee.contactInfo?.phone && (
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <Phone className="w-5 h-5" />
-                <span>{employee.contactInfo.phone}</span>
+                <span>{maskPhone(employee.contactInfo.phone)}</span>
               </div>
             )}
             {employee.department && (

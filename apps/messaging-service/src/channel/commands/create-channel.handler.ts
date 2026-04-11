@@ -196,7 +196,9 @@ export class CreateChannelHandler
     await queryRunner.startTransaction();
 
     try {
+      // SECURITY: tenantId MUST be set on every channel row for RLS and event routing.
       const channel = queryRunner.manager.create(Channel, {
+        tenantId,
         type: input.type,
         name: input.name ?? null,
         description: input.description ?? null,

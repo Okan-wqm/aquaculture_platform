@@ -39,8 +39,16 @@ interface ProjectionRegistration {
 @Injectable()
 export class ProjectionsService {
   private readonly logger = new Logger(ProjectionsService.name);
+  // SECURITY: Projections are keyed by (tenantId, name) to prevent tenant collision.
+  // Previously keyed only by name, the last tenant to register would overwrite
+  // prior registrations with the same projection name.
   private readonly registeredProjections = new Map<string, ProjectionRegistration>();
   private readonly processingLocks = new Map<string, boolean>();
+
+  /** Generate a tenant-safe projection key */
+  private getProjectionKey(tenantId: string, name: string): string {
+    return `${tenantId}:${name}`;
+  }
 
   constructor(
     @InjectRepository(ProjectionCheckpoint)
@@ -83,7 +91,9 @@ export class ProjectionsService {
       idleBatchCount: 0,
     };
 
-    this.registeredProjections.set(name, registration);
+    // SECURITY: Key by (tenantId, name) to prevent tenant collision.
+    const projKey = this.getProjectionKey(options.tenantId, name);
+    this.registeredProjections.set(projKey, registration);
 
     // Create or update checkpoint
     let checkpoint = await this.checkpointRepository.findOne({

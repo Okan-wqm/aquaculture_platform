@@ -1,7 +1,7 @@
 # Package 05: infra-nats-per-service-accounts
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 14K
 Priority: CRITICAL
 Security-Sensitive: yes

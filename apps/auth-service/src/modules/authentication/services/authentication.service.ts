@@ -902,19 +902,18 @@ export class AuthenticationService {
       user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       await this.userRepository.save(user);
 
-      // SECURITY: SEC-C01 — build actionUrl server-side, never emit raw token on event bus
-      const appUrl = this.configService.get<string>('APP_URL');
-      if (!appUrl) {
-        throw new Error('APP_URL environment variable is not configured');
-      }
-      const actionUrl = `${appUrl}/reset-password/${resetToken}`;
-
-      // Publish event for notification service to send reset email
+      // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
+      // PII (email, firstName) and secret URLs are NEVER placed on the immutable event bus.
+      // The notification service resolves user details and builds the reset URL at delivery
+      // time via authenticated internal API calls using userId and actionTokenId.
+      //
+      // actionTokenId is the SHA-256 hash of the reset token (same value stored in DB).
+      // The notification service calls auth-service's internal API with this ID to get
+      // the pre-built action URL without the raw token ever touching the event bus.
       await this.eventBus.publish({
         ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id, version: 2 }),
-        email: user.email,
-        actionUrl,
-        firstName: user.firstName ?? undefined,
+        actionTokenId: resetTokenHash,
+        cryptoShredKeyId: user.id,
       });
 
       // Audit log

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import type {
   PasswordResetRequestedEvent,
@@ -11,21 +12,60 @@ import { EmailService } from '../services/email.service';
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
+ * Minimal user PII resolved from auth-service at delivery time.
+ * SECURITY: This data is fetched via authenticated internal API call,
+ * never carried on the event bus.
+ */
+interface ResolvedUserPII {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+/**
+ * Minimal tenant info resolved from auth-service at delivery time.
+ */
+interface ResolvedTenantInfo {
+  name: string;
+}
+
+/**
+ * Resolved action URL from auth-service at delivery time.
+ */
+interface ResolvedActionInfo {
+  actionUrl: string;
+}
+
+/**
  * Auth Event Handler
+ *
  * Listens to PasswordResetRequested and UserInvited events
  * and dispatches the appropriate email notifications.
+ *
+ * SECURITY (CRITICAL-001/002): Events no longer carry PII or secret URLs.
+ * This handler resolves user details, tenant info, and action URLs at
+ * delivery time via authenticated internal API calls to auth-service.
  */
 @Injectable()
 export class AuthEventHandler
   implements IEventHandler<PasswordResetRequestedEvent | UserInvitedEvent>, OnModuleInit
 {
   private readonly logger = new Logger(AuthEventHandler.name);
+  private readonly authServiceUrl: string;
+  private readonly internalSecret: string;
 
   constructor(
     private readonly emailService: EmailService,
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.authServiceUrl = this.configService.get<string>(
+      'AUTH_SERVICE_INTERNAL_URL',
+      'http://auth-service:3000',
+    );
+    this.internalSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET', '');
+  }
 
   async onModuleInit(): Promise<void> {
     await this.eventBus.subscribe('PasswordResetRequested', this);
@@ -71,23 +111,124 @@ export class AuthEventHandler
     }
   }
 
+  // ── Internal API helpers ──
+
   /**
-   * Handle PasswordResetRequested — send password reset email
+   * Resolve user PII from auth-service at delivery time.
+   * SECURITY: PII is fetched via authenticated internal API, never from the event bus.
+   */
+  private async resolveUserPII(userId: string, tenantId: string): Promise<ResolvedUserPII | null> {
+    try {
+      const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-tenant-id': tenantId,
+        ...generateServiceIdentityHeaders('notification-service', this.internalSecret),
+      };
+      const response = await fetch(
+        `${this.authServiceUrl}/internal/users/${userId}/pii`,
+        { headers },
+      );
+      if (!response.ok) {
+        this.logger.error(`Failed to resolve user PII for userId=${userId}: HTTP ${response.status}`);
+        return null;
+      }
+      return await response.json() as ResolvedUserPII;
+    } catch (error) {
+      this.logger.error(`Failed to resolve user PII for userId=${userId}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve tenant info from auth-service at delivery time.
+   */
+  private async resolveTenantInfo(tenantId: string): Promise<ResolvedTenantInfo | null> {
+    try {
+      const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-tenant-id': tenantId,
+        ...generateServiceIdentityHeaders('notification-service', this.internalSecret),
+      };
+      const response = await fetch(
+        `${this.authServiceUrl}/internal/tenants/${tenantId}/info`,
+        { headers },
+      );
+      if (!response.ok) {
+        this.logger.error(`Failed to resolve tenant info for tenantId=${tenantId}: HTTP ${response.status}`);
+        return null;
+      }
+      return await response.json() as ResolvedTenantInfo;
+    } catch (error) {
+      this.logger.error(`Failed to resolve tenant info for tenantId=${tenantId}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve action URL from auth-service at delivery time.
+   * SECURITY: The actual reset/invitation URL (with embedded token) is built by
+   * auth-service and returned via an authenticated internal API call. The raw
+   * token never touches the event bus.
+   */
+  private async resolveActionUrl(actionTokenId: string, tenantId: string): Promise<ResolvedActionInfo | null> {
+    try {
+      const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-tenant-id': tenantId,
+        ...generateServiceIdentityHeaders('notification-service', this.internalSecret),
+      };
+      const response = await fetch(
+        `${this.authServiceUrl}/internal/action-tokens/${actionTokenId}/url`,
+        { headers },
+      );
+      if (!response.ok) {
+        this.logger.error(`Failed to resolve action URL for tokenId=${actionTokenId}: HTTP ${response.status}`);
+        return null;
+      }
+      return await response.json() as ResolvedActionInfo;
+    } catch (error) {
+      this.logger.error(`Failed to resolve action URL for tokenId=${actionTokenId}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  // ── Event handlers ──
+
+  /**
+   * Handle PasswordResetRequested — resolve PII at delivery time, then send email
    */
   private async handlePasswordResetRequested(event: PasswordResetRequestedEvent): Promise<void> {
-    // SECURITY: SEC-C01 — reject stale v1 events that carry raw tokens
+    // SECURITY: Reject stale v1 events that carry raw tokens or PII
     if ('resetToken' in event) {
       this.logger.warn('SECURITY: Rejected v1 PasswordResetRequested event carrying raw resetToken. User must re-request.');
       return;
     }
-
-    if (!event.email || !event.actionUrl) {
-      this.logger.error('PasswordResetRequested event missing email or actionUrl. Skipping.');
+    if ('email' in event) {
+      this.logger.warn('SECURITY: Rejected legacy PasswordResetRequested event carrying raw PII (email). User must re-request.');
       return;
     }
 
-    const resetUrl = event.actionUrl;
-    const displayName = event.firstName || 'there';
+    if (!event.userId || !event.actionTokenId) {
+      this.logger.error('PasswordResetRequested event missing userId or actionTokenId. Skipping.');
+      return;
+    }
+
+    // Resolve PII and action URL at delivery time
+    const [userPII, actionInfo] = await Promise.all([
+      this.resolveUserPII(event.userId, event.tenantId),
+      this.resolveActionUrl(event.actionTokenId, event.tenantId),
+    ]);
+
+    if (!userPII || !actionInfo) {
+      this.logger.error(`Cannot send password reset email — failed to resolve user PII or action URL for userId=${event.userId}`);
+      return;
+    }
+
+    const resetUrl = actionInfo.actionUrl;
+    const displayName = userPII.firstName || 'there';
 
     const subject = 'Password Reset Request - Aquaculture Platform';
     const html = `
@@ -138,30 +279,48 @@ export class AuthEventHandler
       </html>
     `;
 
-    await this.emailService.sendEmail(event.email, subject, html);
+    await this.emailService.sendEmail(userPII.email, subject, html);
     // SECURITY: Mask email in logs to prevent PII exposure (H-14)
-    this.logger.log(`Password reset email sent to ${maskEmail(event.email)}`);
+    this.logger.log(`Password reset email sent to ${maskEmail(userPII.email)}`);
   }
 
   /**
-   * Handle UserInvited — send welcome/invitation email
+   * Handle UserInvited — resolve PII/tenant at delivery time, then send welcome email
    */
   private async handleUserInvited(event: UserInvitedEvent): Promise<void> {
-    if (!event.email) {
-      this.logger.error('UserInvited event missing email. Skipping.');
+    // SECURITY: Reject legacy events carrying raw PII
+    if ('email' in event) {
+      this.logger.warn('SECURITY: Rejected legacy UserInvited event carrying raw PII (email). Re-invite required.');
+      return;
+    }
+
+    if (!event.userId || !event.actionTokenId) {
+      this.logger.error('UserInvited event missing userId or actionTokenId. Skipping.');
+      return;
+    }
+
+    // Resolve PII, tenant info, and action URL at delivery time
+    const [userPII, tenantInfo, actionInfo] = await Promise.all([
+      this.resolveUserPII(event.userId, event.tenantId),
+      this.resolveTenantInfo(event.tenantId),
+      this.resolveActionUrl(event.actionTokenId, event.tenantId),
+    ]);
+
+    if (!userPII || !tenantInfo) {
+      this.logger.error(`Cannot send welcome email — failed to resolve user PII or tenant info for userId=${event.userId}`);
       return;
     }
 
     await this.emailService.sendWelcomeEmail({
-      firstName: event.firstName,
-      lastName: event.lastName,
-      email: event.email,
-      tenantName: event.tenantName,
+      firstName: userPII.firstName,
+      lastName: userPII.lastName,
+      email: userPII.email,
+      tenantName: tenantInfo.name,
       role: event.role,
-      actionUrl: event.actionUrl || `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/setup-account`,
+      actionUrl: actionInfo?.actionUrl || `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/setup-account`,
     });
 
     // SECURITY: Mask email in logs to prevent PII exposure (H-14)
-    this.logger.log(`Welcome email sent to ${maskEmail(event.email)} for tenant ${event.tenantName}`);
+    this.logger.log(`Welcome email sent to ${maskEmail(userPII.email)} for tenant ${tenantInfo.name}`);
   }
 }

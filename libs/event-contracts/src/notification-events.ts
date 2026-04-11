@@ -2,25 +2,43 @@ import { BaseEvent } from './base-event';
 
 /**
  * User Invited Event - Triggered when a new user is created and needs welcome email
+ *
+ * SECURITY (CRITICAL-001, CRITICAL-002): PII and secret URLs removed from event payload.
+ * Previously this event carried email, firstName, lastName, tenantName, and actionUrl
+ * (with embedded invitation token) on the immutable event bus, creating a permanent
+ * PII and credential archive violating GDPR.
+ *
+ * NOW: Only opaque references (userId, tenantId, actionTokenId) are carried. The
+ * notification service resolves user details, tenant name, and the action URL at
+ * delivery time via authenticated internal API calls.
+ * cryptoShredKeyId is MANDATORY — enables GDPR erasure via crypto-shredding.
+ *
+ * BREAKING CHANGE: email, firstName, lastName, tenantName, actionUrl fields removed.
+ * Consumers must resolve these via userId/tenantId lookups.
  */
 export interface UserInvitedEvent extends BaseEvent {
   eventType: 'UserInvited';
+  /** Invited user — opaque reference, NOT PII */
   userId: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
+  /** Role assigned to the invited user */
   role: string;
-  tenantName: string;
+  /** User who sent the invitation (opaque reference) */
   invitedBy?: string;
-  /**
-   * Whether to send a password reset link or other credential type
-   */
+  /** Whether to send a password reset link or other credential type */
   credentialType: 'temporary_password' | 'reset_token';
   /**
-   * URL for password reset or first login.
-   * Credentials are embedded as short-lived tokens in the URL query string.
+   * Opaque reference to the action token stored in auth-service.
+   * The notification service uses this to build the invitation URL at delivery
+   * time via a secure, authenticated internal API call.
+   *
+   * SECURITY: The actual invitation token / URL is NEVER placed on the event bus.
    */
-  actionUrl?: string;
+  actionTokenId: string;
+  /**
+   * MANDATORY for events related to user PII.
+   * Enables GDPR erasure via crypto-shredding.
+   */
+  cryptoShredKeyId: string;
 }
 
 /**

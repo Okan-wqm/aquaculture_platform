@@ -866,30 +866,33 @@ export class TenantUserManagementService {
   }
 
   /**
-   * Send invitation email to new user
+   * Send invitation email to new user.
+   *
+   * SECURITY (CRITICAL-001/002): Only opaque references are published on the event bus.
+   * PII (email, firstName, lastName, tenantName) and secret URLs are NEVER placed on
+   * the immutable event bus. The notification service resolves user/tenant details
+   * and builds the action URL at delivery time via authenticated internal API calls.
    */
   private async sendInvitationEmail(
     tenant: Tenant,
     user: User,
     invitationToken: string,
   ): Promise<void> {
-    const baseUrl = process.env['APP_URL'];
-    if (!baseUrl) {
-      throw new Error('APP_URL environment variable is not configured');
-    }
-    const actionUrl = `${baseUrl}/accept-invitation/${invitationToken}`;
+    // SECURITY: Hash the invitation token for the opaque actionTokenId reference.
+    // The raw token is NEVER placed on the event bus.
+    const actionTokenHash = require('crypto')
+      .createHash('sha256')
+      .update(invitationToken)
+      .digest('hex');
 
     const event: UserInvitedEvent = {
       ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: user.id, aggregateType: 'User' }),
       userId: user.id,
-      email: user.email,
-      firstName: user.firstName || undefined,
-      lastName: user.lastName || undefined,
       role: user.role,
-      tenantName: tenant.name,
       invitedBy: user.invitedBy || undefined,
       credentialType: 'reset_token',
-      actionUrl,
+      actionTokenId: actionTokenHash,
+      cryptoShredKeyId: user.id,
     };
 
     await this.eventBus.publish(event);

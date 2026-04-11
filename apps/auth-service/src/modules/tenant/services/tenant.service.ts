@@ -280,28 +280,23 @@ export class TenantService {
       const savedUser = await this.userRepository.save(adminUser);
       this.logger.log(`Created admin user ${email} for tenant ${tenant.id}`);
 
-      // Publish UserInvitedEvent for notification service to send welcome email
-      const baseUrl = process.env['APP_URL'];
-      if (!baseUrl) {
-        throw new Error('APP_URL environment variable is not configured');
-      }
-      const actionUrl = `${baseUrl}/auth/set-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
-
+      // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
+      // PII (email, firstName, lastName, tenantName) and secret URLs are NEVER placed
+      // on the immutable event bus. The notification service resolves user/tenant details
+      // and builds the action URL at delivery time via authenticated internal API calls.
       const userInvitedEvent: UserInvitedEvent = {
         ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: savedUser.id, aggregateType: 'User' }),
         userId: savedUser.id,
-        email: savedUser.email,
-        firstName: savedUser.firstName || undefined,
-        lastName: savedUser.lastName || undefined,
         role: savedUser.role,
-        tenantName: tenant.name,
         credentialType: 'reset_token',
-        actionUrl,
+        actionTokenId: resetTokenStorageHash,
+        cryptoShredKeyId: savedUser.id,
       };
 
-      // Publish event - notification service will handle email sending
+      // Publish event - notification service will resolve PII at delivery time
       await this.eventBus.publish(userInvitedEvent);
-      this.logger.log(`Published UserInvitedEvent for ${email} (tenant: ${tenant.id})`);
+      // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+      this.logger.log(`Published UserInvitedEvent for userId=${savedUser.id} (tenant: ${tenant.id})`);
 
       return savedUser;
     } catch (error) {

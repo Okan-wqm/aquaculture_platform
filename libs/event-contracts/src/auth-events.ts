@@ -40,15 +40,35 @@ export interface InvitationAcceptedEvent extends BaseEvent {
  * Published when a user requests a password reset.
  * The notification service listens to this event to send the reset email.
  *
- * // SECURITY: SEC-C01 — never expose raw tokens on event bus.
- * actionUrl is built server-side (auth-service) and contains the full reset link.
+ * SECURITY (CRITICAL-001, CRITICAL-002): PII and secret URLs removed from event payload.
+ * Previously this event carried email, firstName, and actionUrl (with embedded reset token)
+ * on the immutable event bus, creating a permanent PII and credential archive.
+ *
+ * NOW: Only opaque references (userId, actionTokenId) are carried. The notification
+ * service resolves PII and the action URL at delivery time via the auth-service API.
+ * cryptoShredKeyId is MANDATORY — enables GDPR erasure via crypto-shredding.
+ *
+ * BREAKING CHANGE: email, actionUrl, firstName fields removed.
+ * Consumers must resolve user details via userId and actionTokenId.
  */
 export interface PasswordResetRequestedEvent extends BaseEvent {
   eventType: 'PasswordResetRequested';
+  /** User requesting the password reset — opaque reference, NOT PII */
   userId: string;
-  email: string;
-  actionUrl: string;
-  firstName?: string;
+  /**
+   * Opaque reference to the action token stored in auth-service.
+   * The notification service uses this to build the reset URL at delivery time
+   * via a secure, authenticated internal API call.
+   *
+   * SECURITY: The actual reset token / URL is NEVER placed on the event bus.
+   */
+  actionTokenId: string;
+  /**
+   * MANDATORY for events related to user PII.
+   * Enables GDPR erasure via crypto-shredding: deleting this key renders
+   * all associated PII irrecoverable without replaying events.
+   */
+  cryptoShredKeyId: string;
 }
 
 /**

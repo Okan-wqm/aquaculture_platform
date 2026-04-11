@@ -27,11 +27,75 @@
 # docblock in that file for the full incident history behind the
 # hard-fail policy this wiring enforces.
 
+# SEC-015 (CRITICAL-002): Per-service NATS credentials.
+# Each service has its own NATS account with subject ACLs.
+# The x-nats-env anchor is DEPRECATED — each service must set its own NATS_AUTH_USER/PASS.
+# This anchor retains backward compatibility for services that haven't been migrated yet.
 x-nats-env: &nats-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
-  # SEC-NEW01: NATS password must be provided via .env — no default fallback
   NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+# Per-service NATS credential anchors (CRITICAL-002)
+x-nats-auth-env: &nats-auth-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_AUTH_SVC_USER:?NATS_AUTH_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_AUTH_SVC_PASS:?NATS_AUTH_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-farm-env: &nats-farm-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_FARM_SVC_USER:?NATS_FARM_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_FARM_SVC_PASS:?NATS_FARM_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-sensor-env: &nats-sensor-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_SENSOR_SVC_USER:?NATS_SENSOR_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_SENSOR_SVC_PASS:?NATS_SENSOR_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-gateway-env: &nats-gateway-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_GATEWAY_SVC_USER:?NATS_GATEWAY_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_GATEWAY_SVC_PASS:?NATS_GATEWAY_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-notification-env: &nats-notification-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_NOTIFICATION_SVC_USER:?NATS_NOTIFICATION_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_NOTIFICATION_SVC_PASS:?NATS_NOTIFICATION_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-billing-env: &nats-billing-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_BILLING_SVC_USER:?NATS_BILLING_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_BILLING_SVC_PASS:?NATS_BILLING_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-alert-env: &nats-alert-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_ALERT_SVC_USER:?NATS_ALERT_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_ALERT_SVC_PASS:?NATS_ALERT_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-hr-env: &nats-hr-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_HR_SVC_USER:?NATS_HR_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_HR_SVC_PASS:?NATS_HR_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-messaging-env: &nats-messaging-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_MESSAGING_SVC_USER:?NATS_MESSAGING_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_MESSAGING_SVC_PASS:?NATS_MESSAGING_SVC_PASS is required}"
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+
+x-nats-hydroponics-env: &nats-hydroponics-env
+  NATS_URL: tls://nats:4222
+  NATS_AUTH_USER: ${NATS_HYDROPONICS_SVC_USER:?NATS_HYDROPONICS_SVC_USER is required}
+  NATS_AUTH_PASS: "${NATS_HYDROPONICS_SVC_PASS:?NATS_HYDROPONICS_SVC_PASS is required}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
 
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
@@ -201,11 +265,32 @@ services:
     # NATS_USER and NATS_PASS are substituted by NATS from container environment.
     command: ["--config", "/etc/nats/nats.conf"]
     environment:
-      # SEC-H01: NATS credentials for authenticated broker access.
-      # SEC-NEW01: Mandatory credentials — no default fallback allowed in any environment.
+      # SEC-H01/CRITICAL-002: Per-service NATS account credentials.
+      # Each service has its own account with subject ACLs in nats.conf.
       # Generate with: openssl rand -base64 32
       NATS_USER: ${NATS_USER:-nats_internal}
       NATS_PASS: "${NATS_PASS:?NATS_PASS is required}"
+      # Per-service credentials (substituted into nats.conf accounts block)
+      NATS_AUTH_USER: ${NATS_AUTH_SVC_USER:?NATS_AUTH_SVC_USER is required}
+      NATS_AUTH_PASS: "${NATS_AUTH_SVC_PASS:?NATS_AUTH_SVC_PASS is required}"
+      NATS_FARM_USER: ${NATS_FARM_SVC_USER:?NATS_FARM_SVC_USER is required}
+      NATS_FARM_PASS: "${NATS_FARM_SVC_PASS:?NATS_FARM_SVC_PASS is required}"
+      NATS_SENSOR_USER: ${NATS_SENSOR_SVC_USER:?NATS_SENSOR_SVC_USER is required}
+      NATS_SENSOR_PASS: "${NATS_SENSOR_SVC_PASS:?NATS_SENSOR_SVC_PASS is required}"
+      NATS_GATEWAY_USER: ${NATS_GATEWAY_SVC_USER:?NATS_GATEWAY_SVC_USER is required}
+      NATS_GATEWAY_PASS: "${NATS_GATEWAY_SVC_PASS:?NATS_GATEWAY_SVC_PASS is required}"
+      NATS_NOTIFICATION_USER: ${NATS_NOTIFICATION_SVC_USER:?NATS_NOTIFICATION_SVC_USER is required}
+      NATS_NOTIFICATION_PASS: "${NATS_NOTIFICATION_SVC_PASS:?NATS_NOTIFICATION_SVC_PASS is required}"
+      NATS_BILLING_USER: ${NATS_BILLING_SVC_USER:?NATS_BILLING_SVC_USER is required}
+      NATS_BILLING_PASS: "${NATS_BILLING_SVC_PASS:?NATS_BILLING_SVC_PASS is required}"
+      NATS_ALERT_USER: ${NATS_ALERT_SVC_USER:?NATS_ALERT_SVC_USER is required}
+      NATS_ALERT_PASS: "${NATS_ALERT_SVC_PASS:?NATS_ALERT_SVC_PASS is required}"
+      NATS_HR_USER: ${NATS_HR_SVC_USER:?NATS_HR_SVC_USER is required}
+      NATS_HR_PASS: "${NATS_HR_SVC_PASS:?NATS_HR_SVC_PASS is required}"
+      NATS_MESSAGING_USER: ${NATS_MESSAGING_SVC_USER:?NATS_MESSAGING_SVC_USER is required}
+      NATS_MESSAGING_PASS: "${NATS_MESSAGING_SVC_PASS:?NATS_MESSAGING_SVC_PASS is required}"
+      NATS_HYDROPONICS_USER: ${NATS_HYDROPONICS_SVC_USER:?NATS_HYDROPONICS_SVC_USER is required}
+      NATS_HYDROPONICS_PASS: "${NATS_HYDROPONICS_SVC_PASS:?NATS_HYDROPONICS_SVC_PASS is required}"
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
@@ -294,14 +379,16 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — gateway_service can only access gateway schema
+      DATABASE_USER: gateway_service
+      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-gateway-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
@@ -399,13 +486,15 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — auth_service can only access auth schema
+      DATABASE_USER: auth_service
+      DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:?AUTH_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false"
       DATABASE_LOGGING: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-auth-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
@@ -450,12 +539,14 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — farm_service can only access farm schema
+      DATABASE_USER: farm_service
+      DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:?FARM_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-farm-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -498,15 +589,17 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — sensor_service can only access sensor schema
+      DATABASE_USER: sensor_service
+      DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:?SENSOR_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-sensor-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
@@ -559,14 +652,16 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — admin_service has read access to auth+billing schemas
+      DATABASE_USER: admin_service
+      DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:?ADMIN_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials — admin uses gateway account
+      <<: *nats-gateway-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -609,12 +704,14 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — alert_service can only access alert schema
+      DATABASE_USER: alert_service
+      DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:?ALERT_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-alert-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -652,12 +749,14 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — billing_service can only access billing schema
+      DATABASE_USER: billing_service
+      DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:?BILLING_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-billing-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -695,12 +794,14 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — hr_service can only access hr schema
+      DATABASE_USER: hr_service
+      DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:?HR_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-hr-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -738,12 +839,14 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — hydroponics_service can only access hydroponics schema
+      DATABASE_USER: hydroponics_service
+      DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:?HYDROPONICS_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-hydroponics-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -781,12 +884,14 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — notification_service uses public schema
+      DATABASE_USER: notification_service
+      DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:?NOTIFICATION_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-notification-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -867,12 +972,17 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — config service uses its own schema
+      # NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet.
+      # Until a config_service role is created, it uses the gateway_service role which
+      # has access to the gateway schema where config data is stored.
+      DATABASE_USER: gateway_service
+      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials — config uses gateway account
+      <<: *nats-gateway-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -910,8 +1020,9 @@ services:
       DATABASE_SSL: "true"
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # SEC-015 (CRITICAL-001): Per-service DB role — messaging_service can only access messaging schema
+      DATABASE_USER: messaging_service
+      DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:?MESSAGING_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: 'false'
       DATABASE_MIGRATIONS_RUN: 'true'
@@ -919,7 +1030,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       REDIS_DB: '3'
-      <<: *nats-env
+      # SEC-015 (CRITICAL-002): Per-service NATS credentials
+      <<: *nats-messaging-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       MINIO_ENDPOINT: minio

@@ -91,8 +91,10 @@ export function useMessages(
       try {
         const page = await fetchMessages(channelId!, pageParam);
         // Cache first page in IndexedDB for offline
-        if (!pageParam) {
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        if (!pageParam && tenantId) {
           await cacheData(
+            tenantId,
             `${CACHE_KEY_PREFIX}${channelId}`,
             page,
             CACHE_TTL_MS,
@@ -101,8 +103,10 @@ export function useMessages(
         return page;
       } catch (error) {
         // On first page, try IndexedDB cache
-        if (!pageParam) {
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated cache reads
+        if (!pageParam && tenantId) {
           const cached = await getCachedData<MessagePage>(
+            tenantId,
             `${CACHE_KEY_PREFIX}${channelId}`,
           );
           if (cached) return cached;

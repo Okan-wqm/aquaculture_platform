@@ -1,7 +1,8 @@
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { OutboxPublisher } from '@platform/outbox';
 import { ClockOutCommand } from '../commands/clock-out.command';
 import {
   AttendanceRecord,
@@ -47,7 +48,7 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
     // to maintain transactional consistency and tenant isolation.
     // The injected attendanceRepository is used only for the pre-transaction record
     // lookup optimisation; all writes use queryRunner.
-    private readonly eventBus: EventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -167,12 +168,13 @@ export class ClockOutHandler implements ICommandHandler<ClockOutCommand> {
 
       const savedRecord = await queryRunner.manager.save(AttendanceRecord, attendanceRecord);
 
-      await queryRunner.commitTransaction();
+      // CRITICAL-002 fix: Enqueue event into transactional outbox BEFORE commit.
+      // Previously eventBus.publish() was called AFTER commit — fire-and-forget.
+      const clockOutEvent = EmployeeClockedOutEvent(savedRecord);
+      await this.outboxPublisher.enqueue(clockOutEvent, queryRunner.manager);
 
-      // Publish event for notification/audit purposes
-      this.eventBus.publish(new EmployeeClockedOutEvent(savedRecord)).catch((err: unknown) => {
-        this.logger.warn(`Failed to publish EmployeeClockedOutEvent: ${err instanceof Error ? err.message : String(err)}`);
-      });
+      // Commit transaction (domain write + outbox row are atomic)
+      await queryRunner.commitTransaction();
 
       return savedRecord;
     } catch (error) {

@@ -5,6 +5,7 @@ import type { Task } from '@/types';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { GET_MY_TASKS } from '@/graphql/operations';
 
+
 type Segment = 'today' | 'upcoming' | 'overdue';
 
 function filterBySegment(tasks: Task[], segment: Segment): Task[] {
@@ -30,14 +31,14 @@ function filterBySegment(tasks: Task[], segment: Segment): Task[] {
 }
 
 export function useMyTasks(segment: Segment = 'today') {
-  const { accessToken, isAuthenticated } = useAuth();
+  const { accessToken, tenantId, isAuthenticated } = useAuth();
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasFetchedRef = useRef(false);
 
   const fetchTasks = useCallback(async () => {
-    if (!accessToken) return;
+    if (!accessToken || !tenantId) return;
 
     setLoading(true);
     setError(null);
@@ -50,10 +51,11 @@ export function useMyTasks(segment: Segment = 'today') {
 
       const tasks = result.myTasks || [];
       setAllTasks(tasks);
-      await cacheData('myTasks', tasks, 1000 * 60 * 30); // 30 min TTL
+      // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+      await cacheData(tenantId, 'myTasks', tasks, 1000 * 60 * 30); // 30 min TTL
     } catch (err) {
       // Try loading from cache on error
-      const cached = await getCachedData<Task[]>('myTasks');
+      const cached = tenantId ? await getCachedData<Task[]>(tenantId, 'myTasks') : null;
       if (cached) {
         setAllTasks(cached);
       } else {
@@ -62,7 +64,7 @@ export function useMyTasks(segment: Segment = 'today') {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, tenantId]);
 
   useEffect(() => {
     if (isAuthenticated && !hasFetchedRef.current) {

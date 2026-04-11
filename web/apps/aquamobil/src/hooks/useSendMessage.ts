@@ -196,8 +196,12 @@ export function useSendMessage(channelId: string | undefined) {
    */
   const queueOffline = useCallback(
     async (params: SendMessageParams, idempotencyKey: string) => {
+      if (!tenantId) {
+        throw new Error('Cannot queue offline messages without tenantId');
+      }
+      // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
       const queue =
-        (await getCachedData<OfflineQueuedMessage[]>(OFFLINE_QUEUE_KEY)) ?? [];
+        (await getCachedData<OfflineQueuedMessage[]>(tenantId, OFFLINE_QUEUE_KEY)) ?? [];
       if (queue.length >= MAX_OFFLINE_QUEUE) {
         throw new Error('Offline message queue is full. Please sync when online.');
       }
@@ -207,9 +211,9 @@ export function useSendMessage(channelId: string | undefined) {
         params,
         createdAt: new Date().toISOString(),
       });
-      await cacheData(OFFLINE_QUEUE_KEY, queue, 7 * 24 * 60 * 60 * 1000); // 7 day TTL
+      await cacheData(tenantId, OFFLINE_QUEUE_KEY, queue, 7 * 24 * 60 * 60 * 1000); // 7 day TTL
     },
-    [channelId],
+    [channelId, tenantId],
   );
 
   /**

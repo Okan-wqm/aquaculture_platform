@@ -1,7 +1,8 @@
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { OutboxPublisher } from '@platform/outbox';
 import { ClockInCommand } from '../commands/clock-in.command';
 import {
   AttendanceRecord,
@@ -74,7 +75,7 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
     @InjectRepository(WorkArea)
     private readonly workAreaRepository: Repository<WorkArea>,
-    private readonly eventBus: EventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -284,12 +285,13 @@ export class ClockInHandler implements ICommandHandler<ClockInCommand> {
         savedRecord = await queryRunner.manager.save(AttendanceRecord, attendanceRecord);
       }
 
-      await queryRunner.commitTransaction();
+      // CRITICAL-002 fix: Enqueue event into transactional outbox BEFORE commit.
+      // Previously eventBus.publish() was called AFTER commit — fire-and-forget.
+      const clockInEvent = EmployeeClockedInEvent(savedRecord);
+      await this.outboxPublisher.enqueue(clockInEvent, queryRunner.manager);
 
-      // Publish event for notification/audit purposes
-      this.eventBus.publish(new EmployeeClockedInEvent(savedRecord)).catch((err: unknown) => {
-        this.logger.warn(`Failed to publish EmployeeClockedInEvent: ${err instanceof Error ? err.message : String(err)}`);
-      });
+      // Commit transaction (domain write + outbox row are atomic)
+      await queryRunner.commitTransaction();
 
       return savedRecord;
     } catch (error) {

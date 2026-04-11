@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Money } from '@aquaculture/backend-common';
+import { OutboxPublisher } from '@platform/outbox';
 import { ApprovePayrollCommand } from '../commands/approve-payroll.command';
 import { Payroll, PayrollStatus } from '../entities/payroll.entity';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -14,7 +15,7 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
 
   constructor(
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: ApprovePayrollCommand): Promise<Payroll> {
@@ -59,15 +60,10 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
 
       const savedPayroll = await payrollRepo.save(payroll);
 
-      await queryRunner.commitTransaction();
-
-      this.logger.log(
-        `Payroll approved: ${savedPayroll.id} (${savedPayroll.payrollNumber}) by user ${userId}`,
-      );
-
-      // Publish PayrollProcessedEvent AFTER commit.
-      // BEFORE this fix: no event was published — downstream services (notifications,
-      // accounting integrations) never learned that payroll was approved and ready for payment.
+      // CRITICAL-002 fix: Enqueue event into transactional outbox BEFORE commit.
+      // Previously eventBus.publish() was called AFTER commit — fire-and-forget.
+      // Now the outbox INSERT joins the same transaction as the domain write,
+      // guaranteeing at-least-once delivery to downstream consumers.
       //
       // HR-MEDIUM-001 / HR-MEDIUM-010: Monetary values are string-encoded decimals via
       // Money.of().toJSON().amount. Number() wrappers are REMOVED — IEEE 754 precision
@@ -91,11 +87,14 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
         currency,
         status: savedPayroll.status,
       };
-      this.eventBus.publish(event).catch((err: unknown) => {
-        this.logger.error(
-          `Failed to publish PayrollProcessedEvent for ${savedPayroll.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+
+      // Commit transaction (domain write + outbox row are atomic)
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Payroll approved: ${savedPayroll.id} (${savedPayroll.payrollNumber}) by user ${userId}`,
+      );
 
       return savedPayroll;
     } catch (error) {

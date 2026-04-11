@@ -1,54 +1,88 @@
+import { createBaseEvent } from '@platform/event-contracts';
+import type { BaseEvent } from '@platform/event-contracts';
 import { AttendanceRecord } from '../entities/attendance-record.entity';
 
 /**
- * Base class for attendance events
+ * Attendance events conforming to BaseEvent for transactional outbox compatibility.
+ *
+ * CRITICAL-002 fix: Previously these were class-based events that did NOT conform
+ * to the BaseEvent interface (missing eventId, timestamp, version). The outbox
+ * publisher requires BaseEvent-compliant flat objects with createBaseEvent() fields.
+ *
+ * These interfaces and factory functions replace the old class-based events,
+ * making the attendance domain compatible with the transactional outbox pattern.
  */
-export abstract class AttendanceEvent {
-  constructor(public readonly attendanceRecord: AttendanceRecord) {}
 
-  get recordId(): string {
-    return this.attendanceRecord.id;
-  }
+// ── Event interfaces ──────────────────────────────────────────────────
 
-  get employeeId(): string {
-    return this.attendanceRecord.employeeId;
-  }
+export interface EmployeeClockedInEventPayload extends BaseEvent {
+  eventType: 'EmployeeClockedIn';
+  aggregateId: string;
+  aggregateType: 'AttendanceRecord';
+  recordId: string;
+  employeeId: string;
+  clockInTime: string | undefined;
+  isLate: boolean;
+  lateMinutes: number;
+}
 
-  get tenantId(): string {
-    return this.attendanceRecord.tenantId;
-  }
+export interface EmployeeClockedOutEventPayload extends BaseEvent {
+  eventType: 'EmployeeClockedOut';
+  aggregateId: string;
+  aggregateType: 'AttendanceRecord';
+  recordId: string;
+  employeeId: string;
+  clockOutTime: string | undefined;
+  workedMinutes: number;
+  overtimeMinutes: number;
+}
+
+// ── Factory functions (BaseEvent-compliant, outbox-safe) ──────────────
+
+/**
+ * Create a flat EmployeeClockedIn event from an AttendanceRecord.
+ *
+ * @param record - The saved attendance record (must have id and tenantId)
+ */
+export function EmployeeClockedInEvent(
+  record: AttendanceRecord,
+): EmployeeClockedInEventPayload {
+  return {
+    ...createBaseEvent<EmployeeClockedInEventPayload>(
+      'EmployeeClockedIn',
+      record.tenantId,
+    ),
+    eventType: 'EmployeeClockedIn' as const,
+    aggregateId: record.id,
+    aggregateType: 'AttendanceRecord' as const,
+    recordId: record.id,
+    employeeId: record.employeeId,
+    clockInTime: record.clockIn?.toISOString(),
+    isLate: (record.lateMinutes ?? 0) > 0,
+    lateMinutes: record.lateMinutes ?? 0,
+  };
 }
 
 /**
- * Event published when an employee clocks in
+ * Create a flat EmployeeClockedOut event from an AttendanceRecord.
+ *
+ * @param record - The saved attendance record (must have id and tenantId)
  */
-export class EmployeeClockedInEvent extends AttendanceEvent {
-  readonly eventType = 'EmployeeClockedIn';
-
-  get clockInTime(): Date | undefined {
-    return this.attendanceRecord.clockIn;
-  }
-
-  get isLate(): boolean {
-    return (this.attendanceRecord.lateMinutes ?? 0) > 0;
-  }
-}
-
-/**
- * Event published when an employee clocks out
- */
-export class EmployeeClockedOutEvent extends AttendanceEvent {
-  readonly eventType = 'EmployeeClockedOut';
-
-  get clockOutTime(): Date | undefined {
-    return this.attendanceRecord.clockOut;
-  }
-
-  get workedMinutes(): number {
-    return this.attendanceRecord.workedMinutes ?? 0;
-  }
-
-  get overtimeMinutes(): number {
-    return this.attendanceRecord.overtimeMinutes ?? 0;
-  }
+export function EmployeeClockedOutEvent(
+  record: AttendanceRecord,
+): EmployeeClockedOutEventPayload {
+  return {
+    ...createBaseEvent<EmployeeClockedOutEventPayload>(
+      'EmployeeClockedOut',
+      record.tenantId,
+    ),
+    eventType: 'EmployeeClockedOut' as const,
+    aggregateId: record.id,
+    aggregateType: 'AttendanceRecord' as const,
+    recordId: record.id,
+    employeeId: record.employeeId,
+    clockOutTime: record.clockOut?.toISOString(),
+    workedMinutes: record.workedMinutes ?? 0,
+    overtimeMinutes: record.overtimeMinutes ?? 0,
+  };
 }

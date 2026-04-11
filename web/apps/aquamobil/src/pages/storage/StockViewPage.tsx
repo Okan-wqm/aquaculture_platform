@@ -152,11 +152,12 @@ export function StockViewPage() {
         );
         const items = result.stockAtLocation?.items ?? [];
         // Cache for offline viewing (1-hour TTL, acceptable staleness for stock counts)
-        await cacheData(stockCacheKey(selectedLocationId), items, 1000 * 60 * 60);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, stockCacheKey(selectedLocationId), items, 1000 * 60 * 60);
         return items;
       }
       // Offline: load from cache
-      const cached = await getCachedData<StockItem[]>(stockCacheKey(selectedLocationId));
+      const cached = tenantId ? await getCachedData<StockItem[]>(tenantId, stockCacheKey(selectedLocationId)) : null;
       return cached ?? [];
     },
     enabled: !!selectedLocationId && isAuthenticated && !!accessToken && !!tenantId,

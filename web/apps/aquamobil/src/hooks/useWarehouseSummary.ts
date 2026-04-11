@@ -56,13 +56,14 @@ export function useWarehouseSummary(): {
 
         // WHY fire-and-forget cache write: IndexedDB serves as offline fallback
         // only. React Query's gcTime handles the in-memory caching layer.
-        await cacheData(cacheKey, summary, CACHE_TTL_1H);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, cacheKey, summary, CACHE_TTL_1H);
         return summary;
       } catch (error) {
         // WHY IndexedDB fallback first: warehouse staff on fish farms often
         // have spotty connectivity. Showing stale stock levels is better than
         // showing nothing.
-        const cached = await getCachedData<WarehouseSummary>(cacheKey);
+        const cached = await getCachedData<WarehouseSummary>(tenantId!, cacheKey);
         if (cached) return cached;
 
         // WHY swallow on total failure: if both network and cache fail, return

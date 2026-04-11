@@ -80,11 +80,12 @@ export function useMyLeaveBalances(year: number = new Date().getFullYear()) {
         const balances = await fetchLeaveBalances(year);
         // Write to IndexedDB as offline fallback only — React Query's own
         // gcTime handles in-memory caching for the online path.
-        await cacheData(cacheKey, balances, CACHE_TTL_LEAVE_BALANCES);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, cacheKey, balances, CACHE_TTL_LEAVE_BALANCES);
         return balances;
       } catch (error) {
         // Network failed — return IndexedDB cached data if available
-        const cached = await getCachedData<LeaveBalance[]>(cacheKey);
+        const cached = await getCachedData<LeaveBalance[]>(tenantId!, cacheKey);
         if (cached) {
           return cached;
         }
@@ -122,10 +123,11 @@ export function useMyLeaveRequests(status?: string, limit: number = 20) {
 
       try {
         const requests = await fetchLeaveRequests(status, limit);
-        await cacheData(cacheKey, requests, CACHE_TTL_LEAVE_REQUESTS);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, cacheKey, requests, CACHE_TTL_LEAVE_REQUESTS);
         return requests;
       } catch (error) {
-        const cached = await getCachedData<LeaveRequest[]>(cacheKey);
+        const cached = await getCachedData<LeaveRequest[]>(tenantId!, cacheKey);
         if (cached) {
           return cached;
         }
@@ -157,10 +159,11 @@ export function useLeaveTypes() {
 
       try {
         const types = await fetchLeaveTypes();
-        await cacheData(cacheKey, types, CACHE_TTL_LEAVE_TYPES);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, cacheKey, types, CACHE_TTL_LEAVE_TYPES);
         return types;
       } catch (error) {
-        const cached = await getCachedData<LeaveType[]>(cacheKey);
+        const cached = await getCachedData<LeaveType[]>(tenantId!, cacheKey);
         if (cached) {
           return cached;
         }

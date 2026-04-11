@@ -110,8 +110,40 @@ function reportViolation(src: string): void {
  * @param scriptElement - The script element to apply integrity attributes to
  * @returns The validated src (empty string if blocked)
  */
+/**
+ * Determines whether a dynamically injected script is a federation-runtime
+ * script that must pass through the integrity guard.
+ *
+ * SECURITY (FE-CRITICAL-001): The previous implementation only checked
+ * `src.includes('remoteEntry')`, allowing any other injected script path
+ * (e.g., `shared.js`, `vendor.js`, arbitrary extension scripts) to bypass
+ * the allowlist and SRI enforcement entirely.
+ *
+ * A federation-managed script is any script whose src:
+ *   1. Matches one of the allowlisted origins (same-origin /remotes/, localhost:8080, production), OR
+ *   2. Contains 'remoteEntry' in the path (legacy pattern), OR
+ *   3. Is loaded from a path containing '/mf/' or '/remotes/' (federation namespace)
+ *
+ * For scripts that match NONE of the above, they are treated as non-federation
+ * (e.g., analytics, browser extensions) and passed through. This avoids
+ * breaking third-party scripts while still enforcing the guard on ALL
+ * federation-injected scripts, not just remoteEntry.
+ */
+function isFederationScript(src: string): boolean {
+  // Explicit remoteEntry match (original pattern)
+  if (isRemoteEntryScript(src)) return true;
+  // Any script under the federation namespace paths
+  if (src.includes('/remotes/') || src.includes('/mf/')) return true;
+  // Any script matching a known remote origin pattern
+  if (isAllowedRemoteUrl(src)) return true;
+  return false;
+}
+
 function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptElement): string {
-  if (!isRemoteEntryScript(src)) {
+  // SECURITY (FE-CRITICAL-001 fix): Previously this returned early for ANY
+  // script not containing 'remoteEntry', allowing arbitrary injected scripts
+  // to bypass the allowlist entirely. Now we check all federation scripts.
+  if (!isFederationScript(src)) {
     return src;
   }
 
@@ -127,10 +159,9 @@ function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptEleme
     scriptElement.crossOrigin = 'anonymous';
   } else if (import.meta.env.DEV) {
     // Warn in development when no hash pin is registered.
-    // In production this is expected until CI populates REMOTE_HASH_PINS.
     // eslint-disable-next-line no-console
     console.warn(
-      `[SH-SEC-04] No integrity hash pinned for remote entry: ${src}. ` +
+      `[SH-SEC-04] No integrity hash pinned for federation script: ${src}. ` +
         'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.'
     );
   } else if (import.meta.env.PROD) {
@@ -141,7 +172,7 @@ function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptEleme
     // malicious code. Dispatch a security event for monitoring/alerting.
     // eslint-disable-next-line no-console
     console.warn(
-      `[SH-SEC-04] PRODUCTION: No SRI hash pinned for remote entry: ${src}. ` +
+      `[SH-SEC-04] PRODUCTION: No SRI hash pinned for federation script: ${src}. ` +
         'CI/CD must populate REMOTE_HASH_PINS for subresource integrity enforcement.'
     );
     if (typeof window !== 'undefined') {

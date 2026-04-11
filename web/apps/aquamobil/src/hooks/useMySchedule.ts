@@ -135,11 +135,13 @@ export function useMySchedule(weekOffset = 0) {
       try {
         const plan = await fetchMySchedule(scheduleId, weekStartDate);
         if (plan) {
-          await cacheData(cacheKey, plan, 1000 * 60 * 30); // 30 min TTL
+          // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+          await cacheData(tenantId, cacheKey, plan, 1000 * 60 * 30); // 30 min TTL
         }
         return plan;
       } catch (error) {
-        const cached = await getCachedData<WeeklyPlan>(cacheKey);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated cache reads
+        const cached = await getCachedData<WeeklyPlan>(tenantId, cacheKey);
         if (cached) return cached;
         throw error;
       }

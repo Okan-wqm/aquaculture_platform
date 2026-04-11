@@ -288,14 +288,16 @@ describe('Offline Queue', () => {
   // ========================================================================
 
   describe('cacheData', () => {
+    const TEST_TENANT = 'tenant-test-001';
+
     it('should encrypt data before caching (SEC-03-A)', async () => {
-      await cacheData('tanks', [{ id: 't1', name: 'Tank A' }]);
+      await cacheData(TEST_TENANT, 'tanks', [{ id: 't1', name: 'Tank A' }]);
 
       expect(mockEncrypt).toHaveBeenCalled();
     });
 
     it('should store with TTL metadata in plaintext', async () => {
-      await cacheData('tanks', [{ id: 't1' }], 60000);
+      await cacheData(TEST_TENANT, 'tanks', [{ id: 't1' }], 60000);
 
       // The cache store should have an entry
       const entries = Array.from(cacheIdbStore.values());
@@ -312,42 +314,44 @@ describe('Offline Queue', () => {
   // ========================================================================
 
   describe('getCachedData', () => {
+    const TEST_TENANT = 'tenant-test-001';
+
     it('should decrypt and return cached data', async () => {
       const data = [{ id: 't1', name: 'Tank A' }];
-      await cacheData('tanks', data, 3600000);
+      await cacheData(TEST_TENANT, 'tanks', data, 3600000);
 
-      const cached = await getCachedData<typeof data>('tanks');
+      const cached = await getCachedData<typeof data>(TEST_TENANT, 'tanks');
       expect(cached).toBeTruthy();
     });
 
     it('should return null for expired cache entries', async () => {
-      // Insert entry with expired TTL
-      cacheIdbStore.set('cache_expired', {
+      // Insert entry with expired TTL — key format is cache_${tenantId}:${key}
+      cacheIdbStore.set(`cache_${TEST_TENANT}:expired`, {
         _enc: { iv: 'abc', ciphertext: 'def' },
         cachedAt: new Date(Date.now() - 7200000).toISOString(),
         expiresAt: new Date(Date.now() - 3600000).toISOString(), // expired 1 hour ago
       });
 
-      const cached = await getCachedData('expired');
+      const cached = await getCachedData(TEST_TENANT, 'expired');
       expect(cached).toBeNull();
     });
 
     it('should purge legacy unencrypted entries (backwards compat)', async () => {
       // Legacy entry without _enc — should be purged
-      cacheIdbStore.set('cache_legacy', {
+      cacheIdbStore.set(`cache_${TEST_TENANT}:legacy`, {
         data: [{ id: 't1' }],
         cachedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 3600000).toISOString(),
       });
 
-      const cached = await getCachedData('legacy');
+      const cached = await getCachedData(TEST_TENANT, 'legacy');
       expect(cached).toBeNull();
       // Entry should have been deleted
-      expect(cacheIdbStore.has('cache_legacy')).toBe(false);
+      expect(cacheIdbStore.has(`cache_${TEST_TENANT}:legacy`)).toBe(false);
     });
 
     it('should return null for non-existent cache key', async () => {
-      const cached = await getCachedData('nonexistent');
+      const cached = await getCachedData(TEST_TENANT, 'nonexistent');
       expect(cached).toBeNull();
     });
   });
@@ -514,14 +518,16 @@ describe('Offline Queue', () => {
   });
 
   describe('clearCache', () => {
+    const TEST_TENANT = 'tenant-test-001';
+
     it('should remove all cache entries', async () => {
-      await cacheData('tanks', [{ id: 't1' }]);
-      await cacheData('batches', [{ id: 'b1' }]);
+      await cacheData(TEST_TENANT, 'tanks', [{ id: 't1' }]);
+      await cacheData(TEST_TENANT, 'batches', [{ id: 'b1' }]);
 
       await clearCache();
 
-      expect(await getCachedData('tanks')).toBeNull();
-      expect(await getCachedData('batches')).toBeNull();
+      expect(await getCachedData(TEST_TENANT, 'tanks')).toBeNull();
+      expect(await getCachedData(TEST_TENANT, 'batches')).toBeNull();
     });
   });
 });

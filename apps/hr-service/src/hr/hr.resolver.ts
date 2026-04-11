@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated, AuditLog } from '@aquaculture/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee, EmployeeStatus, Department } from './entities/employee.entity';
@@ -130,6 +130,7 @@ export class HRResolver {
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_EMPLOYEE', resource: 'Employee', description: 'Create a new employee record' })
   async createEmployee(
     @Args('input') input: CreateEmployeeInput,
     @Context() context: GraphQLContext,
@@ -144,6 +145,7 @@ export class HRResolver {
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_EMPLOYEE', resource: 'Employee', description: 'Update an existing employee record' })
   async updateEmployee(
     @Args('input') input: UpdateEmployeeInput,
     @Context() context: GraphQLContext,
@@ -158,6 +160,7 @@ export class HRResolver {
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @AuditLog({ action: 'TOGGLE_FARM_WORKER', resource: 'Employee', description: 'Toggle farm worker status on employee' })
   async toggleFarmWorker(
     @Args('id', { type: () => ID }) id: string,
     @Args('isFarmWorker') isFarmWorker: boolean,
@@ -173,6 +176,7 @@ export class HRResolver {
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'TERMINATE_EMPLOYEE', resource: 'Employee', description: 'Terminate an employee' })
   async terminateEmployee(
     @Args('id', { type: () => ID }) id: string,
     @Args('terminationDate') terminationDate: string,
@@ -231,6 +235,7 @@ export class HRResolver {
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_PAYROLL', resource: 'Payroll', description: 'Create a new payroll entry' })
   async createPayroll(
     @Args('input') input: CreatePayrollInput,
     @Context() context: GraphQLContext,
@@ -245,6 +250,7 @@ export class HRResolver {
   @Mutation(() => Payroll)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'APPROVE_PAYROLL', resource: 'Payroll', description: 'Approve a payroll entry for payment' })
   async approvePayroll(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -284,6 +290,7 @@ export class HRResolver {
   @Mutation(() => DepartmentHR, { name: 'createHRDepartment' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_DEPARTMENT', resource: 'Department', description: 'Create a new HR department' })
   async createHRDepartment(
     @Args('input') input: CreateDepartmentInput,
     @Context() context: GraphQLContext,
@@ -298,6 +305,7 @@ export class HRResolver {
   @Mutation(() => DepartmentHR, { name: 'updateHRDepartment' })
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'UPDATE_DEPARTMENT', resource: 'Department', description: 'Update an HR department' })
   async updateHRDepartment(
     @Args('input') input: UpdateDepartmentInput,
     @Context() context: GraphQLContext,

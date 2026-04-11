@@ -107,8 +107,16 @@ export class AgentRunnerService {
     }
 
     // 6. Build messages
+    // SECURITY: getById now requires tenantId + userId ownership check.
+    // A caller-supplied conversationId belonging to another tenant/user
+    // returns null, preventing cross-tenant conversation hydration and
+    // prompt-injection via foreign conversation history (CRITICAL-001).
     const existingConversation = conversationId
-      ? await this.conversationService.getById(conversationId)
+      ? await this.conversationService.getById(
+          conversationId,
+          request.tenantId,
+          request.userId,
+        )
       : null;
 
     const messages: Anthropic.MessageParam[] = [];
@@ -126,11 +134,17 @@ export class AgentRunnerService {
     messages.push({ role: 'user', content: request.message });
 
     // Save user message to conversation
-    await this.conversationService.addMessage(conversationId, {
-      role: 'user',
-      content: request.message,
-      timestamp: new Date().toISOString(),
-    });
+    // SECURITY: addMessage now requires tenantId + userId ownership check
+    await this.conversationService.addMessage(
+      conversationId,
+      request.tenantId,
+      request.userId,
+      {
+        role: 'user',
+        content: request.message,
+        timestamp: new Date().toISOString(),
+      },
+    );
 
     // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
     const safetyResult = this.aiSafety.preProcess(
@@ -288,17 +302,25 @@ export class AgentRunnerService {
     }
 
     // 11. Save assistant response to conversation
-    await this.conversationService.addMessage(conversationId, {
-      role: 'assistant',
-      content: finalMessage,
-      toolUse: toolCalls,
-      timestamp: new Date().toISOString(),
-    });
+    // SECURITY: addMessage requires tenantId + userId ownership check
+    await this.conversationService.addMessage(
+      conversationId,
+      request.tenantId,
+      request.userId,
+      {
+        role: 'assistant',
+        content: finalMessage,
+        toolUse: toolCalls,
+        timestamp: new Date().toISOString(),
+      },
+    );
 
     // 12. Update token usage
     await this.tokenBudget.addUsage(request.tenantId, totalTokens.total);
     await this.conversationService.updateTokenCount(
       conversationId,
+      request.tenantId,
+      request.userId,
       totalTokens.total,
     );
 

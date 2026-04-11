@@ -297,18 +297,48 @@ interface EncryptedCacheEntry {
   expiresAt: string;
 }
 
-export async function cacheData<T>(key: string, data: T, ttlMs: number = 1000 * 60 * 60): Promise<void> {
+/**
+ * Store tenant-scoped data in the encrypted IndexedDB cache.
+ *
+ * SECURITY (FE-CRITICAL-002 fix): tenantId is a REQUIRED parameter and is
+ * included in the cache key as `cache_${tenantId}:${key}`. This makes
+ * cross-tenant cache leakage STRUCTURALLY IMPOSSIBLE — on tenant switch or
+ * shared-device reuse, data from a previous tenant cannot be served because
+ * the key namespace is different.
+ *
+ * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
+ * @param key - Domain-specific cache key (e.g., 'schedule_2026-04-07')
+ * @param data - Data to cache (will be AES-GCM encrypted)
+ * @param ttlMs - Time-to-live in milliseconds (default: 1 hour)
+ */
+export async function cacheData<T>(tenantId: string, key: string, data: T, ttlMs: number = 1000 * 60 * 60): Promise<void> {
+  if (!tenantId) {
+    throw new Error('cacheData: tenantId is required for tenant-isolated caching');
+  }
   const _enc = await encryptString(JSON.stringify(data));
   const entry: EncryptedCacheEntry = {
     _enc,
     cachedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + ttlMs).toISOString(),
   };
-  await set(`${CACHE_PREFIX}${key}`, entry, cacheStore);
+  // SECURITY: Key format cache_${tenantId}:${key} prevents cross-tenant reads
+  await set(`${CACHE_PREFIX}${tenantId}:${key}`, entry, cacheStore);
 }
 
-export async function getCachedData<T>(key: string): Promise<T | null> {
-  const cached = await get(`${CACHE_PREFIX}${key}`, cacheStore);
+/**
+ * Retrieve tenant-scoped data from the encrypted IndexedDB cache.
+ *
+ * SECURITY (FE-CRITICAL-002 fix): tenantId is required in the key lookup,
+ * so cached data from tenant A is never returned when tenant B is active.
+ *
+ * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
+ * @param key - Domain-specific cache key
+ */
+export async function getCachedData<T>(tenantId: string, key: string): Promise<T | null> {
+  if (!tenantId) {
+    throw new Error('getCachedData: tenantId is required for tenant-isolated caching');
+  }
+  const cached = await get(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
   if (!cached) return null;
 
   const entry = cached as Record<string, unknown>;
@@ -316,7 +346,7 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
   // Check TTL first (plaintext metadata — no decryption needed)
   const expiresAt = entry.expiresAt as string | undefined;
   if (expiresAt && new Date(expiresAt) < new Date()) {
-    await del(`${CACHE_PREFIX}${key}`, cacheStore);
+    await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
     return null;
   }
 
@@ -328,20 +358,32 @@ export async function getCachedData<T>(key: string): Promise<T | null> {
       return JSON.parse(decrypted) as T;
     } catch {
       // Decryption failed (session key rotated or data corrupted) — purge entry
-      await del(`${CACHE_PREFIX}${key}`, cacheStore);
+      await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
       return null;
     }
   }
 
   // Backwards-compat: legacy unencrypted entry — purge it instead of returning
   // plaintext data, so the caller re-fetches and stores an encrypted copy.
-  await del(`${CACHE_PREFIX}${key}`, cacheStore);
+  await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
   return null;
 }
 
-export async function clearCache(): Promise<void> {
+/**
+ * Clear all cache entries, optionally scoped to a specific tenant.
+ *
+ * SECURITY (FE-CRITICAL-002 fix): When tenantId is provided, only that
+ * tenant's cache entries are cleared. The full-clear variant is used on
+ * logout to wipe all cached data from the device.
+ *
+ * @param tenantId - Optional tenant UUID. If provided, only clears that tenant's entries.
+ */
+export async function clearCache(tenantId?: string): Promise<void> {
   const allKeys = await keys(cacheStore);
-  const cacheKeys = allKeys.filter((k) => String(k).startsWith(CACHE_PREFIX));
+  const prefix = tenantId
+    ? `${CACHE_PREFIX}${tenantId}:`
+    : CACHE_PREFIX;
+  const cacheKeys = allKeys.filter((k) => String(k).startsWith(prefix));
   await Promise.all(cacheKeys.map((k) => del(k, cacheStore)));
 }
 

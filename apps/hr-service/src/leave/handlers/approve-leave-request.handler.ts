@@ -1,7 +1,8 @@
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { OutboxPublisher } from '@platform/outbox';
 import { ApproveLeaveRequestCommand } from '../commands/approve-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveStateMachine } from '../leave-state-machine';
@@ -20,7 +21,7 @@ export class ApproveLeaveRequestHandler
     private readonly leaveRequestRepository: Repository<LeaveRequest>,
     @InjectRepository(LeaveBalance)
     private readonly leaveBalanceRepository: Repository<LeaveBalance>,
-    private readonly eventBus: EventBus,
+    private readonly outboxPublisher: OutboxPublisher,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -97,12 +98,13 @@ export class ApproveLeaveRequestHandler
 
       const savedRequest = await queryRunner.manager.save(LeaveRequest, leaveRequest);
 
-      await queryRunner.commitTransaction();
+      // CRITICAL-002 fix: Enqueue event into transactional outbox BEFORE commit.
+      // Previously eventBus.publish() was called AFTER commit — fire-and-forget.
+      const approvedEvent = createLeaveApprovedEvent(savedRequest, userId);
+      await this.outboxPublisher.enqueue(approvedEvent, queryRunner.manager);
 
-      // Publish event for notification/audit purposes
-      this.eventBus.publish(createLeaveApprovedEvent(savedRequest, userId)).catch((err: unknown) => {
-        this.logger.warn(`Failed to publish LeaveApprovedEvent: ${err instanceof Error ? err.message : String(err)}`);
-      });
+      // Commit transaction (domain write + outbox row are atomic)
+      await queryRunner.commitTransaction();
 
       return savedRequest;
     } catch (error) {

@@ -3,7 +3,7 @@ import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated, AuditLog } from '@aquaculture/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee } from '../hr/entities/employee.entity';
@@ -244,6 +244,7 @@ export class LeaveResolver {
   // Leave Request Mutations
   // =====================
   @Mutation(() => LeaveRequest)
+  @AuditLog({ action: 'CREATE_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Create a new leave request' })
   async createLeaveRequest(
     @Args('input') input: CreateLeaveRequestInput,
     @Context() context: GraphQLContext,
@@ -279,6 +280,7 @@ export class LeaveResolver {
   }
 
   @Mutation(() => LeaveRequest)
+  @AuditLog({ action: 'SUBMIT_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Submit a leave request for approval' })
   async submitLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -295,6 +297,7 @@ export class LeaveResolver {
   // MODULE_USER removed: leave approval is a supervisory action requiring MODULE_MANAGER.
   // BEFORE: regular employees could approve any colleague's leave request.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'APPROVE_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Approve a leave request' })
   async approveLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -311,6 +314,7 @@ export class LeaveResolver {
   @UseGuards(RolesGuard)
   // MODULE_USER removed: leave rejection is a supervisory action requiring MODULE_MANAGER.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'REJECT_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Reject a leave request' })
   async rejectLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Args('reason') reason: string,
@@ -324,6 +328,7 @@ export class LeaveResolver {
   }
 
   @Mutation(() => LeaveRequest)
+  @AuditLog({ action: 'CANCEL_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Cancel a leave request' })
   async cancelLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

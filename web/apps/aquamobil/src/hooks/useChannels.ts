@@ -75,14 +75,15 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
       try {
         const page = await fetchChannels(PAGE_SIZE, offset);
         // Write to IndexedDB as offline fallback (only first page)
-        if (offset === 0) {
-          await cacheData(CACHE_KEY, page, CACHE_TTL_MS).catch(() => {});
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        if (offset === 0 && tenantId) {
+          await cacheData(tenantId, CACHE_KEY, page, CACHE_TTL_MS).catch(() => {});
         }
         return page;
       } catch (error) {
         // Network failed — return IndexedDB cached data if available
-        if (offset === 0) {
-          const cached = await getCachedData<ChannelPage>(CACHE_KEY);
+        if (offset === 0 && tenantId) {
+          const cached = await getCachedData<ChannelPage>(tenantId, CACHE_KEY);
           if (cached) return cached;
         }
         throw error;

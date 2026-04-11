@@ -99,6 +99,9 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
 // Clears offline queue (IndexedDB), data cache (IndexedDB), permissions cache (IndexedDB),
 // biometric localStorage PII, and service worker Cache Storage to prevent data leakage
 // on shared devices.
+// SECURITY (FE-CRITICAL-002): clearCache() without tenantId clears ALL tenant
+// namespaces on logout, preventing any residual cached data from leaking to
+// the next user on a shared device.
 async function clearAllUserData(userId?: string): Promise<void> {
   // H-FE-01: Clear biometric PII (webauthn_email, webauthn_credential_ids) on logout
   // so the next user on a shared device cannot use or see prior user's biometric data.
@@ -106,7 +109,7 @@ async function clearAllUserData(userId?: string): Promise<void> {
 
   await Promise.all([
     clearAllOperations(),
-    clearCache(),
+    clearCache(), // No tenantId = clear ALL tenants' cache entries
     // Clear per-user and legacy permission cache keys
     del(`mobile_permissions${userId ? `_${userId}` : ''}`).catch(() => {}),
     del('mobile_permissions').catch(() => {}),

@@ -1,7 +1,7 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated, AuditLog } from '@aquaculture/backend-common';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -248,6 +248,7 @@ export class AttendanceResolver {
   @Mutation(() => Shift)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_SHIFT', resource: 'Shift', description: 'Create a new work shift' })
   async createShift(
     @Args('input') input: CreateShiftInput,
     @Context() context: GraphQLContext,
@@ -282,6 +283,7 @@ export class AttendanceResolver {
   // Attendance Mutations
   // =====================
   @Mutation(() => AttendanceRecord)
+  @AuditLog({ action: 'CLOCK_IN', resource: 'AttendanceRecord', description: 'Employee clock-in' })
   async clockIn(
     @Args('input') input: ClockInInput,
     @Context() context: GraphQLContext,
@@ -311,6 +313,7 @@ export class AttendanceResolver {
   }
 
   @Mutation(() => AttendanceRecord)
+  @AuditLog({ action: 'CLOCK_OUT', resource: 'AttendanceRecord', description: 'Employee clock-out' })
   async clockOut(
     @Args('input') input: ClockOutInput,
     @Context() context: GraphQLContext,
@@ -344,6 +347,7 @@ export class AttendanceResolver {
   // (correcting missed clock-ins). BEFORE: regular employees could create attendance
   // records for any colleague, enabling time record falsification.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'CREATE_MANUAL_ATTENDANCE', resource: 'AttendanceRecord', description: 'Create manual attendance record (admin override)' })
   async createManualAttendance(
     @Args('input') input: ManualAttendanceInput,
     @Context() context: GraphQLContext,
@@ -369,6 +373,7 @@ export class AttendanceResolver {
   // MODULE_USER removed: attendance approval requires supervisory authority.
   // BEFORE: regular employees could approve their own attendance corrections.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @AuditLog({ action: 'APPROVE_ATTENDANCE', resource: 'AttendanceRecord', description: 'Approve an attendance record' })
   async approveAttendance(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

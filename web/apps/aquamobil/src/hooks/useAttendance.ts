@@ -68,12 +68,13 @@ export function useMyAttendanceRecords(params: AttendanceRecordsParams = {}) {
 
         // WHY async cache write (fire-and-forget): IndexedDB write should never
         // block the UI thread. If it fails, the online path still works fine.
-        await cacheData(cacheKey, records, CACHE_TTL_30M);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, cacheKey, records, CACHE_TTL_30M);
         return records;
       } catch (error) {
         // WHY fallback to IndexedDB: network failures are expected on fish farms.
         // Return stale data rather than showing an error screen.
-        const cached = await getCachedData<AttendanceRecord[]>(cacheKey);
+        const cached = await getCachedData<AttendanceRecord[]>(tenantId!, cacheKey);
         if (cached) return cached;
         throw error;
       }
@@ -128,10 +129,11 @@ export function useMyAttendanceSummary(params: AttendanceSummaryParams = {}) {
         }>(GET_MY_ATTENDANCE_SUMMARY, { month, year });
 
         const summary = result.myAttendanceSummary;
-        await cacheData(cacheKey, summary, CACHE_TTL_1H);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, cacheKey, summary, CACHE_TTL_1H);
         return summary;
       } catch (error) {
-        const cached = await getCachedData<AttendanceSummary>(cacheKey);
+        const cached = await getCachedData<AttendanceSummary>(tenantId!, cacheKey);
         if (cached) return cached;
         throw error;
       }
@@ -180,13 +182,14 @@ export function useTodaysAttendance(employeeId?: string) {
         }>(GET_TODAYS_ATTENDANCE, { employeeId });
 
         const records = result.todaysAttendance;
-        await cacheData(cacheKey, records, CACHE_TTL_1H);
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId!, cacheKey, records, CACHE_TTL_1H);
         return records;
       } catch (error) {
         // WHY fallback: today's attendance drives the clock-in/out button state.
         // Showing stale data (e.g., "already clocked in") is better than a broken
         // button that the operator can't use at all.
-        const cached = await getCachedData<AttendanceRecord[]>(cacheKey);
+        const cached = await getCachedData<AttendanceRecord[]>(tenantId!, cacheKey);
         if (cached) return cached;
         throw error;
       }

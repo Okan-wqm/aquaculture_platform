@@ -58,11 +58,12 @@ export function useTanks() {
         // PERF-05: Write to IndexedDB only as an offline fallback.
         // React Query's own gcTime handles in-memory caching for the online path,
         // eliminating the duplicate cache layer.
-        await cacheData('tanks', tanks, 1000 * 60 * 60); // 1 hour TTL for offline use
+        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
+        await cacheData(tenantId, 'tanks', tanks, 1000 * 60 * 60); // 1 hour TTL for offline use
         return tanks;
       } catch (error) {
         // Network failed — return IndexedDB cached data if available
-        const cached = await getCachedData<Tank[]>('tanks');
+        const cached = await getCachedData<Tank[]>(tenantId, 'tanks');
         if (cached) {
           return cached;
         }

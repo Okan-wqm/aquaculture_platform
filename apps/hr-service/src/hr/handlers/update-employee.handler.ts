@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource, QueryRunner, Not } from 'typeorm';
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
 import { UpdateEmployeeCommand } from '../commands/update-employee.command';
 import { Employee } from '../entities/employee.entity';
 import { createEmployeeUpdatedEvent, createEmployeeTerminatedEvent } from '../events/hr.events';
@@ -13,7 +14,7 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
 
   constructor(
     private readonly dataSource: DataSource,
-    private readonly eventBus: EventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateEmployeeCommand): Promise<Employee> {
@@ -92,45 +93,31 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
 
       const savedEmployee = await employeeRepo.save(employee);
 
-      // Commit transaction
+      // CRITICAL-002 fix: Enqueue events into transactional outbox BEFORE commit.
+      // Previously eventBus.publish() was called AFTER commit — fire-and-forget.
+      // Now the outbox INSERT joins the same transaction as the domain write.
+      const employeeUpdatedEvent = createEmployeeUpdatedEvent(savedEmployee, userId);
+      await this.outboxPublisher.enqueue(employeeUpdatedEvent, queryRunner.manager);
+
+      // Publish EmployeeTerminatedEvent only when status CHANGES to TERMINATED.
+      // statusBeforeUpdate was captured before Object.assign — it holds the original value.
+      if (savedEmployee.status === EmployeeStatus.TERMINATED &&
+          statusBeforeUpdate !== EmployeeStatus.TERMINATED) {
+        const terminatedEvent = createEmployeeTerminatedEvent(
+          savedEmployee,
+          savedEmployee.terminationDate ?? new Date(),
+          undefined,
+          userId,
+        );
+        await this.outboxPublisher.enqueue(terminatedEvent, queryRunner.manager);
+      }
+
+      // Commit transaction (domain write + outbox rows are atomic)
       await queryRunner.commitTransaction();
 
       this.logger.log(
         `Employee updated: ${savedEmployee.id} (${savedEmployee.employeeNumber}) for tenant ${tenantId}`,
       );
-
-      // Publish EmployeeUpdatedEvent AFTER commit.
-      // BEFORE this fix: no event was published — cross-service caches (sensor assignments,
-      // messaging profiles) were never invalidated when employee data changed.
-      this.eventBus.publish(createEmployeeUpdatedEvent(savedEmployee, userId)).catch((err: unknown) => {
-        this.logger.error(
-          `Failed to publish EmployeeUpdatedEvent for ${savedEmployee.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
-
-      // Publish EmployeeTerminatedEvent only when status CHANGES to TERMINATED.
-      // Bug fix: checking savedEmployee.status === TERMINATED without checking prior state
-      // would fire the event on ANY update to an already-terminated employee
-      // (e.g., correcting their termination date after the fact).
-      // The pre-update employee object (before Object.assign) holds the original status.
-      // We capture it as statusBeforeUpdate from the employee loaded at the start.
-      // Only fire TerminatedEvent when status TRANSITIONS to TERMINATED.
-      // statusBeforeUpdate was captured before Object.assign — it holds the original value.
-      if (savedEmployee.status === EmployeeStatus.TERMINATED &&
-          statusBeforeUpdate !== EmployeeStatus.TERMINATED) {
-        this.eventBus.publish(
-          createEmployeeTerminatedEvent(
-            savedEmployee,
-            savedEmployee.terminationDate ?? new Date(),
-            undefined,
-            userId,
-          ),
-        ).catch((err: unknown) => {
-          this.logger.error(
-            `Failed to publish EmployeeTerminatedEvent for ${savedEmployee.id}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
-      }
 
       return savedEmployee;
     } catch (error) {

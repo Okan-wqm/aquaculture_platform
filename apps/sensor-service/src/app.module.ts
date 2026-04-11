@@ -309,15 +309,25 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       }),
     }),
 
-    // JWT Module for auth guards (global for all feature modules)
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
+    // sensor-service is a token CONSUMER, not an issuer. It verifies tokens using
+    // the RSA public key from auth-service. JWT_SECRET is no longer accepted.
     JwtModule.registerAsync({
       global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
+        const verifyOpts = getJwtVerifyOptions(configService);
+        return {
+          publicKey: verifyOpts.publicKey,
+          verifyOptions: {
+            algorithms: ['RS256'],
+            issuer: verifyOpts.issuer,
+            audience: verifyOpts.audience,
+          },
+        };
+      },
     }),
 
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)

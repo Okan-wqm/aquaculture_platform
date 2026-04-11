@@ -203,17 +203,24 @@ import { UsersModule } from './users/users.module';
     // SECURITY (NEW-03): forRoot() returns empty module when ENABLE_DEBUG_TOOLS != 'true'.
     // No controllers, providers, or entities are registered in the disabled state.
     DebugToolsModule.forRoot(),
-    // JwtModule: provides JwtService for PlatformAdminGuard async verification.
-    // BEFORE: guard used synchronous jwt.verify() without algorithm restriction.
-    // AFTER: guard uses JwtService.verifyAsync() via getJwtVerifyOptions() — async,
-    // non-blocking, and enforces HS256 algorithm + issuer + audience.
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
+    // admin-api-service is a token CONSUMER, not an issuer. It verifies tokens
+    // using the RSA public key from auth-service. JWT_SECRET is no longer accepted.
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { algorithm: 'HS256' },
-      }),
+      useFactory: (config: ConfigService) => {
+        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
+        const verifyOpts = getJwtVerifyOptions(config);
+        return {
+          publicKey: verifyOpts.publicKey,
+          verifyOptions: {
+            algorithms: ['RS256'],
+            issuer: verifyOpts.issuer,
+            audience: verifyOpts.audience,
+          },
+        };
+      },
     }),
     /**
      * SEC-DB: Tenant Row-Level Security wiring for an admin-only service.

@@ -1,7 +1,7 @@
 # Package 02: jwt-asymmetric-signing
 
 ## Metadata
-Status: PENDING
+Status: IMPLEMENTED
 Estimated Tokens: 22K
 Priority: CRITICAL
 Security-Sensitive: yes

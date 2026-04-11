@@ -239,73 +239,85 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       cache: true,
     }),
 
-    // JWT for token validation
-    // SECURITY: JWT_SECRET MUST be provided via environment variable
+    // JWT for token validation — RS256 asymmetric (public key only)
+    // SECURITY (CRITICAL-001): gateway-api is a token CONSUMER, not an issuer.
+    // It verifies tokens using the RSA public key from auth-service.
+    // JWT_SECRET is no longer accepted for access-token verification.
     JwtModule.registerAsync({
       global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('JWT_SECRET');
         const nodeEnv = configService.get<string>('NODE_ENV', 'development');
         const isProduction = nodeEnv === 'production';
 
-        // CRITICAL: Always require JWT_SECRET in production
-        if (!secret && isProduction) {
+        // SECURITY: Load RSA public key for token verification
+        const loadPublicKey = (): string => {
+          const inlinePem = configService.get<string>('JWT_PUBLIC_KEY');
+          if (inlinePem) {
+            if (!inlinePem.includes('-----BEGIN')) {
+              return Buffer.from(inlinePem, 'base64').toString('utf8');
+            }
+            return inlinePem;
+          }
+          const keyPath = configService.get<string>('JWT_PUBLIC_KEY_PATH');
+          if (keyPath) {
+            return require('fs').readFileSync(keyPath, 'utf8');
+          }
+          return '';
+        };
+
+        const publicKey = loadPublicKey();
+
+        // CRITICAL: Always require public key in production
+        if (!publicKey && isProduction) {
           throw new Error(
-            'CRITICAL SECURITY ERROR: JWT_SECRET environment variable MUST be set in production. ' +
+            'CRITICAL SECURITY ERROR: JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_PATH must be configured in production. ' +
+            'gateway-api requires the RSA public key to verify tokens signed by auth-service. ' +
             'Application startup aborted to prevent security vulnerability.',
           );
         }
 
-        // In non-production, require explicit acknowledgment of dev mode
-        if (!secret) {
+        // In non-production, allow dev fallback with explicit acknowledgment
+        if (!publicKey) {
           const allowDevSecret = configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false');
           const devSecret = configService.get<string>('DEV_JWT_SECRET');
 
           if (allowDevSecret !== 'true') {
             throw new Error(
-              'JWT_SECRET is not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
-              'with at least 32 characters. NEVER enable this in staging/production!',
+              'JWT_PUBLIC_KEY is not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
+              `with at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters. NEVER enable this in staging/production!`,
             );
           }
 
-          if (!devSecret || devSecret.length < 32) {
+          if (!devSecret || devSecret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
             throw new Error(
-              'DEV_JWT_SECRET must be provided and be at least 32 characters when ALLOW_DEV_JWT_SECRET=true.',
+              `DEV_JWT_SECRET must be provided and be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters when ALLOW_DEV_JWT_SECRET=true.`,
             );
           }
 
           const jwtLogger = new Logger('JwtModule');
           jwtLogger.warn(
-            'Using DEV_JWT_SECRET for development only. ' +
-            'This is NOT secure for production use. Set JWT_SECRET environment variable for production.',
+            'SECURITY: Using DEV_JWT_SECRET with HS256 for local development only. ' +
+            'Production MUST use RS256 with JWT_PUBLIC_KEY.',
           );
           return {
             secret: devSecret,
             signOptions: {
-              /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks. */
               algorithm: 'HS256' as const,
               expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
             },
           };
         }
 
-        /** SEC-L05: Use shared JWT_SECRET_MIN_LENGTH from backend-common to prevent
-         *  divergence between auth-service, gateway-api, and admin-api-service. */
-        if (secret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
-          throw new Error(
-            `JWT_SECRET must be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
-          );
-        }
-
         return {
-          secret,
-          signOptions: {
-            /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks.
-             *  Without this, an attacker could forge tokens using RS256 with the public key as HMAC secret. */
-            algorithm: 'HS256' as const,
-            expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
+          publicKey,
+          verifyOptions: {
+            // SECURITY: RS256 only — prevents algorithm confusion attacks.
+            // Consumer services NEVER hold the private key; they cannot sign tokens.
+            algorithms: ['RS256'],
+            issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
+            audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
           },
         };
       },

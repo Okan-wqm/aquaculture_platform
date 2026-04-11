@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { JwtVerifyOptions } from '@nestjs/jwt';
@@ -17,27 +18,38 @@ import type { JwtVerifyOptions } from '@nestjs/jwt';
  * This utility is the single source of truth. Every guard MUST call
  * `getJwtVerifyOptions(configService)` and spread the result into
  * `jwtService.verifyAsync()`. Forgetting to do so causes a compile-time
- * type error (missing `secret`) rather than a silent security gap.
+ * type error (missing verification key) rather than a silent security gap.
+ *
+ * SECURITY: RS256 asymmetric signing (CRITICAL-001 fix)
+ * =====================================================
+ * The platform previously used HS256 with a shared JWT_SECRET distributed to
+ * every service. Any compromised service could forge valid tokens for the
+ * entire platform. Now:
+ *   - auth-service is the SOLE token issuer (signs with JWT_PRIVATE_KEY, RS256)
+ *   - All consumer services verify with JWT_PUBLIC_KEY (RS256)
+ *   - JWT_SECRET is no longer accepted for access-token verification
+ *   - HS256 algorithm is rejected — prevents algorithm confusion attacks
  *
  * ENFORCEMENT MODEL:
- * - `algorithms: ['HS256']`  — enforced unconditionally; no downgrade possible
+ * - `algorithms: ['RS256']`  — enforced unconditionally; no HS256/none downgrade
  * - `issuer`                 — passed to jsonwebtoken which rejects tokens with
  *                              missing OR mismatched `iss` claims (not conditional)
  * - `audience`               — same: missing OR mismatched `aud` is rejected
  *
- * BEFORE (guard inline, farm/hr/admin):
- *   jwtService.verifyAsync(token, { secret })          // no algorithms, no iss, no aud
- *   jwt.verify(token, secret)                          // sync, no restrictions
- *   if (payload.iss && payload.iss !== issuer) throw   // conditional — omitting iss bypasses
- *   if (payload.aud) { ... }                           // conditional — omitting aud bypasses
+ * BEFORE (HS256 shared secret):
+ *   jwtService.verifyAsync(token, { secret: JWT_SECRET, algorithms: ['HS256'] })
  *
- * AFTER (via this utility):
+ * AFTER (RS256 asymmetric):
  *   jwtService.verifyAsync(token, getJwtVerifyOptions(configService))
- *   // library enforces all claims at the jsonwebtoken level, not application level
+ *   // uses publicKey, RS256, issuer, audience — library enforces all claims
  */
 
-/** Type returned by getJwtVerifyOptions — includes `secret` so callers don't omit it. */
-export type JwtVerifyConfig = JwtVerifyOptions & { secret: string };
+/**
+ * Type returned by getJwtVerifyOptions — includes `publicKey` so callers don't omit it.
+ * SECURITY: `secret` field is intentionally omitted for consumer services.
+ * Only auth-service holds the private key for signing.
+ */
+export type JwtVerifyConfig = JwtVerifyOptions & { publicKey: string };
 
 /** Minimal interface for token type validation — avoids pulling full JwtPayload into backend-common */
 interface TokenTypePayload {
@@ -84,7 +96,44 @@ export function enforceAccessTokenType(
 }
 
 /**
- * Build the standardised JWT verification options.
+ * Load the RSA public key for JWT verification.
+ *
+ * Supports two modes:
+ *   1. JWT_PUBLIC_KEY env var — inline PEM string (base64-encoded or raw)
+ *   2. JWT_PUBLIC_KEY_PATH — file path to PEM file
+ *
+ * @throws Error if neither JWT_PUBLIC_KEY nor JWT_PUBLIC_KEY_PATH is set
+ */
+function loadPublicKey(configService: ConfigService): string {
+  // SECURITY: Try inline PEM first (Kubernetes secrets, cloud env vars)
+  const inlinePem = configService.get<string>('JWT_PUBLIC_KEY');
+  if (inlinePem) {
+    // Support base64-encoded PEM (common in container orchestrators)
+    if (!inlinePem.includes('-----BEGIN')) {
+      return Buffer.from(inlinePem, 'base64').toString('utf8');
+    }
+    return inlinePem;
+  }
+
+  // Fall back to file path (docker-compose volume mounts)
+  const keyPath = configService.get<string>('JWT_PUBLIC_KEY_PATH');
+  if (keyPath) {
+    return readFileSync(keyPath, 'utf8');
+  }
+
+  throw new Error(
+    'CRITICAL SECURITY ERROR: JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_PATH must be configured. ' +
+    'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
+    'Application startup aborted.',
+  );
+}
+
+/**
+ * Build the standardised JWT verification options using RS256 asymmetric keys.
+ *
+ * SECURITY: This function enforces RS256-only verification. The platform's
+ * auth-service is the sole token issuer (signs with private key). All consumer
+ * services verify tokens using the public key loaded by this function.
  *
  * Use with NestJS JwtService:
  * ```typescript
@@ -94,19 +143,19 @@ export function enforceAccessTokenType(
  * );
  * ```
  *
- * @throws Error at startup if JWT_SECRET or JWT_ISSUER are not set.
+ * @throws Error at startup if JWT_PUBLIC_KEY is not configured.
  */
 export function getJwtVerifyOptions(configService: ConfigService): JwtVerifyConfig {
   return {
-    // SECURITY: secret is required — getOrThrow crashes at startup if missing.
-    // BEFORE: some guards used configService.get() with a fallback — no crash,
-    // but a misconfigured secret would silently accept any token.
-    secret: configService.getOrThrow<string>('JWT_SECRET'),
+    // SECURITY: RS256 public key for verification — getOrThrow-equivalent via loadPublicKey.
+    // BEFORE: shared JWT_SECRET meant any compromised service could forge tokens.
+    // AFTER: only auth-service holds the private key; consumers verify with public key.
+    publicKey: loadPublicKey(configService),
 
-    // SECURITY: HS256 only — prevents algorithm confusion attacks.
-    // jsonwebtoken/@nestjs/jwt accepts the first algorithm in the list;
-    // restricting to HS256 prevents RS256/none downgrade.
-    algorithms: ['HS256'],
+    // SECURITY: RS256 only — prevents algorithm confusion attacks.
+    // BEFORE: HS256 with shared secret across all services.
+    // AFTER: RS256 asymmetric — even if the public key leaks, tokens cannot be forged.
+    algorithms: ['RS256'],
 
     // SECURITY: issuer enforcement at library level.
     // When issuer is passed to verifyAsync, jsonwebtoken throws JsonWebTokenError

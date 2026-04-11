@@ -122,33 +122,72 @@ import { TenantModule } from './modules/tenant/tenant.module';
       },
     }),
 
-    // Global JWT module
-    // SECURITY: JWT_SECRET MUST be provided via environment variable
+    // Global JWT module — RS256 asymmetric signing
+    // SECURITY (CRITICAL-001): auth-service is the SOLE token issuer.
+    // Signs with JWT_PRIVATE_KEY (RS256). All consumer services verify with
+    // the corresponding public key. JWT_SECRET is no longer accepted.
     JwtModule.registerAsync({
       global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('JWT_SECRET');
         const nodeEnv = configService.get<string>('NODE_ENV', 'development');
         const isProduction = nodeEnv === 'production';
 
-        // CRITICAL: Always require JWT_SECRET in production
-        if (!secret && isProduction) {
+        // SECURITY: Load RSA private key for token signing
+        const loadPrivateKey = (): string => {
+          // Inline PEM (Kubernetes secrets, cloud env vars)
+          const inlinePem = configService.get<string>('JWT_PRIVATE_KEY');
+          if (inlinePem) {
+            if (!inlinePem.includes('-----BEGIN')) {
+              return Buffer.from(inlinePem, 'base64').toString('utf8');
+            }
+            return inlinePem;
+          }
+          // File path (docker-compose volume mounts)
+          const keyPath = configService.get<string>('JWT_PRIVATE_KEY_PATH');
+          if (keyPath) {
+            return require('fs').readFileSync(keyPath, 'utf8');
+          }
+          return '';
+        };
+
+        // SECURITY: Load RSA public key for verification (auth-service also verifies its own tokens)
+        const loadPublicKey = (): string => {
+          const inlinePem = configService.get<string>('JWT_PUBLIC_KEY');
+          if (inlinePem) {
+            if (!inlinePem.includes('-----BEGIN')) {
+              return Buffer.from(inlinePem, 'base64').toString('utf8');
+            }
+            return inlinePem;
+          }
+          const keyPath = configService.get<string>('JWT_PUBLIC_KEY_PATH');
+          if (keyPath) {
+            return require('fs').readFileSync(keyPath, 'utf8');
+          }
+          return '';
+        };
+
+        const privateKey = loadPrivateKey();
+        const publicKey = loadPublicKey();
+
+        // CRITICAL: Always require RSA keys in production
+        if (isProduction && (!privateKey || !publicKey)) {
           throw new Error(
-            'CRITICAL SECURITY ERROR: JWT_SECRET environment variable MUST be set in production. ' +
+            'CRITICAL SECURITY ERROR: JWT_PRIVATE_KEY and JWT_PUBLIC_KEY must be configured in production. ' +
+            'auth-service is the sole token issuer and requires RSA key pair for RS256 signing. ' +
             'Application startup aborted to prevent security vulnerability.',
           );
         }
 
-        // In non-production, require explicit acknowledgment of dev mode
-        if (!secret) {
+        // In non-production, allow dev fallback with explicit acknowledgment
+        if (!privateKey || !publicKey) {
           const allowDevSecret = configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false');
           const devSecret = configService.get<string>('DEV_JWT_SECRET');
 
           if (allowDevSecret !== 'true') {
             throw new Error(
-              'JWT_SECRET is not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
+              'JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
               `with at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters. NEVER enable this in staging/production!`,
             );
           }
@@ -161,14 +200,12 @@ import { TenantModule } from './modules/tenant/tenant.module';
 
           const logger = new Logger('JwtModule');
           logger.warn(
-            'Using DEV_JWT_SECRET for development only. ' +
-            'This is NOT secure for production use. ' +
-            'Set JWT_SECRET environment variable for production.',
+            'SECURITY: Using DEV_JWT_SECRET with HS256 for local development only. ' +
+            'Production MUST use RS256 with JWT_PRIVATE_KEY/JWT_PUBLIC_KEY.',
           );
           return {
             secret: devSecret,
             signOptions: {
-              /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks. */
               algorithm: 'HS256' as const,
               expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
               issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
@@ -177,22 +214,20 @@ import { TenantModule } from './modules/tenant/tenant.module';
           };
         }
 
-        // Validate JWT_SECRET minimum length
-        if (secret.length < SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
-          throw new Error(
-            `JWT_SECRET must be at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
-          );
-        }
-
         return {
-          secret,
+          privateKey,
+          publicKey,
           signOptions: {
-            /** SEC-M14: Explicitly set HS256 to prevent algorithm confusion attacks.
-             *  Without this, an attacker could forge tokens using RS256 with the public key as HMAC secret. */
-            algorithm: 'HS256' as const,
+            // SECURITY: RS256 asymmetric signing — only auth-service holds the private key.
+            // Consumer services verify with the public key; a compromised consumer
+            // cannot forge tokens for other services.
+            algorithm: 'RS256' as const,
             expiresIn: configService.get('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
             issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
             audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
+          },
+          verifyOptions: {
+            algorithms: ['RS256'],
           },
         };
       },

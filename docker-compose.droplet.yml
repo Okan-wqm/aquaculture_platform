@@ -211,23 +211,26 @@ services:
       MESSAGING_SERVICE_DB_PASS: ${MESSAGING_SERVICE_DB_PASS:-}
     command: >
       bash -c "
-        update_role() {
+        ensure_role() {
           local role=$$1 pass=$$2
-          if [ -n \"$$pass\" ]; then
-            psql -c \"ALTER ROLE $$role WITH PASSWORD '$$pass'\" 2>/dev/null && echo \"[db-init] $$role password updated\" || echo \"[db-init] $$role role not found, skipping\"
+          if [ -z \"$$pass\" ]; then return; fi
+          if psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$$role'\" | grep -q 1; then
+            psql -c \"ALTER ROLE $$role WITH PASSWORD '$$pass'\" 2>/dev/null && echo \"[db-init] $$role password updated\"
+          else
+            psql -c \"CREATE ROLE $$role WITH LOGIN PASSWORD '$$pass'\" 2>/dev/null && echo \"[db-init] $$role role created\"
           fi
         }
-        update_role auth_service      \"$$AUTH_SERVICE_DB_PASS\"
-        update_role farm_service      \"$$FARM_SERVICE_DB_PASS\"
-        update_role sensor_service    \"$$SENSOR_SERVICE_DB_PASS\"
-        update_role billing_service   \"$$BILLING_SERVICE_DB_PASS\"
-        update_role hr_service        \"$$HR_SERVICE_DB_PASS\"
-        update_role alert_service     \"$$ALERT_SERVICE_DB_PASS\"
-        update_role admin_service     \"$$ADMIN_SERVICE_DB_PASS\"
-        update_role gateway_service   \"$$GATEWAY_SERVICE_DB_PASS\"
-        update_role notification_service \"$$NOTIFICATION_SERVICE_DB_PASS\"
-        update_role hydroponics_service  \"$$HYDROPONICS_SERVICE_DB_PASS\"
-        update_role messaging_service    \"$$MESSAGING_SERVICE_DB_PASS\"
+        ensure_role auth_service      \"$$AUTH_SERVICE_DB_PASS\"
+        ensure_role farm_service      \"$$FARM_SERVICE_DB_PASS\"
+        ensure_role sensor_service    \"$$SENSOR_SERVICE_DB_PASS\"
+        ensure_role billing_service   \"$$BILLING_SERVICE_DB_PASS\"
+        ensure_role hr_service        \"$$HR_SERVICE_DB_PASS\"
+        ensure_role alert_service     \"$$ALERT_SERVICE_DB_PASS\"
+        ensure_role admin_service     \"$$ADMIN_SERVICE_DB_PASS\"
+        ensure_role gateway_service   \"$$GATEWAY_SERVICE_DB_PASS\"
+        ensure_role notification_service \"$$NOTIFICATION_SERVICE_DB_PASS\"
+        ensure_role hydroponics_service  \"$$HYDROPONICS_SERVICE_DB_PASS\"
+        ensure_role messaging_service    \"$$MESSAGING_SERVICE_DB_PASS\"
         echo '[db-init] Done'
       "
     networks:
@@ -383,7 +386,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — gateway_service can only access gateway schema
-      DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}
       DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -393,6 +396,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-gateway-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
       FARM_SERVICE_URL: http://farm-service:3000/graphql
@@ -460,6 +464,7 @@ services:
         condition: service_started
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-network
       - aqua-internal
@@ -490,7 +495,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — auth_service can only access auth schema
-      DATABASE_USER: ${AUTH_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${AUTH_SERVICE_DB_USER:-auth_service}
       DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false"
@@ -499,6 +504,8 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-auth-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PRIVATE_KEY_PATH: /etc/ssl/jwt/private.pem
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:?SUPER_ADMIN_PASSWORD is required}
@@ -514,6 +521,8 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-private-key-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -543,7 +552,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — farm_service can only access farm schema
-      DATABASE_USER: ${FARM_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${FARM_SERVICE_DB_USER:-farm_service}
       DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -551,6 +560,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-farm-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -560,6 +570,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -593,7 +604,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — sensor_service can only access sensor schema
-      DATABASE_USER: ${SENSOR_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${SENSOR_SERVICE_DB_USER:-sensor_service}
       DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -604,6 +615,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-sensor-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
       MQTT_SENSOR_SERVICE_HASH: ${MQTT_SENSOR_SERVICE_HASH:?MQTT_SENSOR_SERVICE_HASH is required}
@@ -626,6 +638,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -656,7 +669,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — admin_service has read access to auth+billing schemas
-      DATABASE_USER: ${ADMIN_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${ADMIN_SERVICE_DB_USER:-admin_service}
       DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -666,6 +679,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials — admin uses gateway account
       <<: *nats-gateway-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
       FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
@@ -678,6 +692,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
       - aqua-network  # needs internet for external SMTP email delivery
@@ -708,7 +723,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — alert_service can only access alert schema
-      DATABASE_USER: ${ALERT_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${ALERT_SERVICE_DB_USER:-alert_service}
       DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -716,6 +731,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-alert-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
       postgres:
@@ -724,6 +740,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -753,7 +770,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — billing_service can only access billing schema
-      DATABASE_USER: ${BILLING_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${BILLING_SERVICE_DB_USER:-billing_service}
       DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -761,6 +778,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-billing-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
       postgres:
@@ -769,6 +787,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -798,7 +817,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — hr_service can only access hr schema
-      DATABASE_USER: ${HR_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${HR_SERVICE_DB_USER:-hr_service}
       DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -806,6 +825,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-hr-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
       postgres:
@@ -814,6 +834,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -843,7 +864,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — hydroponics_service can only access hydroponics schema
-      DATABASE_USER: ${HYDROPONICS_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${HYDROPONICS_SERVICE_DB_USER:-hydroponics_service}
       DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -851,6 +872,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-hydroponics-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
       postgres:
@@ -859,6 +881,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -888,7 +911,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — notification_service uses public schema
-      DATABASE_USER: ${NOTIFICATION_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${NOTIFICATION_SERVICE_DB_USER:-notification_service}
       DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -896,6 +919,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-notification-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -908,6 +932,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
       - aqua-network  # needs internet for external SMTP email delivery
@@ -979,7 +1004,7 @@ services:
       # NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet.
       # Until a config_service role is created, it uses the gateway_service role which
       # has access to the gateway schema where config data is stored.
-      DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}
       DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
@@ -987,6 +1012,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials — config uses gateway account
       <<: *nats-gateway-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -996,6 +1022,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -1024,7 +1051,7 @@ services:
       DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — messaging_service can only access messaging schema
-      DATABASE_USER: ${MESSAGING_SERVICE_DB_USER:-${POSTGRES_USER:-aquaculture}}
+      DATABASE_USER: ${MESSAGING_SERVICE_DB_USER:-messaging_service}
       DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: 'false'
@@ -1036,6 +1063,7 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-messaging-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -1047,6 +1075,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
+      - *jwt-public-key-mount
     networks:
       - aqua-internal
     depends_on:

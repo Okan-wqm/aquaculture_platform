@@ -887,12 +887,34 @@ jobs:
                 echo "  JWT RSA key pair generated"
               else
                 echo "  JWT RSA key pair already exists"
+                # Ensure .env has the path vars even if keys were generated in a prior deploy
+                grep -q "^JWT_PRIVATE_KEY_PATH=" "$ENV_FILE" || echo "JWT_PRIVATE_KEY_PATH=/etc/ssl/jwt/private.pem" >> "$ENV_FILE"
+                grep -q "^JWT_PUBLIC_KEY_PATH=" "$ENV_FILE" || echo "JWT_PUBLIC_KEY_PATH=/etc/ssl/jwt/public.pem" >> "$ENV_FILE"
               fi
 
               echo "=== Ensuring infrastructure databases exist ==="
               # Start only postgres first to create additional databases
               docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true
               sleep 10
+
+              # DB-PWD-SYNC: Verify POSTGRES_PASSWORD matches what's in the data volume.
+              # If the .env password was regenerated but the volume persists from a prior init,
+              # db-init and all services will fail to authenticate. Fix by resetting the
+              # password via local trust auth (docker exec uses Unix socket, not TCP).
+              echo "=== Verifying PostgreSQL superuser password ==="
+              if docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "SELECT 1" >/dev/null 2>&1; then
+                if docker exec aqua-postgres bash -c "PGPASSWORD='${POSTGRES_PASSWORD}' psql -h 127.0.0.1 -U '${POSTGRES_USER:-aquaculture}' -c 'SELECT 1'" >/dev/null 2>&1; then
+                  echo "  PostgreSQL superuser password matches .env"
+                else
+                  echo "  WARNING: PostgreSQL superuser password mismatch — resetting via local auth"
+                  docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" \
+                    -c "ALTER USER \"${POSTGRES_USER:-aquaculture}\" WITH PASSWORD '${POSTGRES_PASSWORD}'"
+                  echo "  PostgreSQL superuser password reset to match .env"
+                fi
+              else
+                echo "  ERROR: Cannot connect to PostgreSQL via local auth — manual intervention required"
+              fi
+
               # Create observability database if it doesn't exist (postgres init scripts only run on first start)
               docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
                 docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1 || true

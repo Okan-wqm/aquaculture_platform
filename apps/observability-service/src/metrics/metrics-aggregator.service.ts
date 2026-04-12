@@ -324,7 +324,7 @@ export class MetricsAggregatorService {
     // Sensors by type
     const typeRows = await safeQuery<{ type: string; count: string }[]>(
       this.dataSource,
-      `SELECT COALESCE(type, 'unknown') as type, count(*)::text as count
+      `SELECT COALESCE(type::text, 'unknown') as type, count(*)::text as count
        FROM sensor.sensors
        GROUP BY type`,
       [],
@@ -374,7 +374,7 @@ export class MetricsAggregatorService {
     // Alerts by severity
     const severityRows = await safeQuery<{ severity: string; count: string }[]>(
       this.dataSource,
-      `SELECT COALESCE(severity, 'unknown') as severity, count(*)::text as count
+      `SELECT COALESCE(severity::text, 'unknown') as severity, count(*)::text as count
        FROM alert.alert_incidents
        WHERE created_at > NOW() - INTERVAL '24 hours'
        GROUP BY severity`,

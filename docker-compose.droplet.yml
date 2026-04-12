@@ -36,6 +36,7 @@ x-nats-env: &nats-env
   NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
   NATS_AUTH_PASS: "${NATS_AUTH_PASS:-changeme}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 # Per-service NATS credential anchors (CRITICAL-002)
 x-nats-auth-env: &nats-auth-env
@@ -43,60 +44,70 @@ x-nats-auth-env: &nats-auth-env
   NATS_AUTH_USER: ${NATS_AUTH_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_AUTH_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-farm-env: &nats-farm-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_FARM_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_FARM_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-sensor-env: &nats-sensor-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_SENSOR_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_SENSOR_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-gateway-env: &nats-gateway-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_GATEWAY_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_GATEWAY_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-notification-env: &nats-notification-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_NOTIFICATION_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_NOTIFICATION_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-billing-env: &nats-billing-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_BILLING_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_BILLING_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-alert-env: &nats-alert-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_ALERT_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_ALERT_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-hr-env: &nats-hr-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_HR_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_HR_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-messaging-env: &nats-messaging-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_MESSAGING_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_MESSAGING_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-hydroponics-env: &nats-hydroponics-env
   NATS_URL: tls://nats:4222
   NATS_AUTH_USER: ${NATS_HYDROPONICS_SVC_USER:-${NATS_AUTH_USER:-nats_internal}}
   NATS_AUTH_PASS: "${NATS_HYDROPONICS_SVC_PASS:-${NATS_AUTH_PASS:-changeme}}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_ENABLED: "true"
 
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
 x-jwt-public-key-mount: &jwt-public-key-mount ./certs/jwt/public.pem:/etc/ssl/jwt/public.pem:ro
@@ -231,6 +242,12 @@ services:
         ensure_role notification_service \"$$NOTIFICATION_SERVICE_DB_PASS\"
         ensure_role hydroponics_service  \"$$HYDROPONICS_SERVICE_DB_PASS\"
         ensure_role messaging_service    \"$$MESSAGING_SERVICE_DB_PASS\"
+
+        echo '[db-init] Granting schema privileges to per-service roles'
+        for ROLE in auth_service farm_service sensor_service billing_service hr_service alert_service admin_service gateway_service notification_service hydroponics_service messaging_service; do
+          psql -c \"GRANT USAGE, CREATE ON SCHEMA public TO $$ROLE\" 2>/dev/null && echo \"  [db-init] GRANT public -> $$ROLE\" || true
+        done
+
         echo '[db-init] Done'
       "
     networks:
@@ -921,6 +938,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      WEBHOOK_ENCRYPTION_KEY: ${WEBHOOK_ENCRYPTION_KEY:?WEBHOOK_ENCRYPTION_KEY required (min 32 chars)}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}

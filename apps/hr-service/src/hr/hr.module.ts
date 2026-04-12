@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { HrOutboxModule } from '../hr-outbox.module';
 import { Employee } from './entities/employee.entity';
+
 import { Payroll } from './entities/payroll.entity';
 import { PayrollAudit } from './entities/payroll-audit.entity';
 import { DepartmentHR } from './entities/department.entity';
@@ -56,6 +58,7 @@ const QueryHandlers = [
       EmployeeCertification,
     ]),
     CqrsModule,
+    HrOutboxModule,
   ],
   providers: [
     HRResolver,

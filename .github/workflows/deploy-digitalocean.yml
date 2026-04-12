@@ -869,6 +869,9 @@ jobs:
                 generate_credential "${SVC}_SERVICE_DB_PASS"
               done
 
+              # Application secrets
+              generate_credential "WEBHOOK_ENCRYPTION_KEY"
+
               echo "=== Per-service credentials provisioned ==="
 
               # RSA key pair for JWT RS256 signing (auth-service signs, all verify)
@@ -879,7 +882,7 @@ jobs:
                 mkdir -p "$JWT_KEY_DIR"
                 openssl genrsa -out "$JWT_KEY_DIR/private.pem" 2048
                 openssl rsa -in "$JWT_KEY_DIR/private.pem" -pubout -out "$JWT_KEY_DIR/public.pem"
-                chmod 600 "$JWT_KEY_DIR/private.pem"
+                chmod 644 "$JWT_KEY_DIR/private.pem"
                 chmod 644 "$JWT_KEY_DIR/public.pem"
                 # Write PEM paths to .env
                 grep -q "^JWT_PRIVATE_KEY_PATH=" "$ENV_FILE" || echo "JWT_PRIVATE_KEY_PATH=/etc/ssl/jwt/private.pem" >> "$ENV_FILE"
@@ -983,6 +986,9 @@ jobs:
               for SVC in AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING; do
                 generate_credential "${SVC}_SERVICE_DB_PASS"
               done
+
+              # Application secrets
+              generate_credential "WEBHOOK_ENCRYPTION_KEY"
 
               # Ensure infrastructure services are running (no-op if already up)
               echo "=== Ensuring infrastructure is running ==="

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
+import { HrOutboxModule } from '../hr-outbox.module';
 import { LeaveType } from './entities/leave-type.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
@@ -21,6 +22,7 @@ import { Employee } from '../hr/entities/employee.entity';
     ]),
     CqrsModule,
     ScheduleModule,
+    HrOutboxModule,
   ],
   providers: [
     LeaveResolver,

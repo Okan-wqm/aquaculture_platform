@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { HrOutboxModule } from '../hr-outbox.module';
 import { Shift } from './entities/shift.entity';
 import { Schedule } from './entities/schedule.entity';
 import { ScheduleEntry } from './entities/schedule-entry.entity';
@@ -24,6 +25,7 @@ import { WorkArea } from '../aquaculture/entities/work-area.entity';
       WorkArea,
     ]),
     CqrsModule,
+    HrOutboxModule,
   ],
   providers: [
     AttendanceResolver,

@@ -12,7 +12,7 @@ import {
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
-import { OutboxModule } from '@platform/outbox';
+import { HrOutboxModule } from './hr-outbox.module';
 import { HrOutbox } from './hr/entities/hr-outbox.entity';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
@@ -291,7 +291,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
      * Replaces fire-and-forget EventBus.publish() with outbox pattern.
      * The OutboxWorkerService polls hr_outbox and publishes to NATS.
      */
-    OutboxModule.forFeature(HrOutbox),
+    HrOutboxModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /**

@@ -248,6 +248,39 @@ services:
           psql -c \"GRANT USAGE, CREATE ON SCHEMA public TO $$ROLE\" 2>/dev/null && echo \"  [db-init] GRANT public -> $$ROLE\" || true
         done
 
+        echo '[db-init] Granting per-service schema privileges + ownership transfer'
+        grant_service_schema() {
+          local role=$$1 schema=$$2
+          if psql -tAc \"SELECT 1 FROM information_schema.schemata WHERE schema_name='$$schema'\" | grep -q 1; then
+            psql -c \"GRANT ALL ON SCHEMA $$schema TO $$role\" 2>/dev/null
+            psql -c \"GRANT ALL ON ALL TABLES IN SCHEMA $$schema TO $$role\" 2>/dev/null
+            psql -c \"GRANT ALL ON ALL SEQUENCES IN SCHEMA $$schema TO $$role\" 2>/dev/null
+            psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA $$schema GRANT ALL ON TABLES TO $$role\" 2>/dev/null
+            psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA $$schema GRANT ALL ON SEQUENCES TO $$role\" 2>/dev/null
+            for TBL in $$(psql -tAc \"SELECT tablename FROM pg_tables WHERE schemaname='$$schema'\"); do
+              psql -c \"ALTER TABLE $$schema.$$TBL OWNER TO $$role\" 2>/dev/null
+            done
+            for SEQ in $$(psql -tAc \"SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema='$$schema'\"); do
+              psql -c \"ALTER SEQUENCE $$schema.$$SEQ OWNER TO $$role\" 2>/dev/null
+            done
+            for FUNC in $$(psql -tAc \"SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid WHERE n.nspname='$$schema'\"); do
+              psql -c \"ALTER FUNCTION $$schema.$$FUNC OWNER TO $$role\" 2>/dev/null
+            done
+            echo \"  [db-init] $$schema schema -> $$role (grants + ownership)\"
+          fi
+        }
+        grant_service_schema auth_service      auth
+        grant_service_schema farm_service      farm
+        grant_service_schema sensor_service    sensor
+        grant_service_schema billing_service   billing
+        grant_service_schema hr_service        hr
+        grant_service_schema alert_service     alert
+        grant_service_schema admin_service     admin
+        grant_service_schema gateway_service   gateway
+        grant_service_schema notification_service notification
+        grant_service_schema hydroponics_service  hydroponics
+        grant_service_schema messaging_service    messaging
+
         echo '[db-init] Done'
       "
     networks:
@@ -933,6 +966,9 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-notification-env
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}

@@ -2,11 +2,11 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { EditMessageCommand } from './edit-message.command';
 import { Message } from '../entities/message.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { sanitizeContent } from '../../shared/sanitize';
 
 /**
@@ -24,6 +24,7 @@ export class EditMessageHandler implements ICommandHandler<EditMessageCommand, M
     private readonly dataSource: DataSource,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: EditMessageCommand): Promise<Message> {
@@ -51,18 +52,13 @@ export class EditMessageHandler implements ICommandHandler<EditMessageCommand, M
       message.editedAt = new Date();
       const saved = await manager.save(Message, message);
 
-      const outboxEvent = manager.create(MessagingOutbox, {
-        eventType: 'MessageUpdated',
-        payload: {
-          eventId: uuidv4(),
-          tenantId,
-          channelId: message.channelId,
-          messageId: saved.id,
-          senderId: userId,
-          editedAt: saved.editedAt?.toISOString() ?? null,
-        },
-      });
-      await manager.save(MessagingOutbox, outboxEvent);
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('MessageUpdated', tenantId),
+        channelId: message.channelId,
+        messageId: saved.id,
+        senderId: userId,
+        editedAt: saved.editedAt?.toISOString() ?? null,
+      } as BaseEvent, manager);
 
       return saved;
     });

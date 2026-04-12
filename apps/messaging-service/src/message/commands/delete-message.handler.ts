@@ -2,11 +2,11 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { DeleteMessageCommand } from './delete-message.command';
 import { Message } from '../entities/message.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { ChannelMemberRole } from '../../channel/entities/channel-member.entity';
 import { LegalHoldService } from '../../compliance/services/legal-hold.service';
 
@@ -32,6 +32,7 @@ export class DeleteMessageHandler implements ICommandHandler<DeleteMessageComman
     // BEFORE this fix: handler had no LegalHoldService — messages in held channels
     // could be soft-deleted by admins, bypassing litigation preservation obligations.
     private readonly legalHoldService: LegalHoldService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: DeleteMessageCommand): Promise<boolean> {
@@ -73,18 +74,13 @@ export class DeleteMessageHandler implements ICommandHandler<DeleteMessageComman
       message.isDeleted = true;
       await manager.save(Message, message);
 
-      const outboxEvent = manager.create(MessagingOutbox, {
-        eventType: 'MessageDeleted',
-        payload: {
-          eventId: uuidv4(),
-          tenantId,
-          channelId: message.channelId,
-          messageId: message.id,
-          deletedBy: userId,
-          deletedAt: new Date().toISOString(),
-        },
-      });
-      await manager.save(MessagingOutbox, outboxEvent);
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('MessageDeleted', tenantId),
+        channelId: message.channelId,
+        messageId: message.id,
+        deletedBy: userId,
+        deletedAt: new Date().toISOString(),
+      } as BaseEvent, manager);
     });
 
     this.logger.debug(

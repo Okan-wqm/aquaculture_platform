@@ -8,12 +8,13 @@
 import { Injectable, Logger, BadRequestException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import Redis from 'ioredis';
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 
 import { MessageAttachment } from '../entities/message-attachment.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
 /** Default per-tenant storage quota: 10 GB in bytes. */
@@ -46,13 +47,13 @@ export class StorageQuotaService {
   constructor(
     @InjectRepository(MessageAttachment)
     private readonly attachmentRepo: Repository<MessageAttachment>,
-    @InjectRepository(MessagingOutbox)
-    private readonly outboxRepo: Repository<MessagingOutbox>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
     private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -163,21 +164,19 @@ export class StorageQuotaService {
     // direct eventBus emit. If NATS is down when quota is breached, direct emit
     // silently loses the event. Outbox guarantees at-least-once delivery.
     // @see MSG-MEDIUM-008
+    // Wrapped in dataSource.transaction() because OutboxPublisher.enqueue() requires
+    // an active transaction context.
     const usageAfterUpload = (used + newFileSize) / quota;
     if (usageAfterUpload >= STORAGE_WARNING_THRESHOLD) {
-      await this.outboxRepo.save(
-        this.outboxRepo.create({
-          tenantId,
-          eventType: 'StorageWarning',
-          payload: {
-            tenantId,
-            usedBytes: used + newFileSize,
-            quotaBytes: quota,
-            usagePercentage: Math.round(usageAfterUpload * 100),
-            timestamp: new Date().toISOString(),
-          },
-        }),
-      );
+      await this.dataSource.transaction(async (manager) => {
+        await this.outboxPublisher.enqueue({
+          ...createBaseEvent('StorageWarning', tenantId),
+          usedBytes: used + newFileSize,
+          quotaBytes: quota,
+          usagePercentage: Math.round(usageAfterUpload * 100),
+          timestamp: new Date().toISOString(),
+        }, manager);
+      });
       this.logger.warn(
         `Tenant ${tenantId} storage at ${Math.round(usageAfterUpload * 100)}% ` +
         `(${used + newFileSize}/${quota} bytes)`,

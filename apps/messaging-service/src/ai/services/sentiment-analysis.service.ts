@@ -16,8 +16,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { MessageAnalysis, AnalysisType } from '../entities/message-analysis.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { AiPrivacyService } from './ai-privacy.service';
 import type { SentimentResult } from '../entities/message-analysis.entity';
 
@@ -61,16 +62,11 @@ export class SentimentAnalysisService {
   constructor(
     @InjectRepository(MessageAnalysis)
     private readonly analysisRepo: Repository<MessageAnalysis>,
-    // outboxRepo injected for transactional-safe SentimentAlert outbox insert.
-    // BEFORE: used this.natsClient.emit() which is fire-and-forget with no durability.
-    // Using InjectRepository instead of dataSource.manager avoids coupling to the
-    // global entity manager and makes the dependency explicit and testable.
-    @InjectRepository(MessagingOutbox)
-    private readonly outboxRepo: Repository<MessagingOutbox>,
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
     private readonly privacyService: AiPrivacyService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -186,20 +182,18 @@ export class SentimentAnalysisService {
         // welfare monitoring — a dropped alert could delay intervention.
         // WHY: All other domain events in this service go through the outbox for exactly
         // this reason (guaranteed at-least-once delivery via the outbox worker).
-        // SendMessageHandler, DeleteMessageHandler, CreateChannelHandler all use outbox.
-        await this.outboxRepo.save(
-          this.outboxRepo.create({
-            eventType: 'SentimentAlert',
-            payload: {
-              tenantId,
-              channelId,
-              userId: senderId,
-              avgScore,
-              messageCount: CONSECUTIVE_NEGATIVE_ALERT_COUNT,
-              detectedAt: new Date().toISOString(),
-            },
-          }),
-        );
+        // Wrapped in dataSource.transaction() because OutboxPublisher.enqueue() requires
+        // an active transaction context.
+        await this.dataSource.transaction(async (manager) => {
+          await this.outboxPublisher.enqueue({
+            ...createBaseEvent('SentimentAlert', tenantId),
+            channelId,
+            userId: senderId,
+            avgScore,
+            messageCount: CONSECUTIVE_NEGATIVE_ALERT_COUNT,
+            detectedAt: new Date().toISOString(),
+          } as BaseEvent, manager);
+        });
 
         this.logger.warn(
           `SentimentAlert queued via outbox: ${CONSECUTIVE_NEGATIVE_ALERT_COUNT}+ consecutive negative messages ` +

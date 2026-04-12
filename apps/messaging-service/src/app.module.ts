@@ -16,6 +16,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { EventBusModule } from '@platform/event-bus';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import {
@@ -87,6 +88,7 @@ import { AddCompositeFkIndexesOnMessageChildren1781600000000 } from './migration
 import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
 // Package 21-26: Tenant isolation, message idempotency, outbox dedup, audit immutability
 import { AddTenantIsolationAndAuditImmutability1782000000000 } from './migrations/1782000000000-AddTenantIsolationAndAuditImmutability';
+import { AddMessagingOutboxNotifyTrigger1782100000000 } from './migrations/1782100000000-AddMessagingOutboxNotifyTrigger';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -94,7 +96,7 @@ import { ChannelModule } from './channel/channel.module';
 import { MessageModule } from './message/message.module';
 import { PresenceModule } from './presence/presence.module';
 import { PartitionModule } from './partition/partition.module';
-import { OutboxModule } from './outbox/outbox.module';
+import { MessagingOutboxModule } from './outbox/messaging-outbox.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { EventHandlersModule } from './event-handlers/event-handlers.module';
@@ -164,6 +166,7 @@ const complexityCache = new Map<string, number>();
             AddCompositeFkIndexesOnMessageChildren1781600000000,
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddTenantIsolationAndAuditImmutability1782000000000,
+            AddMessagingOutboxNotifyTrigger1782100000000,
           ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {
@@ -267,7 +270,21 @@ const complexityCache = new Map<string, number>();
     // Scheduled tasks (partition manager, outbox cleanup)
     ScheduleModule.forRoot(),
 
-    /** SEC-H01: NATS client with shared auth factory. */
+    // NATS JetStream Event Bus — required by @platform/outbox OutboxWorkerService.
+    // The worker publishes via IEventBus.publish() using subject pattern
+    // events.{tenantId}.{eventType}, aligned with platform event-contracts.
+    EventBusModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
+        streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+      }),
+    }),
+
+    /** SEC-H01: NATS client with shared auth factory — used by NestJS microservice
+     * transport (@MessagePattern handlers). Kept separate from EventBusModule
+     * because ClientProxy uses core NATS request-reply, not JetStream. */
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
@@ -306,7 +323,7 @@ const complexityCache = new Map<string, number>();
     MessageModule,
     PresenceModule,
     PartitionModule,
-    OutboxModule,
+    MessagingOutboxModule,
     GdprModule,
     ComplianceModule,
     EventHandlersModule,

@@ -5,10 +5,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import Redis from 'ioredis';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { SendMessageCommand } from './send-message.command';
 import { Message, MessageContentType } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { sanitizeContent, validateUrlSchemes } from '../../shared/sanitize';
@@ -47,6 +48,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     private readonly mentionService: MentionService,
     private readonly mediaService: MediaService,
     private readonly metricsService: MessagingMetricsService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: SendMessageCommand): Promise<Message> {
@@ -195,22 +197,16 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       // 4c. INSERT outbox event
       // SECURITY: tenantId MUST be set at the entity level (not just inside payload)
       // for per-tenant NATS subject routing in the outbox worker.
-      const outboxEvent = manager.create(MessagingOutbox, {
-        tenantId,
-        eventType: 'MessageSent',
-        payload: {
-          eventId: uuidv4(),
-          tenantId,
-          channelId,
-          messageId: savedMessage.id,
-          senderId,
-          contentType,
-          hasAttachments: attachmentKeys.length > 0,
-          mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
-          createdAt: now.toISOString(),
-        },
-      });
-      await manager.save(MessagingOutbox, outboxEvent);
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('MessageSent', tenantId),
+        channelId,
+        messageId: savedMessage.id,
+        senderId,
+        contentType,
+        hasAttachments: attachmentKeys.length > 0,
+        mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
+        createdAt: now.toISOString(),
+      } as BaseEvent, manager);
 
       return savedMessage;
     });

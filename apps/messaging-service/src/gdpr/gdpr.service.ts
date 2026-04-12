@@ -4,6 +4,8 @@ import { Repository, DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import Redis from 'ioredis';
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { Message } from '../message/entities/message.entity';
 import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
@@ -92,6 +94,7 @@ export class GdprService {
     private readonly legalHoldService: LegalHoldService,
     private readonly complianceAuditService: ComplianceAuditService,
     private readonly metricsService: MessagingMetricsService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -404,26 +407,20 @@ export class GdprService {
 
       // 11. Log to outbox for event publication (UserDataAnonymized + GdprAnonymizeRequested)
       const anonymizedAt = new Date().toISOString();
-      await queryRunner.query(
-        `INSERT INTO messaging_outbox ("eventType", "tenantId", payload, "createdAt")
-         VALUES ($1, $2, $3, NOW())`,
-        [
-          'UserDataAnonymized',
-          tenantId,
-          JSON.stringify({ userId, tenantId, anonymizedAt }),
-        ],
-      );
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('UserDataAnonymized', tenantId),
+        userId,
+        anonymizedAt,
+      } as BaseEvent, queryRunner.manager);
 
       // SECURITY: Cross-service cascade event for ai-service AgentConversation cleanup
-      await queryRunner.query(
-        `INSERT INTO messaging_outbox ("eventType", "tenantId", payload, "createdAt")
-         VALUES ($1, $2, $3, NOW())`,
-        [
-          'GdprAnonymizeRequested',
-          tenantId,
-          JSON.stringify({ userId, tenantId, anonymizedAt, targetService: 'ai-service', targetEntity: 'AgentConversation' }),
-        ],
-      );
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('GdprAnonymizeRequested', tenantId),
+        userId,
+        anonymizedAt,
+        targetService: 'ai-service',
+        targetEntity: 'AgentConversation',
+      } as BaseEvent, queryRunner.manager);
 
       // 12. SECURITY: Compliance audit log INSIDE transaction (before commit)
       // BEFORE: audit log was written AFTER commit, so if audit write failed,

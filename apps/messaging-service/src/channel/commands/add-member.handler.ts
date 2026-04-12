@@ -7,12 +7,12 @@ import {
 } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { AddMemberCommand } from './add-member.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 
 /**
  * Role hierarchy weight — higher number = more privileged.
@@ -42,7 +42,10 @@ export class AddMemberHandler
 {
   private readonly logger = new Logger(AddMemberHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
+  ) {}
 
   /**
    * Add a member to a channel with role hierarchy enforcement.
@@ -131,19 +134,13 @@ export class AddMemberHandler
       }
 
       // Outbox event
-      await queryRunner.manager.save(
-        queryRunner.manager.create(MessagingOutbox, {
-          eventType: 'ChannelMemberAdded',
-          payload: {
-            eventId: uuidv4(),
-            tenantId,
-            channelId,
-            userId: targetUserId,
-            role,
-            addedBy: actorUserId,
-          },
-        }),
-      );
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('ChannelMemberAdded', tenantId),
+        channelId,
+        userId: targetUserId,
+        role,
+        addedBy: actorUserId,
+      } as BaseEvent, queryRunner.manager);
 
       await queryRunner.commitTransaction();
       return member;

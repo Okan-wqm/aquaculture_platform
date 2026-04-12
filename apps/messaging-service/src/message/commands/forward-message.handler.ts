@@ -22,10 +22,11 @@ import { DataSource, Repository, IsNull } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { ForwardMessageCommand } from './forward-message.command';
 import { Message } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 
 @CommandHandler(ForwardMessageCommand)
@@ -40,6 +41,7 @@ export class ForwardMessageHandler
     private readonly messageRepo: Repository<Message>,
     @InjectRepository(ChannelMember)
     private readonly channelMemberRepo: Repository<ChannelMember>,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: ForwardMessageCommand): Promise<Message> {
@@ -143,22 +145,16 @@ export class ForwardMessageHandler
 
         // 3c. Outbox event
         // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
-        const outboxEvent = manager.create(MessagingOutbox, {
-          tenantId,
-          eventType: 'MessageForwarded',
-          payload: {
-            eventId: uuidv4(),
-            tenantId,
-            channelId: targetChannelId,
-            messageId: savedMessage.id,
-            senderId: userId,
-            sourceMessageId,
-            sourceChannelId: sourceMessage.channelId,
-            contentType: sourceMessage.contentType,
-            createdAt: now.toISOString(),
-          },
-        });
-        await manager.save(MessagingOutbox, outboxEvent);
+        await this.outboxPublisher.enqueue({
+          ...createBaseEvent('MessageForwarded', tenantId),
+          channelId: targetChannelId,
+          messageId: savedMessage.id,
+          senderId: userId,
+          sourceMessageId,
+          sourceChannelId: sourceMessage.channelId,
+          contentType: sourceMessage.contentType,
+          createdAt: now.toISOString(),
+        } as BaseEvent, manager);
 
         return savedMessage;
       },

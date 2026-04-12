@@ -3,13 +3,14 @@ import { Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { SetRetentionPolicyCommand } from './set-retention-policy.command';
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { RetentionPolicyService } from '../services/retention-policy.service';
 import { ComplianceAuditService } from '../services/compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
 import { ComplianceAuditLog } from '../entities/compliance-audit-log.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 
 /** Allowed retention values in days. */
 const ALLOWED_RETENTION_DAYS = [90, 365, 1095, -1];
@@ -36,6 +37,7 @@ export class SetRetentionPolicyHandler
     private readonly auditService: ComplianceAuditService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: SetRetentionPolicyCommand): Promise<RetentionPolicy> {
@@ -74,18 +76,14 @@ export class SetRetentionPolicyHandler
       }, manager);
 
       // Publish outbox event within the transaction
-      const outboxEvent = manager.create(MessagingOutbox, {
-        eventType: 'RetentionPolicyChanged',
-        payload: {
-          tenantId,
-          channelId,
-          retentionDays,
-          policyId: policy.id,
-          changedBy: userId,
-          changedAt: new Date().toISOString(),
-        },
-      });
-      await manager.save(MessagingOutbox, outboxEvent);
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('RetentionPolicyChanged', tenantId),
+        channelId,
+        retentionDays,
+        policyId: policy.id,
+        changedBy: userId,
+        changedAt: new Date().toISOString(),
+      } as BaseEvent, manager);
 
       this.logger.log(
         `Retention policy set: ${retentionDays} days for tenant=${tenantId}, channel=${channelId ?? 'all'}`,

@@ -8,12 +8,12 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { ArchiveChannelCommand } from './archive-channel.command';
 import { Channel } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 
 @CommandHandler(ArchiveChannelCommand)
 export class ArchiveChannelHandler
@@ -21,7 +21,10 @@ export class ArchiveChannelHandler
 {
   private readonly logger = new Logger(ArchiveChannelHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
+  ) {}
 
   /**
    * Execute the archive channel command within a single transaction.
@@ -68,18 +71,11 @@ export class ArchiveChannelHandler
       await manager.save(Channel, channel);
 
       // 4. Emit outbox event
-      await manager.save(
-        MessagingOutbox,
-        manager.create(MessagingOutbox, {
-          eventType: 'ChannelArchived',
-          payload: {
-            eventId: uuidv4(),
-            tenantId,
-            channelId,
-            archivedBy: userId,
-          },
-        }),
-      );
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('ChannelArchived', tenantId),
+        channelId,
+        archivedBy: userId,
+      } as BaseEvent, manager);
 
       this.logger.log(`Channel ${channelId} archived by user ${userId}`);
       return true;

@@ -265,8 +265,10 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       const rows: OutboxEntityBase[] = await manager.query(
         `SELECT * FROM "${tableName}"
          WHERE "publishedAt" IS NULL
+           AND "isDeadLettered" = false
            AND "retryCount" < $1
            AND ("leasedAt" IS NULL OR "leasedAt" < $2)
+           AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= NOW())
          ORDER BY "createdAt" ASC
          LIMIT $3
          FOR UPDATE SKIP LOCKED`,
@@ -397,21 +399,30 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       this.logger.error(
         `Outbox row ${row.id} (${row.eventType}) DEAD-LETTERED after ${newRetryCount} attempts: ${message}`,
       );
+      await this.repo.update(row.id, {
+        retryCount: newRetryCount,
+        lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
+        isDeadLettered: true,
+        leasedAt: null,
+        leasedBy: null,
+      });
     } else {
       this.logger.warn(
         `Outbox row ${row.id} (${row.eventType}) publish failed (attempt ${newRetryCount}/${OUTBOX_MAX_RETRIES}): ${message}`,
       );
+      // Exponential backoff: base 2s * 2^retryCount + random jitter (0-1s).
+      // Prevents thundering herd when multiple workers retry simultaneously.
+      const backoffMs = 2000 * Math.pow(2, row.retryCount) + Math.floor(Math.random() * 1000);
+      const nextAttemptAt = new Date(Date.now() + backoffMs);
+      await this.repo.update(row.id, {
+        retryCount: newRetryCount,
+        lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
+        nextAttemptAt,
+        // Release the lease so a subsequent cycle can retry after backoff.
+        leasedAt: null,
+        leasedBy: null,
+      });
     }
-
-    await this.repo.update(row.id, {
-      retryCount: newRetryCount,
-      lastError: message.slice(0, OUTBOX_LAST_ERROR_MAX_LENGTH),
-      // Release the lease so a subsequent cycle can retry immediately.
-      // If the cause is transient (NATS blip) the next cycle has the
-      // best chance of success before the incident window closes.
-      leasedAt: null,
-      leasedBy: null,
-    });
   }
 
   /**

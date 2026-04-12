@@ -3,12 +3,13 @@ import { Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { ToggleLegalHoldCommand } from './toggle-legal-hold.command';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { LegalHoldService } from '../services/legal-hold.service';
 import { ComplianceAuditService } from '../services/compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 
 /**
  * Handler for ToggleLegalHoldCommand.
@@ -32,6 +33,7 @@ export class ToggleLegalHoldHandler
     private readonly auditService: ComplianceAuditService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: ToggleLegalHoldCommand): Promise<LegalHold> {
@@ -104,19 +106,15 @@ export class ToggleLegalHoldHandler
       }, manager);
 
       // Publish outbox event within the transaction
-      const outboxEvent = manager.create(MessagingOutbox, {
-        eventType: 'LegalHoldToggled',
-        payload: {
-          tenantId,
-          holdId: hold.id,
-          channelId: hold.channelId,
-          activate,
-          reason: hold.reason,
-          toggledBy: userId,
-          toggledAt: new Date().toISOString(),
-        },
-      });
-      await manager.save(MessagingOutbox, outboxEvent);
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('LegalHoldToggled', tenantId),
+        holdId: hold.id,
+        channelId: hold.channelId,
+        activate,
+        reason: hold.reason,
+        toggledBy: userId,
+        toggledAt: new Date().toISOString(),
+      } as BaseEvent, manager);
 
       return hold;
     });

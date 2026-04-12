@@ -6,13 +6,13 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { CreateChannelCommand } from './create-channel.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
 import { ChannelService } from '../services/channel.service';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 
 /** Platform roles that are allowed to create GROUP channels */
@@ -33,6 +33,7 @@ export class CreateChannelHandler
     private readonly dataSource: DataSource,
     private readonly channelService: ChannelService,
     private readonly metricsService: MessagingMetricsService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -153,19 +154,12 @@ export class CreateChannelHandler
 
       // Outbox event
       // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
-      await queryRunner.manager.save(
-        queryRunner.manager.create(MessagingOutbox, {
-          tenantId,
-          eventType: 'ChannelCreated',
-          payload: {
-            eventId: uuidv4(),
-            tenantId,
-            channelId: savedChannel.id,
-            channelType: ChannelType.DIRECT,
-            memberIds: peerIds,
-          },
-        }),
-      );
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('ChannelCreated', tenantId),
+        channelId: savedChannel.id,
+        channelType: ChannelType.DIRECT,
+        memberIds: peerIds,
+      } as BaseEvent, queryRunner.manager);
 
       await queryRunner.commitTransaction();
 
@@ -228,19 +222,12 @@ export class CreateChannelHandler
 
       // Outbox event
       // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
-      await queryRunner.manager.save(
-        queryRunner.manager.create(MessagingOutbox, {
-          tenantId,
-          eventType: 'ChannelCreated',
-          payload: {
-            eventId: uuidv4(),
-            tenantId,
-            channelId: savedChannel.id,
-            channelType: input.type,
-            memberIds,
-          },
-        }),
-      );
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('ChannelCreated', tenantId),
+        channelId: savedChannel.id,
+        channelType: input.type,
+        memberIds,
+      } as BaseEvent, queryRunner.manager);
 
       await queryRunner.commitTransaction();
 

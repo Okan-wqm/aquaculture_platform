@@ -18,8 +18,9 @@ import { Repository, DataSource, IsNull } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { Message, MessageContentType } from '../../message/entities/message.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { Channel, ChannelType } from '../../channel/entities/channel.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { sanitizeContent } from '../../shared/sanitize';
@@ -93,6 +94,7 @@ export class AiChatBridgeService {
     private readonly instructionHierarchy: InstructionHierarchyService,
     private readonly toolSchemaValidator: ToolSchemaValidatorService,
     private readonly personasRegistry: AiPersonasRegistryService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   /**
@@ -362,21 +364,16 @@ export class AiChatBridgeService {
       });
       await manager.save(Message, message);
 
-      const outbox = manager.create(MessagingOutbox, {
-        eventType: 'MessageSent',
-        payload: {
-          eventId: uuidv4(),
-          tenantId,
-          channelId,
-          messageId,
-          senderId: AI_USER_ID,
-          contentType: MessageContentType.SYSTEM,
-          hasAttachments: false,
-          createdAt: now.toISOString(),
-          isAiResponse: true,
-        },
-      });
-      await manager.save(MessagingOutbox, outbox);
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('MessageSent', tenantId),
+        channelId,
+        messageId,
+        senderId: AI_USER_ID,
+        contentType: MessageContentType.SYSTEM,
+        hasAttachments: false,
+        createdAt: now.toISOString(),
+        isAiResponse: true,
+      } as BaseEvent, manager);
     });
 
     this.logger.debug(`AI response persisted: ${messageId} in channel ${channelId}`);

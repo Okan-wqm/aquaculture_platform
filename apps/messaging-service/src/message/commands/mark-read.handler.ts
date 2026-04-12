@@ -5,11 +5,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import Redis from 'ioredis';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { MarkReadCommand } from './mark-read.command';
 import { Message } from '../entities/message.entity';
 import { MessageReceipt, ReceiptStatus } from '../entities/message-receipt.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
 /**
@@ -34,6 +35,7 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
     private readonly channelMemberRepo: Repository<ChannelMember>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: MarkReadCommand): Promise<boolean> {
@@ -90,19 +92,13 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
 
       // 2c. Outbox event
       // SECURITY: tenantId MUST be set at entity level for NATS subject routing.
-      const outboxEvent = manager.create(MessagingOutbox, {
-        tenantId,
-        eventType: 'MessageRead',
-        payload: {
-          eventId: uuidv4(),
-          tenantId,
-          channelId,
-          messageId: message.id,
-          userId,
-          readAt: now.toISOString(),
-        },
-      });
-      await manager.save(MessagingOutbox, outboxEvent);
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('MessageRead', tenantId),
+        channelId,
+        messageId: message.id,
+        userId,
+        readAt: now.toISOString(),
+      } as BaseEvent, manager);
     });
 
     // 3. Update Redis unread count (decrement or recalculate)

@@ -26,12 +26,36 @@ export abstract class OutboxEntityBase {
   // TypeORM's standard practice is to map bigint columns to string in TypeScript
   // to avoid silent precision loss on large IDs. The string representation is
   // safe for JSON serialization, comparison, and storage.
+  //
+  // Subclasses CAN override this with `@PrimaryGeneratedColumn('uuid')` and
+  // `declare id: string` for services that use UUID PKs (e.g. messaging-service).
+  // The worker uses raw SQL queries with `this.repo.metadata.tableName` — PK type
+  // is transparent to the polling/lease logic because `id` is always string-typed.
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 
   /** PascalCase event type — e.g. 'BatchCreated', 'MortalityRecorded'. */
   @Column({ type: 'varchar', length: 100 })
   eventType!: string;
+
+  /**
+   * Tenant isolation key. Stored both in the payload (JSONB) and as a
+   * first-class column for indexed filtering and NATS subject routing
+   * (`events.{tenantId}.{eventType}`).
+   *
+   * Nullable for backward compatibility with existing services (farm, hr)
+   * that don't yet populate this column. The worker reads tenantId from
+   * payload.tenantId when the column is null.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  tenantId!: string | null;
+
+  /**
+   * Domain aggregate root ID for event ordering and correlation.
+   * Optional — only relevant for services that need per-aggregate ordering.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  aggregateId!: string | null;
 
   /**
    * Full BaseEvent payload serialized as JSONB.
@@ -57,6 +81,40 @@ export abstract class OutboxEntityBase {
   /** Truncated error message from the last failed publish attempt. */
   @Column({ type: 'text', nullable: true })
   lastError!: string | null;
+
+  /**
+   * Earliest time this row is eligible for retry. Set by the worker on
+   * failed publish attempts using exponential backoff:
+   *   nextAttemptAt = NOW() + BASE * 2^retryCount + jitter
+   *
+   * The polling predicate includes `AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= NOW())`
+   * so rows with a future nextAttemptAt are skipped until the backoff expires.
+   *
+   * Nullable for backward compat: existing rows without this column are
+   * immediately eligible (NULL treated as "now" in the predicate).
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  nextAttemptAt!: Date | null;
+
+  /**
+   * Deduplication key for idempotent enqueue. When set, the UNIQUE index
+   * on (tenantId, idempotencyKey) prevents duplicate outbox rows for the
+   * same logical operation (e.g. retry of a command handler).
+   *
+   * Nullable — most events don't need explicit dedup because the domain
+   * transaction already prevents double-writes.
+   */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  idempotencyKey!: string | null;
+
+  /**
+   * Explicit dead-letter flag. Set when retryCount >= MAX_RETRIES.
+   * Provides a fast-path filter for the polling predicate:
+   *   AND "isDeadLettered" = false
+   * is cheaper than AND "retryCount" < MAX_RETRIES on large tables.
+   */
+  @Column({ type: 'boolean', default: false })
+  isDeadLettered!: boolean;
 
   /**
    * Lease acquired timestamp — set by the worker when it claims a row

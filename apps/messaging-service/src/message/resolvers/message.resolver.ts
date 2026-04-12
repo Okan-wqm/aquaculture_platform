@@ -61,9 +61,9 @@ import { PresenceService } from '../../presence/presence.service';
 // Repositories
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, IsNull } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel-member.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 
 // ============================================================================
 // GRAPHQL TYPES
@@ -211,6 +211,7 @@ export class MessageResolver {
     private readonly reactionRepo: Repository<MessageReaction>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -554,6 +555,7 @@ export class MessageResolver {
     @Args('channelId', { type: () => ID }) channelId: string,
     @Args('messageId', { type: () => ID }) messageId: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<PinnedMessage> {
     const membership = await this.validateChannelMembership(channelId, user.sub);
     if (
@@ -586,15 +588,12 @@ export class MessageResolver {
       });
       const savedPin = await manager.save(PinnedMessage, pinned);
 
-      await manager.save(MessagingOutbox, manager.create(MessagingOutbox, {
-        eventType: 'MessagePinned',
-        payload: {
-          eventId: uuidv4(),
-          channelId,
-          messageId,
-          pinnedBy: user.sub,
-        },
-      }));
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('MessagePinned', tenantId),
+        channelId,
+        messageId,
+        pinnedBy: user.sub,
+      } as BaseEvent, manager);
 
       return savedPin;
     });
@@ -609,6 +608,7 @@ export class MessageResolver {
     @Args('channelId', { type: () => ID }) channelId: string,
     @Args('messageId', { type: () => ID }) messageId: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<boolean> {
     const membership = await this.validateChannelMembership(channelId, user.sub);
     if (
@@ -621,15 +621,12 @@ export class MessageResolver {
     return this.dataSource.transaction(async (manager) => {
       const result = await manager.delete(PinnedMessage, { channelId, messageId });
       if ((result.affected ?? 0) > 0) {
-        await manager.save(MessagingOutbox, manager.create(MessagingOutbox, {
-          eventType: 'MessageUnpinned',
-          payload: {
-            eventId: uuidv4(),
-            channelId,
-            messageId,
-            unpinnedBy: user.sub,
-          },
-        }));
+        await this.outboxPublisher.enqueue({
+          ...createBaseEvent('MessageUnpinned', tenantId),
+          channelId,
+          messageId,
+          unpinnedBy: user.sub,
+        } as BaseEvent, manager);
       }
       return (result.affected ?? 0) > 0;
     });
@@ -644,6 +641,7 @@ export class MessageResolver {
     @Args('messageId', { type: () => ID }) messageId: string,
     @Args('emoji', { type: () => String }) emoji: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<boolean> {
     if (!emoji || emoji.length > 32) {
       throw new BadRequestException('Emoji must be between 1 and 32 characters.');
@@ -673,16 +671,13 @@ export class MessageResolver {
       });
       await manager.save(MessageReaction, reaction);
 
-      await manager.save(MessagingOutbox, manager.create(MessagingOutbox, {
-        eventType: 'ReactionAdded',
-        payload: {
-          eventId: uuidv4(),
-          channelId: message.channelId,
-          messageId,
-          userId: user.sub,
-          emoji,
-        },
-      }));
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('ReactionAdded', tenantId),
+        channelId: message.channelId,
+        messageId,
+        userId: user.sub,
+        emoji,
+      } as BaseEvent, manager);
 
       return true;
     });
@@ -697,6 +692,7 @@ export class MessageResolver {
     @Args('messageId', { type: () => ID }) messageId: string,
     @Args('emoji', { type: () => String }) emoji: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<boolean> {
     return this.dataSource.transaction(async (manager) => {
       const result = await manager.delete(MessageReaction, {
@@ -705,15 +701,12 @@ export class MessageResolver {
         emoji,
       });
       if ((result.affected ?? 0) > 0) {
-        await manager.save(MessagingOutbox, manager.create(MessagingOutbox, {
-          eventType: 'ReactionRemoved',
-          payload: {
-            eventId: uuidv4(),
-            messageId,
-            userId: user.sub,
-            emoji,
-          },
-        }));
+        await this.outboxPublisher.enqueue({
+          ...createBaseEvent('ReactionRemoved', tenantId),
+          messageId,
+          userId: user.sub,
+          emoji,
+        } as BaseEvent, manager);
       }
       return (result.affected ?? 0) > 0;
     });

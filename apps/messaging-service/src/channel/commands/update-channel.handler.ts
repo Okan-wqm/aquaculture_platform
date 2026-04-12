@@ -7,12 +7,12 @@ import {
 } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { v4 as uuidv4 } from 'uuid';
 
+import { OutboxPublisher } from '@platform/outbox';
+import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { UpdateChannelCommand } from './update-channel.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
 import { sanitizeContent } from '../../shared/sanitize';
 
 @Injectable()
@@ -22,7 +22,10 @@ export class UpdateChannelHandler
 {
   private readonly logger = new Logger(UpdateChannelHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
+  ) {}
 
   /**
    * Update channel metadata (name, description, avatarUrl).
@@ -101,17 +104,11 @@ export class UpdateChannelHandler
       const updatedChannel = await queryRunner.manager.save(Channel, channel);
 
       // Write outbox event for ChannelUpdated
-      await queryRunner.manager.save(MessagingOutbox,
-        queryRunner.manager.create(MessagingOutbox, {
-          eventType: 'ChannelUpdated',
-          payload: {
-            eventId: uuidv4(),
-            tenantId: command.tenantId,
-            channelId: channel.id,
-            ...changes,
-          },
-        }),
-      );
+      await this.outboxPublisher.enqueue({
+        ...createBaseEvent('ChannelUpdated', command.tenantId),
+        channelId: channel.id,
+        ...changes,
+      } as BaseEvent, queryRunner.manager);
 
       await queryRunner.commitTransaction();
 

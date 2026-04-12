@@ -81,7 +81,11 @@ export class OutboxPublisher {
    *   swallow — a failed validation indicates a contract violation that
    *   would otherwise produce a cross-tenant leak or a lost event.
    */
-  async enqueue(event: BaseEvent, manager: EntityManager): Promise<void> {
+  async enqueue(
+    event: BaseEvent,
+    manager: EntityManager,
+    options?: { idempotencyKey?: string; aggregateId?: string },
+  ): Promise<void> {
     // ── Event type validation ───────────────────────────────────────
     if (!event.eventType) {
       throw new Error(
@@ -141,10 +145,15 @@ export class OutboxPublisher {
 
     await manager.save(this.entityClass, {
       eventType: event.eventType,
+      tenantId: event.tenantId,
+      aggregateId: options?.aggregateId ?? null,
+      idempotencyKey: options?.idempotencyKey ?? null,
       payload,
       retryCount: 0,
       publishedAt: null,
       lastError: null,
+      nextAttemptAt: null,
+      isDeadLettered: false,
     });
 
     this.logger.debug(

@@ -122,6 +122,13 @@ Always end with:
 
 The orchestrator report is the decision artifact.
 
+Budget-aware handoff rules:
+
+- If 4 or more specialists ran, invoke `context-manager` before `orchestrator`.
+- When a current-cycle `context-manager` report exists, pass that report as the orchestrator's primary synthesis input.
+- Do not make the orchestrator reload every specialist report after compaction. Reopen only the reports needed for exact `CRITICAL` and `HIGH` evidence or unresolved dependency edges.
+- If the raw specialist corpus is too large for a clean final synthesis, split the audit into smaller surface-specific cycles instead of forcing one oversized final pass.
+
 ## Audit Profiles
 
 ### 1. Full Platform Confidence Sweep
@@ -269,6 +276,8 @@ Primary outputs:
 - docs/test-audits/context-manager/{YYYY-MM-DD}-full-platform-e2e.md
 Classify findings as write-gap, read-gap, visibility-gap, schema-gap, access-gap, sync-gap, or tenant-gap.
 Preserve all CRITICAL/HIGH finding IDs verbatim.
+Use the current-cycle context-manager report as the primary input to final synthesis.
+Reopen specialist reports only when exact evidence is needed for preserved CRITICAL/HIGH findings or unresolved dependency edges.
 ```
 
 ### Template B: CRUD Roundtrip Sweep
@@ -304,6 +313,7 @@ Prioritize mobile-app, realtime-sync, form-write, data-readback, list-visibility
 - Do not treat one fresh screen as proof of live correctness across tables, charts, exports, and mobile cache.
 - Do not treat hidden controls as safe if backend boundaries remain open.
 - Do not treat tenant safety as proven until cache, export, live, and mobile storage paths are traced.
+- Do not force the final orchestrator to re-read a large specialist corpus after `context-manager` already compacted it.
 
 ## Exit Criteria
 

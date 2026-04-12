@@ -3,7 +3,7 @@ import {
   Column,
   CreateDateColumn,
 } from 'typeorm';
-import type { IEvent } from '../../../event-bus/src/interfaces/event-bus.interface';
+import type { IEvent } from '@platform/event-bus';
 
 /**
  * Abstract base class for transactional outbox entities.

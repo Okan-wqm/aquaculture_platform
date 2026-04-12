@@ -241,6 +241,7 @@ export class ProvisioningService {
       agentVersion: config.agentVersion,
       mqttBroker: config.mqttBroker,
       mqttPort: config.mqttPort,
+      mqttTlsEnabled: config.mqttTlsEnabled ?? (config.mqttPort === 8883),
     };
 
     return this.installerScriptService.renderInstallerScript(variables, config);
@@ -542,6 +543,7 @@ export class ProvisioningService {
       apiUrl: config.apiBaseUrl,
       agentVersion: config.agentVersion,
       mqttPort: config.mqttPort,
+      mqttTlsEnabled: config.mqttTlsEnabled ?? (config.mqttPort === 8883),
     };
 
     return this.installerScriptService.renderTenantInstallerScript(variables, config);

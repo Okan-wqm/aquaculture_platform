@@ -72,24 +72,93 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   \$\$;
 
   -- ========================================================================
-  -- Schema Creation
+  -- Per-Service Roles (created BEFORE schemas for AUTHORIZATION clause)
+  --
+  -- WHY roles first: CREATE SCHEMA ... AUTHORIZATION requires the role to
+  -- exist. By creating roles before schemas, we can set correct ownership
+  -- from birth — no retroactive ALTER OWNER needed for new databases.
+  -- ========================================================================
+  DO \$\$
+  BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'auth_service') THEN
+      CREATE ROLE auth_service WITH LOGIN PASSWORD '${AUTH_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'farm_service') THEN
+      CREATE ROLE farm_service WITH LOGIN PASSWORD '${FARM_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'sensor_service') THEN
+      CREATE ROLE sensor_service WITH LOGIN PASSWORD '${SENSOR_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'billing_service') THEN
+      CREATE ROLE billing_service WITH LOGIN PASSWORD '${BILLING_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hr_service') THEN
+      CREATE ROLE hr_service WITH LOGIN PASSWORD '${HR_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'alert_service') THEN
+      CREATE ROLE alert_service WITH LOGIN PASSWORD '${ALERT_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'admin_service') THEN
+      CREATE ROLE admin_service WITH LOGIN PASSWORD '${ADMIN_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'gateway_service') THEN
+      CREATE ROLE gateway_service WITH LOGIN PASSWORD '${GATEWAY_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'notification_service') THEN
+      CREATE ROLE notification_service WITH LOGIN PASSWORD '${NOTIFICATION_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hydroponics_service') THEN
+      CREATE ROLE hydroponics_service WITH LOGIN PASSWORD '${HYDROPONICS_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ai_service') THEN
+      CREATE ROLE ai_service WITH LOGIN PASSWORD '${AI_PASS}';
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'messaging_service') THEN
+      CREATE ROLE messaging_service WITH LOGIN PASSWORD '${MESSAGING_PASS}';
+    END IF;
+  END
+  \$\$;
+
+  -- ========================================================================
+  -- Schema Creation with Correct Ownership
+  --
+  -- AUTHORIZATION sets the schema owner at creation time. Tables created
+  -- inside the schema by the owner role inherit the correct ownership
+  -- automatically — no retroactive ALTER OWNER needed.
+  --
+  -- ALTER SCHEMA OWNER TO handles the idempotent case: if the schema
+  -- already exists from a previous init (IF NOT EXISTS skips AUTHORIZATION),
+  -- the ALTER ensures ownership is correct regardless.
   -- ========================================================================
 
-  -- Create schemas for each service
-  CREATE SCHEMA IF NOT EXISTS auth;      -- auth-service: users, tenants, authentication
-  CREATE SCHEMA IF NOT EXISTS billing;   -- billing-service: subscriptions, invoices, payments
-  CREATE SCHEMA IF NOT EXISTS farm;      -- farm-service: farms, tanks, batches, harvests
-  CREATE SCHEMA IF NOT EXISTS sensor;    -- sensor-service: sensors, readings, alerts
-  CREATE SCHEMA IF NOT EXISTS admin;     -- admin-api-service: analytics, system settings
-  CREATE SCHEMA IF NOT EXISTS alert;     -- alert-engine: alert rules, incidents
-  CREATE SCHEMA IF NOT EXISTS hr;            -- hr-service: employees, departments
-  CREATE SCHEMA IF NOT EXISTS gateway;       -- gateway-api: rate limits, audit logs
-  CREATE SCHEMA IF NOT EXISTS hydroponics;   -- hydroponics-service: grow systems, nutrients, cycles
-  CREATE SCHEMA IF NOT EXISTS ai;            -- ai-service: models, predictions, recommendations
-  CREATE SCHEMA IF NOT EXISTS messaging;     -- messaging-service: channels, messages, receipts
+  -- Create schemas owned by their respective service roles
+  CREATE SCHEMA IF NOT EXISTS auth AUTHORIZATION auth_service;
+  CREATE SCHEMA IF NOT EXISTS billing AUTHORIZATION billing_service;
+  CREATE SCHEMA IF NOT EXISTS farm AUTHORIZATION farm_service;
+  CREATE SCHEMA IF NOT EXISTS sensor AUTHORIZATION sensor_service;
+  CREATE SCHEMA IF NOT EXISTS admin AUTHORIZATION admin_service;
+  CREATE SCHEMA IF NOT EXISTS alert AUTHORIZATION alert_service;
+  CREATE SCHEMA IF NOT EXISTS hr AUTHORIZATION hr_service;
+  CREATE SCHEMA IF NOT EXISTS gateway AUTHORIZATION gateway_service;
+  CREATE SCHEMA IF NOT EXISTS hydroponics AUTHORIZATION hydroponics_service;
+  CREATE SCHEMA IF NOT EXISTS ai AUTHORIZATION ai_service;
+  CREATE SCHEMA IF NOT EXISTS messaging AUTHORIZATION messaging_service;
 
-  -- Grant usage on all schemas to the application user
-  -- In production, use a more restrictive approach with separate users per service
+  -- Idempotent ownership fix: if schemas already existed, AUTHORIZATION was
+  -- skipped by IF NOT EXISTS. ALTER OWNER TO ensures correct ownership.
+  ALTER SCHEMA auth OWNER TO auth_service;
+  ALTER SCHEMA billing OWNER TO billing_service;
+  ALTER SCHEMA farm OWNER TO farm_service;
+  ALTER SCHEMA sensor OWNER TO sensor_service;
+  ALTER SCHEMA admin OWNER TO admin_service;
+  ALTER SCHEMA alert OWNER TO alert_service;
+  ALTER SCHEMA hr OWNER TO hr_service;
+  ALTER SCHEMA gateway OWNER TO gateway_service;
+  ALTER SCHEMA hydroponics OWNER TO hydroponics_service;
+  ALTER SCHEMA ai OWNER TO ai_service;
+  ALTER SCHEMA messaging OWNER TO messaging_service;
+
+  -- Grant the shared application user access to all schemas (backward compat)
   GRANT USAGE ON SCHEMA auth TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA billing TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA farm TO ${POSTGRES_USER};
@@ -167,57 +236,10 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT SELECT ON TABLES TO ${POSTGRES_USER};
 
   -- ========================================================================
-  -- Per-service database users (principle of least privilege)
-  -- Each service user has access only to its own schema.
-  -- The shared application user is kept for backwards compatibility with
-  -- the development compose but should NOT be used in production.
-  --
-  -- SEC-015: Passwords are sourced from environment variables.
-  -- If not provided, random passwords are generated at init time.
+  -- Per-service schema grants (roles created above, before schema creation)
   -- ========================================================================
 
-  DO \$\$
-  BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'auth_service') THEN
-      CREATE ROLE auth_service WITH LOGIN PASSWORD '${AUTH_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'farm_service') THEN
-      CREATE ROLE farm_service WITH LOGIN PASSWORD '${FARM_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'sensor_service') THEN
-      CREATE ROLE sensor_service WITH LOGIN PASSWORD '${SENSOR_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'billing_service') THEN
-      CREATE ROLE billing_service WITH LOGIN PASSWORD '${BILLING_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hr_service') THEN
-      CREATE ROLE hr_service WITH LOGIN PASSWORD '${HR_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'alert_service') THEN
-      CREATE ROLE alert_service WITH LOGIN PASSWORD '${ALERT_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'admin_service') THEN
-      CREATE ROLE admin_service WITH LOGIN PASSWORD '${ADMIN_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'gateway_service') THEN
-      CREATE ROLE gateway_service WITH LOGIN PASSWORD '${GATEWAY_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'notification_service') THEN
-      CREATE ROLE notification_service WITH LOGIN PASSWORD '${NOTIFICATION_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hydroponics_service') THEN
-      CREATE ROLE hydroponics_service WITH LOGIN PASSWORD '${HYDROPONICS_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ai_service') THEN
-      CREATE ROLE ai_service WITH LOGIN PASSWORD '${AI_PASS}';
-    END IF;
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'messaging_service') THEN
-      CREATE ROLE messaging_service WITH LOGIN PASSWORD '${MESSAGING_PASS}';
-    END IF;
-  END
-  \$\$;
-
-  -- Grant each service user access only to its own schema
+  -- Grant each service user full access to its own schema
   GRANT USAGE ON SCHEMA auth TO auth_service;
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO auth_service;
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO auth_service;

@@ -281,6 +281,18 @@ services:
         grant_service_schema hydroponics_service  hydroponics
         grant_service_schema messaging_service    messaging
 
+        echo '[db-init] Granting public schema privileges to all service roles'
+        echo '[db-init] WHY: Services like notification, billing, config use public schema.'
+        echo '[db-init] Shared tables (audit_logs, migrations) stay owned by superuser;'
+        echo '[db-init] per-service roles get ALL PRIVILEGES for DDL+DML operations.'
+        for ROLE in auth_service farm_service sensor_service billing_service hr_service alert_service admin_service gateway_service notification_service hydroponics_service messaging_service; do
+          psql -c \"GRANT ALL ON ALL TABLES IN SCHEMA public TO $$ROLE\" 2>/dev/null
+          psql -c \"GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $$ROLE\" 2>/dev/null
+          psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $$ROLE\" 2>/dev/null
+          psql -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $$ROLE\" 2>/dev/null
+        done
+        echo '  [db-init] public schema -> all service roles (GRANT ALL)'
+
         echo '[db-init] Done'
       "
     networks:

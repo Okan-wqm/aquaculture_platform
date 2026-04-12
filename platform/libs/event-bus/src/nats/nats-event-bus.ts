@@ -69,6 +69,7 @@ export class NatsEventBus
   private readonly reconnectTimeWaitMs: number;
   // Security configuration
   private readonly tlsEnabled: boolean;
+  private readonly tlsInsecureAllow: boolean;
   private readonly tlsCaPath?: string;
   private readonly tlsCertPath?: string;
   private readonly tlsKeyPath?: string;
@@ -115,6 +116,7 @@ export class NatsEventBus
 
     // SECURITY: TLS configuration
     this.tlsEnabled = this.configService.get<string>('NATS_TLS_ENABLED', 'false') === 'true';
+    this.tlsInsecureAllow = this.configService.get<string>('NATS_TLS_INSECURE_ALLOW') === 'true';
     this.tlsCaPath = this.configService.get<string>('NATS_TLS_CA');
     this.tlsCertPath = this.configService.get<string>('NATS_TLS_CERT');
     this.tlsKeyPath = this.configService.get<string>('NATS_TLS_KEY');
@@ -205,16 +207,47 @@ export class NatsEventBus
         reconnect: true,
       };
 
-      // SECURITY: Add TLS configuration if enabled
-      if (this.tlsEnabled) {
+      // SECURITY: Two-layer TLS validation — must match nats-connection.factory.ts logic exactly.
+      //
+      // Layer 1 — URL scheme: `tls://` is the authoritative indicator.
+      //   A `nats://` URL with NATS_TLS_ENABLED=true is a misconfiguration.
+      //   A `tls://` URL with NATS_TLS_ENABLED=false is a misconfiguration.
+      // Layer 2 — Explicit flag: NATS_TLS_ENABLED must agree with the URL scheme.
+      //   Disagreement means one side was updated without the other — a deployment bug.
+      //
+      // Hard-fail on any mismatch so the problem surfaces immediately in the
+      // deploy log rather than manifesting as a silent security regression.
+      const servers = connectionOptions.servers as string[];
+      const usesTls = servers.some((s) => s.startsWith('tls://'));
+
+      if (usesTls !== this.tlsEnabled) {
+        const msg = usesTls
+          ? 'NATS_URL uses tls:// but NATS_TLS_ENABLED is not "true". ' +
+            'Set NATS_TLS_ENABLED=true or change NATS_URL to nats://.'
+          : 'NATS_TLS_ENABLED=true but NATS_URL does not use tls://. ' +
+            'Change NATS_URL to tls://nats:4222 or set NATS_TLS_ENABLED=false.';
+        throw new Error(`[NatsEventBus] Security misconfiguration: ${msg}`);
+      }
+
+      if (usesTls) {
+        if (!this.tlsCaPath && !this.tlsInsecureAllow) {
+          // SECURITY: Hard-fail — connecting to a tls:// broker without a CA cert
+          // means the server identity is unverified. On this platform the NATS cert is
+          // self-signed by the Aquaculture Internal CA, which is NOT in any container's
+          // system trust store, so the connection will always fail at handshake time.
+          // Surface the misconfiguration here, at startup, rather than after connect.
+          throw new Error(
+            '[NatsEventBus] NATS_URL uses tls:// but NATS_TLS_CA is not set. ' +
+              'Mount the CA bundle and set NATS_TLS_CA=/etc/ssl/nats-ca.pem. ' +
+              'For local-dev smoke tests only, set NATS_TLS_INSECURE_ALLOW=true.',
+          );
+        }
         connectionOptions.tls = {
-          // CA certificate for server verification
           ...(this.tlsCaPath ? { ca: fs.readFileSync(this.tlsCaPath, 'utf8') } : {}),
-          // Client certificate for mutual TLS
           ...(this.tlsCertPath ? { cert: fs.readFileSync(this.tlsCertPath, 'utf8') } : {}),
           ...(this.tlsKeyPath ? { key: fs.readFileSync(this.tlsKeyPath, 'utf8') } : {}),
         };
-        this.logger.log('NATS TLS enabled');
+        this.logger.log('NATS TLS enabled with CA verification');
       }
 
       // SECURITY: Add authentication if configured

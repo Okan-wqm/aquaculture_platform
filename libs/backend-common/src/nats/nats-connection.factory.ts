@@ -12,6 +12,9 @@ import { readFileSync } from 'fs';
  *   NATS_AUTH_USER                 — username for NATS authorization block
  *   NATS_AUTH_PASS                 — password for NATS authorization block
  *   NATS_AUTH_TOKEN                — token-based auth (alternative to user/pass)
+ *   NATS_TLS_ENABLED               — MUST be set to `true` when NATS_URL is `tls://...`.
+ *                                    Cross-validated against the URL scheme: mismatch
+ *                                    throws immediately so misconfiguration is never silent.
  *   NATS_TLS_CA                    — filesystem path to the CA PEM bundle that signed the
  *                                    NATS server certificate. REQUIRED when NATS_URL is
  *                                    `tls://...` unless NATS_TLS_INSECURE_ALLOW=true is
@@ -124,7 +127,33 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   // ── TLS Configuration ─────────────────────────────────────────────────
   // Hard-fail on misconfiguration — see the IP-1 docblock above for the
   // incident history that motivates the strictness.
+  //
+  // SECURITY: Two-layer validation.
+  //   Layer 1 — URL scheme: `tls://` is the authoritative indicator that
+  //             this process MUST connect over TLS. A plain `nats://` URL
+  //             with `NATS_TLS_ENABLED=true` is a misconfiguration.
+  //   Layer 2 — Explicit flag: NATS_TLS_ENABLED=true must agree with the
+  //             URL scheme. Disagreement is always a deployment bug that
+  //             would silently downgrade security or fail at runtime.
+  //
+  // Both layers must agree — mismatch throws immediately at startup so
+  // the problem surfaces in the deploy log rather than in production traffic.
   const usesTls = options.servers.some((s) => s.startsWith('tls://'));
+  const tlsEnabled = process.env['NATS_TLS_ENABLED'] === 'true';
+
+  if (usesTls && !tlsEnabled) {
+    throw new Error(
+      '[nats-connection.factory] NATS_URL uses tls:// but NATS_TLS_ENABLED is not "true". ' +
+        'Set NATS_TLS_ENABLED=true in the service environment, or change NATS_URL to nats://.',
+    );
+  }
+  if (!usesTls && tlsEnabled) {
+    throw new Error(
+      '[nats-connection.factory] NATS_TLS_ENABLED=true but NATS_URL does not use tls://. ' +
+        'Change NATS_URL to tls://nats:4222, or set NATS_TLS_ENABLED=false.',
+    );
+  }
+
   if (usesTls) {
     const caPath = process.env['NATS_TLS_CA'];
     const insecureAllow = process.env['NATS_TLS_INSECURE_ALLOW'] === 'true';

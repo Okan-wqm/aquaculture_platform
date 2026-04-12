@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, DataSource, LessThan } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import { MessagingOutbox } from './messaging-outbox.entity';
@@ -27,10 +27,25 @@ const LEASE_DURATION_MS = 5 * 60 * 1000;
  * unpublished events and publishes them to NATS.
  *
  * - Polls every second.
- * - Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent double-publish.
+ * - Uses SELECT ... FOR UPDATE SKIP LOCKED inside a transaction to prevent
+ *   double-publish. TypeORM requires pessimistic locks to run within a
+ *   transaction — without one, the QueryBuilder throws
+ *   "An open transaction is required for pessimistic lock."
  * - Applies exponential backoff via nextAttemptAt on retry.
  * - Dead-letters events after 5 failed attempts.
  * - Nightly cleanup removes successfully published events older than 7 days.
+ *
+ * # Concurrency model — lease acquisition inside transaction, publish outside
+ *
+ * Phase 1 (transaction): SELECT FOR UPDATE SKIP LOCKED + lease tag UPDATE.
+ *   The transaction commits BEFORE any NATS publish begins, so the database
+ *   lock is held for milliseconds only — regardless of publish latency.
+ *
+ * Phase 2 (no transaction): NATS publish for each leased row. Network latency
+ *   does not hold database locks. Other replicas can claim the next batch
+ *   in parallel.
+ *
+ * This matches the @platform/outbox worker architecture exactly.
  */
 @Injectable()
 export class OutboxWorkerService implements OnModuleInit {
@@ -44,6 +59,7 @@ export class OutboxWorkerService implements OnModuleInit {
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
     private readonly metricsService: MessagingMetricsService,
+    private readonly dataSource: DataSource,
   ) {
     // IMPORTANT: Worker identity for lease tracking -- hostname + pid
     const hostname = process.env.HOSTNAME ?? 'unknown';
@@ -67,38 +83,52 @@ export class OutboxWorkerService implements OnModuleInit {
     this.processing = true;
 
     try {
-      // ── Claim batch with row-level locking ──
-      // FOR UPDATE SKIP LOCKED ensures each worker claims distinct rows.
-      // Exclude dead-lettered (retryCount >= MAX_RETRIES) and not-yet-eligible rows.
-      const events = await this.outboxRepo
-        .createQueryBuilder('outbox')
-        .setLock('pessimistic_write_or_fail')
-        .where('outbox."publishedAt" IS NULL')
-        .andWhere('outbox."retryCount" < :maxRetries', { maxRetries: MAX_RETRIES })
-        .andWhere('outbox."nextAttemptAt" <= NOW()')
-        .andWhere(
-          '(outbox."leasedAt" IS NULL OR outbox."leasedAt" < :leaseExpiry)',
-          { leaseExpiry: new Date(Date.now() - LEASE_DURATION_MS) },
-        )
-        .orderBy('outbox."createdAt"', 'ASC')
-        .take(BATCH_SIZE)
-        .getMany();
+      // ── Phase 1: Acquire leases inside a transaction ──────────────────
+      // TypeORM requires pessimistic locks (FOR UPDATE SKIP LOCKED) to run
+      // within a transaction. The transaction commits BEFORE the NATS publish
+      // phase, so the database lock is held for milliseconds only.
+      const events = await this.dataSource.transaction(async (manager) => {
+        const repo = manager.getRepository(MessagingOutbox);
+
+        const rows = await repo
+          .createQueryBuilder('outbox')
+          .setLock('pessimistic_write_or_fail')
+          .where('outbox."publishedAt" IS NULL')
+          .andWhere('outbox."retryCount" < :maxRetries', { maxRetries: MAX_RETRIES })
+          .andWhere('outbox."nextAttemptAt" <= NOW()')
+          .andWhere(
+            '(outbox."leasedAt" IS NULL OR outbox."leasedAt" < :leaseExpiry)',
+            { leaseExpiry: new Date(Date.now() - LEASE_DURATION_MS) },
+          )
+          .orderBy('outbox."createdAt"', 'ASC')
+          .take(BATCH_SIZE)
+          .getMany();
+
+        if (rows.length === 0) return [];
+
+        // Tag claimed rows with this worker's identity. The UPDATE runs in
+        // the same transaction so the lock remains valid — other workers'
+        // SELECTs skip these rows via SKIP LOCKED.
+        const eventIds = rows.map((e) => e.id);
+        await manager
+          .createQueryBuilder()
+          .update(MessagingOutbox)
+          .set({ leasedAt: new Date(), leasedBy: this.workerId })
+          .whereInIds(eventIds)
+          .execute();
+
+        return rows;
+      });
+      // Transaction committed — database lock released.
 
       if (events.length === 0) return;
-
-      // ── Mark rows as leased ──
-      const eventIds = events.map((e) => e.id);
-      await this.outboxRepo
-        .createQueryBuilder()
-        .update(MessagingOutbox)
-        .set({ leasedAt: new Date(), leasedBy: this.workerId })
-        .whereInIds(eventIds)
-        .execute();
 
       // Update the outbox-pending gauge for Prometheus
       this.metricsService.setOutboxPending(events.length);
 
-      // ── Publish each event outside the lock ──
+      // ── Phase 2: Publish each event OUTSIDE the transaction ───────────
+      // Network latency does not hold database locks. Other replicas can
+      // claim the next batch in parallel.
       for (const event of events) {
         try {
           // SECURITY: Include tenantId in NATS subject for per-tenant routing.

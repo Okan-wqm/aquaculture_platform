@@ -871,6 +871,24 @@ jobs:
 
               echo "=== Per-service credentials provisioned ==="
 
+              # RSA key pair for JWT RS256 signing (auth-service signs, all verify)
+              echo "=== Ensuring JWT RSA key pair exists ==="
+              JWT_KEY_DIR="/var/aqua-saas/certs/jwt"
+              if [ ! -f "$JWT_KEY_DIR/private.pem" ]; then
+                echo "  Generating RSA-2048 key pair for JWT..."
+                mkdir -p "$JWT_KEY_DIR"
+                openssl genrsa -out "$JWT_KEY_DIR/private.pem" 2048
+                openssl rsa -in "$JWT_KEY_DIR/private.pem" -pubout -out "$JWT_KEY_DIR/public.pem"
+                chmod 600 "$JWT_KEY_DIR/private.pem"
+                chmod 644 "$JWT_KEY_DIR/public.pem"
+                # Write PEM paths to .env
+                grep -q "^JWT_PRIVATE_KEY_PATH=" "$ENV_FILE" || echo "JWT_PRIVATE_KEY_PATH=/etc/ssl/jwt/private.pem" >> "$ENV_FILE"
+                grep -q "^JWT_PUBLIC_KEY_PATH=" "$ENV_FILE" || echo "JWT_PUBLIC_KEY_PATH=/etc/ssl/jwt/public.pem" >> "$ENV_FILE"
+                echo "  JWT RSA key pair generated"
+              else
+                echo "  JWT RSA key pair already exists"
+              fi
+
               echo "=== Ensuring infrastructure databases exist ==="
               # Start only postgres first to create additional databases
               docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true

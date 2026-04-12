@@ -3,6 +3,7 @@ import {
   Column,
   CreateDateColumn,
 } from 'typeorm';
+import type { IEvent } from '../../../event-bus/src/interfaces/event-bus.interface';
 
 /**
  * Abstract base class for transactional outbox entities.
@@ -40,7 +41,7 @@ export abstract class OutboxEntityBase {
    * back to Date objects if needed.
    */
   @Column({ type: 'jsonb' })
-  payload!: Record<string, unknown>;
+  payload!: IEvent;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

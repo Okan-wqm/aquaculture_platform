@@ -177,6 +177,7 @@ export class InstallerScriptService {
     const safeProvisioningToken = this.sanitizeForShell(variables.provisioningToken);
     const safeMqttBroker = this.sanitizeForShell(String(variables.mqttBroker ?? ''));
     const safeMqttPort = this.sanitizeForShell(String(variables.mqttPort));
+    const mqttTlsEnabled = variables.mqttTlsEnabled ? 'true' : 'false';
 
     const header = `#!/bin/bash
 set -euo pipefail
@@ -271,6 +272,7 @@ log ""
     const safeTenantToken = this.sanitizeForShell(variables.tenantToken);
     const safeMqttBroker = this.sanitizeForShell(config?.mqttBroker || this.MQTT_BROKER);
     const safeMqttPort = this.sanitizeForShell(String(variables.mqttPort));
+    const mqttTlsEnabled = variables.mqttTlsEnabled ? 'true' : 'false';
 
     const header = `#!/bin/bash
 set -euo pipefail

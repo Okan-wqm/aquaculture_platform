@@ -212,6 +212,7 @@ export interface InstallerScriptVariables {
   agentVersion: string;
   mqttBroker: string;
   mqttPort: number;
+  mqttTlsEnabled: boolean;
 }
 
 // ============================================
@@ -327,6 +328,7 @@ export interface TenantInstallerScriptVariables {
   apiUrl: string;
   agentVersion: string;
   mqttPort: number;
+  mqttTlsEnabled: boolean;
 }
 
 /**

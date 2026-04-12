@@ -830,6 +830,47 @@ jobs:
                 echo "No existing JetStream data directory found (first deploy or volume not mounted)"
               fi
 
+              # ================================================================
+              # Per-service credential provisioning (CRITICAL-002 / CRITICAL-001)
+              #
+              # Each service needs its own NATS user/password and DB role password.
+              # These are generated ONCE and persisted in .env. Subsequent deploys
+              # detect existing values and skip generation (idempotent).
+              # ================================================================
+              echo "=== Ensuring per-service credentials exist ==="
+              ENV_FILE="/var/aqua-saas/.env"
+
+              generate_credential() {
+                local VAR_NAME="$1"
+                if grep -q "^${VAR_NAME}=" "$ENV_FILE" 2>/dev/null; then
+                  echo "  ${VAR_NAME}: already set"
+                else
+                  local VALUE=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+                  echo "${VAR_NAME}=${VALUE}" >> "$ENV_FILE"
+                  echo "  ${VAR_NAME}: generated"
+                fi
+              }
+
+              # NATS per-service credentials
+              for SVC in AUTH FARM SENSOR GATEWAY NOTIFICATION BILLING ALERT HR MESSAGING HYDROPONICS; do
+                generate_credential "NATS_${SVC}_SVC_USER"
+                generate_credential "NATS_${SVC}_SVC_PASS"
+              done
+
+              # NATS per-service user/pass env vars for nats.conf interpolation
+              for SVC_LOWER in auth farm sensor gateway notification billing alert hr messaging hydroponics; do
+                SVC_UPPER=$(echo "$SVC_LOWER" | tr '[:lower:]' '[:upper:]')
+                generate_credential "NATS_${SVC_UPPER}_USER"
+                generate_credential "NATS_${SVC_UPPER}_PASS"
+              done
+
+              # PostgreSQL per-service role passwords
+              for SVC in AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING; do
+                generate_credential "${SVC}_SERVICE_DB_PASS"
+              done
+
+              echo "=== Per-service credentials provisioned ==="
+
               echo "=== Ensuring infrastructure databases exist ==="
               # Start only postgres first to create additional databases
               docker compose -f docker-compose.droplet.yml up -d --no-build postgres 2>&1 || true
@@ -879,6 +920,29 @@ jobs:
               else
                 echo "No existing JetStream data directory found"
               fi
+
+              # Per-service credential provisioning (same as full deploy path)
+              echo "=== Ensuring per-service credentials exist ==="
+              ENV_FILE="/var/aqua-saas/.env"
+              generate_credential() {
+                local VAR_NAME="$1"
+                if grep -q "^${VAR_NAME}=" "$ENV_FILE" 2>/dev/null; then
+                  echo "  ${VAR_NAME}: already set"
+                else
+                  local VALUE=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+                  echo "${VAR_NAME}=${VALUE}" >> "$ENV_FILE"
+                  echo "  ${VAR_NAME}: generated"
+                fi
+              }
+              for SVC in AUTH FARM SENSOR GATEWAY NOTIFICATION BILLING ALERT HR MESSAGING HYDROPONICS; do
+                generate_credential "NATS_${SVC}_SVC_USER"
+                generate_credential "NATS_${SVC}_SVC_PASS"
+                generate_credential "NATS_${SVC}_USER"
+                generate_credential "NATS_${SVC}_PASS"
+              done
+              for SVC in AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING; do
+                generate_credential "${SVC}_SERVICE_DB_PASS"
+              done
 
               # Ensure infrastructure services are running (no-op if already up)
               echo "=== Ensuring infrastructure is running ==="

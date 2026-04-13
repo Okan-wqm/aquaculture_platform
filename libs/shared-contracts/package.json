@@ -1,0 +1,27 @@
+{
+  "name": "@aquaculture/shared-contracts",
+  "version": "1.0.0",
+  "description": "Canonical enum and type definitions shared across backend and frontend",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "~5.3.0"
+  },
+  "keywords": [
+    "aquaculture",
+    "shared",
+    "contracts",
+    "enums",
+    "types"
+  ],
+  "license": "UNLICENSED"
+}

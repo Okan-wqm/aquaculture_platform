@@ -74,7 +74,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
       // This prevents premature closure of ACTIVE batches via OTHER reason.
       if (reason === BatchCloseReason.OTHER) {
         const isAdmin = userRoles.some(
-          (r) => hasAnyRole(r as Role, [Role.SUPER_ADMIN, Role.TENANT_ADMIN]),
+          (r) => hasAnyRole(r, [Role.SUPER_ADMIN, Role.TENANT_ADMIN]),
         );
         if (!isAdmin) {
           throw new ForbiddenException(

@@ -16,6 +16,7 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  UnauthorizedException,
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
@@ -141,11 +142,17 @@ export class SchemaController {
       }
     }
 
+    // SECURITY: fail-closed — reject destructive operations if initiator cannot be identified
     const user = getAuthUser(req);
+    if (!user?.id) {
+      throw new UnauthorizedException(
+        'Destructive operations require an authenticated user with a verifiable identity.',
+      );
+    }
     const ipAddress = (req.ip || req.socket?.remoteAddress) ?? undefined;
 
     await this.schemaService.deleteSchema(tenantId, hardDelete === 'true', {
-      performedBy: user?.id ?? 'unknown-admin',
+      performedBy: user.id,
       ipAddress,
       userAgent: req.headers['user-agent'],
     });

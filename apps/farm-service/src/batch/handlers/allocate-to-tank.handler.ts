@@ -139,7 +139,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
 
       if (!equipment.hasCapacityFor(biomassKg)) {
         const isAdmin = userRoles.some(
-          (r) => hasAnyRole(r as Role, [Role.SUPER_ADMIN, Role.TENANT_ADMIN]),
+          (r) => hasAnyRole(r, [Role.SUPER_ADMIN, Role.TENANT_ADMIN]),
         );
 
         if (!isAdmin) {

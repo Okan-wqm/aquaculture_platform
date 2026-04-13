@@ -31,12 +31,11 @@ import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { firstValueFrom, timeout, catchError, throwError } from 'rxjs';
 
+import { ConfigService } from '@nestjs/config';
 import { CurrentUser, CurrentUserData } from '../decorators/current-user.decorator';
 
-// ── Constants ───────────────────────────────────────────────────────────
-
-/** NATS request timeout in milliseconds. */
-const NATS_TIMEOUT_MS = 15_000;
+/** Default NATS request timeout when MESSAGING_NATS_TIMEOUT_MS is not configured. */
+const DEFAULT_NATS_TIMEOUT_MS = 15_000;
 
 // ── DTO Interfaces ──────────────────────────────────────────────────────
 
@@ -59,6 +58,49 @@ interface TriggerExportDto {
   format?: 'csv' | 'json';
 }
 
+// ── Response Interfaces ────────────────────────────────────────────────
+
+interface ComplianceStatsResponse {
+  activeHoldsCount: number;
+  retentionPoliciesCount: number;
+  auditLogEntriesCount: number;
+}
+
+interface LegalHoldResponse {
+  id: string;
+  tenantId: string;
+  channelId: string | null;
+  reason: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+interface RetentionPolicyResponse {
+  id: string;
+  tenantId: string;
+  channelId: string | null;
+  retentionDays: number;
+}
+
+interface AuditLogResponse {
+  items: Array<{ id: string; action: string; resourceType: string; createdAt: string }>;
+  hasMore: boolean;
+  cursor: string | null;
+  totalCount: number;
+}
+
+interface ExportResponse {
+  exportId: string;
+  status: string;
+}
+
+interface PersonaResponse {
+  id: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+}
+
 // ── Controller ──────────────────────────────────────────────────────────
 
 @ApiTags('Messaging Admin')
@@ -66,10 +108,18 @@ interface TriggerExportDto {
 export class MessagingAdminController {
   private readonly logger = new Logger(MessagingAdminController.name);
 
+  private readonly natsTimeoutMs: number;
+
   constructor(
     @Inject('MESSAGING_NATS_CLIENT')
     private readonly natsClient: ClientProxy,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.natsTimeoutMs = this.configService.get<number>(
+      'MESSAGING_NATS_TIMEOUT_MS',
+      DEFAULT_NATS_TIMEOUT_MS,
+    );
+  }
 
   // ── Compliance Stats ────────────────────────────────────────────────
 
@@ -81,8 +131,8 @@ export class MessagingAdminController {
   @ApiOperation({ summary: 'Get messaging compliance statistics' })
   async getComplianceStats(
     @Query('tenantId') tenantId: string,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<ComplianceStatsResponse> {
+    return this.sendNatsRequest<ComplianceStatsResponse>(
       'request.messaging.admin.complianceStats',
       { tenantId },
     );
@@ -98,8 +148,8 @@ export class MessagingAdminController {
   @ApiOperation({ summary: 'List legal holds for a tenant' })
   async getLegalHolds(
     @Query('tenantId') tenantId: string,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<LegalHoldResponse[]> {
+    return this.sendNatsRequest<LegalHoldResponse[]>(
       'request.messaging.admin.getLegalHolds',
       { tenantId },
     );
@@ -114,8 +164,8 @@ export class MessagingAdminController {
   async createLegalHold(
     @Body() dto: CreateLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<LegalHoldResponse> {
+    return this.sendNatsRequest<LegalHoldResponse>(
       'request.messaging.admin.createLegalHold',
       {
         tenantId: dto.tenantId,
@@ -140,8 +190,8 @@ export class MessagingAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('tenantId') tenantId: string,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<LegalHoldResponse> {
+    return this.sendNatsRequest<LegalHoldResponse>(
       'request.messaging.admin.releaseLegalHold',
       {
         holdId: id,
@@ -161,8 +211,8 @@ export class MessagingAdminController {
   @ApiOperation({ summary: 'List retention policies for a tenant' })
   async getRetentionPolicies(
     @Query('tenantId') tenantId: string,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<RetentionPolicyResponse[]> {
+    return this.sendNatsRequest<RetentionPolicyResponse[]>(
       'request.messaging.admin.getRetentionPolicies',
       { tenantId },
     );
@@ -178,8 +228,8 @@ export class MessagingAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRetentionPolicyDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<RetentionPolicyResponse> {
+    return this.sendNatsRequest<RetentionPolicyResponse>(
       'request.messaging.admin.updateRetentionPolicy',
       {
         tenantId: id,
@@ -225,8 +275,8 @@ export class MessagingAdminController {
     @Query('resourceType') resourceType?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<AuditLogResponse> {
+    return this.sendNatsRequest<AuditLogResponse>(
       'request.messaging.admin.getAuditLog',
       {
         tenantId,
@@ -270,8 +320,8 @@ export class MessagingAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<ExportResponse> {
+    return this.sendNatsRequest<ExportResponse>(
       'request.messaging.admin.triggerExport',
       {
         tenantId: id,
@@ -291,8 +341,8 @@ export class MessagingAdminController {
   @ApiOperation({ summary: 'Get AI personas configuration' })
   async getPersonas(
     @Query('tenantId') tenantId: string,
-  ): Promise<unknown> {
-    return this.sendNatsRequest(
+  ): Promise<PersonaResponse[]> {
+    return this.sendNatsRequest<PersonaResponse[]>(
       'request.messaging.admin.getPersonas',
       { tenantId },
     );
@@ -332,7 +382,7 @@ export class MessagingAdminController {
     try {
       const result = await firstValueFrom(
         this.natsClient.send<T>(pattern, payload).pipe(
-          timeout(NATS_TIMEOUT_MS),
+          timeout(this.natsTimeoutMs),
           catchError((err: Error) => {
             this.logger.error(
               `NATS request failed: pattern=${pattern}, error=${err.message}`,
@@ -348,7 +398,7 @@ export class MessagingAdminController {
       // NATS timeout
       if (message.includes('Timeout')) {
         throw new HttpException(
-          `Messaging service did not respond within ${NATS_TIMEOUT_MS}ms`,
+          `Messaging service did not respond within ${this.natsTimeoutMs}ms`,
           HttpStatus.GATEWAY_TIMEOUT,
         );
       }

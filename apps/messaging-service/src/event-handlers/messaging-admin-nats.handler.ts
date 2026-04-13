@@ -25,6 +25,7 @@ import { GetAuditLogQuery } from '../compliance/queries/get-audit-log.query';
 import { GetRetentionPoliciesQuery } from '../compliance/queries/get-retention-policies.query';
 import { RetentionPolicy } from '../compliance/entities/retention-policy.entity';
 import { LegalHold } from '../compliance/entities/legal-hold.entity';
+import { ComplianceAction } from '../compliance/entities/compliance-audit-log.entity';
 
 // ── Payload Interfaces ──────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ interface GetAuditLogPayload extends TenantScopedPayload {
   limit: number;
   cursor: string | null;
   userId?: string;
-  action?: string;
+  action?: ComplianceAction;
   resourceType?: string;
   startDate?: string;
   endDate?: string;
@@ -101,25 +102,27 @@ export class MessagingAdminNatsHandler {
   async getComplianceStats(
     @Payload() data: ComplianceStatsPayload,
   ): Promise<{
-    messagesUnderHold: number;
     activeHoldsCount: number;
     retentionPoliciesCount: number;
     auditLogEntriesCount: number;
   }> {
     this.logger.debug(`Admin request: complianceStats for tenant=${data.tenantId}`);
 
-    const [activeHolds, policies] = await Promise.all([
+    const [activeHolds, policies, auditLogResult] = await Promise.all([
       this.legalHoldService.getActiveHolds(data.tenantId),
       this.queryBus.execute<GetRetentionPoliciesQuery, RetentionPolicy[]>(
         new GetRetentionPoliciesQuery(data.tenantId),
       ),
+      this.auditService.getEntries({
+        tenantId: data.tenantId,
+        limit: 0,
+      }),
     ]);
 
     return {
-      messagesUnderHold: 0, // Computed at query time -- placeholder
       activeHoldsCount: activeHolds.length,
       retentionPoliciesCount: policies.length,
-      auditLogEntriesCount: 0, // Would need separate count query
+      auditLogEntriesCount: auditLogResult.totalCount,
     };
   }
 
@@ -244,7 +247,7 @@ export class MessagingAdminNatsHandler {
         Math.min(data.limit, 100),
         data.cursor ?? null,
         data.userId ?? null,
-        (data.action as never) ?? null,
+        data.action ?? null,
         data.resourceType ?? null,
         data.startDate ? new Date(data.startDate) : null,
         data.endDate ? new Date(data.endDate) : null,

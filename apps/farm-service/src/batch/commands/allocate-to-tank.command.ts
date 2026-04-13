@@ -7,6 +7,7 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
+import { Role } from '@aquaculture/backend-common';
 import { AllocationType } from '../entities/tank-allocation.entity';
 
 export { AllocationType };
@@ -26,6 +27,6 @@ export class AllocateToTankCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: AllocateToTankPayload,
     public readonly allocatedBy: string,
-    public readonly userRoles: string[] = [],
+    public readonly userRoles: Role[] = [],
   ) {}
 }

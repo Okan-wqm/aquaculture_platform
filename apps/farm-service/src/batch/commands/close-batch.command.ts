@@ -10,6 +10,7 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
+import { Role } from '@aquaculture/backend-common';
 
 export enum BatchCloseReason {
   HARVEST_COMPLETED = 'harvest_completed',   // Hasat tamamlandi
@@ -25,7 +26,7 @@ export interface CloseBatchOptions {
   readonly batchId: string;
   readonly reason: BatchCloseReason;
   readonly closedBy: string;
-  readonly userRoles: string[];
+  readonly userRoles: Role[];
   readonly notes?: string;
 }
 
@@ -34,7 +35,7 @@ export class CloseBatchCommand implements ITenantCommand {
   public readonly batchId: string;
   public readonly reason: BatchCloseReason;
   public readonly closedBy: string;
-  public readonly userRoles: string[];
+  public readonly userRoles: Role[];
   public readonly notes?: string;
 
   constructor(opts: CloseBatchOptions) {

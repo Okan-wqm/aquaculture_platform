@@ -126,12 +126,12 @@ export class SchemaController {
   async deleteSchema(
     // ParseUUIDPipe: rejects non-UUID tenantId before it reaches the service layer.
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Req() req: Request,
     @Query('hardDelete') hardDelete?: string,
     // SECURITY: Confirmation token required for hard delete to prevent accidental
     // or one-click destructive operations. The token must be the tenantId itself
     // repeated as confirmation (e.g. ?confirmToken=<tenantId>).
     @Query('confirmToken') confirmToken?: string,
-    @Req() req: Request,
   ): Promise<void> {
     if (hardDelete === 'true') {
       if (!confirmToken || confirmToken !== tenantId) {

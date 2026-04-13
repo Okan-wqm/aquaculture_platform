@@ -113,10 +113,11 @@ export class MessagingAdminNatsHandler {
       this.queryBus.execute<GetRetentionPoliciesQuery, RetentionPolicy[]>(
         new GetRetentionPoliciesQuery(data.tenantId),
       ),
-      this.auditService.getEntries({
-        tenantId: data.tenantId,
-        limit: 0,
-      }),
+      this.auditService.getAuditLog(
+        { tenantId: data.tenantId },
+        1,
+        null,
+      ),
     ]);
 
     return {

@@ -306,8 +306,8 @@ export class SchemaManagementService {
    */
   async deleteSchema(
     tenantId: string,
-    hardDelete = false,
-    actionContext?: DestructiveActionContext,
+    hardDelete: boolean,
+    actionContext: DestructiveActionContext,
   ): Promise<void> {
     this.logger.log(`Deleting schema for tenant: ${tenantId}, hardDelete: ${hardDelete}`);
 

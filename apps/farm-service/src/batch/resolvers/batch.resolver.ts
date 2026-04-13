@@ -27,11 +27,16 @@ import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 /**
  * User context interface for CurrentUser decorator
  */
+/**
+ * WHY: roles typed as Role[] because JWT guard validates enum membership
+ * before the request reaches the resolver layer. This makes the type
+ * boundary explicit at the point closest to the untrusted input.
+ */
 interface UserContext {
   sub: string;
   email: string;
   tenantId: string;
-  roles: string[];
+  roles: Role[];
 }
 
 // Commands

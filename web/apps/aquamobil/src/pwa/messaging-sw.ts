@@ -13,25 +13,20 @@ declare const self: ServiceWorkerGlobalScope;
 // Background Sync: offline message queue
 // ============================================================================
 
-/**
- * Register a background sync tag for pending messaging operations.
- * Called from the main thread when a message is queued offline.
- */
-export async function registerMessagingSync(): Promise<void> {
-  if ('serviceWorker' in navigator && 'SyncManager' in window) {
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      await (registration as unknown as { sync: { register: (tag: string) => Promise<void> } })
-        .sync.register('sync-messages');
-    } catch (err) {
-      console.warn('[messaging-sw] Background sync registration failed:', err);
-    }
-  }
-}
+// WHY: registerMessagingSync() was removed — it was orphaned dead code with no
+// call site. Background sync registration is now handled by queueOperation() in
+// offline-queue.ts, which registers both 'sync-operations' and 'sync-messages'
+// tags inline when an operation is queued. One registration site, one owner.
 
 /**
  * Sync event handler — invoked by the browser when connectivity is restored.
- * Posts a message to all active clients to trigger queue flush.
+ * Posts SYNC_COMPLETE to all active clients so the OfflineProvider triggers
+ * a queue refresh and auto-sync via syncAllOperations().
+ *
+ * WHY SYNC_COMPLETE and not SYNC_MESSAGES: The OfflineProvider's service worker
+ * message listener handles 'SYNC_COMPLETE'. Using a single event type ensures
+ * ALL queued operations (messaging + farm + HR) are flushed through the single
+ * authoritative sync engine — no separate messaging-only drain path.
  */
 function handleSyncEvent(event: ExtendableEvent & { tag: string }): void {
   if (event.tag === 'sync-messages' || event.tag === 'sync-operations') {
@@ -42,7 +37,10 @@ function handleSyncEvent(event: ExtendableEvent & { tag: string }): void {
 async function notifyClientsToSync(): Promise<void> {
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
   for (const client of clients) {
-    client.postMessage({ type: 'SYNC_MESSAGES' });
+    // WHY: SYNC_COMPLETE is the event the OfflineProvider listens for.
+    // Previously this posted SYNC_MESSAGES which was silently dropped,
+    // leaving messaging operations stranded after background sync fired.
+    client.postMessage({ type: 'SYNC_COMPLETE' });
   }
 }
 

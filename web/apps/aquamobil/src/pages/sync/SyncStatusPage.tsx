@@ -4,12 +4,34 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { MAX_RETRY_COUNT } from '@/pwa/offline-queue';
 import { clsx } from 'clsx';
 
-// BUG-06: Include recordFeeding so feeding queue entries show a friendly label.
+// WHY: Every OperationType must have a friendly label so the sync status page
+// shows human-readable operation names. Without this, messaging and other operations
+// fall through to the raw type string (e.g. 'sendMessage'), making the queue
+// opaque to field operators. This map is the SINGLE source of truth for operation
+// display names across the sync UI.
 const OPERATION_LABELS: Record<string, { label: string; icon: string }> = {
+  // Farm operations
   recordMortality: { label: 'Mortality', icon: '💀' },
   recordCull: { label: 'Cull', icon: '✂️' },
   createHarvestRecord: { label: 'Harvest', icon: '📦' },
   recordFeeding: { label: 'Feeding', icon: '🐟' },
+  recordTransfer: { label: 'Transfer', icon: '🔄' },
+  createWaterQuality: { label: 'Water Quality', icon: '💧' },
+  // Warehouse operations
+  recordStockMovement: { label: 'Stock Movement', icon: '📋' },
+  transferStock: { label: 'Stock Transfer', icon: '🏭' },
+  // HR operations
+  clockIn: { label: 'Clock In', icon: '🕐' },
+  clockOut: { label: 'Clock Out', icon: '🕑' },
+  createLeaveRequest: { label: 'Leave Request', icon: '🏖️' },
+  // Task operations
+  completeTask: { label: 'Complete Task', icon: '✅' },
+  startTask: { label: 'Start Task', icon: '▶️' },
+  // Messaging operations — ADR-012
+  sendMessage: { label: 'Send Message', icon: '💬' },
+  editMessage: { label: 'Edit Message', icon: '✏️' },
+  deleteMessage: { label: 'Delete Message', icon: '🗑️' },
+  markMessagesRead: { label: 'Mark Read', icon: '👁️' },
 };
 
 export function SyncStatusPage() {

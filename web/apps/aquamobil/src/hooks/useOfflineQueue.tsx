@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   queueOperation,
   getPendingOperations,
@@ -208,6 +209,7 @@ const MUTATIONS: Record<OperationType, string> = {
 export function OfflineProvider({ children }: { children: ReactNode }) {
   const { accessToken, tenantId, user, refreshAuth } = useAuth();
   const isOnline = useNetworkStatus();
+  const queryClient = useQueryClient();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -414,6 +416,21 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         return next;
       });
 
+      // WHY: After a successful queue sync, invalidate React Query caches for
+      // the operation types that were synced. This is the read-after-write
+      // convergence mechanism: the queue is the single write path, so this is
+      // the only place that needs to trigger cache invalidation for queued ops.
+      // Without this, MyLeavesPage (and similar pages) would show stale data
+      // until their staleTime expires, even though the server already accepted
+      // the mutation.
+      const syncedLeaveOps = preSyncOps.filter(
+        (op) => op.type === 'createLeaveRequest' && !remainingIds.has(op.id),
+      );
+      if (syncedLeaveOps.length > 0) {
+        void queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
+        void queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
+      }
+
       // BUG-07: Reset the reconnect guard after a successful sync so that
       // new items queued while online will trigger auto-sync on next effect run.
       if (result.success > 0) {
@@ -439,7 +456,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, pendingOperations, accessToken, refreshAuth, tenantId]);
+  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, pendingOperations, accessToken, refreshAuth, tenantId, queryClient]);
 
   // Keep ref in sync so the auto-sync effect always calls the latest version
   // without needing syncNow in its dependency array (PERF-04).

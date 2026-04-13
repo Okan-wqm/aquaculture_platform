@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -55,14 +55,28 @@ async function fetchLeaveTypes(): Promise<LeaveType[]> {
 // Pattern follows useTanks.ts: network-first, fall back to IndexedDB on error.
 // ---------------------------------------------------------------------------
 
+/** Caller-supplied overrides for the leave balances query. */
+interface LeaveQueryOptions {
+  /** Force a network fetch every time the component mounts, even if
+   *  cached data is still within staleTime. Use 'always' on pages that
+   *  follow a mutation (e.g. MyLeavesPage after submit). */
+  refetchOnMount?: boolean | 'always';
+}
+
 /**
  * Fetches leave balances for a given year.
+ *
+ * @param year - Calendar year for balance lookup.
+ * @param options - Optional React Query overrides (e.g. refetchOnMount).
  *
  * WHY year is a parameter instead of internal state: React Query re-fetches
  * automatically when the queryKey changes, so passing year as an argument
  * lets callers control which year to display without imperative `fetch()`.
  */
-export function useMyLeaveBalances(year: number = new Date().getFullYear()) {
+export function useMyLeaveBalances(
+  year: number = new Date().getFullYear(),
+  options?: LeaveQueryOptions,
+) {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
   // WHY tenantId + year in queryKey: prevents cross-tenant cache collision
@@ -97,17 +111,29 @@ export function useMyLeaveBalances(year: number = new Date().getFullYear()) {
     // are approved/cancelled), so aggressive refetching is wasteful.
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 60, // 1 hour in-memory retention
+    // WHY: callers like MyLeavesPage set refetchOnMount: 'always' so that
+    // navigating back from LeaveRequestPage triggers a fresh fetch even when
+    // in-memory data is within staleTime.
+    refetchOnMount: options?.refetchOnMount,
   });
 }
 
 /**
  * Fetches leave requests with optional status filter and limit.
  *
+ * @param status - Optional status filter (e.g. 'PENDING', 'APPROVED').
+ * @param limit - Maximum number of records to return.
+ * @param options - Optional React Query overrides (e.g. refetchOnMount).
+ *
  * WHY status and limit are parameters: React Query will refetch when the
  * queryKey (which includes these values) changes, giving callers declarative
  * control over the request without imperative `fetch()` calls.
  */
-export function useMyLeaveRequests(status?: string, limit: number = 20) {
+export function useMyLeaveRequests(
+  status?: string,
+  limit: number = 20,
+  options?: LeaveQueryOptions,
+) {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
   // WHY status and limit in cache key: different filter combos produce
@@ -139,6 +165,10 @@ export function useMyLeaveRequests(status?: string, limit: number = 20) {
     // (new submissions, status transitions), so shorter staleness window.
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 30, // 30 minutes in-memory retention
+    // WHY: callers like MyLeavesPage set refetchOnMount: 'always' so that
+    // navigating back from LeaveRequestPage triggers a fresh fetch even when
+    // in-memory data is within staleTime.
+    refetchOnMount: options?.refetchOnMount,
   });
 }
 
@@ -179,43 +209,71 @@ export function useLeaveTypes() {
 }
 
 // ---------------------------------------------------------------------------
-// MUTATION hooks — kept as manual useState+useCallback because they modify
-// server state. Converting to useMutation is a follow-up improvement but
-// not required for the read-path caching/deduplication goals of this phase.
+// MUTATION hooks — use React Query useMutation with cache invalidation so
+// that readback (MyLeavesPage) converges immediately after mutation success.
 // ---------------------------------------------------------------------------
 
-export function useSubmitLeaveRequest() {
-  const [loading, setLoading] = useState(false);
+/**
+ * Submits a draft leave request for approval.
+ *
+ * WHY: invalidates both leaveRequests (status changes from DRAFT to PENDING)
+ * and leaveBalances (pendingDays increases) so the readback page shows the
+ * new state immediately without waiting for staleTime to expire.
+ */
+export function useSubmitLeaveRequest(): { submit: (id: string) => Promise<void>; loading: boolean } {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async (id: string) => {
+      await graphqlRequest(SUBMIT_LEAVE_REQUEST, { id });
+    },
+    onSuccess: () => {
+      // WHY: prefix-only invalidation matches all variants of these queries
+      // (any status filter, limit, tenantId, year combination) so every
+      // mounted consumer gets fresh data after a state-changing mutation.
+      void queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
+      void queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
+    },
+  });
 
   const submit = useCallback(
-    async (id: string) => {
-      setLoading(true);
-      try {
-        await graphqlRequest(SUBMIT_LEAVE_REQUEST, { id });
-      } finally {
-        setLoading(false);
-      }
+    async (id: string): Promise<void> => {
+      await mutation.mutateAsync(id);
     },
-    [],
+    [mutation],
   );
 
-  return { submit, loading };
+  return { submit, loading: mutation.isPending };
 }
 
-export function useCancelLeaveRequest() {
-  const [loading, setLoading] = useState(false);
+/**
+ * Cancels a pending or draft leave request.
+ *
+ * WHY: invalidates leaveRequests (status changes to CANCELLED) and
+ * leaveBalances (pendingDays decreases, remainingDays increases) so the
+ * readback reflects the cancellation without stale cache lag.
+ */
+export function useCancelLeaveRequest(): { cancel: (id: string) => Promise<void>; loading: boolean } {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async (id: string) => {
+      await graphqlRequest(CANCEL_LEAVE_REQUEST, { id });
+    },
+    onSuccess: () => {
+      // WHY: same prefix-only invalidation pattern as useSubmitLeaveRequest
+      // to ensure all mounted leave query variants refetch.
+      void queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
+      void queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
+    },
+  });
 
   const cancel = useCallback(
-    async (id: string) => {
-      setLoading(true);
-      try {
-        await graphqlRequest(CANCEL_LEAVE_REQUEST, { id });
-      } finally {
-        setLoading(false);
-      }
+    async (id: string): Promise<void> => {
+      await mutation.mutateAsync(id);
     },
-    [],
+    [mutation],
   );
 
-  return { cancel, loading };
+  return { cancel, loading: mutation.isPending };
 }

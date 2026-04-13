@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
 import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest } from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
@@ -18,25 +17,29 @@ type Tab = 'balances' | 'requests';
 
 export function MyLeavesPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>('balances');
 
-  // WHY parameters instead of imperative fetch(): React Query auto-fetches
-  // when the component mounts and refetches when params change declaratively.
+  // WHY refetchOnMount 'always': when the user navigates back from
+  // LeaveRequestPage after submitting, React Query would otherwise serve
+  // stale cached data for up to staleTime (2-5 min). Forcing a refetch on
+  // every mount ensures the readback converges immediately post-submit.
   const currentYear = new Date().getFullYear();
-  const { data: balances = [], isLoading: balancesLoading } = useMyLeaveBalances(currentYear);
-  const { data: requests = [], isLoading: requestsLoading } = useMyLeaveRequests(undefined, 30);
+  const { data: balances = [], isLoading: balancesLoading } = useMyLeaveBalances(currentYear, {
+    refetchOnMount: 'always',
+  });
+  const { data: requests = [], isLoading: requestsLoading } = useMyLeaveRequests(undefined, 30, {
+    refetchOnMount: 'always',
+  });
   const { cancel, loading: cancelling } = useCancelLeaveRequest();
 
-  const handleCancel = async (id: string) => {
+  // WHY: no manual invalidateQueries here — useCancelLeaveRequest now
+  // invalidates leaveRequests and leaveBalances caches in its onSuccess
+  // callback, keeping cache invalidation co-located with the mutation.
+  const handleCancel = async (id: string): Promise<void> => {
     try {
       await cancel(id);
-      // WHY invalidate instead of imperative fetch: tells React Query that
-      // cached data is stale, triggering an automatic background refetch.
-      await queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
-      await queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
     } catch {
-      // error handled internally
+      // error handled internally by the mutation hook
     }
   };
 

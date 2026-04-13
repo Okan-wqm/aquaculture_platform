@@ -12,14 +12,18 @@ import {
   Param,
   Body,
   Query,
+  Req,
   HttpStatus,
   HttpCode,
   BadRequestException,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class-validator';
 
+import { Roles } from '../../decorators/roles.decorator';
+import { getAuthUser } from '../../shared/authenticated-request';
 import { SchemaStatus } from '../entities/database-management.entity';
 import { SchemaManagementService } from '../services/schema-management.service';
 
@@ -114,7 +118,9 @@ export class SchemaController {
     return this.schemaService.activateSchema(tenantId);
   }
 
+  // SECURITY: destructive action requires confirmation token and audit
   @Delete(':tenantId')
+  @Roles('SUPER_ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteSchema(
     // ParseUUIDPipe: rejects non-UUID tenantId before it reaches the service layer.
@@ -124,7 +130,8 @@ export class SchemaController {
     // or one-click destructive operations. The token must be the tenantId itself
     // repeated as confirmation (e.g. ?confirmToken=<tenantId>).
     @Query('confirmToken') confirmToken?: string,
-  ) {
+    @Req() req: Request,
+  ): Promise<void> {
     if (hardDelete === 'true') {
       if (!confirmToken || confirmToken !== tenantId) {
         throw new BadRequestException(
@@ -133,7 +140,15 @@ export class SchemaController {
         );
       }
     }
-    await this.schemaService.deleteSchema(tenantId, hardDelete === 'true');
+
+    const user = getAuthUser(req);
+    const ipAddress = (req.ip || req.socket?.remoteAddress) ?? undefined;
+
+    await this.schemaService.deleteSchema(tenantId, hardDelete === 'true', {
+      performedBy: user?.id ?? 'unknown-admin',
+      ipAddress,
+      userAgent: req.headers['user-agent'],
+    });
   }
 
   // ============================================================================

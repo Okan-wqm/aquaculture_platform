@@ -4,11 +4,13 @@
  * Multi-tenant database schema oluşturma, yönetim ve izolasyon servisi.
  */
 
-import { Injectable, Logger, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Optional, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@aquaculture/backend-common';
 
+import { AuditLogService } from '../../audit/audit.service';
+import { AuditSeverity } from '../../audit/audit.entity';
 import {
   TenantSchema,
   SchemaStatus,
@@ -16,6 +18,17 @@ import {
   TableInfo,
   ConnectionPoolStatus,
 } from '../entities/database-management.entity';
+
+// ============================================================================
+// Interfaces
+// ============================================================================
+
+/** Context about the user performing a destructive operation, passed from the controller. */
+export interface DestructiveActionContext {
+  performedBy: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
 
 // ============================================================================
 // Service
@@ -33,6 +46,7 @@ export class SchemaManagementService {
     private readonly schemaRepository: Repository<TenantSchema>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
     @Optional()
     private readonly schemaManager?: SchemaManagerService,
   ) {}
@@ -281,21 +295,62 @@ export class SchemaManagementService {
   }
 
   /**
-   * Delete tenant schema
+   * Delete tenant schema.
+   *
+   * Soft delete marks the schema record as 'deleted'.
+   * Hard delete executes DROP SCHEMA CASCADE and removes the tracking record.
+   *
+   * @param tenantId - UUID of the tenant whose schema should be deleted
+   * @param hardDelete - when true, physically drops the database schema
+   * @param actionContext - initiator identity for the audit trail (required for hard delete)
    */
-  async deleteSchema(tenantId: string, hardDelete = false): Promise<void> {
+  async deleteSchema(
+    tenantId: string,
+    hardDelete = false,
+    actionContext?: DestructiveActionContext,
+  ): Promise<void> {
     this.logger.log(`Deleting schema for tenant: ${tenantId}, hardDelete: ${hardDelete}`);
 
     const schema = await this.getSchemaByTenantId(tenantId);
 
     if (hardDelete) {
-      // SECURITY: Write an immutable audit entry BEFORE the destructive operation.
-      // If the DROP fails, the audit record still exists showing the attempt.
-      this.logger.warn('AUDIT: Schema hard delete initiated', {
+      // SECURITY: destructive action requires confirmation token and audit
+      // Write an immutable audit entry BEFORE the destructive operation.
+      // If the audit write fails, the DROP does NOT proceed.
+      const auditEntry = await this.auditLogService.log({
+        action: 'SCHEMA_HARD_DELETE',
+        entityType: 'TenantSchema',
+        entityId: tenantId,
+        tenantId,
+        performedBy: actionContext?.performedBy ?? 'unknown-admin',
+        ipAddress: actionContext?.ipAddress,
+        userAgent: actionContext?.userAgent,
+        severity: AuditSeverity.CRITICAL,
+        details: {
+          schemaName: schema.schemaName,
+          operation: 'DROP SCHEMA CASCADE',
+          status: 'initiated',
+        },
+      });
+
+      // SECURITY: If the audit write failed, do NOT proceed with the drop.
+      // An irrecoverable destructive operation must have an immutable audit record.
+      if (!auditEntry) {
+        this.logger.error(
+          'SECURITY: Aborting schema hard delete — audit log write failed. ' +
+          `tenantId=${tenantId}, schemaName=${schema.schemaName}`,
+        );
+        throw new InternalServerErrorException(
+          'Cannot proceed with hard delete: audit log write failed. ' +
+          'Contact platform support.',
+        );
+      }
+
+      this.logger.warn('Schema hard delete initiated — audit entry persisted', {
         action: 'SCHEMA_HARD_DELETE',
         tenantId,
         schemaName: schema.schemaName,
-        timestamp: new Date().toISOString(),
+        auditEntryId: auditEntry.id,
       });
 
       const queryRunner = this.dataSource.createQueryRunner();
@@ -305,11 +360,28 @@ export class SchemaManagementService {
         await queryRunner.query(`DROP SCHEMA IF EXISTS "${schema.schemaName}" CASCADE`);
         await this.schemaRepository.delete({ id: schema.id });
 
-        this.logger.warn('AUDIT: Schema hard delete completed', {
+        // SECURITY: Record completion in audit trail
+        await this.auditLogService.log({
+          action: 'SCHEMA_HARD_DELETE_COMPLETED',
+          entityType: 'TenantSchema',
+          entityId: tenantId,
+          tenantId,
+          performedBy: actionContext?.performedBy ?? 'unknown-admin',
+          ipAddress: actionContext?.ipAddress,
+          userAgent: actionContext?.userAgent,
+          severity: AuditSeverity.CRITICAL,
+          details: {
+            schemaName: schema.schemaName,
+            operation: 'DROP SCHEMA CASCADE',
+            status: 'completed',
+            initiatingAuditEntryId: auditEntry.id,
+          },
+        });
+
+        this.logger.warn('Schema hard delete completed', {
           action: 'SCHEMA_HARD_DELETE_COMPLETED',
           tenantId,
           schemaName: schema.schemaName,
-          timestamp: new Date().toISOString(),
         });
       } finally {
         await queryRunner.release();

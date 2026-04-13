@@ -180,7 +180,7 @@ export function MyLeavesPage() {
                 <p>
                   {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
                 </p>
-                <p>{request.totalDays} day{request.totalDays !== 1 ? 's' : ''}{request.isHalfDay ? ' (half day)' : ''}</p>
+                <p>{request.totalDays} day{request.totalDays !== 1 ? 's' : ''}{request.isHalfDayStart || request.isHalfDayEnd ? ' (half day)' : ''}</p>
                 {request.reason && <p className="text-gray-400 italic">{request.reason}</p>}
               </div>
 

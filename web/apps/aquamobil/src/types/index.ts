@@ -209,18 +209,28 @@ export interface LeaveRequest {
   startDate: string;
   endDate: string;
   totalDays: number;
-  isHalfDay: boolean;
+  isHalfDayStart: boolean;
+  isHalfDayEnd: boolean;
+  halfDayPeriod?: 'am' | 'pm';
   reason?: string;
   status: LeaveRequestStatus;
   createdAt: string;
 }
 
+// WHY: This interface matches the backend CreateLeaveRequestInput DTO exactly.
+// The backend requires employeeId + totalDays and uses isHalfDayStart/isHalfDayEnd
+// (not a single isHalfDay boolean). halfDayPeriod is an enum ('am' | 'pm').
 export interface CreateLeaveRequestInput {
+  employeeId: string;
   leaveTypeId: string;
   startDate: string;
   endDate: string;
-  isHalfDay?: boolean;
+  totalDays: number;
+  isHalfDayStart?: boolean;
+  isHalfDayEnd?: boolean;
+  halfDayPeriod?: 'am' | 'pm';
   reason?: string;
+  contactDuringLeave?: string;
 }
 
 // Offline queue types

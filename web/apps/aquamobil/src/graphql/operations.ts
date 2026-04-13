@@ -199,7 +199,9 @@ export const GET_MY_LEAVE_REQUESTS = `
       startDate
       endDate
       totalDays
-      isHalfDay
+      isHalfDayStart
+      isHalfDayEnd
+      halfDayPeriod
       reason
       status
       createdAt

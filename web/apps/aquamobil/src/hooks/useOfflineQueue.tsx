@@ -39,6 +39,16 @@ interface OfflineContextValue {
 
 const OfflineContext = createContext<OfflineContextValue | null>(null);
 
+// WHY: submitLeaveRequest mutation is defined outside MUTATIONS because it is
+// never queued as a standalone operation — it is only called as the second step
+// of the createLeaveRequest compound flow inside executeGraphQL. Keeping it
+// outside the component avoids per-render recreation and useCallback dep churn.
+const SUBMIT_LEAVE_AFTER_CREATE = `
+  mutation SubmitLeaveRequest($id: ID!) {
+    submitLeaveRequest(id: $id) { id status }
+  }
+`;
+
 // GraphQL mutations for sync - tenantId/userId extracted from JWT by backend
 const MUTATIONS: Record<OperationType, string> = {
   recordMortality: `
@@ -266,6 +276,40 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     [refreshQueue, accessToken, tenantId, user]
   );
 
+  /** Execute a single GraphQL mutation and return the parsed response data. */
+  const executeSingleMutation = useCallback(
+    async (query: string, variables: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      if (!accessToken || !tenantId || !user) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          'X-Tenant-Id': tenantId,
+          // SEC-06: CSRF defense header
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const result = await response.json() as { data?: Record<string, unknown>; errors?: Array<{ message: string }> };
+
+      if (result.errors && result.errors.length > 0) {
+        throw new Error(result.errors[0]?.message || 'GraphQL error');
+      }
+
+      return result.data ?? {};
+    },
+    [accessToken, tenantId, user],
+  );
+
   const executeGraphQL = useCallback(
     async (type: OperationType, payload: OperationPayload): Promise<unknown> => {
       if (!accessToken || !tenantId || !user) {
@@ -287,34 +331,23 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         variables = { input: payload };
       }
 
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'X-Tenant-Id': tenantId,
-          // SEC-06: CSRF defense header
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({
-          query: MUTATIONS[type],
-          variables,
-        }),
-      });
+      const data = await executeSingleMutation(MUTATIONS[type], variables);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
+      // WHY: Leave requests require a two-step backend flow (create DRAFT then
+      // submit for approval). Rather than exposing this as two separate queue
+      // operations — which would break if the first succeeds but the second
+      // doesn't get queued — we chain them atomically here. The queue sees ONE
+      // operation; the sync engine transparently handles both mutations.
+      if (type === 'createLeaveRequest') {
+        const created = data['createLeaveRequest'] as { id: string } | undefined;
+        if (created?.id) {
+          await executeSingleMutation(SUBMIT_LEAVE_AFTER_CREATE, { id: created.id });
+        }
       }
 
-      const result = await response.json() as { data?: unknown; errors?: Array<{ message: string }> };
-
-      if (result.errors && result.errors.length > 0) {
-        throw new Error(result.errors[0]?.message || 'GraphQL error');
-      }
-
-      return result.data;
+      return data;
     },
-    [accessToken, tenantId, user]
+    [accessToken, tenantId, user, executeSingleMutation]
   );
 
   const syncNow = useCallback(async (): Promise<SyncResult> => {

@@ -263,13 +263,13 @@ export class CreateMessagingTables1711800000000 implements MigrationInterface {
         ON "${s}"."message_receipts" ("messageId");
     `);
 
-    // SECURITY: Enforce logical receipt uniqueness (messageId + userId) independent
-    // of the partition column. The original UNIQUE constraint included receiptCreatedAt,
-    // allowing duplicate logical receipts across partition boundaries.
-    // A unique index on (messageId, userId) works across all partitions.
+    // SECURITY: Enforce receipt uniqueness per message+user within each partition.
+    // PostgreSQL requires all unique constraints on partitioned tables to include
+    // the partition key. Cross-partition logical uniqueness is enforced at the
+    // application layer (MarkReadCommand checks existing receipts before insert).
     await queryRunner.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS "uq_receipt_message_user_logical"
-        ON "${s}"."message_receipts" ("messageId", "userId");
+      CREATE UNIQUE INDEX IF NOT EXISTS "uq_receipt_message_user_partition"
+        ON "${s}"."message_receipts" ("messageId", "userId", "receiptCreatedAt");
     `);
 
     // ------------------------------------------------------------------

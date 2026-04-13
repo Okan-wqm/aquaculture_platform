@@ -536,7 +536,7 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health/live >/dev/null 2>&1 || exit 1"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -593,7 +593,7 @@ services:
           memory: 384M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -641,7 +641,7 @@ services:
           memory: 384M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -709,7 +709,7 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -764,7 +764,7 @@ services:
           memory: 384M
           cpus: '0.5'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -811,7 +811,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -858,7 +858,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -905,7 +905,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -952,7 +952,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1008,7 +1008,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1045,7 +1045,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3009/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3009/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1097,7 +1097,7 @@ services:
           memory: 256M
           cpus: '0.25'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3

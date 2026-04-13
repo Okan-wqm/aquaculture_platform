@@ -1,0 +1,193 @@
+# ============================================================================
+# E2E Tests — Messaging Service
+#
+# Runs the messaging-service E2E test suite against real PostgreSQL + Redis.
+# Tests cover: channel CRUD, messaging core, tenant isolation, AI chat,
+# compliance, presence, offline sync, rate limiting, GDPR, and more.
+#
+# SEC-CI-002: All third-party actions pinned to full commit SHAs
+# SEC-CI-021: Minimum token permissions
+#
+# This workflow is designed to be reused as a template for other services.
+# To add E2E tests for another service:
+#   1. Copy this file as e2e-{service-name}.yml
+#   2. Update SERVICE_NAME, jest config path, and test directory
+#   3. Add service-specific init SQL if needed
+# ============================================================================
+
+name: E2E - Messaging Service
+
+on:
+  push:
+    branches: [main, develop, 'feature/*', 'hotfix/*']
+    paths:
+      - 'apps/messaging-service/**'
+      - 'libs/backend-common/**'
+      - 'libs/event-contracts/**'
+      - 'platform/libs/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/messaging-service/**'
+      - 'libs/backend-common/**'
+      - 'libs/event-contracts/**'
+      - 'platform/libs/**'
+  workflow_dispatch:
+    inputs:
+      test_filter:
+        description: 'Test file filter (e.g. tenant-isolation, messaging-core)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  SERVICE_NAME: messaging-service
+
+concurrency:
+  group: e2e-messaging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-messaging:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # ── Infrastructure Services ──────────────────────────────────────────
+    # Real PostgreSQL (TimescaleDB) + Real Redis — same images as production.
+    # NATS is not needed: E2E tests mock the NATS client at the NestJS level.
+
+    services:
+      postgres:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: aquaculture_e2e
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────
+      # SEC-CI-002: pinned to SHA
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      # ── Node.js Setup ────────────────────────────────────────────────
+      # SEC-CI-002: pinned to SHA
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # ── NX Cache ─────────────────────────────────────────────────────
+      # SEC-CI-002: pinned to SHA
+      - name: Cache NX
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-e2e-messaging-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-e2e-messaging-${{ runner.os }}-
+
+      # ── Install Dependencies ─────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      # ── Database Setup ───────────────────────────────────────────────
+      # Create the messaging source schema and grant permissions.
+      # This replicates what 00-init-schemas.sh does in docker-compose.
+      - name: Initialize database schemas
+        run: |
+          psql -h localhost -U postgres -d aquaculture_e2e <<'SQL'
+            -- Create messaging source schema (template for tenant schemas)
+            CREATE SCHEMA IF NOT EXISTS messaging;
+
+            -- Grant permissions to postgres user (in CI we use the superuser directly)
+            GRANT ALL PRIVILEGES ON SCHEMA messaging TO postgres;
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA messaging TO postgres;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON TABLES TO postgres;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON SEQUENCES TO postgres;
+
+            -- Enable extensions required by messaging-service
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+          SQL
+        env:
+          PGPASSWORD: postgres
+
+      # ── Run E2E Tests ────────────────────────────────────────────────
+      # Tests bootstrap the full NestJS application via Test.createTestingModule().
+      # Migrations run automatically on app init (migrationsRun: true).
+      # Tenant schemas are created dynamically by the test setup.
+      - name: Run E2E tests
+        run: |
+          TEST_FILTER="${{ github.event.inputs.test_filter || '' }}"
+          if [ -n "$TEST_FILTER" ]; then
+            npx jest \
+              --config apps/messaging-service/test/jest-e2e.config.ts \
+              --runInBand \
+              --verbose \
+              --forceExit \
+              --testPathPattern="$TEST_FILTER"
+          else
+            npx jest \
+              --config apps/messaging-service/test/jest-e2e.config.ts \
+              --runInBand \
+              --verbose \
+              --forceExit
+          fi
+        env:
+          # ── Database ──
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: postgres
+          DATABASE_PASSWORD: postgres
+          DATABASE_NAME: aquaculture_e2e
+          DATABASE_MIGRATIONS_RUN: 'true'
+          # ── Redis ──
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          REDIS_DB: 3
+          # ── Rate Limiting ──
+          THROTTLE_ENABLED: 'false'
+          # ── Security ──
+          # INTERNAL_SERVICE_SECRET intentionally NOT set —
+          # ServiceIdentityGuard auto-disables in non-production mode.
+          NODE_ENV: test
+          # ── NX ──
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+
+      # ── Test Results ─────────────────────────────────────────────────
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-messaging-results-${{ github.run_number }}
+          path: |
+            apps/messaging-service/test/**/*.xml
+            apps/messaging-service/test/**/*.json
+          retention-days: 14
+          if-no-files-found: ignore

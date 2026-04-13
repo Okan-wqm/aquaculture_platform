@@ -313,7 +313,7 @@ export class BatchResolver {
     const { batchId, ...rest } = input;
     const payload = { ...rest, allocatedAt: rest.allocatedAt || new Date() };
     return this.commandBus.execute(
-      new AllocateToTankCommand(tenantId, batchId, payload, user.sub),
+      new AllocateToTankCommand(tenantId, batchId, payload, user.sub, user.roles),
     );
   }
 
@@ -350,6 +350,7 @@ export class BatchResolver {
         batchId: id,
         reason,
         closedBy: user.sub,
+        userRoles: user.roles,
         notes,
       }),
     );

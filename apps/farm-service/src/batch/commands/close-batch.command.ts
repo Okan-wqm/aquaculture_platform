@@ -25,6 +25,7 @@ export interface CloseBatchOptions {
   readonly batchId: string;
   readonly reason: BatchCloseReason;
   readonly closedBy: string;
+  readonly userRoles: string[];
   readonly notes?: string;
 }
 
@@ -33,6 +34,7 @@ export class CloseBatchCommand implements ITenantCommand {
   public readonly batchId: string;
   public readonly reason: BatchCloseReason;
   public readonly closedBy: string;
+  public readonly userRoles: string[];
   public readonly notes?: string;
 
   constructor(opts: CloseBatchOptions) {
@@ -40,6 +42,7 @@ export class CloseBatchCommand implements ITenantCommand {
     this.batchId = opts.batchId;
     this.reason = opts.reason;
     this.closedBy = opts.closedBy;
+    this.userRoles = opts.userRoles;
     this.notes = opts.notes;
   }
 }

@@ -19,7 +19,7 @@
  * @module Batch/Handlers
  */
 import { randomUUID } from 'crypto';
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -28,6 +28,7 @@ import type { BatchClosedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
+import { Role, hasAnyRole } from '@aquaculture/backend-common';
 
 @Injectable()
 @CommandHandler(CloseBatchCommand)
@@ -43,7 +44,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
   ) {}
 
   async execute(command: CloseBatchCommand): Promise<Batch> {
-    const { tenantId, batchId, reason, notes, closedBy } = command;
+    const { tenantId, batchId, reason, notes, closedBy, userRoles } = command;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -71,6 +72,22 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
       // It is restricted to admin-only override paths. Regular users MUST
       // close batches through the correct lifecycle (harvest, transfer, fail, cancel).
       // This prevents premature closure of ACTIVE batches via OTHER reason.
+      if (reason === BatchCloseReason.OTHER) {
+        const isAdmin = userRoles.some(
+          (r) => hasAnyRole(r as Role, [Role.SUPER_ADMIN, Role.TENANT_ADMIN]),
+        );
+        if (!isAdmin) {
+          throw new ForbiddenException(
+            `BatchCloseReason.OTHER is restricted to admin users. ` +
+            `Regular users must close batches through the correct lifecycle ` +
+            `(HARVEST_COMPLETED, TRANSFERRED, FAILED, CANCELLED).`,
+          );
+        }
+        this.logger.warn(
+          `Admin override: batch ${batchId} closed with OTHER reason by ${closedBy}, tenant: ${tenantId}`,
+        );
+      }
+
       const allowedPreviousStatuses: Record<BatchCloseReason, BatchStatus[]> = {
         [BatchCloseReason.HARVEST_COMPLETED]: [BatchStatus.HARVESTED, BatchStatus.HARVESTING],
         [BatchCloseReason.TRANSFERRED]: [BatchStatus.TRANSFERRED],

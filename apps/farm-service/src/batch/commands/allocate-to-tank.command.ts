@@ -26,5 +26,6 @@ export class AllocateToTankCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: AllocateToTankPayload,
     public readonly allocatedBy: string,
+    public readonly userRoles: string[] = [],
   ) {}
 }

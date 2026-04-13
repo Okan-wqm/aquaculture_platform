@@ -16,7 +16,7 @@
  * @module Batch/Handlers
  */
 import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -28,6 +28,7 @@ import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment, TankSpecifications, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { Role, hasAnyRole } from '@aquaculture/backend-common';
 
 /**
  * Map the command's AllocationType enum to the BatchAllocatedToTankEvent
@@ -83,7 +84,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
    * to the same tank simultaneously.
    */
   async execute(command: AllocateToTankCommand): Promise<TankAllocation> {
-    const { tenantId, batchId, payload, allocatedBy } = command;
+    const { tenantId, batchId, payload, allocatedBy, userRoles } = command;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -131,30 +132,46 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       const volume = equipment.volume || specs?.volume || 0;
 
       // LIFE-SAFETY: Hard capacity enforcement — reject over-capacity allocations.
-      // The previous implementation logged a warning and proceeded, allowing unsafe
-      // stocking density. This now blocks the allocation entirely.
+      // Uses equipment.hasCapacityFor() which checks BOTH biomass limit AND density
+      // limit against the equipment's specifications. Admin users can override with
+      // mandatory audit trail logging.
       const biomassKg = (payload.quantity * payload.avgWeightG) / 1000;
-      const currentBiomass = equipment.currentBiomass || 0;
-      const availableCapacity = maxBiomass - currentBiomass;
 
-      if (maxBiomass > 0 && biomassKg > availableCapacity) {
-        throw new BadRequestException(
-          `Equipment ${equipment.code} kapasite asimi. Eklenen biyokütle: ${biomassKg.toFixed(2)} kg, ` +
-          `Mevcut kapasite: ${availableCapacity.toFixed(2)} kg. Stoklama reddedildi.`
+      if (!equipment.hasCapacityFor(biomassKg)) {
+        const isAdmin = userRoles.some(
+          (r) => hasAnyRole(r as Role, [Role.SUPER_ADMIN, Role.TENANT_ADMIN]),
+        );
+
+        if (!isAdmin) {
+          const currentBiomass = equipment.currentBiomass || 0;
+          const availableCapacity = equipment.getAvailableCapacity();
+          const effectiveVol = equipment.volume || 0;
+          const projectedDensity = effectiveVol > 0
+            ? (currentBiomass + biomassKg) / effectiveVol
+            : 0;
+
+          // LIFE-SAFETY: Block non-admin allocation that exceeds capacity or density.
+          throw new BadRequestException(
+            `Equipment ${equipment.code} kapasite/yogunluk asimi. ` +
+            `Eklenen biyokütle: ${biomassKg.toFixed(2)} kg, ` +
+            `Kullanilabilir kapasite: ${availableCapacity.toFixed(2)} kg, ` +
+            `Projeksiyon yogunluk: ${projectedDensity.toFixed(2)} kg/m3, ` +
+            `Maksimum yogunluk: ${maxDensity} kg/m3. Stoklama reddedildi.`,
+          );
+        }
+
+        // SECURITY: Admin override — allow allocation but log for audit trail
+        this.logger.warn(
+          `ADMIN OVERRIDE: capacity/density limit exceeded for equipment ${equipment.code}. ` +
+          `Batch ${batchId}, biomass ${biomassKg.toFixed(2)} kg, ` +
+          `available ${equipment.getAvailableCapacity().toFixed(2)} kg. ` +
+          `Overridden by ${allocatedBy}, tenant: ${tenantId}`,
         );
       }
 
       const effectiveVolume = volume;
-      const densityKgM3 = effectiveVolume ? biomassKg / Number(effectiveVolume) : 0;
-
-      // LIFE-SAFETY: Check projected density against maxDensity.
-      // Exceeding stocking density is an animal welfare violation.
-      if (maxDensity > 0 && densityKgM3 > maxDensity) {
-        throw new BadRequestException(
-          `Equipment ${equipment.code} yogunluk limiti asimi. Hesaplanan yogunluk: ${densityKgM3.toFixed(2)} kg/m3, ` +
-          `Maksimum yogunluk: ${maxDensity} kg/m3. Stoklama reddedildi.`
-        );
-      }
+      const currentBiomass = equipment.currentBiomass || 0;
+      const densityKgM3 = effectiveVolume ? (currentBiomass + biomassKg) / Number(effectiveVolume) : 0;
 
       // Allocation kaydı oluştur
       const allocation = queryRunner.manager.create(TankAllocation, {

@@ -100,17 +100,6 @@ function reportViolation(src: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Validates a script src value against the allowlist and applies SRI hash
- * pins when available. Returns the (possibly cleared) src value.
- *
- * SECURITY: This is the single enforcement point for both createElement and
- * setAttribute interception paths, ensuring consistent policy application.
- *
- * @param src - The script src URL to validate
- * @param scriptElement - The script element to apply integrity attributes to
- * @returns The validated src (empty string if blocked)
- */
-/**
  * Determines whether a dynamically injected script is a federation-runtime
  * script that must pass through the integrity guard.
  *
@@ -139,6 +128,19 @@ function isFederationScript(src: string): boolean {
   return false;
 }
 
+/**
+ * Validates a script src value against the allowlist and applies SRI hash
+ * pins when available. Returns the (possibly cleared) src value.
+ *
+ * SECURITY: This is the single enforcement point for both createElement and
+ * setAttribute interception paths, ensuring consistent policy application.
+ * In production, scripts without a manifest pin are blocked (fail-closed).
+ * In development, unverified scripts are allowed with a warning.
+ *
+ * @param src - The script src URL to validate
+ * @param scriptElement - The script element to apply integrity attributes to
+ * @returns The validated src (empty string if blocked)
+ */
 function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptElement): string {
   // SECURITY (FE-CRITICAL-001 fix): Previously this returned early for ANY
   // script not containing 'remoteEntry', allowing arbitrary injected scripts
@@ -152,44 +154,50 @@ function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptEleme
     return '';
   }
 
-  // Apply hash pin if registered
+  // ── SRI hash-pin enforcement ──
   const pin = REMOTE_HASH_PINS[src];
   if (pin) {
     scriptElement.integrity = pin;
     scriptElement.crossOrigin = 'anonymous';
-  } else if (import.meta.env.DEV) {
-    // Warn in development when no hash pin is registered.
+    return src;
+  }
+
+  // No hash pin registered for this script URL
+  if (import.meta.env.DEV) {
+    // SECURITY: development mode — warn only, allow script to load
     // eslint-disable-next-line no-console
     console.warn(
       `[SH-SEC-04] No integrity hash pinned for federation script: ${src}. ` +
         'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.'
     );
-  } else if (import.meta.env.PROD) {
-    // SEC-M02: Runtime warning when SRI hash map is empty in production.
-    // This indicates the CI/CD pipeline has not yet populated REMOTE_HASH_PINS.
-    // Remote modules will still load (allowlist permits them), but without
-    // integrity verification, a CDN or proxy compromise could inject
-    // malicious code. Dispatch a security event for monitoring/alerting.
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[SH-SEC-04] PRODUCTION: No SRI hash pinned for federation script: ${src}. ` +
-        'CI/CD must populate REMOTE_HASH_PINS for subresource integrity enforcement.'
-    );
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('aquaculture:security-violation', {
-          detail: {
-            type: 'SRI_HASH_MISSING',
-            src,
-            timestamp: Date.now(),
-            severity: 'warning',
-          },
-        })
-      );
-    }
+    return src;
   }
 
-  return src;
+  // SECURITY: fail-closed — block unverified scripts in production
+  // Any federation script without a manifest pin is blocked. This ensures
+  // that a compromised CDN/proxy cannot inject scripts that bypass SRI.
+  // CI/CD must populate REMOTE_HASH_PINS for all federation bundles.
+  const blockMessage =
+    `[SH-SEC-04] PRODUCTION: Blocked federation script without SRI hash pin: ${src}. ` +
+    'CI/CD must populate REMOTE_HASH_PINS for subresource integrity enforcement.';
+
+  // eslint-disable-next-line no-console
+  console.error(blockMessage);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('aquaculture:security-violation', {
+        detail: {
+          type: 'SRI_HASH_MISSING_BLOCKED',
+          src,
+          timestamp: Date.now(),
+          severity: 'critical',
+        },
+      })
+    );
+  }
+
+  return '';
 }
 
 // ---------------------------------------------------------------------------

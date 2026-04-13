@@ -81,6 +81,9 @@ export async function authenticatedFetch(
   // auth store. The refresh response may carry an updated tenantId, and the
   // retry must send the fresh value in the X-Tenant-Id header. Previously
   // only Authorization was updated, leaving a stale or missing X-Tenant-Id.
+  // SECURITY: fail-closed — if token refresh fails, clear the session to force
+  // re-login. Without this, the user is stuck in a deadlock with a broken token
+  // (e.g., old HS256 token after RS256 migration) and no way to recover.
   if (response.status === 401 && authStore.refreshAuth) {
     const refreshed = await authStore.refreshAuth();
     if (refreshed && authStore.accessToken) {
@@ -93,6 +96,9 @@ export async function authenticatedFetch(
         headers,
         credentials: options?.credentials ?? 'include',
       });
+    } else if (authStore.logout) {
+      // Refresh failed — session is irrecoverable, force clean logout
+      await authStore.logout();
     }
   }
 

@@ -539,7 +539,10 @@ class GraphQLClient {
             await this.handleUnauthorized();
             return this.request(query, variables, options, retryCount + 1);
           } catch {
-            // Refresh failed — throw the original GraphQL error
+            // SECURITY: fail-closed — if token refresh fails on an auth error,
+            // the session is irrecoverable. Clear it to force re-login instead
+            // of leaving the user in a deadlocked state with a broken token.
+            clearSession();
           }
         }
 

@@ -264,7 +264,15 @@ export class TokenService {
 
   async getUserModules(user: User): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
     if (user.role === Role.SUPER_ADMIN) {
-      return [];
+      // SUPER_ADMIN sees ALL active modules (platform-wide, not tenant-scoped).
+      // Previous behavior returned [] which made the sidebar empty.
+      const allModules = await this.dataSource.query<Array<{ code: string; name: string; defaultRoute: string }>>(
+        `SELECT code, name, "defaultRoute"
+         FROM auth.modules
+         WHERE "isActive" = true
+         ORDER BY "sortOrder" ASC, name ASC`,
+      );
+      return allModules;
     }
 
     const cached = this.moduleCache.get(user.id);

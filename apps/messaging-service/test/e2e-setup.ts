@@ -102,14 +102,27 @@ export async function createE2eTestApp(
     close: jest.fn().mockResolvedValue(undefined),
   };
 
+  // Full IEventBus interface mock — every method from IEventPublisher,
+  // IEventSubscriber, and IEventBus plus NestJS lifecycle hooks.
   const mockEventBus = {
+    // IEventPublisher
     publish: jest.fn().mockResolvedValue(undefined),
+    publishBatch: jest.fn().mockResolvedValue(undefined),
+    publishTo: jest.fn().mockResolvedValue(undefined),
+    // IEventSubscriber
     subscribe: jest.fn().mockResolvedValue(undefined),
     subscribeTo: jest.fn().mockResolvedValue(undefined),
+    unsubscribe: jest.fn().mockResolvedValue(undefined),
+    unsubscribeFrom: jest.fn().mockResolvedValue(undefined),
+    // IEventBus
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
     isConnected: jest.fn().mockReturnValue(true),
-    getHealthStatus: jest.fn().mockReturnValue({ isHealthy: true }),
+    getHealth: jest.fn().mockResolvedValue({
+      isHealthy: true,
+      connectionState: 'connected',
+    }),
+    // NestJS lifecycle
     onModuleInit: jest.fn().mockResolvedValue(undefined),
     onModuleDestroy: jest.fn().mockResolvedValue(undefined),
   };

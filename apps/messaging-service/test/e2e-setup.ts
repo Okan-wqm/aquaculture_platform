@@ -17,7 +17,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
-import * as request from 'supertest';
+import supertest from 'supertest';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import { getTenantSchemaName } from '@aquaculture/backend-common';
@@ -121,7 +121,7 @@ export function gqlRequest(
   tenantId: string,
   userId: string,
   roles: string[] = ['MODULE_USER'],
-): { query: (gql: string, variables?: Record<string, unknown>) => request.Test } {
+): { query: (gql: string, variables?: Record<string, unknown>) => supertest.Test } {
   const userPayload = JSON.stringify({
     sub: userId,
     email: `${userId.slice(0, 8)}@test.com`,
@@ -133,7 +133,7 @@ export function gqlRequest(
 
   return {
     query: (gql: string, variables?: Record<string, unknown>) =>
-      request(httpServer)
+      supertest(httpServer)
         .post('/graphql')
         .set('x-user-payload', userPayload)
         .set('x-tenant-id', tenantId)

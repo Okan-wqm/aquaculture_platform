@@ -13,9 +13,6 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "devDependencies": {
-    "typescript": "~5.3.0"
-  },
   "keywords": [
     "aquaculture",
     "shared",

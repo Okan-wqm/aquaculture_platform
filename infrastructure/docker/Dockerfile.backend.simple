@@ -51,9 +51,11 @@ COPY --chown=nestjs:nodejs dist/apps/${SERVICE_NAME} ./dist
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Health check - uses /health/live endpoint for liveness probe
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl --fail --silent http://127.0.0.1:${PORT}/health/live || exit 1
+# IMPORTANT: No HEALTHCHECK directive here — health checks are defined in
+# docker-compose.yml / Kubernetes manifests (runtime configuration).
+# Baking HEALTHCHECK into the image causes conflicts when compose tries to
+# override it: Docker uses the image-embedded check as fallback, and some
+# compose v2 versions don't properly override the test command.
 
 # Switch to non-root user
 USER nestjs

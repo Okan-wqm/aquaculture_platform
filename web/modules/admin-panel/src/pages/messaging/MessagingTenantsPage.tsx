@@ -2,304 +2,239 @@
  * Messaging Tenants Page
  *
  * Per-tenant messaging management for SUPER_ADMIN.
- * Table with tenant breakdown, search/filter, pagination, and actions.
+ *
+ * The tenant listing endpoint (GET /messaging/tenants) returns 501 because
+ * cross-tenant messaging aggregation is not yet implemented. This page
+ * shows an honest "not yet available" state for the overview table, but
+ * provides a working data-export trigger for individual tenants via
+ * POST /messaging/tenants/:id/export.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { messagingApi } from '../../services/adminApi';
+import type { ApiError } from '../../services/http-client';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface TenantMessaging {
+interface ExportFormState {
   tenantId: string;
-  tenantName: string;
-  totalChannels: number;
-  totalMessages: number;
-  activeUsers: number;
-  storageUsedMB: number;
-  messagingEnabled: boolean;
-  lastActivity: string;
+  format: 'csv' | 'json';
 }
 
-interface PaginationState {
-  page: number;
-  pageSize: number;
-  total: number;
+interface ExportResult {
+  jobId: string;
+  status: string;
+  format: string;
+  recordCount: number;
+  isUnderLegalHold: boolean;
+  exportedAt: string;
 }
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const PAGE_SIZES = [10, 25, 50];
-
-// ============================================================================
-// Mock Data (TODO: Replace with admin API calls)
-// ============================================================================
-
-const MOCK_TENANTS: TenantMessaging[] = [];
 
 // ============================================================================
 // Main Component
 // ============================================================================
 
 const MessagingTenantsPage: React.FC = () => {
-  const [tenants, setTenants] = useState<TenantMessaging[]>(MOCK_TENANTS);
-  const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
-  const [pagination, setPagination] = useState<PaginationState>({
-    page: 1,
-    pageSize: 10,
-    total: 0,
+  const [exportForm, setExportForm] = useState<ExportFormState>({
+    tenantId: '',
+    format: 'json',
   });
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
-  const fetchTenants = useCallback(async () => {
-    setLoading(true);
+  /** SECURITY: Validate UUID format before sending to API */
+  const isValidUuid = (value: string): boolean =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+  const handleExport = useCallback(async (): Promise<void> => {
+    if (!exportForm.tenantId.trim()) {
+      setExportError('Tenant ID is required.');
+      return;
+    }
+
+    if (!isValidUuid(exportForm.tenantId.trim())) {
+      setExportError('Tenant ID must be a valid UUID.');
+      return;
+    }
+
+    setExportLoading(true);
+    setExportError(null);
+    setExportResult(null);
+
     try {
-      // TODO: Replace with actual admin API call
-      // const res = await adminApi.get('/admin/messaging/tenants', {
-      //   params: { page: pagination.page, pageSize: pagination.pageSize, search },
-      // });
-      // setTenants(res.data.items);
-      // setPagination(prev => ({ ...prev, total: res.data.total }));
-
-      setTenants(MOCK_TENANTS);
-      setPagination((prev) => ({ ...prev, total: 0 }));
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch messaging tenants:', error);
+      const result = await messagingApi.triggerExport(
+        exportForm.tenantId.trim(),
+        exportForm.format,
+      );
+      setExportResult(result);
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      setExportError(apiErr.message || 'Failed to trigger export.');
     } finally {
-      setLoading(false);
+      setExportLoading(false);
     }
-  }, [pagination.page, pagination.pageSize, search]);
-
-  useEffect(() => {
-    void fetchTenants();
-  }, [fetchTenants]);
-
-  const filteredTenants = useMemo(() => {
-    if (!search.trim()) return tenants;
-    const q = search.toLowerCase();
-    return tenants.filter(
-      (t) =>
-        t.tenantName.toLowerCase().includes(q) ||
-        t.tenantId.toLowerCase().includes(q),
-    );
-  }, [tenants, search]);
-
-  const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
-
-  const handleToggleMessaging = useCallback(
-    async (tenantId: string, enabled: boolean) => {
-      try {
-        // TODO: Replace with actual admin API call
-        // await adminApi.patch(`/admin/messaging/tenants/${tenantId}`, { messagingEnabled: enabled });
-        setTenants((prev) =>
-          prev.map((t) =>
-            t.tenantId === tenantId ? { ...t, messagingEnabled: enabled } : t,
-          ),
-        );
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to toggle messaging:', error);
-      }
-    },
-    [],
-  );
-
-  const handleExport = useCallback(async (tenantId: string) => {
-    try {
-      // TODO: Replace with actual admin API call
-      // const res = await adminApi.get(`/admin/messaging/tenants/${tenantId}/export`, {
-      //   responseType: 'blob',
-      // });
-      // Download blob
-      // eslint-disable-next-line no-console
-      console.log('Export requested for tenant:', tenantId);
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to export:', error);
-    }
-  }, []);
+  }, [exportForm]);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Per-tenant messaging management and controls
-          </p>
-        </div>
-        <Button
-          onClick={() => void fetchTenants()}
-          disabled={loading}
-          variant="secondary"
-          size="sm"
-        >
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Per-tenant messaging management and controls
+        </p>
       </div>
 
-      {/* Search & Filter */}
+      {/* Tenant Overview -- Not Yet Available */}
       <Card>
-        <div className="p-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <div className="flex-1 w-full">
-            <input
-              type="text"
-              placeholder="Search by tenant name or ID..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPagination((prev) => ({ ...prev, page: 1 }));
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-          </div>
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <span>Show</span>
-            <select
-              value={pagination.pageSize}
-              onChange={(e) =>
-                setPagination((prev) => ({
-                  ...prev,
-                  pageSize: Number(e.target.value),
-                  page: 1,
-                }))
-              }
-              className="border border-gray-300 rounded px-2 py-1 text-sm"
-            >
-              {PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-            <span>per page</span>
+        <div className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">
+                Tenant Messaging Overview Not Yet Available
+              </h3>
+              <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                The tenant messaging overview table requires cross-service aggregation
+                that is not yet implemented in the messaging service. This involves
+                collecting per-tenant channel counts, message volumes, active users,
+                and storage usage across tenant boundaries.
+              </p>
+              <div className="mt-3">
+                <Badge variant="warning">Backend: 501 Not Implemented</Badge>
+              </div>
+            </div>
           </div>
         </div>
       </Card>
 
-      {/* Table */}
+      {/* Data Export -- Working */}
       <Card>
-        <div className="overflow-x-auto">
-          {filteredTenants.length === 0 && !loading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="text-center">
-                <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                <p className="text-sm text-gray-500">No tenants with messaging data found.</p>
-              </div>
+        <div className="p-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">
+            Trigger Tenant Data Export
+          </h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Export all messaging data for a specific tenant. The export job runs
+            asynchronously and respects active legal holds.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+            <div className="flex-1 w-full">
+              <label htmlFor="export-tenant-id" className="block text-xs font-medium text-gray-700 mb-1">
+                Tenant ID (UUID)
+              </label>
+              <input
+                id="export-tenant-id"
+                type="text"
+                placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                value={exportForm.tenantId}
+                onChange={(e) => {
+                  setExportForm((prev) => ({ ...prev, tenantId: e.target.value }));
+                  setExportError(null);
+                  setExportResult(null);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
             </div>
-          ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tenant
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Channels
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Messages
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Active Users
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Storage (MB)
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredTenants.map((t) => (
-                  <tr key={t.tenantId} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{t.tenantName}</p>
-                        <p className="text-xs text-gray-400 font-mono">{t.tenantId.slice(0, 8)}...</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 text-right">{t.totalChannels}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                      {t.totalMessages.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 text-right">{t.activeUsers}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                      {t.storageUsedMB.toFixed(1)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Badge variant={t.messagingEnabled ? 'success' : 'error'}>
-                        {t.messagingEnabled ? 'Enabled' : 'Disabled'}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => void handleToggleMessaging(t.tenantId, !t.messagingEnabled)}
-                          className={`text-xs px-2 py-1 rounded font-medium ${
-                            t.messagingEnabled
-                              ? 'text-red-600 hover:bg-red-50'
-                              : 'text-green-600 hover:bg-green-50'
-                          }`}
-                        >
-                          {t.messagingEnabled ? 'Disable' : 'Enable'}
-                        </button>
-                        <button
-                          onClick={() => void handleExport(t.tenantId)}
-                          className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
-                        >
-                          Export
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div>
+              <label htmlFor="export-format" className="block text-xs font-medium text-gray-700 mb-1">
+                Format
+              </label>
+              <select
+                id="export-format"
+                value={exportForm.format}
+                onChange={(e) =>
+                  setExportForm((prev) => ({
+                    ...prev,
+                    format: e.target.value as 'csv' | 'json',
+                  }))
+                }
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+              </select>
+            </div>
+            <Button
+              onClick={() => void handleExport()}
+              disabled={exportLoading || !exportForm.tenantId.trim()}
+              variant="primary"
+              size="sm"
+            >
+              {exportLoading ? 'Exporting...' : 'Trigger Export'}
+            </Button>
+          </div>
+
+          {/* Export Error */}
+          {exportError && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700">{exportError}</p>
+            </div>
+          )}
+
+          {/* Export Result */}
+          {exportResult && (
+            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-sm font-medium text-green-800 mb-2">
+                Export job accepted
+              </p>
+              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                <div>
+                  <dt className="text-green-600 font-medium">Job ID</dt>
+                  <dd className="text-green-800 font-mono">{exportResult.jobId}</dd>
+                </div>
+                <div>
+                  <dt className="text-green-600 font-medium">Status</dt>
+                  <dd className="text-green-800">{exportResult.status}</dd>
+                </div>
+                <div>
+                  <dt className="text-green-600 font-medium">Format</dt>
+                  <dd className="text-green-800">{exportResult.format}</dd>
+                </div>
+                <div>
+                  <dt className="text-green-600 font-medium">Records</dt>
+                  <dd className="text-green-800">{exportResult.recordCount.toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-green-600 font-medium">Legal Hold</dt>
+                  <dd className="text-green-800">
+                    {exportResult.isUnderLegalHold ? 'Yes' : 'No'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-green-600 font-medium">Exported At</dt>
+                  <dd className="text-green-800">
+                    {new Date(exportResult.exportedAt).toLocaleString()}
+                  </dd>
+                </div>
+              </dl>
+            </div>
           )}
         </div>
+      </Card>
 
-        {/* Pagination */}
-        {pagination.total > pagination.pageSize && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-            <p className="text-sm text-gray-500">
-              Showing {(pagination.page - 1) * pagination.pageSize + 1} to{' '}
-              {Math.min(pagination.page * pagination.pageSize, pagination.total)} of{' '}
-              {pagination.total}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPagination((prev) => ({ ...prev, page: prev.page - 1 }))}
-                disabled={pagination.page <= 1}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <span className="text-sm text-gray-600">
-                Page {pagination.page} of {totalPages}
-              </span>
-              <button
-                onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))}
-                disabled={pagination.page >= totalPages}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+      {/* Architecture Note */}
+      <Card className="p-4 bg-blue-50 border-blue-200">
+        <h3 className="text-sm font-semibold text-blue-900 mb-1">
+          Architecture Note
+        </h3>
+        <p className="text-xs text-blue-700 leading-relaxed">
+          The tenant overview requires a cross-tenant aggregation endpoint in
+          messaging-service that collects channel counts, message volumes,
+          active user counts, and storage usage. This involves querying each
+          tenant schema in isolation and merging results, which needs the
+          multi-tenant query infrastructure to be extended. Until then, use the
+          per-tenant compliance and audit pages for individual tenant visibility.
+        </p>
       </Card>
     </div>
   );

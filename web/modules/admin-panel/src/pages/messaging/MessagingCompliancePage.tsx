@@ -5,67 +5,32 @@
  * Shows retention policies, legal holds, export jobs, compliance stats,
  * and an audit log operations-per-day chart.
  *
+ * Wired to real admin-api-service endpoints:
+ *   - GET  /messaging/compliance/stats
+ *   - GET  /messaging/compliance/legal-holds
+ *   - POST /messaging/compliance/legal-holds
+ *   - DELETE /messaging/compliance/legal-holds/:id
+ *
  * @see ADR-012 Phase 3 (Compliance)
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { useAsyncData } from '../../hooks/useAsyncData';
+import { messagingApi } from '../../services/api/messaging';
+import type {
+  ComplianceStats,
+  LegalHold,
+  ExportRecord,
+  RetentionBucket,
+  DailyAuditData,
+} from '../../services/api/messaging';
 
 // ============================================================================
-// Types
+// Empty-state defaults (used before first API response)
 // ============================================================================
 
-interface ComplianceStats {
-  messagesUnderLegalHold: number;
-  pendingRetentionCleanup: number;
-  activeExports: number;
-  complianceScore: number;
-  activeHoldsCount: number;
-  retentionPoliciesCount: number;
-  auditEntriesCount: number;
-}
-
-interface LegalHold {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  channelId: string | null;
-  channelName: string | null;
-  reason: string;
-  startedBy: string;
-  startedAt: string;
-  releasedBy: string | null;
-  releasedAt: string | null;
-  isActive: boolean;
-}
-
-interface ExportRecord {
-  id: string;
-  tenantName: string;
-  format: 'json' | 'csv';
-  recordCount: number;
-  status: 'pending' | 'completed' | 'failed';
-  isUnderLegalHold: boolean;
-  createdAt: string;
-  downloadUrl?: string;
-}
-
-interface RetentionBucket {
-  label: string;
-  tenantCount: number;
-  color: string;
-}
-
-interface DailyAuditData {
-  date: string;
-  count: number;
-}
-
-// ============================================================================
-// Mock Data (TODO: Replace with admin API calls)
-// ============================================================================
-
-const MOCK_STATS: ComplianceStats = {
+const EMPTY_STATS: ComplianceStats = {
   messagesUnderLegalHold: 0,
   pendingRetentionCleanup: 0,
   activeExports: 0,
@@ -74,16 +39,6 @@ const MOCK_STATS: ComplianceStats = {
   retentionPoliciesCount: 0,
   auditEntriesCount: 0,
 };
-
-const MOCK_LEGAL_HOLDS: LegalHold[] = [];
-const MOCK_EXPORTS: ExportRecord[] = [];
-const MOCK_RETENTION_BUCKETS: RetentionBucket[] = [
-  { label: '90 days', tenantCount: 0, color: 'bg-blue-500' },
-  { label: '1 year', tenantCount: 0, color: 'bg-green-500' },
-  { label: '3 years', tenantCount: 0, color: 'bg-yellow-500' },
-  { label: 'Indefinite', tenantCount: 0, color: 'bg-purple-500' },
-];
-const MOCK_DAILY_AUDIT: DailyAuditData[] = [];
 
 // ============================================================================
 // StatCard Component
@@ -220,74 +175,93 @@ const RetentionChart: React.FC<{ buckets: RetentionBucket[] }> = ({ buckets }) =
 };
 
 // ============================================================================
+// ErrorBanner Component
+// ============================================================================
+
+const ErrorBanner: React.FC<{
+  message: string;
+  onRetry?: () => void;
+  canRetry?: boolean;
+}> = ({ message, onRetry, canRetry }) => (
+  <div className="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center justify-between">
+    <div className="flex items-center gap-2">
+      <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z" />
+      </svg>
+      <p className="text-sm text-red-700">{message}</p>
+    </div>
+    {canRetry && onRetry && (
+      <button
+        onClick={onRetry}
+        className="text-xs px-3 py-1 rounded font-medium text-red-600 hover:bg-red-100"
+      >
+        Retry
+      </button>
+    )}
+  </div>
+);
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
 const MessagingCompliancePage: React.FC = () => {
-  const [stats, setStats] = useState<ComplianceStats>(MOCK_STATS);
-  const [legalHolds, setLegalHolds] = useState<LegalHold[]>(MOCK_LEGAL_HOLDS);
-  const [exports, setExports] = useState<ExportRecord[]>(MOCK_EXPORTS);
-  const [retentionBuckets, setRetentionBuckets] = useState<RetentionBucket[]>(MOCK_RETENTION_BUCKETS);
-  const [dailyAudit, setDailyAudit] = useState<DailyAuditData[]>(MOCK_DAILY_AUDIT);
-  const [loading, setLoading] = useState(false);
+  // ── Mutation state for release/create ──
+  const [releaseLoading, setReleaseLoading] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // ── Compliance Stats ──
+  const statsQuery = useAsyncData<ComplianceStats>(
+    () => messagingApi.getComplianceStats(),
+    { cacheKey: 'messaging-compliance-stats', cacheTTL: 15_000 },
+  );
+
+  // ── Legal Holds ──
+  const holdsQuery = useAsyncData<LegalHold[]>(
+    () => messagingApi.getLegalHolds(),
+    { cacheKey: 'messaging-compliance-legal-holds', cacheTTL: 15_000 },
+  );
+
+  const stats = statsQuery.data ?? EMPTY_STATS;
+  const legalHolds = holdsQuery.data ?? [];
+
+  // WHY: Exports, retention buckets, and daily audit data are not yet served
+  // by dedicated endpoints. These sections render empty-state UI until
+  // the messaging-service exposes the corresponding aggregation queries.
+  const exports: ExportRecord[] = [];
+  const retentionBuckets: RetentionBucket[] = [
+    { label: '90 days', tenantCount: 0, color: 'bg-blue-500' },
+    { label: '1 year', tenantCount: 0, color: 'bg-green-500' },
+    { label: '3 years', tenantCount: 0, color: 'bg-yellow-500' },
+    { label: 'Indefinite', tenantCount: 0, color: 'bg-purple-500' },
+  ];
+  const dailyAudit: DailyAuditData[] = [];
+
+  const loading = statsQuery.loading || holdsQuery.loading;
+  const queryError = statsQuery.error || holdsQuery.error;
+
+  // ── Handlers ──
+
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    setMutationError(null);
+    await Promise.all([statsQuery.refresh(), holdsQuery.refresh()]);
+  }, [statsQuery, holdsQuery]);
+
+  /** Release an active legal hold via DELETE endpoint, then refresh. */
+  const handleReleaseLegalHold = useCallback(async (holdId: string, tenantId: string): Promise<void> => {
+    setReleaseLoading(holdId);
+    setMutationError(null);
     try {
-      // TODO: Replace with actual admin API calls
-      // const [statsRes, holdsRes, exportsRes, retentionRes, auditRes] = await Promise.all([
-      //   adminApi.get('/admin/messaging/compliance/stats'),
-      //   adminApi.get('/admin/messaging/compliance/legal-holds'),
-      //   adminApi.get('/admin/messaging/compliance/exports'),
-      //   adminApi.get('/admin/messaging/compliance/retention-overview'),
-      //   adminApi.get('/admin/messaging/compliance/audit-daily'),
-      // ]);
-      // setStats(statsRes.data);
-      // setLegalHolds(holdsRes.data);
-      // setExports(exportsRes.data);
-      // setRetentionBuckets(retentionRes.data);
-      // setDailyAudit(auditRes.data);
-
-      setStats(MOCK_STATS);
-      setLegalHolds(MOCK_LEGAL_HOLDS);
-      setExports(MOCK_EXPORTS);
-      setRetentionBuckets(MOCK_RETENTION_BUCKETS);
-      setDailyAudit(MOCK_DAILY_AUDIT);
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch compliance data:', error);
+      await messagingApi.releaseLegalHold(holdId, tenantId);
+      // Refresh both stats and holds to reflect the release
+      await Promise.all([statsQuery.refresh(), holdsQuery.refresh()]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to release legal hold';
+      setMutationError(message);
     } finally {
-      setLoading(false);
+      setReleaseLoading(null);
     }
-  }, []);
-
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
-
-  const handleToggleHold = useCallback(async (holdId: string, isActive: boolean) => {
-    try {
-      // TODO: Replace with actual admin API call
-      // await adminApi.patch(`/admin/messaging/compliance/legal-holds/${holdId}`, {
-      //   activate: !isActive,
-      // });
-      setLegalHolds((prev) =>
-        prev.map((h) =>
-          h.id === holdId
-            ? {
-                ...h,
-                isActive: !isActive,
-                releasedAt: !isActive ? null : new Date().toISOString(),
-                releasedBy: isActive ? 'current-admin' : null,
-              }
-            : h,
-        ),
-      );
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to toggle legal hold:', error);
-    }
-  }, []);
+  }, [statsQuery, holdsQuery]);
 
   const handleDownloadExport = useCallback((exportId: string) => {
     const exportRecord = exports.find((e) => e.id === exportId);
@@ -309,7 +283,7 @@ const MessagingCompliancePage: React.FC = () => {
           </p>
         </div>
         <Button
-          onClick={() => void fetchData()}
+          onClick={() => void handleRefresh()}
           disabled={loading}
           variant="secondary"
           size="sm"
@@ -317,6 +291,18 @@ const MessagingCompliancePage: React.FC = () => {
           {loading ? 'Refreshing...' : 'Refresh'}
         </Button>
       </div>
+
+      {/* Error banners */}
+      {queryError && (
+        <ErrorBanner
+          message={queryError}
+          onRetry={() => void handleRefresh()}
+          canRetry={statsQuery.canRetry || holdsQuery.canRetry}
+        />
+      )}
+      {mutationError && (
+        <ErrorBanner message={mutationError} />
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -400,7 +386,11 @@ const MessagingCompliancePage: React.FC = () => {
               {legalHolds.filter((h) => h.isActive).length} active / {legalHolds.length} total
             </span>
           </div>
-          {legalHolds.length === 0 ? (
+          {holdsQuery.loading && legalHolds.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <p className="text-sm text-gray-400">Loading legal holds...</p>
+            </div>
+          ) : legalHolds.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <svg className="w-10 h-10 text-green-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -441,16 +431,15 @@ const MessagingCompliancePage: React.FC = () => {
                         {hold.releasedAt ? new Date(hold.releasedAt).toLocaleDateString() : '--'}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => void handleToggleHold(hold.id, hold.isActive)}
-                          className={`text-xs px-2 py-1 rounded font-medium ${
-                            hold.isActive
-                              ? 'text-red-600 hover:bg-red-50'
-                              : 'text-green-600 hover:bg-green-50'
-                          }`}
-                        >
-                          {hold.isActive ? 'Release' : 'Reactivate'}
-                        </button>
+                        {hold.isActive && (
+                          <button
+                            onClick={() => void handleReleaseLegalHold(hold.id, hold.tenantId)}
+                            disabled={releaseLoading === hold.id}
+                            className="text-xs px-2 py-1 rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {releaseLoading === hold.id ? 'Releasing...' : 'Release'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

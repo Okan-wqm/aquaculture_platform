@@ -134,7 +134,22 @@ function extractResourceId(type: OperationType, payload: OperationPayload): stri
   return '';
 }
 
+/**
+ * Enqueue an offline operation, scoped to the given tenant.
+ *
+ * SECURITY (C11): tenantId is REQUIRED and embedded in both the StoredOperation
+ * record and the IndexedDB key (`pending_${tenantId}_${id}`). This makes
+ * cross-tenant replay STRUCTURALLY IMPOSSIBLE -- getPendingOperations() and
+ * syncAllOperations() filter by tenantId, so tenant A's queued ops are never
+ * visible when tenant B is active.
+ *
+ * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
+ * @param type - The mutation type to execute on sync
+ * @param payload - The operation payload (will be AES-GCM encrypted)
+ * @param hasValidAuth - SEC-09: Only register background sync when credentials are valid
+ */
 export async function queueOperation(
+  tenantId: string,
   type: OperationType,
   payload: OperationPayload,
   // SEC-09: Caller supplies hasValidAuth so background sync is only registered
@@ -143,8 +158,13 @@ export async function queueOperation(
   // rather than silently incrementing retryCount for an auth failure.
   hasValidAuth: boolean = false,
 ): Promise<string> {
+  // SECURITY (C11): tenantId is mandatory -- reject if missing
+  if (!tenantId) {
+    throw new Error('queueOperation: tenantId is required for tenant-isolated queueing');
+  }
+
   // H6: Reject if queue is at capacity to prevent unbounded growth.
-  const currentCount = await getPendingCount();
+  const currentCount = await getPendingCount(tenantId);
   if (currentCount >= MAX_QUEUE_SIZE) {
     throw new Error('Offline queue is full (200 items). Please sync before adding more.');
   }
@@ -156,12 +176,10 @@ export async function queueOperation(
     const nowMs = Date.now();
     const allEntries = await entries<string, StoredOperation>(queueStore);
     // FE-MEDIUM-030: Compare type + resourceId + time window for dedup.
-    // Previously only type + time were checked, causing two offline edits to
-    // different resources (same hook/type) to collide — the second was silently
-    // dropped. The _resourceId field is stored in plaintext on StoredOperation
-    // so we can compare without expensive decryption.
+    // SECURITY (C11): Only dedup within the same tenant's operations.
+    const tenantPrefix = `${QUEUE_PREFIX}${tenantId}_`;
     const isDuplicate = allEntries.some(([key, op]) => {
-      if (!String(key).startsWith(QUEUE_PREFIX)) return false;
+      if (!String(key).startsWith(tenantPrefix)) return false;
       if (op.type !== type) return false;
       if (op._resourceId !== resourceId) return false;
       const opTimeMs = new Date(op.createdAt).getTime();
@@ -182,6 +200,7 @@ export async function queueOperation(
 
   const stored: StoredOperation = {
     id,
+    tenantId,
     type,
     _enc,
     // FE-MEDIUM-030: Persist resourceId in plaintext for O(1) dedup comparison
@@ -191,7 +210,8 @@ export async function queueOperation(
     status: 'pending',
   };
 
-  await set(`${QUEUE_PREFIX}${id}`, stored, queueStore);
+  // SECURITY (C11): Key format pending_${tenantId}_${id} ensures tenant isolation
+  await set(`${QUEUE_PREFIX}${tenantId}_${id}`, stored, queueStore);
 
   // SEC-09: Only register background sync when auth credentials are confirmed
   // present. An unauthenticated background sync attempt would fail with 401
@@ -220,64 +240,126 @@ export async function queueOperation(
 
 // Decrypt a StoredOperation back into a QueuedOperation. If decryption fails
 // (e.g., the session key was rotated due to a full page reload) the entry is
-// skipped rather than crashing the queue — it will be cleaned up on logout.
+// skipped rather than crashing the queue -- it will be cleaned up on logout.
 async function decryptOperation(stored: StoredOperation): Promise<QueuedOperation | null> {
   try {
     const payload = await decryptPayload(stored._enc.iv, stored._enc.ciphertext);
-    const { _enc: _ignored, ...rest } = stored;
+    const { _enc: _ignored, _resourceId: _ignored2, ...rest } = stored;
     return { ...rest, payload };
   } catch {
     return null;
   }
 }
 
-export async function getPendingOperations(): Promise<QueuedOperation[]> {
-  // Use dedicated queue store — no need to filter by prefix across mixed entries (PERF-08)
+/**
+ * Retrieve pending operations, optionally filtered by tenant.
+ *
+ * SECURITY (C11): When tenantId is provided, only operations belonging to that
+ * tenant are returned. The key prefix `pending_${tenantId}_` is used for
+ * efficient filtering without requiring decryption.
+ *
+ * @param tenantId - Optional tenant UUID. When provided, only that tenant's operations are returned.
+ */
+export async function getPendingOperations(tenantId?: string): Promise<QueuedOperation[]> {
+  // Use dedicated queue store -- no need to filter by prefix across mixed entries (PERF-08)
   const allEntries = await entries<string, StoredOperation>(queueStore);
+  // SECURITY (C11): Filter by tenant-scoped key prefix when tenantId is provided
+  const prefix = tenantId
+    ? `${QUEUE_PREFIX}${tenantId}_`
+    : QUEUE_PREFIX;
   const decrypted = await Promise.all(
     allEntries
-      .filter(([key]) => String(key).startsWith(QUEUE_PREFIX))
+      .filter(([key]) => String(key).startsWith(prefix))
       .map(([, value]) => decryptOperation(value)),
   );
   return (decrypted.filter(Boolean) as QueuedOperation[])
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
-export async function getPendingCount(): Promise<number> {
+/**
+ * Count pending operations, optionally scoped to a specific tenant.
+ *
+ * SECURITY (C11): When tenantId is provided, only that tenant's operations are counted.
+ *
+ * @param tenantId - Optional tenant UUID for tenant-scoped counting.
+ */
+export async function getPendingCount(tenantId?: string): Promise<number> {
   const allKeys = await keys(queueStore);
-  return allKeys.filter((k) => String(k).startsWith(QUEUE_PREFIX)).length;
+  const prefix = tenantId
+    ? `${QUEUE_PREFIX}${tenantId}_`
+    : QUEUE_PREFIX;
+  return allKeys.filter((k) => String(k).startsWith(prefix)).length;
 }
 
-export async function getOperation(id: string): Promise<QueuedOperation | undefined> {
-  const stored = await get<StoredOperation>(`${QUEUE_PREFIX}${id}`, queueStore);
+/**
+ * Retrieve a single operation by ID.
+ *
+ * SECURITY (C11): tenantId is required to construct the correct tenant-scoped
+ * IndexedDB key. Without it, the lookup would fail (no entry at wrong key).
+ *
+ * @param tenantId - Tenant UUID that owns this operation
+ * @param id - Operation UUID
+ */
+export async function getOperation(tenantId: string, id: string): Promise<QueuedOperation | undefined> {
+  const stored = await get<StoredOperation>(`${QUEUE_PREFIX}${tenantId}_${id}`, queueStore);
   if (!stored) return undefined;
   const op = await decryptOperation(stored);
   return op ?? undefined;
 }
 
-export async function updateOperation(id: string, updates: Partial<QueuedOperation>): Promise<void> {
-  const existingStored = await get<StoredOperation>(`${QUEUE_PREFIX}${id}`, queueStore);
+/**
+ * Update fields of an existing operation.
+ *
+ * SECURITY (C11): tenantId is required to locate the correct tenant-scoped entry.
+ *
+ * @param tenantId - Tenant UUID that owns this operation
+ * @param id - Operation UUID
+ * @param updates - Partial fields to merge into the stored operation
+ */
+export async function updateOperation(tenantId: string, id: string, updates: Partial<QueuedOperation>): Promise<void> {
+  const storeKey = `${QUEUE_PREFIX}${tenantId}_${id}`;
+  const existingStored = await get<StoredOperation>(storeKey, queueStore);
   if (!existingStored) return;
 
   // If the caller is updating the payload, re-encrypt it. Otherwise keep the
-  // existing encrypted envelope — only re-encrypt the envelope if payload changed.
+  // existing encrypted envelope -- only re-encrypt the envelope if payload changed.
   const { payload: newPayload, ...nonPayloadUpdates } = updates;
   const newEnc = newPayload ? await encryptPayload(newPayload) : existingStored._enc;
 
   await set(
-    `${QUEUE_PREFIX}${id}`,
+    storeKey,
     { ...existingStored, ...nonPayloadUpdates, _enc: newEnc },
     queueStore,
   );
 }
 
-export async function removeOperation(id: string): Promise<void> {
-  await del(`${QUEUE_PREFIX}${id}`, queueStore);
+/**
+ * Remove an operation from the queue.
+ *
+ * SECURITY (C11): tenantId is required to target the correct tenant-scoped key.
+ *
+ * @param tenantId - Tenant UUID that owns this operation
+ * @param id - Operation UUID
+ */
+export async function removeOperation(tenantId: string, id: string): Promise<void> {
+  await del(`${QUEUE_PREFIX}${tenantId}_${id}`, queueStore);
 }
 
-export async function clearAllOperations(): Promise<void> {
+/**
+ * Clear all queued operations, optionally scoped to a specific tenant.
+ *
+ * SECURITY (C11): When tenantId is provided, only that tenant's operations are
+ * removed. The full-clear variant (no tenantId) is used on logout to wipe all
+ * queued data from the device regardless of tenant.
+ *
+ * @param tenantId - Optional tenant UUID. If provided, only clears that tenant's queue.
+ */
+export async function clearAllOperations(tenantId?: string): Promise<void> {
   const allKeys = await keys(queueStore);
-  const queueKeys = allKeys.filter((k) => String(k).startsWith(QUEUE_PREFIX));
+  const prefix = tenantId
+    ? `${QUEUE_PREFIX}${tenantId}_`
+    : QUEUE_PREFIX;
+  const queueKeys = allKeys.filter((k) => String(k).startsWith(prefix));
   await Promise.all(queueKeys.map((k) => del(k, queueStore)));
 }
 
@@ -302,7 +384,7 @@ interface EncryptedCacheEntry {
  *
  * SECURITY (FE-CRITICAL-002 fix): tenantId is a REQUIRED parameter and is
  * included in the cache key as `cache_${tenantId}:${key}`. This makes
- * cross-tenant cache leakage STRUCTURALLY IMPOSSIBLE — on tenant switch or
+ * cross-tenant cache leakage STRUCTURALLY IMPOSSIBLE -- on tenant switch or
  * shared-device reuse, data from a previous tenant cannot be served because
  * the key namespace is different.
  *
@@ -343,7 +425,7 @@ export async function getCachedData<T>(tenantId: string, key: string): Promise<T
 
   const entry = cached as Record<string, unknown>;
 
-  // Check TTL first (plaintext metadata — no decryption needed)
+  // Check TTL first (plaintext metadata -- no decryption needed)
   const expiresAt = entry.expiresAt as string | undefined;
   if (expiresAt && new Date(expiresAt) < new Date()) {
     await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
@@ -357,13 +439,13 @@ export async function getCachedData<T>(tenantId: string, key: string): Promise<T
       const decrypted = await decryptString(enc.iv, enc.ciphertext);
       return JSON.parse(decrypted) as T;
     } catch {
-      // Decryption failed (session key rotated or data corrupted) — purge entry
+      // Decryption failed (session key rotated or data corrupted) -- purge entry
       await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
       return null;
     }
   }
 
-  // Backwards-compat: legacy unencrypted entry — purge it instead of returning
+  // Backwards-compat: legacy unencrypted entry -- purge it instead of returning
   // plaintext data, so the caller re-fetches and stores an encrypted copy.
   await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
   return null;
@@ -401,15 +483,15 @@ export async function syncOperation(
   executeGraphQL: GraphQLExecutor
 ): Promise<boolean> {
   try {
-    await updateOperation(operation.id, { status: 'syncing' });
+    await updateOperation(operation.tenantId, operation.id, { status: 'syncing' });
     await executeGraphQL(operation.type, operation.payload);
-    await removeOperation(operation.id);
+    await removeOperation(operation.tenantId, operation.id);
     return true;
   } catch (error) {
     const errorMessage = error instanceof Error
       ? error.message.slice(0, 200) // SEC-07: truncate error messages
       : 'Unknown error';
-    await updateOperation(operation.id, {
+    await updateOperation(operation.tenantId, operation.id, {
       status: 'failed',
       retryCount: operation.retryCount + 1,
       lastError: errorMessage,
@@ -461,7 +543,7 @@ function isRetryableError(errorMessage?: string): boolean {
   if (!errorMessage) return true;
   const lower = errorMessage.toLowerCase();
 
-  // Permanent errors that should NOT be retried — these indicate bad data
+  // Permanent errors that should NOT be retried -- these indicate bad data
   // or business-rule violations that won't resolve without user intervention.
   const permanentPatterns = [
     'validation',
@@ -477,31 +559,53 @@ function isRetryableError(errorMessage?: string): boolean {
   return !permanentPatterns.some((pattern) => lower.includes(pattern));
 }
 
+/**
+ * Sync all pending operations for the given tenant.
+ *
+ * SECURITY (C11): tenantId is REQUIRED -- only operations belonging to the
+ * specified tenant are synced. This prevents cross-tenant replay on shared
+ * devices where multiple users may have queued operations.
+ *
+ * @param tenantId - Tenant UUID whose operations should be synced
+ * @param executeGraphQL - Function that executes the GraphQL mutation
+ */
 export async function syncAllOperations(
+  tenantId: string,
   executeGraphQL: GraphQLExecutor
 ): Promise<{ success: number; failed: number }> {
+  // SECURITY (C11): tenantId is mandatory for sync isolation
+  if (!tenantId) {
+    throw new Error('syncAllOperations: tenantId is required for tenant-isolated sync');
+  }
+
   // CRIT-4 (BUG-02): Reset stale 'syncing' entries left from interrupted prior sessions
   // before processing. This prevents operations from being permanently stuck in 'syncing'.
-  const allOps = await getPendingOperations();
+  const allOps = await getPendingOperations(tenantId);
   const staleSync = allOps.filter((op) => op.status === 'syncing');
-  await Promise.all(staleSync.map((op) => updateOperation(op.id, { status: 'pending' })));
+  await Promise.all(staleSync.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
 
   // BUG-17: Promote retryable 'failed' operations back to 'pending' so they
   // are included in this sync pass. Previously, failed items were skipped
-  // permanently — they never transitioned back to 'pending', leaving the user
+  // permanently -- they never transitioned back to 'pending', leaving the user
   // with a dead queue that only manual deletion could resolve.
   const retryableFailed = allOps.filter(
     (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
   );
-  await Promise.all(retryableFailed.map((op) => updateOperation(op.id, { status: 'pending' })));
+  await Promise.all(retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
 
-  const operations = await getPendingOperations();
+  const operations = await getPendingOperations(tenantId);
   let success = 0;
   let failed = 0;
 
   for (const op of operations) {
-    // Skip permanently failed operations (exceeded max retries or non-retryable error)
+    // Skip permanently failed operations (exceeded max retries or non-retryable error).
+    // Also skip 'failed' operations that were NOT promoted to 'pending' -- these have
+    // non-retryable errors (validation, 4xx) and should not be re-attempted.
     if (op.retryCount >= MAX_RETRY_COUNT) {
+      failed++;
+      continue;
+    }
+    if (op.status === 'failed') {
       failed++;
       continue;
     }

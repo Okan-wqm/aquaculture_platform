@@ -48,3 +48,18 @@ export { usersApi } from './api/users';
 export { modulesApi } from './api/modules';
 export { auditApi } from './api/audit';
 export { billingApi } from './api/billing';
+export { messagingApi } from './api/messaging';
+export type {
+  ComplianceStats,
+  LegalHold,
+  CreateLegalHoldInput,
+  RetentionPolicy,
+  RetentionPolicyUpdate,
+  MessagingAuditEntry,
+  MessagingAuditFilters,
+  ExportRecord,
+  RetentionBucket,
+  DailyAuditData,
+  ExportTriggerResult,
+  AiPersonaDefinition,
+} from './api/messaging';

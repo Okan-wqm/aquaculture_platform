@@ -13,7 +13,7 @@ import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel
 import { CHANNEL_CONTEXT_KEY } from './channel-member.guard';
 
 interface RequestWithUser {
-  user?: { sub: string };
+  user?: { sub: string; tenantId?: string | null };
   [key: string]: unknown;
 }
 
@@ -46,8 +46,13 @@ export class MessageOwnerGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
 
+    const tenantId = (request as RequestWithUser).user?.tenantId;
+    if (!tenantId) {
+      throw new ForbiddenException('Tenant context is required');
+    }
+
     const message = await this.messageRepo.findOne({
-      where: { id: messageId },
+      where: { id: messageId, tenantId },
     });
 
     if (!message) {

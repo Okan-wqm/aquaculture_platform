@@ -33,6 +33,7 @@ import { SettingsModule } from './settings/settings.module';
 import { SupportModule } from './support/support.module';
 import { SystemManagementModule } from './system-management/system-management.module';
 import { TenantManagementModule } from './tenant/tenant.module';
+import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -199,6 +200,7 @@ import { UsersModule } from './users/users.module';
     SecurityModule,
     SystemManagementModule,
     ImpersonationModule,
+    MessagingAdminModule,
     PasswordResetModule,
     // SECURITY (NEW-03): forRoot() returns empty module when ENABLE_DEBUG_TOOLS != 'true'.
     // No controllers, providers, or entities are registered in the disabled state.

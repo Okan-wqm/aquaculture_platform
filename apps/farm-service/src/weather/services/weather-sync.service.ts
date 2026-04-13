@@ -124,7 +124,7 @@ export class WeatherSyncService {
   /**
    * Delete weather data older than given days
    */
-  async cleanupOldData(days: number = 30): Promise<{ weatherDeleted: number; marineDeleted: number }> {
+  async cleanupOldData(tenantId: string, days: number = 30): Promise<{ weatherDeleted: number; marineDeleted: number }> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
 
@@ -132,12 +132,14 @@ export class WeatherSyncService {
       .createQueryBuilder()
       .delete()
       .where('observed_at < :cutoff', { cutoff })
+      .andWhere('tenant_id = :tenantId', { tenantId })
       .execute();
 
     const marineResult = await this.marineRepo
       .createQueryBuilder()
       .delete()
       .where('observed_at < :cutoff', { cutoff })
+      .andWhere('tenant_id = :tenantId', { tenantId })
       .execute();
 
     return {

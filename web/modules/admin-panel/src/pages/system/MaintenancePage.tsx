@@ -138,22 +138,7 @@ export const MaintenancePage: React.FC = () => {
       setFormData(defaultForm);
     } catch (err) {
       console.error('Failed to schedule maintenance:', err);
-      // Demo: add locally
-      const scheduledEnd = new Date(formData.scheduledStart);
-      scheduledEnd.setMinutes(scheduledEnd.getMinutes() + formData.estimatedDurationMinutes);
-
-      const newMaintenance: MaintenanceWindow = {
-        id: Date.now().toString(),
-        ...formData,
-        status: 'scheduled',
-        scheduledEnd: scheduledEnd.toISOString(),
-        createdBy: 'admin@aquaculture.com',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setMaintenanceList([newMaintenance, ...maintenanceList]);
-      setShowCreateModal(false);
-      setFormData(defaultForm);
+      setError(err instanceof Error ? err.message : 'Failed to schedule maintenance. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -173,14 +158,7 @@ export const MaintenancePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to start maintenance:', err);
-      // Demo: update locally
-      setMaintenanceList(
-        maintenanceList.map((m) =>
-          m.id === maintenance.id
-            ? { ...m, status: 'in_progress', actualStart: new Date().toISOString() }
-            : m
-        )
-      );
+      setError(err instanceof Error ? err.message : 'Failed to start maintenance. Please try again.');
     }
   };
 
@@ -198,14 +176,7 @@ export const MaintenancePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to end maintenance:', err);
-      // Demo: update locally
-      setMaintenanceList(
-        maintenanceList.map((m) =>
-          m.id === maintenance.id
-            ? { ...m, status: 'completed', actualEnd: new Date().toISOString() }
-            : m
-        )
-      );
+      setError(err instanceof Error ? err.message : 'Failed to end maintenance. Please try again.');
     }
   };
 
@@ -234,6 +205,7 @@ export const MaintenancePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to extend maintenance:', err);
+      setError(err instanceof Error ? err.message : 'Failed to extend maintenance. Please try again.');
     }
   };
 
@@ -249,12 +221,7 @@ export const MaintenancePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to cancel maintenance:', err);
-      // Demo: update locally
-      setMaintenanceList(
-        maintenanceList.map((m) =>
-          m.id === maintenance.id ? { ...m, status: 'cancelled' } : m
-        )
-      );
+      setError(err instanceof Error ? err.message : 'Failed to cancel maintenance. Please try again.');
     }
   };
 

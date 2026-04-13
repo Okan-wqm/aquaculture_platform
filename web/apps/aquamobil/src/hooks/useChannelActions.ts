@@ -23,8 +23,9 @@ import {
   UPDATE_NOTIFICATION_PREFERENCE,
   REMOVE_CHANNEL_MEMBER,
   ARCHIVE_CHANNEL,
+  ADD_CHANNEL_MEMBER,
 } from '@/graphql/messaging-operations';
-import type { NotificationPreference } from '@/types/messaging';
+import type { NotificationPreference, ChannelMemberRole } from '@/types/messaging';
 
 /**
  * Channel management actions hook.
@@ -91,6 +92,26 @@ export function useChannelActions(channelId: string | undefined) {
     onError: (err: Error) => setError(err),
   });
 
+  const addMemberMutation = useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role?: ChannelMemberRole }) => {
+      await graphqlRequest(ADD_CHANNEL_MEMBER, {
+        channelId,
+        userId,
+        role: role ?? 'member',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['messaging', 'channel', channelId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['messaging', 'channels'],
+      });
+      setError(null);
+    },
+    onError: (err: Error) => setError(err),
+  });
+
   /**
    * Update the notification preference for this channel.
    *
@@ -120,14 +141,30 @@ export function useChannelActions(channelId: string | undefined) {
     await archiveMutation.mutateAsync();
   }, [isAuthenticated, channelId, archiveMutation]);
 
+  /**
+   * Add a member to the channel.
+   *
+   * @param userId - User UUID to add
+   * @param role - Optional role (defaults to 'member')
+   */
+  const addMember = useCallback(
+    async (userId: string, role?: ChannelMemberRole) => {
+      if (!isAuthenticated || !channelId) return;
+      await addMemberMutation.mutateAsync({ userId, role });
+    },
+    [isAuthenticated, channelId, addMemberMutation],
+  );
+
   return {
     updateNotificationPref,
     leaveChannel,
     archiveChannel,
+    addMember,
     isLoading:
       notifMutation.isPending ||
       leaveMutation.isPending ||
-      archiveMutation.isPending,
+      archiveMutation.isPending ||
+      addMemberMutation.isPending,
     error,
   };
 }

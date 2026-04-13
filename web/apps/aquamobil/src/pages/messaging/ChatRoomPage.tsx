@@ -11,6 +11,7 @@ import {
   useRef,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Settings,
@@ -24,12 +25,16 @@ import { useMessageSocket } from '@/hooks/useMessageSocket';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useMediaUpload } from '@/hooks/useMediaUpload';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { TypingIndicator } from '@/components/messaging/TypingIndicator';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { MessageInput } from '@/components/messaging/MessageInput';
 import { ForwardModal } from '@/components/messaging/ForwardModal';
+import { AttachmentPicker } from '@/components/messaging/AttachmentPicker';
 import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
 import type { Message } from '@/types/messaging';
 
@@ -67,6 +72,7 @@ export function ChatRoomPage() {
   const navigate = useNavigate();
   const { channelId } = useParams<{ channelId: string }>();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   // Real hooks -- wired to backend
   const { isConnected, joinChannel, leaveChannel, socketRef } =
@@ -85,9 +91,13 @@ export function ChatRoomPage() {
     socketRef,
     user?.id,
   );
+  const { uploadMedia, isUploading } = useMediaUpload(channelId);
+  const isOnline = useNetworkStatus();
+  const { addToQueue } = useOfflineQueue();
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
@@ -156,12 +166,67 @@ export function ChatRoomPage() {
     }
   }, [messages]);
 
-  /** Delete a message via sendMessage mutation (soft-delete). */
+  /** Delete a message via deleteMessage GraphQL mutation (soft-delete). */
   const handleDelete = useCallback(async (messageId: string) => {
-    // TODO: wire to deleteMessage GraphQL mutation
-    // For now this is a placeholder — the actual mutation should be
-    // called via a dedicated hook (useDeleteMessage).
-  }, []);
+    if (!channelId) return;
+    if (isOnline) {
+      const { graphqlRequest } = await import('@/services/authenticated-fetch');
+      const { DELETE_MESSAGE } = await import('@/graphql/messaging-operations');
+      await graphqlRequest(DELETE_MESSAGE, { id: messageId });
+      // Invalidate message cache so the deleted message disappears
+      queryClient.invalidateQueries({
+        queryKey: ['messaging', 'messages', channelId],
+      });
+    } else {
+      // Queue for offline sync — the main queue supports 'deleteMessage'
+      await addToQueue('deleteMessage', { id: messageId });
+    }
+  }, [channelId, isOnline, addToQueue, queryClient]);
+
+  /**
+   * Handle file selection from the AttachmentPicker. Uploads the file via
+   * presigned URL, then sends a message with the attachment key.
+   * Attachments require network connectivity (presigned URL + MinIO PUT).
+   */
+  const handleFileSelect = useCallback(async (file: File) => {
+    if (!channelId) return;
+    try {
+      const storageKey = await uploadMedia(file);
+      const contentType = file.type.startsWith('image/') ? 'image' : 'file';
+      await sendMessage({
+        content: null,
+        contentType: contentType as 'image' | 'file',
+        attachmentKeys: [storageKey],
+      });
+    } catch {
+      // uploadMedia already sets error state — the UI will show it
+    }
+  }, [channelId, uploadMedia, sendMessage]);
+
+  /**
+   * Handle completed voice recording. Uploads the audio blob via presigned
+   * URL, then sends a voice message. Requires network connectivity.
+   */
+  const handleVoiceRecordingComplete = useCallback(
+    async (blob: Blob, durationSeconds: number, mimeType: string) => {
+      if (!channelId) return;
+      try {
+        // Convert Blob to File for useMediaUpload which expects a File
+        const extension = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'mp4';
+        const file = new File([blob], `voice-note.${extension}`, { type: mimeType });
+        const storageKey = await uploadMedia(file);
+        await sendMessage({
+          content: null,
+          contentType: 'voice',
+          attachmentKeys: [storageKey],
+          metadata: { durationSeconds },
+        });
+      } catch {
+        // uploadMedia already sets error state
+      }
+    },
+    [channelId, uploadMedia, sendMessage],
+  );
 
   // Compute display name and status for the header
   const displayName = useMemo(() => {
@@ -390,10 +455,20 @@ export function ChatRoomPage() {
           });
         }}
         onAttachmentPress={() => {
-          // TODO: open native file picker or attachment sheet
+          if (!isOnline) {
+            // Attachments require network (presigned URL + MinIO upload)
+            // IMPORTANT: We do not silently fail — user gets clear feedback
+            alert('Attachments require an internet connection. Please try again when online.');
+            return;
+          }
+          setIsAttachmentPickerOpen(true);
         }}
         onVoiceRecordingComplete={(blob, durationSeconds, mimeType) => {
-          // TODO: upload voice recording and send as voice message
+          if (!isOnline) {
+            alert('Voice messages require an internet connection. Please try again when online.');
+            return;
+          }
+          handleVoiceRecordingComplete(blob, durationSeconds, mimeType);
         }}
         replyTo={
           replyingTo
@@ -408,7 +483,14 @@ export function ChatRoomPage() {
         }
         onCancelReply={() => setReplyingTo(null)}
         channelMembers={channel?.members ?? []}
-        disabled={isSending}
+        disabled={isSending || isUploading}
+      />
+
+      {/* Attachment picker bottom sheet */}
+      <AttachmentPicker
+        isOpen={isAttachmentPickerOpen}
+        onClose={() => setIsAttachmentPickerOpen(false)}
+        onFileSelect={handleFileSelect}
       />
 
       {/* Forward modal */}

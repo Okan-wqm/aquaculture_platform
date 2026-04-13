@@ -2,401 +2,188 @@
  * Messaging AI Dashboard Page
  *
  * SUPER_ADMIN AI analytics dashboard for the messaging service.
- * Shows sentiment overview, knowledge entries, embedding status,
- * model info, and AI channel usage per tenant.
+ *
+ * All AI analytics metrics (sentiment analysis, knowledge entries,
+ * embedding status, model performance, channel usage) require data
+ * pipelines that are not yet implemented. This page shows honest
+ * "not yet available" states for each section with clear descriptions
+ * of what infrastructure is needed.
+ *
+ * The only real data available is the AI persona list, which is
+ * accessible via the dedicated AI Personas page.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import React from 'react';
+import { Card, Badge } from '@aquaculture/shared-ui';
 
 // ============================================================================
-// Types
+// NotAvailableSection Component
 // ============================================================================
 
-interface TenantSentiment {
-  tenantId: string;
-  tenantName: string;
-  avgSentiment: number; // -1 to 1 scale
-  messageCount: number;
-}
-
-interface TenantKnowledge {
-  tenantId: string;
-  tenantName: string;
-  totalEntries: number;
-  categories: Record<string, number>;
-}
-
-interface EmbeddingStatus {
-  totalMessages: number;
-  embeddedMessages: number;
-  backfillProgress: number; // 0-100
-  isBackfilling: boolean;
-}
-
-interface ModelInfo {
-  modelName: string;
-  modelVersion: string;
-  dimensions: number;
-  avgInferenceMs: number;
-}
-
-interface AiChannelUsage {
-  tenantId: string;
-  tenantName: string;
-  totalSessions: number;
-  avgResponseTimeMs: number;
-  activeChannels: number;
-}
-
-// ============================================================================
-// Mock Data (TODO: Replace with admin API calls)
-// ============================================================================
-
-const MOCK_SENTIMENTS: TenantSentiment[] = [];
-const MOCK_KNOWLEDGE: TenantKnowledge[] = [];
-
-const MOCK_EMBEDDING: EmbeddingStatus = {
-  totalMessages: 0,
-  embeddedMessages: 0,
-  backfillProgress: 0,
-  isBackfilling: false,
-};
-
-const MOCK_MODEL: ModelInfo = {
-  modelName: 'text-embedding-3-small',
-  modelVersion: '2024-02',
-  dimensions: 1536,
-  avgInferenceMs: 45,
-};
-
-const MOCK_USAGE: AiChannelUsage[] = [];
-
-// ============================================================================
-// StatCard Component
-// ============================================================================
-
-const StatCard: React.FC<{
+/** Renders a section with an honest "not yet available" explanation. */
+const NotAvailableSection: React.FC<{
   title: string;
-  value: string | number;
-  subtitle?: string;
-  color?: 'blue' | 'green' | 'yellow' | 'red' | 'purple';
-}> = ({ title, value, subtitle, color = 'blue' }) => {
+  description: string;
+  requirement: string;
+  color?: 'blue' | 'purple' | 'green' | 'yellow';
+}> = ({ title, description, requirement, color = 'blue' }) => {
   const colorMap = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
+    blue: {
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      icon: 'text-blue-400',
+      title: 'text-blue-900',
+      text: 'text-blue-700',
+      badge: 'bg-blue-100 text-blue-700',
+    },
+    purple: {
+      bg: 'bg-purple-50',
+      border: 'border-purple-200',
+      icon: 'text-purple-400',
+      title: 'text-purple-900',
+      text: 'text-purple-700',
+      badge: 'bg-purple-100 text-purple-700',
+    },
+    green: {
+      bg: 'bg-green-50',
+      border: 'border-green-200',
+      icon: 'text-green-400',
+      title: 'text-green-900',
+      text: 'text-green-700',
+      badge: 'bg-green-100 text-green-700',
+    },
+    yellow: {
+      bg: 'bg-yellow-50',
+      border: 'border-yellow-200',
+      icon: 'text-yellow-400',
+      title: 'text-yellow-900',
+      text: 'text-yellow-700',
+      badge: 'bg-yellow-100 text-yellow-700',
+    },
   };
 
-  return (
-    <div className={`rounded-xl border p-5 ${colorMap[color]}`}>
-      <p className="text-sm font-medium opacity-80">{title}</p>
-      <p className="text-3xl font-bold mt-1">{value}</p>
-      {subtitle && <p className="text-xs mt-1 opacity-60">{subtitle}</p>}
-    </div>
-  );
-};
-
-// ============================================================================
-// SentimentBar Component
-// ============================================================================
-
-/** Renders a single horizontal bar for sentiment (-1 to 1 scale). */
-const SentimentBar: React.FC<{ tenant: TenantSentiment }> = ({ tenant }) => {
-  // Map -1..1 to 0..100 for positioning
-  const normalized = ((tenant.avgSentiment + 1) / 2) * 100;
-  const barColor =
-    tenant.avgSentiment > 0.2
-      ? 'bg-green-500'
-      : tenant.avgSentiment < -0.2
-        ? 'bg-red-500'
-        : 'bg-yellow-500';
+  const c = colorMap[color];
 
   return (
-    <div className="flex items-center gap-3 py-2">
-      <span className="text-xs text-gray-600 w-28 truncate text-right">{tenant.tenantName}</span>
-      <div className="flex-1 relative h-5 bg-gray-100 rounded-full overflow-hidden">
-        {/* Center line */}
-        <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gray-300 z-10" />
-        {/* Sentiment bar */}
-        <div
-          className={`absolute top-0 h-full rounded-full ${barColor} transition-all duration-500`}
-          style={{
-            left: tenant.avgSentiment >= 0 ? '50%' : `${normalized}%`,
-            width: `${Math.abs(tenant.avgSentiment) * 50}%`,
-          }}
-        />
+    <Card className={`${c.bg} ${c.border}`}>
+      <div className="p-5">
+        <div className="flex items-start gap-3">
+          <svg className={`w-5 h-5 ${c.icon} mt-0.5 flex-shrink-0`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <h3 className={`text-sm font-semibold ${c.title}`}>{title}</h3>
+            <p className={`text-xs ${c.text} mt-1 leading-relaxed`}>{description}</p>
+            <div className="mt-2">
+              <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${c.badge}`}>
+                Requires: {requirement}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
-      <span className="text-xs text-gray-500 w-10 text-right">
-        {tenant.avgSentiment > 0 ? '+' : ''}
-        {tenant.avgSentiment.toFixed(2)}
-      </span>
-    </div>
+    </Card>
   );
 };
-
-// ============================================================================
-// ProgressBar Component
-// ============================================================================
-
-const ProgressBar: React.FC<{ progress: number; color?: string }> = ({
-  progress,
-  color = 'bg-blue-500',
-}) => (
-  <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-    <div
-      className={`h-full rounded-full ${color} transition-all duration-700`}
-      style={{ width: `${Math.min(progress, 100)}%` }}
-    />
-  </div>
-);
 
 // ============================================================================
 // Main Component
 // ============================================================================
 
 const MessagingAiDashboardPage: React.FC = () => {
-  const [sentiments, setSentiments] = useState<TenantSentiment[]>(MOCK_SENTIMENTS);
-  const [knowledge, setKnowledge] = useState<TenantKnowledge[]>(MOCK_KNOWLEDGE);
-  const [embedding, setEmbedding] = useState<EmbeddingStatus>(MOCK_EMBEDDING);
-  const [model, setModel] = useState<ModelInfo>(MOCK_MODEL);
-  const [usage, setUsage] = useState<AiChannelUsage[]>(MOCK_USAGE);
-  const [loading, setLoading] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      // TODO: Replace with actual admin API calls
-      // const [sentRes, knowledgeRes, embedRes, modelRes, usageRes] = await Promise.all([
-      //   adminApi.get('/admin/messaging/ai/sentiments'),
-      //   adminApi.get('/admin/messaging/ai/knowledge'),
-      //   adminApi.get('/admin/messaging/ai/embedding-status'),
-      //   adminApi.get('/admin/messaging/ai/model-info'),
-      //   adminApi.get('/admin/messaging/ai/channel-usage'),
-      // ]);
-      // setSentiments(sentRes.data);
-      // setKnowledge(knowledgeRes.data);
-      // setEmbedding(embedRes.data);
-      // setModel(modelRes.data);
-      // setUsage(usageRes.data);
-
-      setSentiments(MOCK_SENTIMENTS);
-      setKnowledge(MOCK_KNOWLEDGE);
-      setEmbedding(MOCK_EMBEDDING);
-      setModel(MOCK_MODEL);
-      setUsage(MOCK_USAGE);
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch AI dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
-
-  const embeddingPercent =
-    embedding.totalMessages > 0
-      ? Math.round((embedding.embeddedMessages / embedding.totalMessages) * 100)
-      : 0;
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            AI analytics, embeddings, and model performance
-          </p>
-        </div>
-        <Button
-          onClick={() => void fetchData()}
-          disabled={loading}
-          variant="secondary"
-          size="sm"
-        >
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">AI Dashboard</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          AI analytics, embeddings, and model performance
+        </p>
       </div>
 
-      {/* Top Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Model"
-          value={model.modelName}
-          subtitle={`v${model.modelVersion}`}
-          color="purple"
-        />
-        <StatCard
-          title="Dimensions"
-          value={model.dimensions.toLocaleString()}
-          color="blue"
-        />
-        <StatCard
-          title="Avg Inference"
-          value={`${model.avgInferenceMs}ms`}
-          color="green"
-        />
-        <StatCard
-          title="Embedding Coverage"
-          value={`${embeddingPercent}%`}
-          subtitle={`${embedding.embeddedMessages.toLocaleString()} / ${embedding.totalMessages.toLocaleString()}`}
-          color={embeddingPercent >= 80 ? 'green' : embeddingPercent >= 50 ? 'yellow' : 'red'}
-        />
-      </div>
-
-      {/* Embedding Status */}
+      {/* Status Banner */}
       <Card>
         <div className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700">Embedding Backfill Progress</h3>
-            {embedding.isBackfilling && (
-              <Badge variant="warning">Backfilling...</Badge>
-            )}
-          </div>
-          <ProgressBar
-            progress={embedding.backfillProgress}
-            color={embedding.backfillProgress >= 100 ? 'bg-green-500' : 'bg-blue-500'}
-          />
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-xs text-gray-500">
-              {embedding.embeddedMessages.toLocaleString()} embedded
-            </span>
-            <span className="text-xs text-gray-500">
-              {embedding.totalMessages.toLocaleString()} total
-            </span>
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">
+                AI Analytics Infrastructure Not Yet Available
+              </h3>
+              <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                The AI analytics dashboard requires real-time data pipelines for
+                sentiment analysis, embedding statistics, model performance metrics,
+                and per-tenant AI channel usage. These pipelines are planned but not
+                yet implemented. Each section below describes the specific
+                infrastructure requirement.
+              </p>
+              <div className="flex gap-2 mt-3">
+                <Badge variant="warning">No Backend Endpoints</Badge>
+                <Badge variant="info">Data Pipelines Required</Badge>
+              </div>
+            </div>
           </div>
         </div>
       </Card>
 
+      {/* Top Stats Grid -- All Not Available */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <NotAvailableSection
+          title="Model Information"
+          description="Display the active embedding model name, version, dimension count, and average inference latency. Requires an endpoint in ai-service that exposes loaded model metadata."
+          requirement="GET /ai/model-info endpoint"
+          color="purple"
+        />
+        <NotAvailableSection
+          title="Embedding Coverage"
+          description="Show the percentage of messages that have been embedded, total embedded count vs total message count, and backfill progress. Requires a vector-store statistics query."
+          requirement="Vector store metrics pipeline"
+          color="blue"
+        />
+      </div>
+
       {/* Two-column: Sentiment + Knowledge */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Sentiment Overview */}
-        <Card>
-          <div className="p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">
-              Average Sentiment per Tenant
-            </h3>
-            {sentiments.length === 0 ? (
-              <div className="flex items-center justify-center py-8">
-                <p className="text-sm text-gray-400">No sentiment data available yet.</p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {/* Scale labels */}
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-[10px] text-gray-400 w-28 text-right">Tenant</span>
-                  <div className="flex-1 flex justify-between">
-                    <span className="text-[10px] text-red-400">Negative</span>
-                    <span className="text-[10px] text-gray-400">Neutral</span>
-                    <span className="text-[10px] text-green-400">Positive</span>
-                  </div>
-                  <span className="w-10" />
-                </div>
-                {sentiments.map((t) => (
-                  <SentimentBar key={t.tenantId} tenant={t} />
-                ))}
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Knowledge Entries */}
-        <Card>
-          <div className="p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">
-              Knowledge Entries per Tenant
-            </h3>
-            {knowledge.length === 0 ? (
-              <div className="flex items-center justify-center py-8">
-                <p className="text-sm text-gray-400">No knowledge entries yet.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {knowledge.map((k) => (
-                  <div
-                    key={k.tenantId}
-                    className="p-3 rounded-lg bg-gray-50 border border-gray-100"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-900">{k.tenantName}</span>
-                      <Badge variant="info">{k.totalEntries} entries</Badge>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {Object.entries(k.categories).map(([cat, count]) => (
-                        <span
-                          key={cat}
-                          className="px-2 py-0.5 text-[10px] font-medium bg-gray-200 text-gray-600 rounded-full"
-                        >
-                          {cat}: {count}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </Card>
+        <NotAvailableSection
+          title="Sentiment Analysis per Tenant"
+          description="Average sentiment scores (-1 to +1 scale) per tenant computed from AI-analyzed message content. Requires a sentiment analysis pipeline that processes messages through an NLP model and aggregates results per tenant."
+          requirement="NLP sentiment pipeline + aggregation"
+          color="green"
+        />
+        <NotAvailableSection
+          title="Knowledge Entries per Tenant"
+          description="Per-tenant breakdown of knowledge base entries by category (water quality, feeding, equipment, etc.). Requires a knowledge management system with categorized entries and a query endpoint for admin aggregation."
+          requirement="Knowledge management service"
+          color="yellow"
+        />
       </div>
 
       {/* AI Channel Usage */}
-      <Card>
-        <div className="p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">AI Channel Usage per Tenant</h3>
-          {usage.length === 0 ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <p className="text-sm text-gray-500">No AI channel usage data yet.</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Usage data will appear once tenants start using AI channels.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenant</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sessions</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Active Channels</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Response Time</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {usage.map((u) => (
-                    <tr key={u.tenantId} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <p className="text-sm font-medium text-gray-900">{u.tenantName}</p>
-                        <p className="text-xs text-gray-400 font-mono">{u.tenantId.slice(0, 8)}...</p>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                        {u.totalSessions.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                        {u.activeChannels}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Badge variant={u.avgResponseTimeMs < 3000 ? 'success' : u.avgResponseTimeMs < 5000 ? 'warning' : 'error'}>
-                          {(u.avgResponseTimeMs / 1000).toFixed(1)}s
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+      <NotAvailableSection
+        title="AI Channel Usage per Tenant"
+        description="Table of per-tenant AI channel usage including total chat sessions, active channels, and average AI response time. Requires real-time session tracking and response latency measurement in the messaging-service AI chat bridge."
+        requirement="Session tracking + latency metrics in ai-chat-bridge"
+        color="purple"
+      />
+
+      {/* Architecture Note */}
+      <Card className="p-4 bg-blue-50 border-blue-200">
+        <h3 className="text-sm font-semibold text-blue-900 mb-1">
+          Architecture Note
+        </h3>
+        <p className="text-xs text-blue-700 leading-relaxed">
+          AI analytics require several backend infrastructure components that are
+          not yet in place: (1) A vector-store statistics endpoint for embedding
+          coverage, (2) An NLP sentiment pipeline with per-tenant aggregation,
+          (3) A knowledge management service, and (4) Session/latency tracking
+          in the AI chat bridge. For current AI configuration, use the
+          <strong> AI Personas</strong> page which connects to the real backend
+          persona registry.
+        </p>
       </Card>
     </div>
   );

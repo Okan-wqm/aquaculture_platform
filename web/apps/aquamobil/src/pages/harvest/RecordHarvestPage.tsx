@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Package, CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Package, AlertCircle, ChevronRight } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import type { QualityGrade } from '@/types';
 import { clsx } from 'clsx';
 
@@ -37,6 +38,8 @@ export function RecordHarvestPage() {
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  // C7: Track the operationId for two-phase success UX
+  const [queuedOperationId, setQueuedOperationId] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   // WHY: Confirmation step prevents accidental harvest records — harvesting is the highest-value
   // operation in aquaculture and directly impacts financial reporting.
@@ -86,7 +89,7 @@ export function RecordHarvestPage() {
     setErrors({});
 
     try {
-      await addToQueue('createHarvestRecord', {
+      const opId = await addToQueue('createHarvestRecord', {
         batchId: metrics.batchId,
         tankId: selectedTankId,
         quantityHarvested: quantityNum,
@@ -99,8 +102,10 @@ export function RecordHarvestPage() {
         notes: notes.trim() || undefined,
       });
 
+      // C7: Store operationId for QueuedStatusBadge tracking
+      setQueuedOperationId(opId);
       setShowSuccess(true);
-      setTimeout(() => navigate('/'), 1500);
+      setTimeout(() => navigate('/'), 2000);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to record harvest';
       setErrors({ general: message });
@@ -141,17 +146,12 @@ export function RecordHarvestPage() {
     setNotes(e.target.value);
   };
 
+  // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
+  // instead of premature "Success!" green checkmark.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-sea-50 dark:bg-sea-900/10">
-        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4 animate-bounce-once">
-          <CheckCircle size={48} className="text-sea-600" />
-        </div>
-        <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
-        {/* BUG-08: All submissions go through the offline queue; always show accurate message. */}
-        <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
-          Queued for sync
-        </p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
   }

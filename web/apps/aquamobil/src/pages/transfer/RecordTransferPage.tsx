@@ -1,9 +1,10 @@
 import { useState, useEffect, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowLeftRight, CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 
 interface FormErrors {
   sourceTank?: string;
@@ -29,6 +30,8 @@ export function RecordTransferPage() {
   const [transferReason, setTransferReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  // C7: Track the operationId for two-phase success UX
+  const [queuedOperationId, setQueuedOperationId] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [step, setStep] = useState<FormStep>('entry');
 
@@ -68,7 +71,7 @@ export function RecordTransferPage() {
     setErrors({});
 
     try {
-      await addToQueue('recordTransfer', {
+      const opId = await addToQueue('recordTransfer', {
         batchId: sourceMetrics.batchId,
         sourceTankId,
         destinationTankId,
@@ -78,8 +81,10 @@ export function RecordTransferPage() {
         transferredAt: new Date().toISOString(),
       });
 
+      // C7: Store operationId for QueuedStatusBadge tracking
+      setQueuedOperationId(opId);
       setShowSuccess(true);
-      setTimeout(() => navigate(-1), 1500);
+      setTimeout(() => navigate(-1), 2000);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save transfer';
       setErrors({ general: message });
@@ -89,16 +94,12 @@ export function RecordTransferPage() {
     }
   };
 
+  // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
+  // instead of premature "Saved!" green checkmark.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-sea-50 dark:bg-sea-900/10">
-        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-sea-600" />
-        </div>
-        <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Saved!</h2>
-        <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
-          Queued for synchronization
-        </p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
   }

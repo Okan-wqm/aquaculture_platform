@@ -3,47 +3,22 @@
  *
  * Retention policy management for SUPER_ADMIN.
  * Per-tenant retention settings, channel-level overrides, and cleanup history.
+ * Wired to real admin API: GET/PUT /messaging/retention/policies
  *
  * @see ADR-012 Phase 3 (Retention Policies)
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { messagingApi, type RetentionPolicy } from '../../services/adminApi';
+import type { ApiError } from '../../services/http-client';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface TenantRetention {
-  tenantId: string;
-  tenantName: string;
-  defaultRetention: '90d' | '1y' | '3y' | 'indefinite';
-  channelOverridesCount: number;
-  lastCleanup: string | null;
-  nextCleanup: string;
-  messagesCount: number;
-  expiredCount: number;
-}
-
-interface ChannelOverride {
-  channelId: string;
-  channelName: string;
-  retentionDays: number;
-  createdAt: string;
-}
-
-interface CleanupRun {
-  id: string;
-  tenantName: string;
-  runAt: string;
-  messagesDeleted: number;
-  storageFreedMB: number;
-  status: 'success' | 'failed' | 'partial';
-  durationMs: number;
-}
-
 interface EditModalState {
-  tenantId: string;
+  policyId: string;
   tenantName: string;
   currentRetention: string;
 }
@@ -72,19 +47,12 @@ const RETENTION_LABELS: Record<string, string> = {
 };
 
 // ============================================================================
-// Mock Data (TODO: Replace with admin API calls)
-// ============================================================================
-
-const MOCK_TENANTS: TenantRetention[] = [];
-const MOCK_CLEANUP_HISTORY: CleanupRun[] = [];
-
-// ============================================================================
 // EditRetentionModal Component
 // ============================================================================
 
 const EditRetentionModal: React.FC<{
   tenant: EditModalState;
-  onSave: (tenantId: string, retention: string, applyToAll: boolean) => void;
+  onSave: (policyId: string, retention: string, applyToAll: boolean) => void;
   onClose: () => void;
 }> = ({ tenant, onSave, onClose }) => {
   const [selectedRetention, setSelectedRetention] = useState(tenant.currentRetention);
@@ -134,7 +102,7 @@ const EditRetentionModal: React.FC<{
 
         <div className="flex items-center gap-3 mt-6">
           <button
-            onClick={() => onSave(tenant.tenantId, selectedRetention, applyToAll)}
+            onClick={() => onSave(tenant.policyId, selectedRetention, applyToAll)}
             className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
           >
             Save
@@ -225,28 +193,21 @@ const AddChannelOverrideModal: React.FC<{
 // ============================================================================
 
 const MessagingRetentionPage: React.FC = () => {
-  const [tenants, setTenants] = useState<TenantRetention[]>(MOCK_TENANTS);
-  const [cleanupHistory, setCleanupHistory] = useState<CleanupRun[]>(MOCK_CLEANUP_HISTORY);
+  const [policies, setPolicies] = useState<RetentionPolicy[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<EditModalState | null>(null);
   const [overrideModal, setOverrideModal] = useState<OverrideModalState | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      // TODO: Replace with actual admin API calls
-      // const [tenantsRes, cleanupRes] = await Promise.all([
-      //   adminApi.get('/admin/messaging/retention/tenants'),
-      //   adminApi.get('/admin/messaging/retention/cleanup-history'),
-      // ]);
-      // setTenants(tenantsRes.data);
-      // setCleanupHistory(cleanupRes.data);
-
-      setTenants(MOCK_TENANTS);
-      setCleanupHistory(MOCK_CLEANUP_HISTORY);
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch retention data:', error);
+      const data = await messagingApi.getRetentionPolicies();
+      setPolicies(data);
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setError(apiErr.message || 'Failed to fetch retention policies');
     } finally {
       setLoading(false);
     }
@@ -257,55 +218,32 @@ const MessagingRetentionPage: React.FC = () => {
   }, [fetchData]);
 
   const handleSaveRetention = useCallback(
-    async (tenantId: string, retention: string, applyToAll: boolean) => {
+    async (policyId: string, retention: string, applyToAll: boolean) => {
       try {
-        // TODO: Replace with actual admin API call
-        // await adminApi.patch(`/admin/messaging/retention/tenants/${tenantId}`, {
-        //   defaultRetention: retention,
-        //   applyToAll,
-        // });
-        setTenants((prev) =>
-          prev.map((t) =>
-            t.tenantId === tenantId
-              ? {
-                  ...t,
-                  defaultRetention: retention as TenantRetention['defaultRetention'],
-                  channelOverridesCount: applyToAll ? 0 : t.channelOverridesCount,
-                }
-              : t,
-          ),
+        const updated = await messagingApi.updateRetentionPolicy(policyId, {
+          defaultRetention: retention,
+          applyToAll,
+        });
+        setPolicies((prev) =>
+          prev.map((p) => (p.id === policyId ? updated : p)),
         );
         setEditModal(null);
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to update retention:', error);
+      } catch (err) {
+        const apiErr = err as ApiError;
+        setError(apiErr.message || 'Failed to update retention policy');
       }
     },
     [],
   );
 
   const handleAddOverride = useCallback(
-    async (tenantId: string, channelId: string, retentionDays: number) => {
-      try {
-        // TODO: Replace with actual admin API call
-        // await adminApi.post(`/admin/messaging/retention/tenants/${tenantId}/overrides`, {
-        //   channelId,
-        //   retentionDays,
-        // });
-        setTenants((prev) =>
-          prev.map((t) =>
-            t.tenantId === tenantId
-              ? { ...t, channelOverridesCount: t.channelOverridesCount + 1 }
-              : t,
-          ),
-        );
-        setOverrideModal(null);
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to add channel override:', error);
-      }
+    async (_tenantId: string, _channelId: string, _retentionDays: number) => {
+      // WHY: Channel override endpoint not yet available in admin gateway.
+      // This handler is wired for future implementation; for now, refresh policies.
+      await fetchData();
+      setOverrideModal(null);
     },
-    [],
+    [fetchData],
   );
 
   return (
@@ -333,11 +271,18 @@ const MessagingRetentionPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      )}
+
       {/* Retention Table */}
       <Card>
         <div className="p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Per-Tenant Retention</h3>
-          {tenants.length === 0 && !loading ? (
+          {policies.length === 0 && !loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
                 <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -365,42 +310,42 @@ const MessagingRetentionPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {tenants.map((t) => (
-                    <tr key={t.tenantId} className="hover:bg-gray-50">
+                  {policies.map((p) => (
+                    <tr key={p.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <p className="text-sm font-medium text-gray-900">{t.tenantName}</p>
-                        <p className="text-xs text-gray-400 font-mono">{t.tenantId.slice(0, 8)}...</p>
+                        <p className="text-sm font-medium text-gray-900">{p.tenantName}</p>
+                        <p className="text-xs text-gray-400 font-mono">{p.tenantId.slice(0, 8)}...</p>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <Badge variant="info">
-                          {RETENTION_LABELS[t.defaultRetention] ?? t.defaultRetention}
+                          {RETENTION_LABELS[p.defaultRetention] ?? p.defaultRetention}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 text-center">
-                        {t.channelOverridesCount}
+                        {p.channelOverridesCount}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                        {t.messagesCount.toLocaleString()}
+                        {p.messagesCount.toLocaleString()}
                       </td>
                       <td className="px-4 py-3 text-sm text-right">
-                        <span className={t.expiredCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>
-                          {t.expiredCount.toLocaleString()}
+                        <span className={p.expiredCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>
+                          {p.expiredCount.toLocaleString()}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                        {t.lastCleanup ? new Date(t.lastCleanup).toLocaleDateString() : 'Never'}
+                        {p.lastCleanup ? new Date(p.lastCleanup).toLocaleDateString() : 'Never'}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                        {new Date(t.nextCleanup).toLocaleDateString()}
+                        {new Date(p.nextCleanup).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
                             onClick={() =>
                               setEditModal({
-                                tenantId: t.tenantId,
-                                tenantName: t.tenantName,
-                                currentRetention: t.defaultRetention,
+                                policyId: p.id,
+                                tenantName: p.tenantName,
+                                currentRetention: p.defaultRetention,
                               })
                             }
                             className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
@@ -410,8 +355,8 @@ const MessagingRetentionPage: React.FC = () => {
                           <button
                             onClick={() =>
                               setOverrideModal({
-                                tenantId: t.tenantId,
-                                tenantName: t.tenantName,
+                                tenantId: p.tenantId,
+                                tenantName: p.tenantName,
                               })
                             }
                             className="text-xs px-2 py-1 rounded font-medium text-purple-600 hover:bg-purple-50"
@@ -429,63 +374,12 @@ const MessagingRetentionPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Cleanup History */}
-      <Card>
-        <div className="p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Cleanup History (Last 10 Runs)</h3>
-          {cleanupHistory.length === 0 ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="text-center">
-                <svg className="w-10 h-10 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                <p className="text-sm text-gray-500">No cleanup runs yet</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Cleanup runs nightly at 02:00 UTC
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenant</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Run At</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Messages Deleted</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Storage Freed</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {cleanupHistory.map((run) => (
-                    <tr key={run.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{run.tenantName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{new Date(run.runAt).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-right">{run.messagesDeleted.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-right">{run.storageFreedMB.toFixed(1)} MB</td>
-                      <td className="px-4 py-3 text-sm text-gray-500 text-right">{run.durationMs}ms</td>
-                      <td className="px-4 py-3 text-center">
-                        <Badge variant={run.status === 'success' ? 'success' : run.status === 'partial' ? 'warning' : 'error'}>
-                          {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </Card>
-
       {/* Edit Modal */}
       {editModal && (
         <EditRetentionModal
           tenant={editModal}
-          onSave={(tenantId, retention, applyToAll) =>
-            void handleSaveRetention(tenantId, retention, applyToAll)
+          onSave={(policyId, retention, applyToAll) =>
+            void handleSaveRetention(policyId, retention, applyToAll)
           }
           onClose={() => setEditModal(null)}
         />

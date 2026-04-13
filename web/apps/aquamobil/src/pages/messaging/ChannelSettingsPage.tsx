@@ -33,6 +33,7 @@ import { clsx } from 'clsx';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
 import { useChannelActions } from '@/hooks/useChannelActions';
+import { useTenantUsers } from '@/hooks/useTenantUsers';
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { ConfirmDialog } from '@/components/messaging/ConfirmDialog';
 import { MemberRow } from '@/components/messaging/MemberRow';
@@ -86,12 +87,17 @@ export function ChannelSettingsPage() {
     updateNotificationPref,
     leaveChannel,
     archiveChannel,
+    addMember,
     isLoading: actionLoading,
   } = useChannelActions(channelId);
+
+  const { users: tenantUsers } = useTenantUsers();
 
   const [showNotifPicker, setShowNotifPicker] = useState(false);
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showAddMemberSheet, setShowAddMemberSheet] = useState(false);
+  const [addMemberSearch, setAddMemberSearch] = useState('');
 
   // AI consent hook
   const {
@@ -143,10 +149,34 @@ export function ChannelSettingsPage() {
     ? (queryError instanceof Error ? queryError.message : 'Failed to load channel')
     : null;
 
+  /** Add a user to the channel and close the add-member sheet. */
+  const handleAddMember = useCallback(
+    async (userId: string) => {
+      await addMember(userId);
+      setShowAddMemberSheet(false);
+      setAddMemberSearch('');
+      await refetch();
+    },
+    [addMember, refetch],
+  );
+
   // Active members (not left)
   const activeMembers = useMemo(() => {
     return (channel?.members ?? []).filter((m) => m.leftAt === null);
   }, [channel?.members]);
+
+  /** Tenant users who are NOT already members of this channel. */
+  const availableUsers = useMemo(() => {
+    const memberIds = new Set(activeMembers.map((m) => m.userId));
+    const filtered = tenantUsers.filter((u) => !memberIds.has(u.id));
+    if (!addMemberSearch.trim()) return filtered;
+    const query = addMemberSearch.toLowerCase();
+    return filtered.filter(
+      (u) =>
+        u.name.toLowerCase().includes(query) ||
+        u.email.toLowerCase().includes(query),
+    );
+  }, [tenantUsers, activeMembers, addMemberSearch]);
 
   // Loading state
   if (loading) {
@@ -352,7 +382,10 @@ export function ChannelSettingsPage() {
               Members ({activeMembers.length})
             </h3>
             {canEdit && (
-              <button className="flex items-center gap-1 text-xs text-ocean-500 font-medium touch-feedback">
+              <button
+                onClick={() => setShowAddMemberSheet(true)}
+                className="flex items-center gap-1 text-xs text-ocean-500 font-medium touch-feedback"
+              >
                 <UserPlus size={14} />
                 Add
               </button>
@@ -518,6 +551,91 @@ export function ChannelSettingsPage() {
           onConfirm={handleDelete}
           onCancel={() => setShowDeleteDialog(false)}
         />
+      )}
+
+      {/* Add Member bottom sheet */}
+      {showAddMemberSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => {
+              setShowAddMemberSheet(false);
+              setAddMemberSearch('');
+            }}
+            aria-hidden="true"
+          />
+          <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-t-3xl shadow-elevated pb-safe max-h-[70vh] flex flex-col">
+            {/* Handle bar */}
+            <div className="flex justify-center pt-3 pb-2 flex-shrink-0">
+              <div className="w-10 h-1 bg-gray-300 dark:bg-gray-700 rounded-full" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pb-3 flex-shrink-0">
+              <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                Add Member
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAddMemberSheet(false);
+                  setAddMemberSearch('');
+                }}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+                aria-label="Close"
+              >
+                <span className="text-gray-500 text-lg">&times;</span>
+              </button>
+            </div>
+
+            {/* Search input */}
+            <div className="px-5 pb-3 flex-shrink-0">
+              <input
+                type="text"
+                value={addMemberSearch}
+                onChange={(e) => setAddMemberSearch(e.target.value)}
+                placeholder="Search by name or email..."
+                className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500"
+              />
+            </div>
+
+            {/* User list */}
+            <div className="overflow-y-auto flex-1 px-5 pb-4">
+              {availableUsers.length === 0 ? (
+                <p className="text-center text-sm text-gray-400 py-6">
+                  {addMemberSearch ? 'No users match your search' : 'All users are already members'}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {availableUsers.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => handleAddMember(u.id)}
+                      disabled={actionLoading}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 touch-feedback transition-colors"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-ocean-100 dark:bg-ocean-900/30 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-bold text-ocean-600 dark:text-ocean-400">
+                          {u.name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          {u.name}
+                        </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
+                          {u.email}
+                        </p>
+                      </div>
+                      {u.isOnline && (
+                        <div className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -90,8 +90,9 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
     const result = await response.json();
     return result.data?.getMyMobileSettings?.isMobileEnabled ?? true;
   } catch {
-    // If we can't check, allow access (graceful degradation)
-    return true;
+    // SECURITY: Fail-closed — if we can't verify mobile access, deny it.
+    // Returning true here would allow privilege escalation via network isolation.
+    return false;
   }
 }
 
@@ -154,6 +155,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const { accessToken, user } = result.data.refreshToken;
         const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+
+        // SECURITY: Fail-closed — reject PANEL_ONLY users and verify mobile access
+        // before restoring an authenticated session on the mobile app.
+        if (user.accessType === 'PANEL_ONLY') {
+          setIsLoading(false);
+          return;
+        }
+
+        const mobileEnabled = await checkMobileEnabled(accessToken);
+        if (!mobileEnabled) {
+          setIsMobileDisabled(true);
+          setIsLoading(false);
+          return;
+        }
 
         setState({
           user: { ...user, name: displayName },

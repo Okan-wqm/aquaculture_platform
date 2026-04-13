@@ -7,8 +7,14 @@
  * client-side idempotencyKey (UUID) to prevent duplicate sends on retry.
  * Implements optimistic updates: the message appears in the chat immediately
  * with a 'pending' status, is replaced with the server response on success,
- * and marked as 'failed' with retry capability on error. Falls back to
- * IndexedDB offline queue if the network is unavailable.
+ * and marked as 'failed' with retry capability on error. Falls back to the
+ * main offline queue (useOfflineQueue / addToQueue) when offline, ensuring all
+ * offline operations are synced by the single syncAllOperations() flow.
+ *
+ * IMPORTANT: Previous implementation used a SEPARATE IndexedDB cache key
+ * ('messaging_offline_sends') that was NEVER drained on reconnect. This has
+ * been consolidated into the main offline queue which supports 'sendMessage'
+ * as a first-class OperationType with automatic sync on reconnect.
  *
  * @param channelId - The channel to send messages to
  * @returns sendMessage — function to send a new message
@@ -20,16 +26,10 @@ import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
+import { useOfflineQueue } from './useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { SEND_MESSAGE } from '@/graphql/messaging-operations';
 import type { Message, MessagePage, MessageContentType } from '@/types/messaging';
-
-/** IndexedDB key for the offline send queue. */
-const OFFLINE_QUEUE_KEY = 'messaging_offline_sends';
-
-/** Maximum pending offline messages. */
-const MAX_OFFLINE_QUEUE = 50;
 
 interface SendMessageParams {
   content: string | null;
@@ -37,13 +37,6 @@ interface SendMessageParams {
   parentId?: string;
   attachmentKeys?: string[];
   metadata?: Record<string, unknown>;
-}
-
-interface OfflineQueuedMessage {
-  idempotencyKey: string;
-  channelId: string;
-  params: SendMessageParams;
-  createdAt: string;
 }
 
 /**
@@ -62,6 +55,7 @@ export function useSendMessage(channelId: string | undefined) {
   const { user, tenantId, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const isOnline = useNetworkStatus();
+  const { addToQueue } = useOfflineQueue();
 
   const messageQueryKey = ['messaging', 'messages', channelId, tenantId];
 
@@ -192,32 +186,13 @@ export function useSendMessage(channelId: string | undefined) {
   });
 
   /**
-   * Queue a message in IndexedDB when offline.
-   */
-  const queueOffline = useCallback(
-    async (params: SendMessageParams, idempotencyKey: string) => {
-      if (!tenantId) {
-        throw new Error('Cannot queue offline messages without tenantId');
-      }
-      // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-      const queue =
-        (await getCachedData<OfflineQueuedMessage[]>(tenantId, OFFLINE_QUEUE_KEY)) ?? [];
-      if (queue.length >= MAX_OFFLINE_QUEUE) {
-        throw new Error('Offline message queue is full. Please sync when online.');
-      }
-      queue.push({
-        idempotencyKey,
-        channelId: channelId!,
-        params,
-        createdAt: new Date().toISOString(),
-      });
-      await cacheData(tenantId, OFFLINE_QUEUE_KEY, queue, 7 * 24 * 60 * 60 * 1000); // 7 day TTL
-    },
-    [channelId, tenantId],
-  );
-
-  /**
-   * Send a message — online path uses mutation, offline path queues in IndexedDB.
+   * Send a message — online path uses mutation, offline path routes through
+   * the main offline queue via addToQueue('sendMessage', payload).
+   *
+   * WHY no separate cache: The previous 'messaging_offline_sends' IndexedDB
+   * cache was NEVER drained by syncAllOperations(), causing silent message
+   * loss. The main queue already supports 'sendMessage' as an OperationType
+   * with proper sync, retry, and dedup (by idempotencyKey).
    */
   const sendMessage = useCallback(
     async (params: SendMessageParams) => {
@@ -228,13 +203,24 @@ export function useSendMessage(channelId: string | undefined) {
       const idempotencyKey = generateIdempotencyKey();
 
       if (!isOnline) {
-        await queueOffline(params, idempotencyKey);
+        // Route through the main offline queue — syncAllOperations() will
+        // drain this when connectivity returns, using the 'sendMessage'
+        // GraphQL mutation defined in useOfflineQueue MUTATIONS map.
+        await addToQueue('sendMessage', {
+          channelId,
+          content: params.content,
+          contentType: params.contentType ?? 'text',
+          idempotencyKey,
+          parentId: params.parentId ?? undefined,
+          attachmentKeys: params.attachmentKeys ?? [],
+          metadata: params.metadata ?? undefined,
+        });
         return;
       }
 
       mutation.mutate({ ...params, _idempotencyKey: idempotencyKey });
     },
-    [channelId, isAuthenticated, isOnline, mutation, queueOffline],
+    [channelId, isAuthenticated, isOnline, mutation, addToQueue],
   );
 
   return {

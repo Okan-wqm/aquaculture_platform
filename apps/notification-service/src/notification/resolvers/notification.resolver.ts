@@ -119,8 +119,9 @@ export class NotificationResolver {
   async markNotificationAsRead(
     @Args('id', { type: () => ID }) id: string,
     @CurrentUser() user: UserContext,
+    @Tenant() tenantId: string,
   ): Promise<boolean> {
-    return await this.inAppService.markAsRead(id, user.sub);
+    return await this.inAppService.markAsRead(id, user.sub, tenantId);
   }
 
   /**

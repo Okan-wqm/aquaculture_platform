@@ -99,12 +99,16 @@ export class InAppNotificationService {
 
   /**
    * Mark a single notification as read
+   * @param id - Notification ID
+   * @param userId - Recipient user ID
+   * @param tenantId - Tenant UUID for cross-tenant isolation
    */
-  async markAsRead(id: string, userId: string): Promise<boolean> {
+  async markAsRead(id: string, userId: string, tenantId: string): Promise<boolean> {
     const notification = await this.logRepository.findOne({
       where: {
         id,
         recipient: userId,
+        tenantId,
         channel: NotificationChannel.IN_APP,
       },
     });

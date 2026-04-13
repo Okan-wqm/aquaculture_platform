@@ -376,7 +376,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps) {
 
 export function AccountPage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, tenantId: authTenantId, logout } = useAuth();
   const { pendingCount, isOnline, isSyncing, syncNow } = useOfflineQueue();
   const { unreadCount } = useNotifications();
   const { isSupported: biometricSupported, hasCredentials } = useWebAuthn();
@@ -444,10 +444,11 @@ export function AccountPage() {
   }, []);
 
   const handleClearQueue = useCallback(async () => {
-    await clearAllOperations();
+    // SECURITY (C11): Clear only the current tenant's queue, not other tenants' ops
+    await clearAllOperations(authTenantId ?? undefined);
     setShowClearQueueDialog(false);
     // The OfflineProvider will refresh the pending count on next tick
-  }, []);
+  }, [authTenantId]);
 
   const handleLogout = useCallback(() => {
     setShowLogoutDialog(false);

@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Skull, CheckCircle, AlertCircle, Minus, Plus, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Skull, AlertCircle, Minus, Plus, ChevronRight } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import type { MortalityReason } from '@/types';
 import { clsx } from 'clsx';
 
@@ -47,6 +48,8 @@ export function RecordMortalityPage() {
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  // C7: Track the operationId for two-phase success UX
+  const [queuedOperationId, setQueuedOperationId] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [step, setStep] = useState<FormStep>('entry');
 
@@ -83,7 +86,7 @@ export function RecordMortalityPage() {
     setErrors({});
 
     try {
-      await addToQueue('recordMortality', {
+      const opId = await addToQueue('recordMortality', {
         batchId: metrics.batchId,
         tankId: selectedTankId,
         quantity,
@@ -92,8 +95,10 @@ export function RecordMortalityPage() {
         observedAt: new Date().toISOString(),
       });
 
+      // C7: Store operationId for QueuedStatusBadge tracking
+      setQueuedOperationId(opId);
       setShowSuccess(true);
-      setTimeout(() => navigate('/'), 1500);
+      setTimeout(() => navigate('/'), 2000);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to record mortality';
       setErrors({ general: message });
@@ -117,18 +122,12 @@ export function RecordMortalityPage() {
     setNotes(e.target.value);
   };
 
-  // WHY: Success screen with checkmark animation provides clear feedback that the operation
-  // was queued. "Queued for sync" is always accurate because all submissions go through offline queue.
+  // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
+  // instead of premature "Success!" green checkmark.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-sea-50 dark:bg-sea-900/10">
-        <div className="w-20 h-20 bg-sea-100 dark:bg-sea-900/30 rounded-full flex items-center justify-center mb-4 animate-bounce-once">
-          <CheckCircle size={48} className="text-sea-600" />
-        </div>
-        <h2 className="text-xl font-bold text-sea-700 dark:text-sea-300">Recorded!</h2>
-        <p className="text-sea-600 dark:text-sea-400 text-sm mt-1">
-          Queued for sync
-        </p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
   }

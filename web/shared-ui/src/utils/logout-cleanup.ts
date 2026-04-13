@@ -34,6 +34,37 @@ export interface LogoutCleanupOptions {
 }
 
 // ============================================================================
+// Global Cleanup Registry
+// ============================================================================
+
+/**
+ * SECURITY: Global registry for Zustand store cleanup functions.
+ *
+ * Modules (e.g., sensor-module) register their store-clearing callbacks here
+ * at import time. logoutCleanup() drains this registry automatically, ensuring
+ * tenant-scoped SCADA data, edge I/O caches, and other module-level stores
+ * are wiped on logout without creating cross-package import dependencies.
+ *
+ * @example
+ * // In sensor-module initialization:
+ * import { registerLogoutCleanup } from '@aquaculture/shared-ui';
+ * registerLogoutCleanup(() => useSensorStore.getState().clearAll());
+ */
+const cleanupRegistry: Set<() => void> = new Set();
+
+/**
+ * Register a cleanup function to be called on every logoutCleanup() invocation.
+ * Returns an unregister function.
+ *
+ * @param fn - Cleanup function (should be idempotent and never throw)
+ * @returns Unregister function to remove the callback
+ */
+export function registerLogoutCleanup(fn: () => void): () => void {
+  cleanupRegistry.add(fn);
+  return () => { cleanupRegistry.delete(fn); };
+}
+
+// ============================================================================
 // IndexedDB Cleanup
 // ============================================================================
 
@@ -158,6 +189,15 @@ export async function logoutCleanup(options: LogoutCleanupOptions = {}): Promise
   }
 
   // ── 3. Reset Zustand stores ──
+  // 3a. Drain the global cleanup registry (sensor stores, edge I/O stores, etc.)
+  for (const registeredFn of cleanupRegistry) {
+    try {
+      registeredFn();
+    } catch {
+      // Best-effort — store may already be destroyed
+    }
+  }
+  // 3b. Run any ad-hoc reset functions passed by the caller
   if (zustandResetFns) {
     for (const resetFn of zustandResetFns) {
       try {

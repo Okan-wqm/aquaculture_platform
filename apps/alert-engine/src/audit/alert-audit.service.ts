@@ -691,18 +691,18 @@ export class AlertAuditService implements OnModuleInit {
   /**
    * Get audit entry by ID
    */
-  async getById(id: string): Promise<AuditEntry | undefined> {
+  async getById(id: string, tenantId: string): Promise<AuditEntry | undefined> {
     const uuid = id.replace('audit_', '');
-    const entity = await this.auditRepository.findOne({ where: { id: uuid } });
+    const entity = await this.auditRepository.findOne({ where: { id: uuid, tenantId } });
     return entity ? this.toAuditEntry(entity) : undefined;
   }
 
   /**
    * Get entries by correlation ID
    */
-  async getByCorrelationId(correlationId: string): Promise<AuditEntry[]> {
+  async getByCorrelationId(correlationId: string, tenantId: string): Promise<AuditEntry[]> {
     const entities = await this.auditRepository.find({
-      where: { correlationId },
+      where: { correlationId, tenantId },
       order: { timestamp: 'ASC' },
     });
     return entities.map(e => this.toAuditEntry(e));
@@ -711,9 +711,9 @@ export class AlertAuditService implements OnModuleInit {
   /**
    * Get entity history
    */
-  async getEntityHistory(entityType: string, entityId: string): Promise<AuditEntry[]> {
+  async getEntityHistory(entityType: string, entityId: string, tenantId: string): Promise<AuditEntry[]> {
     const entities = await this.auditRepository.find({
-      where: { entityType, entityId },
+      where: { entityType, entityId, tenantId },
       order: { timestamp: 'DESC' },
     });
     return entities.map(e => this.toAuditEntry(e));

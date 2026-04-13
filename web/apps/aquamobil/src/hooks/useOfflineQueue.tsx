@@ -16,6 +16,12 @@ interface SyncResult {
   failed: number;
 }
 
+// IMPORTANT: SyncStatus tracks whether a queued operation has been confirmed by
+// the backend ('synced'), is still waiting ('pending'), is currently being sent
+// ('syncing'), or failed ('failed'). This powers the two-phase success UX (C7)
+// so users see honest "Queued" feedback until the backend roundtrip succeeds.
+export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed';
+
 interface OfflineContextValue {
   pendingCount: number;
   pendingOperations: QueuedOperation[];
@@ -27,6 +33,8 @@ interface OfflineContextValue {
   removeFromQueue: (id: string) => Promise<void>;
   refreshQueue: () => Promise<void>;
   clearError: () => void;
+  /** C7: Get the sync status of a specific queued operation by its operationId. */
+  getSyncStatus: (operationId: string) => SyncStatus;
 }
 
 const OfflineContext = createContext<OfflineContextValue | null>(null);
@@ -194,6 +202,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // C7: Track per-operation sync outcomes for the two-phase success UX.
+  // 'synced' = backend confirmed, 'failed' = backend rejected or network error.
+  const [syncResults, setSyncResults] = useState<Map<string, SyncStatus>>(new Map());
 
   // Use ref to track syncing state to avoid infinite loops
   const isSyncingRef = useRef(false);
@@ -202,18 +213,21 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   // syncNow changes due to pendingCount updates during a sync session.
   const syncNowRef = useRef<() => Promise<SyncResult>>(async () => ({ success: 0, failed: 0 }));
 
+  // SECURITY (C11): All queue operations are scoped to the current tenantId.
+  // refreshQueue only shows the active tenant's operations, preventing
+  // cross-tenant data leakage on shared devices.
   const refreshQueue = useCallback(async () => {
     try {
       const [count, operations] = await Promise.all([
-        getPendingCount(),
-        getPendingOperations()
+        getPendingCount(tenantId ?? undefined),
+        getPendingOperations(tenantId ?? undefined)
       ]);
       setPendingCount(count);
       setPendingOperations(operations);
     } catch (error) {
       console.error('Failed to refresh queue:', error);
     }
-  }, []);
+  }, [tenantId]);
 
   // Refresh queue on mount
   useEffect(() => {
@@ -238,10 +252,14 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
   const addToQueue = useCallback(
     async (type: OperationType, payload: OperationPayload): Promise<string> => {
+      // SECURITY (C11): tenantId is required -- reject if not authenticated
+      if (!tenantId) {
+        throw new Error('Cannot queue operations without an active tenant');
+      }
       // SEC-09: pass auth presence so background sync is only registered when
       // credentials are confirmed valid, preventing auth-failure retryCount inflation.
       const hasValidAuth = Boolean(accessToken && tenantId && user);
-      const id = await queueOperation(type, payload, hasValidAuth);
+      const id = await queueOperation(tenantId, type, payload, hasValidAuth);
       await refreshQueue();
       return id;
     },
@@ -309,6 +327,17 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     setIsSyncing(true);
     setSyncError(null);
 
+    // C7: Snapshot operation IDs before sync so we can track per-operation outcomes.
+    // Mark all pending operations as 'syncing' in the syncResults map.
+    const preSyncOps = [...pendingOperations];
+    setSyncResults((prev) => {
+      const next = new Map(prev);
+      for (const op of preSyncOps) {
+        next.set(op.id, 'syncing');
+      }
+      return next;
+    });
+
     try {
       // Ensure token is fresh before starting sync to avoid 401s mid-batch
       if (accessToken) {
@@ -324,8 +353,33 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const result = await syncAllOperations(executeGraphQL);
+      // SECURITY (C11): Only sync operations belonging to the active tenant
+      if (!tenantId) {
+        return { success: 0, failed: 0 };
+      }
+      const result = await syncAllOperations(tenantId, executeGraphQL);
       await refreshQueue();
+
+      // C7: After sync, determine per-operation outcomes by comparing against
+      // the refreshed queue. Operations no longer in the queue succeeded;
+      // operations still present with 'failed' status failed.
+      const postSyncOps = await getPendingOperations(tenantId);
+      const remainingIds = new Set(postSyncOps.map((op) => op.id));
+      const failedIds = new Set(
+        postSyncOps.filter((op) => op.status === 'failed').map((op) => op.id),
+      );
+      setSyncResults((prev) => {
+        const next = new Map(prev);
+        for (const op of preSyncOps) {
+          if (!remainingIds.has(op.id)) {
+            next.set(op.id, 'synced');
+          } else if (failedIds.has(op.id)) {
+            next.set(op.id, 'failed');
+          }
+          // else: still pending (e.g., skipped due to retry backoff)
+        }
+        return next;
+      });
 
       // BUG-07: Reset the reconnect guard after a successful sync so that
       // new items queued while online will trigger auto-sync on next effect run.
@@ -337,12 +391,22 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Sync failed';
       setSyncError(message);
+
+      // C7: Mark all pre-sync operations as failed on bulk sync error
+      setSyncResults((prev) => {
+        const next = new Map(prev);
+        for (const op of preSyncOps) {
+          next.set(op.id, 'failed');
+        }
+        return next;
+      });
+
       return { success: 0, failed: pendingCount };
     } finally {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, accessToken, refreshAuth]);
+  }, [isOnline, executeGraphQL, refreshQueue, pendingCount, pendingOperations, accessToken, refreshAuth, tenantId]);
 
   // Keep ref in sync so the auto-sync effect always calls the latest version
   // without needing syncNow in its dependency array (PERF-04).
@@ -352,15 +416,40 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
   const removeFromQueueHandler = useCallback(
     async (id: string): Promise<void> => {
-      await removeOperation(id);
+      // SECURITY (C11): Use current tenantId to target the correct tenant-scoped key
+      if (!tenantId) return;
+      await removeOperation(tenantId, id);
       await refreshQueue();
     },
-    [refreshQueue]
+    [refreshQueue, tenantId]
   );
 
   const clearError = useCallback(() => {
     setSyncError(null);
   }, []);
+
+  /** C7: Return the sync status of a specific queued operation. */
+  const getSyncStatus = useCallback(
+    (operationId: string): SyncStatus => {
+      // Check tracked sync results first
+      const tracked = syncResults.get(operationId);
+      if (tracked) return tracked;
+
+      // Check if operation is still in the pending queue
+      const inQueue = pendingOperations.find((op) => op.id === operationId);
+      if (inQueue) {
+        if (inQueue.status === 'failed') return 'failed';
+        if (inQueue.status === 'syncing') return 'syncing';
+        return 'pending';
+      }
+
+      // Not in queue and not tracked -- assume it was synced before tracking started
+      // or was deduped (empty string id from queueOperation).
+      if (!operationId) return 'pending';
+      return 'synced';
+    },
+    [syncResults, pendingOperations],
+  );
 
   // Auto-sync when coming online - with debounce to prevent loops.
   // PERF-04: syncNow is accessed via ref, not listed as a dependency,
@@ -420,6 +509,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         removeFromQueue: removeFromQueueHandler,
         refreshQueue,
         clearError,
+        getSyncStatus,
       }}
     >
       {children}

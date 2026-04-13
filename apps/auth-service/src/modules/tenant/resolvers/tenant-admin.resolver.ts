@@ -32,6 +32,7 @@ export class TenantAdminResolver {
    * MODULE_MANAGER/USER: Only assigned modules
    */
   @Query(() => [UserModuleInfo])
+  @TenantAdminOrHigher()
   async myModules(@CurrentUser('sub') userId: string): Promise<UserModuleInfo[]> {
     return this.tenantAdminService.getMyModules(userId);
   }

@@ -3,27 +3,19 @@
  *
  * Audit log for messaging operations for SUPER_ADMIN.
  * Filterable by tenant, user, action type, and date range with CSV export.
+ * Wired to real admin API: GET /messaging/audit
+ *
+ * @see ADR-012 Phase 3
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
+import type { ApiError } from '../../services/http-client';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-interface AuditEntry {
-  id: string;
-  timestamp: string;
-  tenantId: string;
-  tenantName: string;
-  userId: string;
-  userName: string;
-  action: 'send' | 'edit' | 'delete' | 'create_channel' | 'join_channel' | 'leave_channel' | 'upload_file';
-  details: string;
-  channelId?: string;
-  messageId?: string;
-}
 
 interface AuditFilters {
   tenantId: string;
@@ -66,39 +58,38 @@ const INITIAL_FILTERS: AuditFilters = {
   endDate: '',
 };
 
-// ============================================================================
-// Mock Data (TODO: Replace with admin API calls)
-// ============================================================================
-
-const MOCK_ENTRIES: AuditEntry[] = [];
+const PAGE_SIZE = 25;
 
 // ============================================================================
 // Main Component
 // ============================================================================
 
 const MessagingAuditPage: React.FC = () => {
-  const [entries, setEntries] = useState<AuditEntry[]>(MOCK_ENTRIES);
+  const [entries, setEntries] = useState<MessagingAuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<AuditFilters>(INITIAL_FILTERS);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const pageSize = 25;
 
   const fetchAuditLog = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      // TODO: Replace with actual admin API call
-      // const res = await adminApi.get('/admin/messaging/audit', {
-      //   params: { ...filters, page, pageSize },
-      // });
-      // setEntries(res.data.items);
-      // setTotal(res.data.total);
-
-      setEntries(MOCK_ENTRIES);
-      setTotal(0);
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch messaging audit log:', error);
+      const result = await messagingApi.getAuditLog({
+        tenantId: filters.tenantId || undefined,
+        userId: filters.userId || undefined,
+        action: filters.action || undefined,
+        startDate: filters.startDate || undefined,
+        endDate: filters.endDate || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+      });
+      setEntries(result.data);
+      setTotal(result.total);
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setError(apiErr.message || 'Failed to fetch messaging audit log');
     } finally {
       setLoading(false);
     }
@@ -146,7 +137,7 @@ const MessagingAuditPage: React.FC = () => {
     URL.revokeObjectURL(url);
   }, [entries]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="space-y-6">
@@ -172,6 +163,13 @@ const MessagingAuditPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      )}
 
       {/* Filters */}
       <Card>
@@ -310,10 +308,10 @@ const MessagingAuditPage: React.FC = () => {
         </div>
 
         {/* Pagination */}
-        {total > pageSize && (
+        {total > PAGE_SIZE && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
             <p className="text-sm text-gray-500">
-              Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total}
+              Showing {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, total)} of {total}
             </p>
             <div className="flex items-center gap-2">
               <button

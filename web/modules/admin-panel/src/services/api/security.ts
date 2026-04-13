@@ -92,6 +92,36 @@ export const securityApi = {
     });
   },
 
+  /**
+   * Verify data subject request identity.
+   * Backend: POST /security/compliance/data-requests/:id/verify
+   */
+  verifyDataRequestIdentity: (id: string, verificationMethod: string) =>
+    apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ verificationMethod }),
+    }),
+
+  /**
+   * Reject data subject request.
+   * Backend: PUT /security/compliance/data-requests/:id with status=rejected
+   */
+  rejectDataRequest: (id: string, rejectionReason: string) =>
+    apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'rejected', rejectionReason }),
+    }),
+
+  /**
+   * Complete data subject request.
+   * Backend: POST /security/compliance/data-requests/:id/complete
+   */
+  completeDataRequest: (id: string, completionNotes: string, deliveryFormat?: 'json' | 'csv' | 'pdf' | 'xml') =>
+    apiFetch<DataSubjectRequest>(`/security/compliance/data-requests/${id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ completionNotes, deliveryFormat }),
+    }),
+
   // Security Events & Incidents
   getSecurityEvents: (params?: {
     type?: SecurityEventType[];

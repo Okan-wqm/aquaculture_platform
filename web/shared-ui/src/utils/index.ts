@@ -25,6 +25,7 @@ export {
   getAccessToken,
   setTenantId,
   getTenantId,
+  onTenantChange,
   GraphQLClientError,
   RestClientError,
 } from './api-client';
@@ -148,7 +149,7 @@ export type {
 export { createTenantQueryKey } from './tenant-query-keys';
 
 // Logout Cleanup (SECURITY: FE-HIGH-005 — clears all browser storage layers)
-export { logoutCleanup } from './logout-cleanup';
+export { logoutCleanup, registerLogoutCleanup } from './logout-cleanup';
 export type { LogoutCleanupOptions } from './logout-cleanup';
 
 // Visibility-Aware Token Refresh (SECURITY: FE-HIGH-006)

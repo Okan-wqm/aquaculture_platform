@@ -258,7 +258,9 @@ const DataRequestDetailModal: React.FC<{
   request: DataRequest;
   onClose: () => void;
   onAction: (action: string) => void;
-}> = ({ request, onClose, onAction }) => {
+  actionLoading?: boolean;
+  actionError?: string | null;
+}> = ({ request, onClose, onAction, actionLoading = false, actionError = null }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -416,38 +418,51 @@ const DataRequestDetailModal: React.FC<{
             </div>
           </div>
         </div>
-        <div className="p-6 border-t border-gray-200 flex justify-between">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-          >
-            Close
-          </button>
-          <div className="flex gap-2">
-            {!request.identityVerified && request.status !== 'completed' && (
-              <button
-                onClick={() => onAction('verify')}
-                className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 rounded-lg hover:bg-yellow-700"
-              >
-                Verify Identity
-              </button>
-            )}
-            {request.status !== 'completed' && request.status !== 'rejected' && (
-              <>
+        <div className="p-6 border-t border-gray-200">
+          {/* SECURITY: Show error inline so admin can retry without losing context */}
+          {actionError && (
+            <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
+              <XCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <p className="text-sm text-red-700">{actionError}</p>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <button
+              onClick={onClose}
+              disabled={actionLoading}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+            >
+              Close
+            </button>
+            <div className="flex gap-2">
+              {!request.identityVerified && request.status !== 'completed' && (
                 <button
-                  onClick={() => onAction('reject')}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+                  onClick={() => onAction('verify')}
+                  disabled={actionLoading}
+                  className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 rounded-lg hover:bg-yellow-700 disabled:opacity-50"
                 >
-                  Reject
+                  {actionLoading ? 'Processing...' : 'Verify Identity'}
                 </button>
-                <button
-                  onClick={() => onAction('complete')}
-                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-                >
-                  Complete
-                </button>
-              </>
-            )}
+              )}
+              {request.status !== 'completed' && request.status !== 'rejected' && (
+                <>
+                  <button
+                    onClick={() => onAction('reject')}
+                    disabled={actionLoading}
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {actionLoading ? 'Processing...' : 'Reject'}
+                  </button>
+                  <button
+                    onClick={() => onAction('complete')}
+                    disabled={actionLoading}
+                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {actionLoading ? 'Processing...' : 'Complete'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -503,10 +518,52 @@ export const CompliancePage: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  const handleRequestAction = (action: string) => {
-    console.log('Action:', action, 'on request:', selectedRequest?.id);
-    setSelectedRequest(null);
-    loadData();
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  /**
+   * Handle verify/reject/complete actions on a data subject request.
+   * Calls the real backend endpoint and only closes modal on success.
+   */
+  const handleRequestAction = async (action: string): Promise<void> => {
+    if (!selectedRequest) return;
+
+    setActionLoading(true);
+    setActionError(null);
+
+    try {
+      switch (action) {
+        case 'verify':
+          await securityApi.verifyDataRequestIdentity(
+            selectedRequest.id,
+            'admin_manual_verification',
+          );
+          break;
+        case 'reject':
+          await securityApi.rejectDataRequest(
+            selectedRequest.id,
+            'Rejected by administrator',
+          );
+          break;
+        case 'complete':
+          await securityApi.completeDataRequest(
+            selectedRequest.id,
+            'Completed by administrator',
+          );
+          break;
+        default:
+          throw new Error(`Unknown action: ${action}`);
+      }
+
+      // SECURITY: Only close modal and refresh on successful backend mutation
+      setSelectedRequest(null);
+      await loadData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Action failed';
+      setActionError(`Failed to ${action} request: ${message}`);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const filteredRequests = dataRequests.filter((req) => {
@@ -954,8 +1011,10 @@ export const CompliancePage: React.FC = () => {
       {selectedRequest && (
         <DataRequestDetailModal
           request={selectedRequest}
-          onClose={() => setSelectedRequest(null)}
+          onClose={() => { setSelectedRequest(null); setActionError(null); }}
           onAction={handleRequestAction}
+          actionLoading={actionLoading}
+          actionError={actionError}
         />
       )}
     </div>

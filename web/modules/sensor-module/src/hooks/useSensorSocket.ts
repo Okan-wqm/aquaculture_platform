@@ -3,12 +3,16 @@
  *
  * Manages WebSocket connection for real-time sensor data updates.
  * Provides automatic reconnection, authentication, and sensor subscription.
+ *
+ * SECURITY: All store keys are tenant-scoped (`${tenantId}:${sensorId}`) to
+ * prevent cross-tenant SCADA data leaks during impersonation or tenant switch.
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import { create } from 'zustand';
 import { getSocket, releaseSocket } from './socketFactory';
+import { getTenantId, registerLogoutCleanup, onTenantChange } from '@aquaculture/shared-ui';
 
 // WebSocket server URL — BUG-021 / SEC-003: use runtime/env config, not hardcoded localhost
 const WS_URL =
@@ -24,14 +28,31 @@ export interface SensorReading {
   timestamp: string;
 }
 
+/**
+ * SECURITY: Composite key for tenant-partitioned sensor data.
+ * Prevents cross-tenant data leaks when overlapping sensorIds exist
+ * across tenants (e.g., during admin impersonation / tenant switch).
+ */
+function tenantScopedKey(tenantId: string, sensorId: string): string {
+  return `${tenantId}:${sensorId}`;
+}
+
 interface SensorSocketState {
   isConnected: boolean;
+  /** SECURITY: Keys are `${tenantId}:${sensorId}` — never bare sensorId */
   lastReading: Map<string, SensorReading>;
   subscribers: Map<string, Set<(reading: SensorReading) => void>>;
 
   setConnected: (connected: boolean) => void;
   updateReading: (reading: SensorReading) => void;
   subscribe: (sensorId: string, callback: (reading: SensorReading) => void) => () => void;
+  /**
+   * SECURITY: Remove all cached data for a specific tenant.
+   * Must be called on tenant switch and logout to prevent data leaks.
+   */
+  clearTenant: (tenantId: string) => void;
+  /** SECURITY: Remove ALL cached data across all tenants (used on logout). */
+  clearAll: () => void;
 }
 
 // Global store for sensor readings - shared across all widget instances
@@ -44,39 +65,78 @@ export const useSensorStore = create<SensorSocketState>((set, get) => ({
 
   updateReading: (reading) => {
     const { lastReading, subscribers } = get();
+    const key = tenantScopedKey(reading.tenantId, reading.sensorId);
 
-    // Update reading in store
+    // SECURITY: Update reading under tenant-scoped key
     const newLastReading = new Map(lastReading);
-    newLastReading.set(reading.sensorId, reading);
+    newLastReading.set(key, reading);
     set({ lastReading: newLastReading });
 
-    // Notify subscribers
-    const sensorSubscribers = subscribers.get(reading.sensorId);
+    // Notify subscribers (subscribers use tenant-scoped keys)
+    const sensorSubscribers = subscribers.get(key);
     if (sensorSubscribers) {
       sensorSubscribers.forEach((callback) => callback(reading));
     }
   },
 
   subscribe: (sensorId, callback) => {
+    // SECURITY: Scope subscription key by current tenant
+    const currentTenantId = getTenantId();
+    if (!currentTenantId) return () => {};
+
+    const key = tenantScopedKey(currentTenantId, sensorId);
     const { subscribers } = get();
 
-    if (!subscribers.has(sensorId)) {
-      subscribers.set(sensorId, new Set());
+    if (!subscribers.has(key)) {
+      subscribers.set(key, new Set());
     }
-    subscribers.get(sensorId)!.add(callback);
+    subscribers.get(key)!.add(callback);
 
     // Return unsubscribe function
     return () => {
-      const subs = subscribers.get(sensorId);
+      const subs = subscribers.get(key);
       if (subs) {
         subs.delete(callback);
         if (subs.size === 0) {
-          subscribers.delete(sensorId);
+          subscribers.delete(key);
         }
       }
     };
   },
+
+  clearTenant: (tenantIdToClear) => {
+    const { lastReading, subscribers } = get();
+    const prefix = `${tenantIdToClear}:`;
+
+    // SECURITY: Purge all readings belonging to the cleared tenant
+    const newLastReading = new Map(lastReading);
+    for (const key of lastReading.keys()) {
+      if (key.startsWith(prefix)) {
+        newLastReading.delete(key);
+      }
+    }
+
+    // SECURITY: Purge all subscriber entries for the cleared tenant
+    const newSubscribers = new Map(subscribers);
+    for (const key of subscribers.keys()) {
+      if (key.startsWith(prefix)) {
+        newSubscribers.delete(key);
+      }
+    }
+
+    set({ lastReading: newLastReading, subscribers: newSubscribers });
+  },
+
+  clearAll: () => {
+    set({ lastReading: new Map(), subscribers: new Map() });
+  },
 }));
+
+// SECURITY: Register store cleanup for logout — ensures no SCADA data persists after logout
+registerLogoutCleanup(() => useSensorStore.getState().clearAll());
+
+// SECURITY: On tenant switch, clear the previous tenant's cached readings
+onTenantChange((oldTenantId) => useSensorStore.getState().clearTenant(oldTenantId));
 
 // Module-level flag to track whether event listeners have been bound
 let listenersAttached = false;
@@ -149,16 +209,22 @@ function unsubscribeFromSensors(sensorIds: string[]): void {
 }
 
 /**
- * Hook for using real-time sensor data
+ * Hook for using real-time sensor data.
+ *
+ * SECURITY: All store reads are scoped by the current tenantId to prevent
+ * cross-tenant data leaks during impersonation or tenant switch.
  */
 export function useSensorSocket(sensorIds: string[] = []) {
   const { isConnected, lastReading, subscribe } = useSensorStore();
   const [readings, setReadings] = useState<Map<string, SensorReading>>(new Map());
   const subscribedRef = useRef<Set<string>>(new Set());
 
+  // SECURITY: Read tenant ID on every render so tenant switches are reflected
+  const currentTenantId = getTenantId();
+
   // Initialize socket on first use
   useEffect(() => {
-    const socket = getSensorSocket();
+    getSensorSocket();
 
     return () => {
       // Cleanup: unsubscribe from sensors when component unmounts
@@ -173,7 +239,7 @@ export function useSensorSocket(sensorIds: string[] = []) {
 
   // Subscribe to sensors
   useEffect(() => {
-    if (sensorIds.length === 0) return;
+    if (sensorIds.length === 0 || !currentTenantId) return;
 
     const newSensorIds = sensorIds.filter((id) => !subscribedRef.current.has(id));
 
@@ -182,7 +248,7 @@ export function useSensorSocket(sensorIds: string[] = []) {
       newSensorIds.forEach((id) => subscribedRef.current.add(id));
     }
 
-    // Subscribe to store updates for each sensor
+    // Subscribe to store updates for each sensor (subscribe internally scopes by tenant)
     const unsubscribes = sensorIds.map((sensorId) =>
       subscribe(sensorId, (reading) => {
         setReadings((prev) => {
@@ -196,14 +262,16 @@ export function useSensorSocket(sensorIds: string[] = []) {
     return () => {
       unsubscribes.forEach((unsub) => unsub());
     };
-  }, [sensorIds.join(','), isConnected, subscribe]);
+  }, [sensorIds.join(','), isConnected, subscribe, currentTenantId]);
 
-  // Get latest reading for a specific sensor
+  // SECURITY: Get latest reading scoped by current tenant
   const getLatestReading = useCallback(
     (sensorId: string): SensorReading | undefined => {
-      return readings.get(sensorId) || lastReading.get(sensorId);
+      if (!currentTenantId) return undefined;
+      const key = tenantScopedKey(currentTenantId, sensorId);
+      return readings.get(sensorId) || lastReading.get(key);
     },
-    [readings, lastReading]
+    [readings, lastReading, currentTenantId]
   );
 
   return {

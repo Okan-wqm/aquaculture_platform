@@ -336,10 +336,35 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+// ── Tenant Change Callback Registry ──
+
 /**
- * Tenant ID'yi ayarla
+ * SECURITY: Registry for callbacks to execute when tenant changes.
+ * Used by Zustand stores (sensor, edge I/O) to clear stale tenant data
+ * and prevent cross-tenant data leaks during impersonation / tenant switch.
+ */
+const tenantChangeCallbacks: Set<(oldTenantId: string) => void> = new Set();
+
+/**
+ * Register a callback to be invoked when the active tenant changes.
+ * The callback receives the OLD tenant ID so it can selectively clear data.
+ *
+ * @param fn - Callback receiving the previous tenantId
+ * @returns Unregister function
+ */
+export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
+  tenantChangeCallbacks.add(fn);
+  return () => { tenantChangeCallbacks.delete(fn); };
+}
+
+/**
+ * Tenant ID'yi ayarla.
+ *
+ * SECURITY: When the tenant ID changes, all registered tenant-change callbacks
+ * are invoked with the OLD tenant ID so that modules can purge stale data.
  */
 export function setTenantId(id: string | null): void {
+  const previousTenantId = tenantId;
   tenantId = id;
   try {
     if (id) {
@@ -349,6 +374,17 @@ export function setTenantId(id: string | null): void {
     }
   } catch {
     // Ignore localStorage errors silently in production
+  }
+
+  // SECURITY: Notify listeners when the active tenant actually changed
+  if (previousTenantId && previousTenantId !== id) {
+    for (const cb of tenantChangeCallbacks) {
+      try {
+        cb(previousTenantId);
+      } catch {
+        // Best-effort — store may already be destroyed
+      }
+    }
   }
 }
 

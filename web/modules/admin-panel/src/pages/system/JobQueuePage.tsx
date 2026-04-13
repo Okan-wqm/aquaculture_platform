@@ -121,14 +121,7 @@ export const JobQueuePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to retry job:', err);
-      // Optimistic update for demo
-      setJobs(
-        currentJobs.map((j) =>
-          j.id === job.id
-            ? { ...j, status: 'pending' as JobStatus, attempts: 0 }
-            : j
-        )
-      );
+      setError(err instanceof Error ? err.message : 'Failed to retry job. Please try again.');
     }
   };
 
@@ -145,12 +138,7 @@ export const JobQueuePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to cancel job:', err);
-      // Optimistic update for demo
-      setJobs(
-        currentJobs.map((j) =>
-          j.id === job.id ? { ...j, status: 'cancelled' as JobStatus } : j
-        )
-      );
+      setError(err instanceof Error ? err.message : 'Failed to cancel job. Please try again.');
     }
   };
 
@@ -182,17 +170,7 @@ export const JobQueuePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to pause queue:', err);
-      // Optimistic update for demo
-      setDashboard(
-        dashboard
-          ? {
-              ...dashboard,
-              queues: currentQueues.map((q) =>
-                q.name === queue.name ? { ...q, isPaused: true } : q
-              ),
-            }
-          : null
-      );
+      setError(err instanceof Error ? err.message : 'Failed to pause queue. Please try again.');
     }
   };
 
@@ -212,17 +190,7 @@ export const JobQueuePage: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to resume queue:', err);
-      // Optimistic update for demo
-      setDashboard(
-        dashboard
-          ? {
-              ...dashboard,
-              queues: currentQueues.map((q) =>
-                q.name === queue.name ? { ...q, isPaused: false } : q
-              ),
-            }
-          : null
-      );
+      setError(err instanceof Error ? err.message : 'Failed to resume queue. Please try again.');
     }
   };
 

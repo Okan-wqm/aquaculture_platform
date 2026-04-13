@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, MapPin, CheckCircle, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useAuth } from '@/hooks/useAuth';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
 import type { GeoLocation, AttendanceRecord } from '@/types';
@@ -49,7 +50,8 @@ export function AttendancePage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
+  // C7: Track the operationId for two-phase success UX
+  const [queuedOperationId, setQueuedOperationId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [location, setLocation] = useState<GeoLocation | null>(null);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
@@ -87,17 +89,18 @@ export function AttendancePage() {
     setError(null);
     try {
       const loc = await getLocation();
-      await addToQueue('clockIn', {
+      const opId = await addToQueue('clockIn', {
         employeeId,
         method: 'MOBILE' as const,
         location: loc || undefined,
       });
-      setSuccessMessage('Clock In Recorded!');
+      // C7: Store operationId for QueuedStatusBadge tracking
+      setQueuedOperationId(opId);
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
         refetchToday();
-      }, 1500);
+      }, 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clock in');
     } finally {
@@ -110,17 +113,18 @@ export function AttendancePage() {
     setError(null);
     try {
       const loc = await getLocation();
-      await addToQueue('clockOut', {
+      const opId = await addToQueue('clockOut', {
         employeeId,
         method: 'MOBILE' as const,
         location: loc || undefined,
       });
-      setSuccessMessage('Clock Out Recorded!');
+      // C7: Store operationId for QueuedStatusBadge tracking
+      setQueuedOperationId(opId);
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
         refetchToday();
-      }, 1500);
+      }, 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clock out');
     } finally {
@@ -128,14 +132,12 @@ export function AttendancePage() {
     }
   };
 
+  // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
+  // instead of premature green checkmark with "Recorded!" message.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">{successMessage}</h2>
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">Queued for sync</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
   }

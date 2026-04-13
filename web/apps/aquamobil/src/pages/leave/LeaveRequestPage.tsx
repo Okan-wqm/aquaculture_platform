@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, CalendarOff, CheckCircle, AlertCircle } from 'lucide-react';
+import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { useLeaveTypes, useMyLeaveBalances, useSubmitLeaveRequest } from '@/hooks/useLeave';
-import { useAuth } from '@/hooks/useAuth';
 import type { LeaveType } from '@/types';
 import { clsx } from 'clsx';
 
@@ -17,7 +17,6 @@ interface FormErrors {
 
 export function LeaveRequestPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { addToQueue, isOnline } = useOfflineQueue();
   // WHY no imperative fetch calls: React Query auto-fetches on mount when
   // enabled conditions are met, and the data is shared/deduplicated across
@@ -33,6 +32,8 @@ export function LeaveRequestPage() {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  // C7: Track the operationId for two-phase success UX
+  const [queuedOperationId, setQueuedOperationId] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
 
   // Set default start date to tomorrow
@@ -43,7 +44,6 @@ export function LeaveRequestPage() {
     setEndDate(tomorrow.toISOString().split('T')[0]!);
   }, []);
 
-  const selectedType = leaveTypes.find((t: LeaveType) => t.id === selectedTypeId);
   const selectedBalance = balances.find((b) => b.leaveTypeId === selectedTypeId);
 
   const calculateDays = useCallback((): number => {
@@ -86,6 +86,9 @@ export function LeaveRequestPage() {
         reason: reason.trim() || undefined,
       });
 
+      // C7: Store operationId for QueuedStatusBadge tracking
+      setQueuedOperationId(queueId);
+
       // If online, the queue will sync immediately and we can try to submit
       // If offline, it will stay as DRAFT until sync
       if (isOnline && queueId) {
@@ -100,7 +103,7 @@ export function LeaveRequestPage() {
       }
 
       setShowSuccess(true);
-      setTimeout(() => navigate('/leave'), 1500);
+      setTimeout(() => navigate('/leave'), 2000);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create leave request';
       setErrors({ general: message });
@@ -109,14 +112,12 @@ export function LeaveRequestPage() {
     }
   };
 
+  // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
+  // instead of premature "Request Submitted!" green checkmark.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-violet-50 dark:bg-violet-900/10">
-        <div className="w-20 h-20 bg-violet-100 dark:bg-violet-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-violet-600" />
-        </div>
-        <h2 className="text-xl font-bold text-violet-700 dark:text-violet-300">Request Submitted!</h2>
-        <p className="text-violet-600 dark:text-violet-400 text-sm mt-1">Queued for processing</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
   }

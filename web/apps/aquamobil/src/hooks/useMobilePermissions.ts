@@ -54,29 +54,24 @@ const DEFAULT_SETTINGS: MobileSettings = {
   },
 };
 
-// BUG-2/3 FIX: Graceful degradation defaults.  When the backend returns an
-// error (e.g. the row couldn't be created because of the BUG-1 user_id issue),
-// we fall back to a usable set of core features so the mobile app remains
-// functional instead of showing a completely blank screen.
-// WHY: HR features (attendance, leave, schedule) are included in fallback because
-// field workers rely on clock-in/out and leave requests even when the permission
-// endpoint is temporarily unavailable. Denying these during an outage causes
-// payroll discrepancies and forces manual paper-based tracking.
+// SECURITY: Fail-closed fallback — when backend returns an error and no valid
+// cache exists, deny all features. Granting access by default on error is a
+// privilege escalation vector (e.g. network isolation on shared field devices).
 const FALLBACK_SETTINGS: MobileSettings = {
-  isMobileEnabled: true,
+  isMobileEnabled: false,
   allowedFeatures: {
-    mortality: true,
-    cull: true,
-    harvest: true,
-    feeding: true,
-    waterQuality: true,
-    tankView: true,
-    schedule: true,
-    attendance: true,
-    leave: true,
-    tasks: true,
-    transfer: true,
-    storage: true,
+    mortality: false,
+    cull: false,
+    harvest: false,
+    feeding: false,
+    waterQuality: false,
+    tankView: false,
+    schedule: false,
+    attendance: false,
+    leave: false,
+    tasks: false,
+    transfer: false,
+    storage: false,
   },
 };
 
@@ -143,9 +138,8 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
           // Cache write failed — settings are still applied in memory via setSettings above.
         }
       } else if (result.errors) {
-        // BUG-2/3 FIX: Backend returned a GraphQL error (e.g. user_id null
-        // constraint violation). Try cache first, otherwise apply graceful
-        // degradation fallback so the app remains usable.
+        // Backend returned a GraphQL error — try cache first, otherwise apply
+        // fail-closed fallback.
         const cached = await get<{ settings: MobileSettings; expiresAt: number }>(cacheKey);
         if (cached && cached.expiresAt > Date.now()) {
           setSettings(cached.settings);
@@ -160,7 +154,7 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
         if (cached) {
           setSettings(cached.settings);
         } else {
-          // BUG-2/3 FIX: No cache available — use fallback so core features work
+          // No cache available — use fail-closed fallback
           setSettings(FALLBACK_SETTINGS);
         }
       } catch {

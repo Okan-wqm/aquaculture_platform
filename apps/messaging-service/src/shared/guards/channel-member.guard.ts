@@ -14,7 +14,7 @@ import { ChannelMember } from '../../channel/entities/channel-member.entity';
 export const CHANNEL_CONTEXT_KEY = '__channel';
 
 interface RequestWithUser {
-  user?: { sub: string };
+  user?: { sub: string; tenantId?: string | null };
   [CHANNEL_CONTEXT_KEY]?: ChannelMember;
 }
 
@@ -51,10 +51,16 @@ export class ChannelMemberGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
 
+    const tenantId = request.user?.tenantId;
+    if (!tenantId) {
+      throw new ForbiddenException('Tenant context is required');
+    }
+
     const member = await this.memberRepo.findOne({
       where: {
         channelId,
         userId,
+        tenantId,
         leftAt: IsNull(),
       },
     });

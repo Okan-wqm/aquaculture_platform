@@ -229,7 +229,7 @@ export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRec
 /** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
  * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
 export type MessagingOfflinePayload =
-  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[] }
+  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[]; metadata?: Record<string, unknown> }
   | { id: string; content: string }
   | { id: string }
   | { channelId: string; messageId: string };
@@ -238,6 +238,9 @@ export type OperationPayload = MortalityInput | CullInput | HarvestInput | Feedi
 
 export interface QueuedOperation {
   id: string;
+  /** SECURITY (C11): tenantId partitions the offline queue so operations from
+   * tenant A are never replayed under tenant B on shared devices. */
+  tenantId: string;
   type: OperationType;
   payload: OperationPayload;
   createdAt: string;

@@ -9,7 +9,14 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { IS_PUBLIC_KEY, ITokenBlacklist, TOKEN_BLACKLIST } from '@aquaculture/backend-common';
+import {
+  IS_PUBLIC_KEY,
+  ITokenBlacklist,
+  TOKEN_BLACKLIST,
+  getJwtVerifyOptions,
+  enforceAccessTokenType,
+} from '@aquaculture/backend-common';
+import { Logger } from '@nestjs/common';
 import { Request } from 'express';
 
 import { JwtPayload } from '../services/token.service';
@@ -30,7 +37,8 @@ interface GqlContext {
 
 @Injectable()
 export class JwtAuthGuard {
-  private readonly expectedAudience: string;
+  private readonly logger = new Logger(JwtAuthGuard.name);
+  private readonly isProduction: boolean;
 
   constructor(
     @Inject(JwtService) private readonly jwtService: JwtService,
@@ -38,7 +46,7 @@ export class JwtAuthGuard {
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
   ) {
-    this.expectedAudience = this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform');
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -60,13 +68,18 @@ export class JwtAuthGuard {
     }
 
     try {
-      /** SEC-M14: Explicitly restrict JWT algorithm to HS256 to prevent algorithm confusion attacks.
-       *  Without this, an attacker could forge tokens using RS256 with the public key as HMAC secret.
-       *  Also verifies JWT audience to prevent cross-service token replay. */
-      const payload = await this.jwtService.verifyAsync(token, {
-        algorithms: ['HS256'],
-        audience: this.expectedAudience,
-      }) as JwtPayload;
+      // SECURITY: Use platform-standard RS256 verification (getJwtVerifyOptions).
+      // WHY: Auth-service previously used HS256 here while the token issuer had
+      // already migrated to RS256 signing. This caused ALL tenant-admin queries
+      // to fail with "Invalid or expired token" because RS256 tokens cannot pass
+      // HS256 verification. Now uses the same verification path as the gateway.
+      const payload = await this.jwtService.verifyAsync(
+        token,
+        getJwtVerifyOptions(this.configService),
+      ) as JwtPayload;
+
+      // SECURITY: Enforce access token type — reject refresh/MFA tokens
+      enforceAccessTokenType(payload, this.logger, this.isProduction);
 
       // SECURITY: Check token blacklist using composite method
       // Validates both per-JTI blacklist and per-user bulk invalidation

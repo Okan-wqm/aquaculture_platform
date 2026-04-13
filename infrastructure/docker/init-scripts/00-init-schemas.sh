@@ -328,6 +328,24 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   -- ========================================================================
   -- Verification query
   -- ========================================================================
+  -- Schema evolution: add missing columns that entities define but
+  -- production DB was created before the column was added to the entity.
+  -- WHY: billing-service has no TypeORM migration runner. In dev,
+  -- synchronize: true handles this. In production, this idempotent
+  -- ALTER TABLE fills the gap until a proper migration runner is added.
+  -- ========================================================================
+
+  -- Subscription soft-delete columns (added to entity, missing from prod DB)
+  ALTER TABLE IF EXISTS billing.subscription
+    ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE IF EXISTS billing.subscription
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+  ALTER TABLE IF EXISTS billing.subscription
+    ADD COLUMN IF NOT EXISTS deleted_by VARCHAR;
+  CREATE INDEX IF NOT EXISTS idx_subscription_is_deleted
+    ON billing.subscription (is_deleted) WHERE is_deleted = true;
+
+  -- ========================================================================
 
   SELECT nspname AS schema_name,
          pg_catalog.pg_get_userbyid(nspowner) AS owner

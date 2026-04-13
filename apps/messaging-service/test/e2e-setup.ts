@@ -21,6 +21,7 @@ import supertest from 'supertest';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import { getTenantSchemaName } from '@aquaculture/backend-common';
+import { NatsEventBus } from '@platform/event-bus';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
@@ -83,9 +84,46 @@ export async function createE2eTestApp(
     process.env['JWT_PUBLIC_KEY'] = publicKey;
   }
 
+  // ── NATS Mock ──
+  // WHY: No NATS broker in CI. Two separate NATS dependencies exist:
+  //
+  // 1. NATS_SERVICE (@nestjs/microservices ClientProxy) — used by GdprService,
+  //    AiChatBridgeService, EventHandlersModule for request-reply patterns.
+  //    The @nestjs/microservices mock provides the module shell but NOT the
+  //    provider token, so we override it explicitly.
+  //
+  // 2. EVENT_BUS (@platform/event-bus NatsEventBus) — used by OutboxPublisher
+  //    for JetStream event publishing. Connects to NATS on init, so we
+  //    override it with a no-op mock.
+  const mockNatsClient = {
+    emit: jest.fn().mockReturnValue({ subscribe: jest.fn() }),
+    send: jest.fn().mockReturnValue({ subscribe: jest.fn(), pipe: jest.fn().mockReturnThis(), toPromise: jest.fn() }),
+    connect: jest.fn().mockResolvedValue(undefined),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockEventBus = {
+    publish: jest.fn().mockResolvedValue(undefined),
+    subscribe: jest.fn().mockResolvedValue(undefined),
+    subscribeTo: jest.fn().mockResolvedValue(undefined),
+    connect: jest.fn().mockResolvedValue(undefined),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+    onModuleInit: jest.fn().mockResolvedValue(undefined),
+    onModuleDestroy: jest.fn().mockResolvedValue(undefined),
+  };
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    .overrideProvider('NATS_SERVICE')
+    .useValue(mockNatsClient)
+    .overrideProvider('EVENT_BUS')
+    .useValue(mockEventBus)
+    // NatsEventBus is also registered as a class provider by EventBusModule.
+    // Override it to prevent NATS connection attempt on module init.
+    .overrideProvider(NatsEventBus)
+    .useValue(mockEventBus)
+    .compile();
 
   const app = moduleFixture.createNestApplication();
   app.useGlobalPipes(

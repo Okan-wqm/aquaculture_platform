@@ -124,11 +124,13 @@ async function fetchDataRequests(params: {
   if (params.requestType && params.requestType !== 'all') apiParams.type = params.requestType;
 
   const result = await securityApi.getDataRequests(apiParams);
+  const data = Array.isArray(result?.data) ? result.data : [];
+  const total = typeof result?.total === 'number' ? result.total : data.length;
   return {
-    data: result.data as unknown as DataRequest[],
-    total: result.total,
+    data,
+    total,
     stats: {
-      totalRequests: result.total,
+      totalRequests: total,
       pendingRequests: 0,
       inProgressRequests: 0,
       completedRequests: 0,
@@ -139,11 +141,27 @@ async function fetchDataRequests(params: {
 }
 
 async function fetchComplianceReports(): Promise<ComplianceReport[]> {
-  return securityApi.getComplianceReports() as unknown as Promise<ComplianceReport[]>;
+  const result = await securityApi.getComplianceReports();
+  // SECURITY: Enforce response contract — backend might return a wrapped
+  // object {reports: [...]} or an error object. Only accept arrays.
+  if (!Array.isArray(result)) {
+    throw new Error(`Compliance reports: expected array, got ${typeof result}`);
+  }
+  return result;
 }
 
 async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
-  return securityApi.getComplianceChecks(framework) as unknown as Promise<ComplianceCheck[]>;
+  const result = await securityApi.getComplianceChecks(framework);
+  // SECURITY: Enforce response contract — backend compliance/checks/:framework
+  // might return {checks: [...], requirements: [...]} wrapper or error object.
+  // Only accept arrays; if wrapped, extract the array.
+  if (Array.isArray(result)) {
+    return result;
+  }
+  if (result && typeof result === 'object' && 'checks' in result && Array.isArray(result.checks)) {
+    return result.checks;
+  }
+  throw new Error(`Compliance checks: expected array, got ${typeof result}`);
 }
 
 // ============================================================================

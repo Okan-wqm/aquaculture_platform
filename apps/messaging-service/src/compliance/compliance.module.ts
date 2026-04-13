@@ -78,6 +78,7 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
     LegalHoldService,
     ComplianceAuditService,
     RetentionPolicyService,
+    DataExportService,
   ],
 })
 export class ComplianceModule {}

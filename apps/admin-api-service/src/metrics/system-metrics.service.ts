@@ -216,17 +216,22 @@ export class SystemMetricsService {
     services.push(dbHealth);
 
     // Add checks for other services (would use HTTP calls in real implementation)
+    // IMPORTANT: Hostnames are Docker Compose service names (not container_name).
+    // Docker internal DNS resolves service names on the aqua-internal network.
+    // container_name (aqua-auth) != service name (auth-service).
     const serviceEndpoints = [
-      { name: 'auth-service', url: 'http://aqua-auth:3000/health/live' },
-      { name: 'gateway-api', url: 'http://aqua-gateway:3000/health/live' },
-      { name: 'farm-service', url: 'http://aqua-farm:3000/health/live' },
-      { name: 'sensor-service', url: 'http://aqua-sensor:3000/health/live' },
-      { name: 'alert-engine', url: 'http://aqua-alert:3000/health/live' },
-      { name: 'notification-service', url: 'http://aqua-notification:3000/health/live' },
-      { name: 'billing-service', url: 'http://aqua-billing:3000/health/live' },
-      { name: 'config-service', url: 'http://aqua-config:3000/health/live' },
-      { name: 'hr-service', url: 'http://aqua-hr:3000/health/live' },
-      { name: 'hydroponics-service', url: 'http://aqua-hydroponics:3000/health/live' },
+      { name: 'gateway-api', url: 'http://gateway-api:3000/health/live' },
+      { name: 'auth-service', url: 'http://auth-service:3000/health/live' },
+      { name: 'farm-service', url: 'http://farm-service:3000/health/live' },
+      { name: 'sensor-service', url: 'http://sensor-service:3000/health/live' },
+      { name: 'alert-engine', url: 'http://alert-engine:3000/health/live' },
+      { name: 'billing-service', url: 'http://billing-service:3000/health/live' },
+      { name: 'hr-service', url: 'http://hr-service:3000/health/live' },
+      { name: 'notification-service', url: 'http://notification-service:3000/health/live' },
+      { name: 'config-service', url: 'http://config-service:3000/health/live' },
+      { name: 'hydroponics-service', url: 'http://hydroponics-service:3000/health/live' },
+      { name: 'messaging-service', url: 'http://messaging-service:3000/health/live' },
+      { name: 'observability-service', url: 'http://observability-service:3009/health/live' },
     ];
 
     // C-3 fix: Report status as 'degraded' with a note instead of falsely claiming 'healthy'.

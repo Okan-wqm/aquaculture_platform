@@ -89,6 +89,7 @@ import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781
 // Package 21-26: Tenant isolation, message idempotency, outbox dedup, audit immutability
 import { AddTenantIsolationAndAuditImmutability1782000000000 } from './migrations/1782000000000-AddTenantIsolationAndAuditImmutability';
 import { AddMessagingOutboxNotifyTrigger1782100000000 } from './migrations/1782100000000-AddMessagingOutboxNotifyTrigger';
+import { AddMissingOutboxColumns1782200000000 } from './migrations/1782200000000-AddMissingOutboxColumns';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -167,6 +168,7 @@ const complexityCache = new Map<string, number>();
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddTenantIsolationAndAuditImmutability1782000000000,
             AddMessagingOutboxNotifyTrigger1782100000000,
+            AddMissingOutboxColumns1782200000000,
           ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {

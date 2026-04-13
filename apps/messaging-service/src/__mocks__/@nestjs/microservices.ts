@@ -32,8 +32,33 @@ export const Transport = {
 };
 
 export class ClientsModule {
-  static register(_options: unknown[]): { module: typeof ClientsModule } {
-    return { module: ClientsModule };
+  /**
+   * WHY: The real ClientsModule.register() creates a provider for each client
+   * config using the `name` field as the injection token. Without these
+   * providers, NestJS DI fails with "can't resolve NATS_SERVICE". This mock
+   * extracts each client name and provides a no-op ClientProxy instance.
+   */
+  static register(options: Array<{ name?: string }>): {
+    module: typeof ClientsModule;
+    providers: Array<{ provide: string; useValue: ClientProxy }>;
+    exports: string[];
+  } {
+    const mockClient: ClientProxy = {
+      connect: async () => undefined,
+      close: async () => undefined,
+      emit: (_p: string, _d: unknown) => of(undefined),
+      send: (_p: string, _d: unknown) => of(undefined),
+    } as unknown as ClientProxy;
+
+    const names = (options || [])
+      .filter((o) => o && typeof o.name === 'string')
+      .map((o) => o.name as string);
+
+    return {
+      module: ClientsModule,
+      providers: names.map((name) => ({ provide: name, useValue: mockClient })),
+      exports: names,
+    };
   }
 }
 

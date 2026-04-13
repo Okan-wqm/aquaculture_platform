@@ -108,6 +108,8 @@ export async function createE2eTestApp(
     subscribeTo: jest.fn().mockResolvedValue(undefined),
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
+    isConnected: jest.fn().mockReturnValue(true),
+    getHealthStatus: jest.fn().mockReturnValue({ isHealthy: true }),
     onModuleInit: jest.fn().mockResolvedValue(undefined),
     onModuleDestroy: jest.fn().mockResolvedValue(undefined),
   };

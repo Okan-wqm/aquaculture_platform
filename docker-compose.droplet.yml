@@ -493,33 +493,35 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
-      # Subgraph services: wait for healthy (GraphQL endpoint ready) before gateway starts.
-      # This prevents introspection failures caused by subgraphs still bootstrapping.
+      # ARCH-GW-002: All subgraph dependencies use service_started (not service_healthy).
+      #
+      # WHY: Gateway has RetryableIntrospectAndCompose with 12 attempts and ~36s budget.
+      # It already handles subgraphs that aren't ready yet by retrying composition.
+      # Using service_healthy here creates a fragile dependency chain:
+      #   messaging unhealthy → gateway can't start → nginx can't start → entire platform down
+      # With service_started, gateway starts immediately and retries composition until
+      # all subgraphs are available. If a subgraph never comes up, gateway logs the error
+      # and the health check reports degraded — but nginx and other services stay up.
       auth-service:
-        condition: service_healthy
+        condition: service_started
       farm-service:
-        condition: service_healthy
+        condition: service_started
       sensor-service:
-        condition: service_healthy
+        condition: service_started
       alert-engine:
-        condition: service_healthy
+        condition: service_started
       billing-service:
-        condition: service_healthy
+        condition: service_started
       hr-service:
-        condition: service_healthy
+        condition: service_started
       hydroponics-service:
-        condition: service_healthy
+        condition: service_started
       config-service:
-        condition: service_healthy
-      # ARCH-GW-001: notification-service and messaging-service are federated subgraphs
-      # (listed in RetryableIntrospectAndCompose in app.module.ts). They MUST be healthy
-      # before gateway starts, otherwise supergraph composition fails and blocks NestJS
-      # startup entirely — preventing even /health/live from responding.
+        condition: service_started
       notification-service:
-        condition: service_healthy
+        condition: service_started
       messaging-service:
-        condition: service_healthy
-      # Non-subgraph services: service_started is sufficient (gateway doesn't introspect them)
+        condition: service_started
       admin-api-service:
         condition: service_started
       observability-service:

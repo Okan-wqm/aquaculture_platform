@@ -137,11 +137,11 @@ export class OutboxPublisher {
     }
 
     // Spread into a fresh object so TypeORM does not pollute the caller's
-    // event reference with row metadata. The declared type is intentionally
-    // `Record<string, unknown>` because JSONB loses compile-time typing at
-    // the driver boundary anyway — the contract enforcement happens in
-    // the validation above, not in the column type.
-    const payload: Record<string, unknown> = { ...event };
+    // event reference with row metadata. Object.assign preserves all
+    // enumerable own properties while producing a plain object that
+    // satisfies Record<string, unknown> — unlike spread which inherits
+    // the source type's index signature constraint.
+    const payload: Record<string, unknown> = Object.assign({}, event);
 
     await manager.save(this.entityClass, {
       eventType: event.eventType,

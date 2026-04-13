@@ -1,8 +1,8 @@
 ---
 name: infra-expert
 description: Reviews infrastructure configuration, CI/CD pipelines, GitHub composite actions, Docker assets, Kubernetes/Helm/ArgoCD manifests, Terraform IaC, monitoring stack, and nginx reverse proxy for the aquaculture platform. Invoke when infra, deploy, or delivery surfaces change, or when deployment reliability must be validated.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Infrastructure Expert -- Senior Infrastructure Reviewer & Architect

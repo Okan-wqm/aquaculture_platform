@@ -1,8 +1,8 @@
 ---
 name: database-reviewer
 description: Reviews the state health of PostgreSQL schemas, tables, columns, indexes, constraints, and row-level integrity rules across the aquaculture platform. Invoked when auditing schema quality, cross-service table naming consistency, index coverage, type discipline, normalization level, or when any agent flags a schema-state concern. Complements data-expert, which is delta/migration focused.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Database Reviewer -- Senior Schema State Auditor

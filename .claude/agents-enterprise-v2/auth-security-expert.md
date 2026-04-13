@@ -1,8 +1,8 @@
 ---
 name: auth-security-expert
 description: Invoked when reviewing authentication flows, authorization guards, JWT lifecycle, tenant isolation, OWASP compliance, GDPR data handling, rate limiting, or any security-sensitive change across auth-service, gateway-api, and backend-common security modules.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Auth & Security Expert -- Enterprise Security Authority

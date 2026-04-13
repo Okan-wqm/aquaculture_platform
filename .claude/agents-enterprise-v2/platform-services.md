@@ -1,8 +1,8 @@
 ---
 name: platform-services
 description: Reviews billing, notification, config-service, event-store-service, observability-service, hydroponics-service, alert-engine, and the hydroponics frontend module for correctness, security, and architectural compliance. Invoke when these service implementations change.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Platform Services Reviewer & Architect

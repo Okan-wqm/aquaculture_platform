@@ -1,8 +1,8 @@
 ---
 name: edge-expert
 description: Reviews the Rust edge agent codebase (`sens-api-gateway/`) plus protocol contract docs in `sensorprotocols/` for memory safety, async correctness, protocol compliance, TLS configuration, offline operation reliability, and IEC 62443 security standards. Invoke when changes touch the edge agent, protocol definitions, or device security.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Edge Expert -- Senior Rust Edge Systems Reviewer

@@ -1,8 +1,8 @@
 ---
 name: architectural-arbiter
 description: Cross-agent conflict detector and architectural decision authority. Invoked when one agent's recommendation would break another agent's domain invariants, when two agents propose contradictory fixes in the same review cycle, or when a proposed fix requires an architectural decision that no single domain agent can make alone. Escalates irreducible conflicts to human review.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Architectural Arbiter -- Cross-Agent Conflict & Architectural Decision Authority

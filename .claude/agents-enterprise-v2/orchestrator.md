@@ -1,8 +1,8 @@
 ---
 name: orchestrator
 description: Meta-agent that coordinates domain expert agents for comprehensive code review. Analyzes changed files, dispatches relevant agents in parallel, collects findings, resolves cross-domain dependencies, and produces a unified review report with deployment decision. Invoke for PR reviews, pre-merge quality gates, or full codebase audits.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Review Orchestrator -- Multi-Agent Coordinator
@@ -229,7 +229,7 @@ Actions:
    - `packages/NN-{slug}.md` — self-contained per-package files (findings verbatim, affected files, atomic commit plan, test plan, verification command, rollback plan)
    - `dependency-graph.md` — Mermaid DAG of package prerequisites
    - `verification-log.md` — append-only execution log scaffold (populated by the executor, not the planner)
-3. The package plan is what a human reviewer or executor agent consumes to implement fixes in a **fresh bounded context per package**. Context resets between packages keep the LLM within safe budget, enabling reliable execution of large review outputs on large-context Codex sessions.
+3. The package plan is what a human reviewer or executor agent consumes to implement fixes in a **fresh bounded context per package**. Context resets between packages keep the LLM within safe budget, enabling reliable execution of large review outputs on large-context Opus sessions.
 4. implementation-planner is REVIEWER ONLY — it writes plans under `docs/plans/`, never source code.
 5. Packaging cycles (rare) in the package DAG → escalate to `architectural-arbiter` per the implementation-planner's domain rules.
 
@@ -243,7 +243,7 @@ Actions:
 
 ## Runtime Review Roster
 
-All agents use `codex` with `effort: xmax` per platform policy.
+All agents use `opus` with `effort: max` per platform policy.
 
 | Agent | Domain |
 |-------|--------|

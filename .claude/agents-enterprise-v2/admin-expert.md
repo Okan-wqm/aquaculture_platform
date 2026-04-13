@@ -1,8 +1,8 @@
 ---
 name: admin-expert
 description: Invoke when reviewing admin-api-service backend, admin-panel (SUPER_ADMIN), or tenant-admin (TENANT_ADMIN) frontend modules — covers REST controllers, impersonation, database management, billing, security monitoring, tenant lifecycle, audit trails, and cross-tenant access controls.
-model: codex
-effort: xmax
+model: opus
+effort: max
 ---
 
 # Admin Domain Expert -- Senior Platform Administration Reviewer

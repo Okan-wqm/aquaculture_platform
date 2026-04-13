@@ -9,6 +9,13 @@
 
 declare const self: ServiceWorkerGlobalScope;
 
+// WHY: AquaMobil is mounted at /mobile (BrowserRouter basename). The service
+// worker must use the same base path when opening windows or matching existing
+// clients — otherwise notification clicks navigate to /messages/... which does
+// not resolve to the React app. This constant is the single source of truth for
+// the SW ↔ client routing contract.
+const APP_BASENAME = '/mobile';
+
 // ============================================================================
 // Background Sync: offline message queue
 // ============================================================================
@@ -116,15 +123,20 @@ function handleNotificationClick(event: NotificationEvent): void {
   // An attacker-controlled push payload could inject arbitrary path segments
   // without this guard. Fall back to /messages if the value is not a valid UUID.
   const channelId = rawChannelId && UUID_PATTERN.test(rawChannelId) ? rawChannelId : undefined;
+  // WHY: openWindow() operates on absolute browser paths, not React Router
+  // relative paths. The APP_BASENAME prefix ensures the URL resolves to the
+  // AquaMobil SPA so React Router can handle the /messages/* route.
   const targetUrl = channelId
-    ? `/messages/${channelId}`
-    : '/messages';
+    ? `${APP_BASENAME}/messages/${channelId}`
+    : `${APP_BASENAME}/messages`;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       // Focus an existing window if one is open
       for (const client of clients) {
-        if (client.url.includes('/messages') && 'focus' in client) {
+        // WHY: Match against APP_BASENAME + /messages to avoid false positives
+        // from other apps that might also have /messages in their URL.
+        if (client.url.includes(`${APP_BASENAME}/messages`) && 'focus' in client) {
           client.postMessage({
             type: 'NAVIGATE_TO_CHANNEL',
             channelId,

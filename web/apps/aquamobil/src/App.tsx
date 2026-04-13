@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
+import { useSwNavigation } from './hooks/useSwNavigation';
 import { MobilePermissionsProvider, useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
 import { MobileLayout } from './layouts/MobileLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -170,6 +171,12 @@ function FeatureRoute({ feature, children }: { feature: MobileFeature; children:
 }
 
 export function App() {
+  // WHY: Single registration point for all service-worker-to-client navigation
+  // events. Must be inside BrowserRouter for useNavigate() access. The SW posts
+  // NAVIGATE_TO_CHANNEL when a notification is clicked and an existing window is
+  // focused — this hook translates that into a React Router navigation.
+  useSwNavigation();
+
   return (
     <>
       <InstallPrompt />

@@ -20,6 +20,7 @@ import { listTenantSchemas } from '@aquaculture/backend-common';
 import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
 import { Task, TaskStatus, TaskPriority } from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
@@ -46,6 +47,7 @@ export class TaskService {
     @InjectRepository(RecurringTemplate)
     private readonly recurringTemplateRepository: Repository<RecurringTemplate>,
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -319,30 +321,40 @@ export class TaskService {
       throw new BadRequestException('İptal edilmiş görev tamamlanamaz');
     }
 
+    const previousStatus = task.status;
     task.status = TaskStatus.COMPLETED;
     task.completedAt = new Date();
     task.completedBy = completedBy;
 
-    const saved = await this.taskRepository.save(task);
+    // Atomic: save + outbox enqueue in one transaction
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const saved = await queryRunner.manager.save(task);
 
-    // Publish TaskCompleted event
-    if (this.eventBus) {
-      try {
-        await this.eventBus.publish({
+      await this.outboxPublisher.enqueue(
+        {
           ...createBaseEvent('TaskCompleted', tenantId, { userId: completedBy }),
           taskId: saved.id,
           title: saved.title,
+          previousStatus,
           completedBy,
           completedAt: saved.completedAt,
           assignedTo: saved.assignedTo,
-        });
-        this.logger.debug(`Published TaskCompleted event for task ${saved.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish TaskCompleted event: ${(eventError as Error).message}`);
-      }
-    }
+        },
+        queryRunner.manager,
+      );
 
-    return saved;
+      await queryRunner.commitTransaction();
+      this.logger.debug(`Published TaskCompleted event for task ${saved.id}`);
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -361,25 +373,35 @@ export class TaskService {
       );
     }
 
+    const previousStatus = task.status;
     task.status = TaskStatus.IN_PROGRESS;
-    const saved = await this.taskRepository.save(task);
 
-    // Publish status change event
-    if (this.eventBus) {
-      try {
-        await this.eventBus.publish({
+    // Atomic: save + outbox enqueue in one transaction
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const saved = await queryRunner.manager.save(task);
+
+      await this.outboxPublisher.enqueue(
+        {
           ...createBaseEvent('TaskStatusChanged', tenantId, { userId }),
           taskId: saved.id,
           title: saved.title,
-          previousStatus: TaskStatus.PENDING,
+          previousStatus,
           newStatus: TaskStatus.IN_PROGRESS,
-        });
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish TaskStatusChanged event: ${(eventError as Error).message}`);
-      }
-    }
+        },
+        queryRunner.manager,
+      );
 
-    return saved;
+      await queryRunner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**

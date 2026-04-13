@@ -82,6 +82,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(({ children, required
     return <Navigate to="/login" replace />;
   }
 
+  // SECURITY: Block MOBILE_ONLY users from web panel
+  if (user?.accessType === 'MOBILE_ONLY') {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
   // Role check — use hierarchy so SUPER_ADMIN can access TENANT_ADMIN routes etc.
   if (requiredRoles && requiredRoles.length > 0) {
     const hasRequiredRole = requiredRoles.some(role => hasRoleOrHigher(role as any));

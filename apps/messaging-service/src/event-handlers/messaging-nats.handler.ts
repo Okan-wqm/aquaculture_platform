@@ -209,9 +209,9 @@ export class MessagingNatsHandler {
    * and cleans up reactions/receipts in a single transaction.
    * Sets tenant schema before executing any queries.
    */
-  @EventPattern('events.UserDeleted')
+  @EventPattern('events.*.UserDeleted')
   async handleUserDeleted(@Payload() data: UserDeletedPayload): Promise<void> {
-    this.logger.log(`Processing UserDeleted for user ${data.userId}`);
+    this.logger.log(`Processing UserDeleted for user ${data.userId} in tenant ${data.tenantId}`);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -219,6 +219,24 @@ export class MessagingNatsHandler {
 
     try {
       await this.setTenantSchema(queryRunner, data.tenantId);
+
+      // SECURITY: Verify user has actual presence in claimed tenant before destructive cascade
+      const userMessages = await queryRunner.query(
+        `SELECT EXISTS(SELECT 1 FROM messages WHERE "senderId" = $1 LIMIT 1) AS has_messages`,
+        [data.userId],
+      );
+      const userMemberships = await queryRunner.query(
+        `SELECT EXISTS(SELECT 1 FROM channel_members WHERE "userId" = $1 LIMIT 1) AS has_memberships`,
+        [data.userId],
+      );
+
+      if (!userMessages[0]?.has_messages && !userMemberships[0]?.has_memberships) {
+        this.logger.log(
+          `UserDeleted: userId=${data.userId} has no messaging footprint in tenant ${data.tenantId}, skipping cascade`,
+        );
+        await queryRunner.commitTransaction();
+        return;
+      }
 
       // Collect ALL message IDs for this user BEFORE any anonymization.
       // WHY: after we set senderId=ANONYMOUS_USER_ID, we can no longer identify

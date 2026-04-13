@@ -17,13 +17,13 @@ import { analyticsApi, billingApi, RevenueAnalytics } from '../services/adminApi
 interface BillingMetrics {
   mrr: number;
   arr: number;
-  activeSubscriptions: number;
-  churnRate: number;
+  activeSubscriptions: number | null;
+  churnRate: number | null;
   avgRevenuePerUser: number;
-  outstandingInvoices: number;
+  outstandingInvoices: number | null;
   totalRevenue: number;
-  growth: number;
-  paymentSuccessRate: number;
+  growth: number | null;
+  paymentSuccessRate: number | null;
 }
 
 interface RecentTransaction {
@@ -64,15 +64,13 @@ const formatPercentage = (value: number): string => {
 const transformRevenueData = (data: RevenueAnalytics): BillingMetrics => ({
   mrr: data.mrr,
   arr: data.arr,
-  activeSubscriptions: data.averageRevenuePerTenant > 0
-    ? Math.floor(data.totalRevenue / data.averageRevenuePerTenant)
-    : 0,
-  churnRate: 2.3, // Would come from separate API
+  activeSubscriptions: null, // TODO: Wire to subscriptions API (was fabricated from totalRevenue / avgRevenue)
+  churnRate: null, // TODO: Wire to churn analytics API
   avgRevenuePerUser: data.averageRevenuePerTenant,
-  outstandingInvoices: 12, // Would come from invoices API
+  outstandingInvoices: null, // TODO: Wire to invoices API
   totalRevenue: data.totalRevenue,
-  growth: 15.5, // Would come from trend API
-  paymentSuccessRate: 98.5, // Would come from payments API
+  growth: null, // TODO: Wire to revenue trend API
+  paymentSuccessRate: null, // TODO: Wire to payments API
 });
 
 // ============================================================================
@@ -397,7 +395,7 @@ const BillingDashboardPage: React.FC = () => {
           value={formatCurrency(metrics.mrr)}
           icon={Icons.Dollar}
           iconBg="bg-green-100"
-          trend={{ value: metrics.growth, label: 'vs last month' }}
+          trend={metrics.growth != null ? { value: metrics.growth, label: 'vs last month' } : undefined}
         />
         <MetricCard
           title="Annual Recurring Revenue"
@@ -408,20 +406,24 @@ const BillingDashboardPage: React.FC = () => {
         />
         <MetricCard
           title="Active Subscriptions"
-          value={(metrics.activeSubscriptions ?? 0).toLocaleString()}
+          value={metrics.activeSubscriptions != null ? metrics.activeSubscriptions.toLocaleString() : 'N/A'}
           icon={Icons.Users}
           iconBg="bg-purple-100"
           subtitle={`ARPU: ${formatCurrency(metrics.avgRevenuePerUser ?? 0)}`}
         />
         <MetricCard
           title="Churn Rate"
-          value={formatPercentage(metrics.churnRate)}
+          value={metrics.churnRate != null ? formatPercentage(metrics.churnRate) : 'N/A'}
           icon={Icons.TrendDown}
           iconBg="bg-yellow-100"
           subtitle={
-            <span className={metrics.churnRate < 3 ? 'text-green-600' : 'text-red-600'}>
-              {metrics.churnRate < 3 ? 'Healthy' : 'Needs attention'}
-            </span>
+            metrics.churnRate != null ? (
+              <span className={metrics.churnRate < 3 ? 'text-green-600' : 'text-red-600'}>
+                {metrics.churnRate < 3 ? 'Healthy' : 'Needs attention'}
+              </span>
+            ) : (
+              <span className="text-gray-400">Not yet connected</span>
+            )
           }
         />
       </div>
@@ -474,8 +476,8 @@ const BillingDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <QuickStat
           title="Outstanding Invoices"
-          value={metrics.outstandingInvoices}
-          valueColor="text-orange-600"
+          value={metrics.outstandingInvoices != null ? metrics.outstandingInvoices : '—'}
+          valueColor={metrics.outstandingInvoices != null ? 'text-orange-600' : 'text-gray-400'}
           action={{ label: 'View all', href: '/admin/billing/invoices?status=pending' }}
         />
         <QuickStat
@@ -485,9 +487,9 @@ const BillingDashboardPage: React.FC = () => {
         />
         <QuickStat
           title="Payment Success Rate"
-          value={formatPercentage(metrics.paymentSuccessRate)}
-          valueColor="text-green-600"
-          subtitle="Last 30 days"
+          value={metrics.paymentSuccessRate != null ? formatPercentage(metrics.paymentSuccessRate) : '—'}
+          valueColor={metrics.paymentSuccessRate != null ? 'text-green-600' : 'text-gray-400'}
+          subtitle={metrics.paymentSuccessRate != null ? 'Last 30 days' : 'Not yet connected'}
         />
       </div>
     </div>

@@ -83,7 +83,7 @@ export const LineChart: React.FC<LineChartProps> = ({
       dataset,
       color: dataset.color || defaultColors[datasetIndex % defaultColors.length],
       points: dataset.data.map((value, i) => ({
-        x: padding.left + (i / (labels.length - 1)) * chartWidth,
+        x: padding.left + (labels.length <= 1 ? chartWidth / 2 : (i / (labels.length - 1)) * chartWidth),
         y: padding.top + (1 - (value - paddedMin) / paddedRange) * chartHeight,
         value,
       })),
@@ -105,11 +105,11 @@ export const LineChart: React.FC<LineChartProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
 
-    const step = chartWidth / (labels.length - 1);
+    const step = labels.length <= 1 ? chartWidth : chartWidth / (labels.length - 1);
     const index = Math.round((mouseX - padding.left) / step);
 
     if (index >= 0 && index < labels.length) {
-      const x = padding.left + (index / (labels.length - 1)) * chartWidth;
+      const x = padding.left + (labels.length <= 1 ? chartWidth / 2 : (index / (labels.length - 1)) * chartWidth);
       setTooltipData({
         visible: true,
         x,
@@ -196,7 +196,7 @@ export const LineChart: React.FC<LineChartProps> = ({
               (labels.length <= 7 || i % Math.ceil(labels.length / 7) === 0) && (
                 <text
                   key={i}
-                  x={padding.left + (i / (labels.length - 1)) * chartWidth}
+                  x={padding.left + (labels.length <= 1 ? chartWidth / 2 : (i / (labels.length - 1)) * chartWidth)}
                   y={height - padding.bottom + 20}
                   textAnchor="middle"
                   fill="currentColor"

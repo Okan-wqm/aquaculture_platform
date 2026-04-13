@@ -7,7 +7,7 @@
  */
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
@@ -50,7 +50,7 @@ export class ArchiveChannelHandler
 
       // 2. Authorize: caller must be OWNER or ADMIN in this channel
       const membership = await manager.findOne(ChannelMember, {
-        where: { channelId, userId, leftAt: undefined },
+        where: { channelId, userId, leftAt: IsNull() },
       });
       if (!membership) {
         throw new ForbiddenException('You are not a member of this channel');

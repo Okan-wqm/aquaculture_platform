@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuthContext } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../services/tenant-api.service';
 
 interface EdgeDevice {
@@ -109,6 +110,8 @@ const MAX_BACKOFF_MS = 60_000;
  * the interval back to the base value.
  */
 export function useDevicePolling(deviceId: string, intervalMs = 5000) {
+  const { user } = useAuthContext();
+  const tenantId = user?.tenantId;
   const consecutiveErrors = useRef(0);
 
   const getBackoffInterval = useCallback((): number => {
@@ -118,7 +121,7 @@ export function useDevicePolling(deviceId: string, intervalMs = 5000) {
   }, [intervalMs]);
 
   const query = useQuery({
-    queryKey: ['edgeDevice', deviceId],
+    queryKey: ['edgeDevice', tenantId, deviceId],
     queryFn: async () => {
       try {
         const result = await fetchDeviceData(deviceId);

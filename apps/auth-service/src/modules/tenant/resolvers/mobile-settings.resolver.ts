@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { CurrentUser } from '@aquaculture/backend-common';
+import { CurrentUser, TenantAdminOrHigher } from '@aquaculture/backend-common';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { MobileSettingsService } from '../services/mobile-settings.service';
 import { UpdateMobileUserSettingsInput, BulkUpdateMobileSettingsInput } from '../dto/mobile-settings.dto';
@@ -11,6 +11,7 @@ export class MobileSettingsResolver {
   /**
    * Get mobile settings for a specific user (admin use)
    */
+  @TenantAdminOrHigher()
   @Query(() => MobileUserSettings, { name: 'getMobileUserSettings' })
   async getMobileUserSettings(
     @Args('userId', { type: () => ID }) userId: string,
@@ -36,6 +37,7 @@ export class MobileSettingsResolver {
   /**
    * Get all mobile settings for the tenant (admin settings page)
    */
+  @TenantAdminOrHigher()
   @Query(() => [MobileUserSettings], { name: 'getMobileUsersSettings' })
   async getMobileUsersSettings(
     @CurrentUser() currentUser: { tenantId: string },
@@ -46,6 +48,7 @@ export class MobileSettingsResolver {
   /**
    * Update mobile settings for a specific user
    */
+  @TenantAdminOrHigher()
   @Mutation(() => MobileUserSettings, { name: 'updateMobileUserSettings' })
   async updateMobileUserSettings(
     @Args('input') input: UpdateMobileUserSettingsInput,
@@ -69,6 +72,7 @@ export class MobileSettingsResolver {
   /**
    * Bulk update mobile settings for multiple users
    */
+  @TenantAdminOrHigher()
   @Mutation(() => [MobileUserSettings], { name: 'bulkUpdateMobileSettings' })
   async bulkUpdateMobileSettings(
     @Args('input') input: BulkUpdateMobileSettingsInput,

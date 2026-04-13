@@ -443,10 +443,10 @@ const AnalyticsDashboardPage: React.FC = () => {
             value: (item.tenants ?? item.value ?? 0) as number,
           }));
           setTenantTrend(trendData);
-          setUserTrend(trendData.map(d => ({
-            date: d.date,
-            value: Math.round(d.value * (dashboardData.users.avgUsersPerTenant || 1)),
-          })));
+          // TODO: Wire userTrend to real user activity endpoint: GET /analytics/users/activity
+          // Previously this fabricated DAU by multiplying tenant counts by avgUsersPerTenant.
+          // Keeping userTrend empty until the real endpoint is connected.
+          setUserTrend([]);
         } else {
           setTenantTrend([]);
           setUserTrend([]);
@@ -696,18 +696,18 @@ const AnalyticsDashboardPage: React.FC = () => {
         </Card>
 
         {/* Daily Active Users Chart */}
+        {/* TODO: Wire to real user activity endpoint: GET /analytics/users/activity */}
         <Card title="Daily Active Users">
           <div className="h-32 mb-4 relative">
             <MiniChart data={userTrend} height={100} color="#10B981" />
             {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-500">No analytics data available yet</p>
+                <p className="text-sm text-gray-500">Analytics not yet available</p>
               </div>
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Average: {data.usage.avgDailyActiveUsers}</span>
-            <span className="text-green-600 font-medium">+{data.users.growthRate}%</span>
+            <span className="text-gray-400">Awaiting real activity data</span>
           </div>
         </Card>
       </div>

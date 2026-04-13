@@ -74,7 +74,7 @@ export const AreaChart: React.FC<AreaChartProps> = ({
     const paddedRange = paddedMax - paddedMin;
 
     const pts = data.map((d, i) => ({
-      x: padding.left + (i / (data.length - 1)) * chartWidth,
+      x: padding.left + (data.length <= 1 ? chartWidth / 2 : (i / (data.length - 1)) * chartWidth),
       y: padding.top + (1 - (d.value - paddedMin) / paddedRange) * chartHeight,
       label: d.label,
       value: d.value,

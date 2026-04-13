@@ -189,18 +189,29 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToEdgeIoEvents(): void {
     if (!this.connection) return;
 
-    // sensor-service publishes to subject: events.EdgeDeviceIoData (no trailing tokens)
-    const sub = this.connection.subscribe('events.EdgeDeviceIoData');
-    this.logger.log('Subscribed to edge device I/O data events');
+    // SECURITY: Subscribe to tenant-scoped wildcard subject.
+    // NatsEventBus.deriveSubject() publishes to events.{tenantId}.EdgeDeviceIoData
+    const sub = this.connection.subscribe('events.*.EdgeDeviceIoData');
+    this.logger.log('Subscribed to edge device I/O data events (tenant-scoped wildcard)');
 
     (async () => {
       for await (const msg of sub) {
         try {
           const data = JSON.parse(this.sc.decode(msg.data));
-          const { tenantId, deviceCode, tagsJson, timestamp } = data;
+          // SECURITY: Extract tenantId from NATS subject (authoritative), not payload
+          const tenantId = msg.subject.split('.')[1];
+          const { deviceCode, tagsJson, timestamp } = data;
 
-          if (!tenantId || !deviceCode) {
+          if (!tenantId || tenantId === 'system' || !deviceCode) {
             this.logger.warn('EdgeDeviceIoData event missing tenantId or deviceCode, dropping');
+            continue;
+          }
+
+          // SECURITY: Cross-validate payload tenantId against subject-derived tenantId
+          if (data.tenantId && data.tenantId !== tenantId) {
+            this.logger.warn(
+              `SECURITY: EdgeDeviceIoData tenantId mismatch — subject=${tenantId}, payload=${data.tenantId}. Dropping event.`,
+            );
             continue;
           }
 
@@ -219,18 +230,29 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToEdgeAlarmEvents(): void {
     if (!this.connection) return;
 
-    // sensor-service publishes to subject: events.EdgeDeviceAlarm (no trailing tokens)
-    const sub = this.connection.subscribe('events.EdgeDeviceAlarm');
-    this.logger.log('Subscribed to edge device alarm events');
+    // SECURITY: Subscribe to tenant-scoped wildcard subject.
+    // NatsEventBus.deriveSubject() publishes to events.{tenantId}.EdgeDeviceAlarm
+    const sub = this.connection.subscribe('events.*.EdgeDeviceAlarm');
+    this.logger.log('Subscribed to edge device alarm events (tenant-scoped wildcard)');
 
     (async () => {
       for await (const msg of sub) {
         try {
           const data = JSON.parse(this.sc.decode(msg.data));
-          const { tenantId, deviceCode, alarmsJson, timestamp } = data;
+          // SECURITY: Extract tenantId from NATS subject (authoritative), not payload
+          const tenantId = msg.subject.split('.')[1];
+          const { deviceCode, alarmsJson, timestamp } = data;
 
-          if (!tenantId || !deviceCode) {
+          if (!tenantId || tenantId === 'system' || !deviceCode) {
             this.logger.warn('EdgeDeviceAlarm event missing tenantId or deviceCode, dropping');
+            continue;
+          }
+
+          // SECURITY: Cross-validate payload tenantId against subject-derived tenantId
+          if (data.tenantId && data.tenantId !== tenantId) {
+            this.logger.warn(
+              `SECURITY: EdgeDeviceAlarm tenantId mismatch — subject=${tenantId}, payload=${data.tenantId}. Dropping event.`,
+            );
             continue;
           }
 

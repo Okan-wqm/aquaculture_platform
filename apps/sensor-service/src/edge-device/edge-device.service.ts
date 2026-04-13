@@ -560,6 +560,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
   async setMaintenanceMode(id: string, tenantId: string, enabled: boolean): Promise<EdgeDevice> {
     const device = await this.findByIdOrFail(id, tenantId);
 
+    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
+      throw new BadRequestException(
+        'Cannot change maintenance mode of a decommissioned device',
+      );
+    }
+
     device.lifecycleState = enabled
       ? DeviceLifecycleState.MAINTENANCE
       : DeviceLifecycleState.ACTIVE;

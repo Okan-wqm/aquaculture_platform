@@ -39,11 +39,15 @@ const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
 // Mock useAuth
-const mockAuth = {
+const mockAuth: Record<string, unknown> = {
   accessToken: 'test-token',
   isAuthenticated: true,
   isLoading: false,
   user: { id: 'user-1', email: 'test@test.com', name: 'Test User', role: 'OPERATOR' as const, tenantId: 'tenant-1' },
+  // WHY: useMobilePermissions destructures tenantId from useAuth() at the top level
+  // (not from user.tenantId). Without this, getCacheKey() generates a non-tenant-scoped
+  // key (mobile_permissions_user-1 instead of mobile_permissions_tenant-1_user-1).
+  tenantId: 'tenant-1',
 };
 
 vi.mock('../useAuth', () => ({
@@ -90,6 +94,7 @@ describe('useMobilePermissions', () => {
     mockAuth.accessToken = 'test-token';
     mockAuth.isAuthenticated = true;
     mockAuth.isLoading = false;
+    mockAuth.tenantId = 'tenant-1';
     mockAuth.user = {
       id: 'user-1',
       email: 'test@test.com',
@@ -508,6 +513,154 @@ describe('useMobilePermissions', () => {
       }).toThrow('useMobilePermissions must be used within MobilePermissionsProvider');
 
       spy.mockRestore();
+    });
+  });
+
+  // ========================================================================
+  // AQ-06: Fail-closed regression — network failure + no cache
+  // ========================================================================
+
+  describe('Fail-closed regression (AQ-06)', () => {
+    it('should deny all features when network fails and NO cache exists', async () => {
+      // No cache — idbStorage is empty
+      mockFetch.mockRejectedValue(new Error('Network error'));
+
+      const { result } = renderHook(() => useMobilePermissions(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+      // SECURITY: fail-closed — all features denied
+      expect(result.current.isMobileEnabled).toBe(false);
+      expect(result.current.permissionSource).toBe('fail-closed');
+      expect(result.current.permissionsDegraded).toBe(true);
+
+      const allFeatures: MobileFeature[] = [
+        'mortality', 'cull', 'harvest', 'feeding', 'waterQuality',
+        'tankView', 'schedule', 'attendance', 'leave', 'tasks', 'transfer', 'storage',
+      ];
+      for (const feature of allFeatures) {
+        expect(result.current.canAccess(feature)).toBe(false);
+      }
+    });
+
+    it('should use stale cache and show degraded when network fails WITH stale cache', async () => {
+      // Pre-populate stale cache (expired TTL)
+      idbStorage.set('mobile_permissions_tenant-1_user-1', {
+        settings: {
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true, cull: false, harvest: false, feeding: false,
+            waterQuality: false, tankView: false, schedule: false,
+            attendance: false, leave: true, tasks: true, transfer: false,
+            storage: false,
+          },
+        },
+        expiresAt: Date.now() - 1000, // expired 1 second ago
+      });
+
+      mockFetch.mockRejectedValue(new Error('Network error'));
+
+      const { result } = renderHook(() => useMobilePermissions(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+      // Should use stale cache — features from cache are available
+      expect(result.current.isMobileEnabled).toBe(true);
+      expect(result.current.canAccess('mortality')).toBe(true);
+      expect(result.current.canAccess('leave')).toBe(true);
+      expect(result.current.canAccess('tasks')).toBe(true);
+      expect(result.current.canAccess('cull')).toBe(false);
+
+      // Should show degraded mode because cache is stale
+      expect(result.current.permissionsDegraded).toBe(true);
+      expect(result.current.permissionSource).toBe('stale-cache');
+    });
+  });
+
+  // ========================================================================
+  // AQ-06: Tenant-scoped cache key — switching tenant clears previous
+  // ========================================================================
+
+  describe('Tenant-scoped cache key (AQ-06)', () => {
+    it('should use tenant-specific cache key (tenant-1 vs tenant-2)', async () => {
+      // Pre-populate cache for tenant-1
+      idbStorage.set('mobile_permissions_tenant-1_user-1', {
+        settings: {
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true, cull: true, harvest: false, feeding: false,
+            waterQuality: false, tankView: false, schedule: false,
+            attendance: false, leave: false, tasks: false, transfer: false,
+            storage: false,
+          },
+        },
+        expiresAt: Date.now() + 4 * 60 * 60 * 1000,
+      });
+
+      // Make fetch hang to verify cache is used
+      mockFetch.mockReturnValue(new Promise(() => {}));
+
+      const { result } = renderHook(() => useMobilePermissions(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+      // Should use tenant-1 cache
+      expect(result.current.isMobileEnabled).toBe(true);
+      expect(result.current.canAccess('mortality')).toBe(true);
+    });
+
+    it('should NOT read tenant-1 cache when user is on tenant-2', async () => {
+      // Cache for tenant-1 exists
+      idbStorage.set('mobile_permissions_tenant-1_user-1', {
+        settings: {
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true, cull: true, harvest: true, feeding: true,
+            waterQuality: true, tankView: true, schedule: true,
+            attendance: true, leave: true, tasks: true, transfer: true,
+            storage: true,
+          },
+        },
+        expiresAt: Date.now() + 4 * 60 * 60 * 1000,
+      });
+
+      // No cache for tenant-2
+      // Switch to tenant-2
+      mockAuth.user = {
+        id: 'user-1',
+        email: 'test@test.com',
+        name: 'Test User',
+        role: 'OPERATOR' as const,
+        tenantId: 'tenant-2',
+      };
+      (mockAuth as Record<string, unknown>).tenantId = 'tenant-2';
+
+      // Backend returns restricted permissions for tenant-2
+      mockFetch.mockResolvedValue(createSuccessResponse({
+        isMobileEnabled: false,
+        allowedFeatures: {
+          mortality: false, cull: false, harvest: false, feeding: false,
+          waterQuality: false, tankView: false, schedule: false,
+          attendance: false, leave: false, tasks: false, transfer: false,
+          storage: false,
+        },
+      }));
+
+      const { result } = renderHook(() => useMobilePermissions(), {
+        wrapper: createWrapper(),
+      });
+
+      await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+      // Should NOT inherit tenant-1's cached permissions
+      expect(result.current.isMobileEnabled).toBe(false);
+      expect(result.current.canAccess('mortality')).toBe(false);
     });
   });
 });

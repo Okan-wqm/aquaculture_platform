@@ -34,6 +34,8 @@ import {
   Info,
   AlertCircle,
   Sparkles,
+  Clock,
+  WifiOff,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth } from '@/hooks/useAuth';
@@ -42,6 +44,7 @@ import { useMessageSocket } from '@/hooks/useMessageSocket';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
 import { useAiChat } from '@/hooks/useAiChat';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
 import { AiActionCard } from '@/components/messaging/AiActionCard';
@@ -272,6 +275,12 @@ export function AiChatPage() {
     cancelAction,
   } = useAiChat(channelId, channel?.type);
 
+  const isOnline = useNetworkStatus();
+  // WHY: Track whether the last user message was queued offline so we can show
+  // a "message queued" indicator instead of the AI thinking spinner. AI cannot
+  // process a message that hasn't reached the server yet.
+  const [isMessageQueued, setIsMessageQueued] = useState(false);
+
   const [inputText, setInputText] = useState('');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -310,6 +319,15 @@ export function AiChatPage() {
     }
   }, [messages.length, isAiThinking, stopAiThinking, messages]);
 
+  // WHY: When connectivity returns, clear the queued message banner.
+  // The offline queue's auto-sync will send the queued message, and the
+  // AI thinking indicator will be triggered by the next confirmed send.
+  useEffect(() => {
+    if (isOnline && isMessageQueued) {
+      setIsMessageQueued(false);
+    }
+  }, [isOnline, isMessageQueued]);
+
   // iOS keyboard handling
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -342,7 +360,11 @@ export function AiChatPage() {
     }
   }, [hasNextPage, fetchNextPage]);
 
-  // Send message handler -- starts AI thinking indicator
+  // Send message handler -- starts AI thinking indicator only when online.
+  // WHY: When offline, the message is queued but not actually delivered to the
+  // AI backend. Showing "AI is thinking..." would be dishonest because the AI
+  // cannot process a message it has not received. Instead, we track the queued
+  // state and show a pending indicator.
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text) return;
@@ -357,9 +379,16 @@ export function AiChatPage() {
       contentType: 'text',
     });
 
-    // Start AI thinking indicator after user sends a message
-    startAiThinking();
-  }, [inputText, sendMessage, startAiThinking]);
+    if (isOnline) {
+      // Only show AI thinking indicator when the message was actually sent to
+      // the server. The AI can only start processing after receiving the message.
+      setIsMessageQueued(false);
+      startAiThinking();
+    } else {
+      // Message was queued offline — do NOT start AI thinking indicator
+      setIsMessageQueued(true);
+    }
+  }, [inputText, sendMessage, startAiThinking, isOnline]);
 
   // Handle Enter key to send (Shift+Enter for newline)
   const handleKeyDown = useCallback(
@@ -501,12 +530,35 @@ export function AiChatPage() {
           />
         ))}
 
-        {/* AI thinking indicator */}
+        {/* WHY: When the user's message was queued offline, show a pending
+         * banner instead of the AI thinking indicator. This is honest UX:
+         * the AI cannot think about a message it has not yet received. */}
+        {isMessageQueued && !isOnline && (
+          <div className="mx-3 my-2 flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2 border border-amber-100 dark:border-amber-800">
+            <Clock size={14} className="text-amber-500 flex-shrink-0" />
+            <span className="text-xs text-amber-700 dark:text-amber-300 flex-1">
+              Message queued -- AI will respond when you are back online.
+            </span>
+          </div>
+        )}
+
+        {/* AI thinking indicator -- only shown when message was actually sent */}
         <AiTypingIndicator visible={isAiThinking} isDelayed={isAiDelayed} />
       </div>
 
       {/* Input bar */}
       <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex-shrink-0 pb-safe">
+        {/* WHY: Offline banner above the input tells the user that AI requires
+         * connectivity. Messages can still be queued, but the AI won't respond
+         * until the message actually reaches the server. */}
+        {!isOnline && (
+          <div className="flex items-center gap-2 px-4 py-1.5 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800">
+            <WifiOff size={12} className="text-amber-500 flex-shrink-0" />
+            <span className="text-[11px] text-amber-600 dark:text-amber-400">
+              Offline -- messages will be queued and AI will respond when connected
+            </span>
+          </div>
+        )}
         <div className="flex items-end gap-2 px-3 py-2">
           <textarea
             ref={inputRef}
@@ -518,20 +570,27 @@ export function AiChatPage() {
             className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none resize-none max-h-[120px] leading-5"
           />
 
+          {/* WHY: When offline, the send button uses amber styling with a clock
+           * icon to indicate "Queue" semantics, matching the MessageInput pattern. */}
           <button
             onClick={handleSend}
             disabled={!inputText.trim() || isSending || isAiThinking}
             className={clsx(
               'w-12 h-12 rounded-full flex items-center justify-center touch-feedback flex-shrink-0 transition-all',
               inputText.trim() && !isAiThinking
-                ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30 active:scale-95'
+                ? isOnline
+                  ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30 active:scale-95'
+                  : 'bg-amber-500 text-white shadow-md shadow-amber-500/30 active:scale-95'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500',
             )}
+            aria-label={isOnline ? 'Send to AI' : 'Queue message for later'}
           >
             {isSending ? (
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-            ) : (
+            ) : isOnline ? (
               <Send size={20} />
+            ) : (
+              <Clock size={20} />
             )}
           </button>
         </div>

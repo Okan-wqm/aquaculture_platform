@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
 import { useTaskActions } from '@/hooks/useTaskActions';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Task, ChecklistItem, TaskNote } from '@/types';
 import { GET_TASK_DETAIL } from '@/graphql/operations';
@@ -44,10 +46,15 @@ export function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { isOnline } = useOfflineQueue();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  // WHY: Track queued operation ID separately so we can show honest sync status
+  // via QueuedStatusBadge instead of false "Task completed!" when offline.
+  const [queuedOperationId, setQueuedOperationId] = useState<string>('');
+  const [wasQueued, setWasQueued] = useState(false);
 
   const fetchTask = useCallback(async () => {
     if (!taskId) return;
@@ -72,17 +79,27 @@ export function TaskDetailPage() {
     fetchTask();
   }, [fetchTask]);
 
-  const handleStartTask = async () => {
+  const handleStartTask = async (): Promise<void> => {
     if (!taskId) return;
     setIsSubmitting(true);
     try {
-      await startTask(taskId);
-      setSuccessMessage('Task started!');
+      const result = await startTask(taskId);
+      if (result.wasQueued) {
+        // WHY: The action was queued offline — show honest "Queued" status
+        // instead of definitive "Task started!" which overstates completion.
+        setWasQueued(true);
+        setQueuedOperationId(result.operationId ?? '');
+        setSuccessMessage('Start task queued');
+      } else {
+        setWasQueued(false);
+        setQueuedOperationId('');
+        setSuccessMessage('Task started!');
+      }
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
         fetchTask();
-      }, 1000);
+      }, result.wasQueued ? 2000 : 1000);
     } catch {
       setError('Failed to start task');
     } finally {
@@ -90,17 +107,27 @@ export function TaskDetailPage() {
     }
   };
 
-  const handleCompleteTask = async () => {
+  const handleCompleteTask = async (): Promise<void> => {
     if (!taskId) return;
     setIsSubmitting(true);
     try {
-      await completeTask(taskId);
-      setSuccessMessage('Task completed!');
+      const result = await completeTask(taskId);
+      if (result.wasQueued) {
+        // WHY: The action was queued offline — show honest "Queued" status
+        // instead of definitive "Task completed!" which overstates completion.
+        setWasQueued(true);
+        setQueuedOperationId(result.operationId ?? '');
+        setSuccessMessage('Complete task queued');
+      } else {
+        setWasQueued(false);
+        setQueuedOperationId('');
+        setSuccessMessage('Task completed!');
+      }
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
         fetchTask();
-      }, 1000);
+      }, result.wasQueued ? 2000 : 1000);
     } catch {
       setError('Failed to complete task');
     } finally {
@@ -108,28 +135,41 @@ export function TaskDetailPage() {
     }
   };
 
-  const handleToggleChecklist = async (itemId: string) => {
+  const handleToggleChecklist = async (itemId: string): Promise<void> => {
     if (!taskId) return;
     try {
       await toggleChecklistItem(taskId, itemId);
       await fetchTask();
     } catch {
-      // silently fail
+      // WHY: Checklist toggles require network — show explicit error instead of
+      // silently failing, so users know their action was not recorded.
+      setError('Checklist toggle requires network connectivity');
     }
   };
 
-  const handleAddNote = async () => {
+  const handleAddNote = async (): Promise<void> => {
     if (!taskId || !noteText.trim()) return;
     try {
       await addNote(taskId, noteText.trim());
       setNoteText('');
       await fetchTask();
     } catch {
-      // silently fail
+      // WHY: Notes require network — show explicit error instead of silently failing.
+      setError('Adding notes requires network connectivity');
     }
   };
 
+  // WHY: Two-phase success UX — show honest sync status via QueuedStatusBadge
+  // when the action was queued offline, and definitive success only when the
+  // server confirmed the operation. This prevents overstating completion.
   if (showSuccess) {
+    if (wasQueued) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
         <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
@@ -341,17 +381,31 @@ export function TaskDetailPage() {
               type="text"
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
-              placeholder="Add a note..."
-              className="flex-1 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400"
+              placeholder={isOnline ? 'Add a note...' : 'Notes require network...'}
+              disabled={!isOnline}
+              className={clsx(
+                'flex-1 border rounded-xl px-3 py-2 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400',
+                isOnline
+                  ? 'border-gray-200 dark:border-gray-700'
+                  : 'border-amber-300 dark:border-amber-700 opacity-60',
+              )}
             />
             <button
               onClick={handleAddNote}
-              disabled={!noteText.trim()}
+              disabled={!noteText.trim() || !isOnline}
               className="p-2.5 bg-ocean-500 text-white rounded-xl touch-feedback disabled:opacity-50 transition-all"
             >
               <Send size={16} />
             </button>
           </div>
+          {/* WHY: Explicit offline indicator for note input so users understand
+           * why the field is disabled instead of silently swallowing input. */}
+          {!isOnline && (
+            <div className="flex items-center gap-1.5 mt-2 text-amber-600 dark:text-amber-400">
+              <WifiOff size={12} />
+              <span className="text-xs">Notes require network connectivity</span>
+            </div>
+          )}
         </div>
       </div>
 

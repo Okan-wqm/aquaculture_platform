@@ -17,7 +17,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Paperclip, Mic, X } from 'lucide-react';
+import { Send, Paperclip, Mic, X, Clock } from 'lucide-react';
 import { clsx } from 'clsx';
 import { VoiceRecorder } from './VoiceRecorder';
 import { MentionPicker } from './MentionPicker';
@@ -52,6 +52,11 @@ interface MessageInputProps {
   maxLength?: number;
   /** Whether sending is disabled (e.g. no network). */
   disabled?: boolean;
+  /** Whether the device currently has network connectivity.
+   * WHY: When offline, the send button shows "Queue" with a clock icon instead
+   * of "Send", so the user knows their message will be queued locally and sent
+   * when connectivity returns. This prevents overstating immediate delivery. */
+  isOnline?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +82,7 @@ export function MessageInput({
   placeholder = 'Type a message...',
   maxLength = DEFAULT_MAX_LENGTH,
   disabled = false,
+  isOnline = true,
 }: MessageInputProps) {
   const [text, setText] = useState('');
   const [isVoiceMode, setIsVoiceMode] = useState(false);
@@ -382,17 +388,27 @@ export function MessageInput({
         </div>
 
         {/* Voice / Send button (toggle based on text content) */}
+        {/* WHY: When offline, the send button uses amber styling with a clock icon
+         * to indicate "Queue" semantics. The user can still compose and submit
+         * messages, but the visual treatment makes clear the message will be
+         * queued locally and sent when connectivity returns. */}
         {canSend ? (
           <button
             onClick={handleSend}
             disabled={!canSend}
             className={clsx(
               'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
-              'bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean',
+              isOnline
+                ? 'bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean'
+                : 'bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/30',
             )}
-            aria-label="Send message"
+            aria-label={isOnline ? 'Send message' : 'Queue message for later'}
           >
-            <Send size={20} className="text-white" />
+            {isOnline ? (
+              <Send size={20} className="text-white" />
+            ) : (
+              <Clock size={20} className="text-white" />
+            )}
           </button>
         ) : (
           <button

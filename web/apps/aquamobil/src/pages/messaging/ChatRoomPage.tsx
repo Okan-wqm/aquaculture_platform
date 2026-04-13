@@ -444,6 +444,8 @@ export function ChatRoomPage() {
       </div>
 
       {/* MessageInput component (replaces inline textarea/buttons) */}
+      {/* WHY: isOnline is passed so MessageInput can show "Queue" instead of
+       * "Send" when offline, giving the user honest feedback about delivery. */}
       <MessageInput
         onSend={(text) => {
           setReplyingTo(null);
@@ -484,6 +486,7 @@ export function ChatRoomPage() {
         onCancelReply={() => setReplyingTo(null)}
         channelMembers={channel?.members ?? []}
         disabled={isSending || isUploading}
+        isOnline={isOnline}
       />
 
       {/* Attachment picker bottom sheet */}

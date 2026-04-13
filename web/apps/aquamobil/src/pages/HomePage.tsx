@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets, Warehouse } from 'lucide-react';
+import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets, Warehouse, ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -101,7 +101,7 @@ export function HomePage() {
   const { user, logout } = useAuth();
   const { data: tanks, isLoading, refetch, isRefetching } = useTanks();
   const { pendingCount, isOnline } = useOfflineQueue();
-  const { canAccess } = useMobilePermissions();
+  const { canAccess, permissionsDegraded, permissionSource, refreshPermissions } = useMobilePermissions();
   const { tasks: todayTasks } = useMyTasks('today');
 
   const allTanks = tanks || [];
@@ -201,6 +201,33 @@ export function HomePage() {
               <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">Consider harvesting or transferring</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* SECURITY: fail-closed degradation banner — informs the user that
+          permissions could not be verified and some features may be hidden. */}
+      {permissionsDegraded && (
+        <div className="px-5 pt-4">
+          <button
+            onClick={() => { refreshPermissions().catch(() => {}); }}
+            className="w-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-3.5 flex items-center gap-3 touch-feedback"
+          >
+            <div className="w-9 h-9 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
+              <ShieldAlert size={18} className="text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                {permissionSource === 'fail-closed'
+                  ? 'Permissions unavailable'
+                  : 'Using cached permissions'}
+              </p>
+              <p className="text-xs text-amber-500 dark:text-amber-400 mt-0.5">
+                {permissionSource === 'fail-closed'
+                  ? 'Some features are hidden. Tap to retry.'
+                  : 'Feature access may be outdated. Tap to refresh.'}
+              </p>
+            </div>
+          </button>
         </div>
       )}
 

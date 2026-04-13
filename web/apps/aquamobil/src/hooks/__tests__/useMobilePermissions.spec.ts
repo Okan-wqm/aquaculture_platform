@@ -242,7 +242,7 @@ describe('useMobilePermissions', () => {
 
       // Should have cached under per-user key
       expect(set).toHaveBeenCalledWith(
-        'mobile_permissions_user-1',
+        'mobile_permissions_tenant-1_user-1',
         expect.objectContaining({
           settings: expect.objectContaining({ isMobileEnabled: true }),
           expiresAt: expect.any(Number),
@@ -285,7 +285,7 @@ describe('useMobilePermissions', () => {
         },
         expiresAt: Date.now() + 4 * 60 * 60 * 1000, // 4 hours from now
       };
-      idbStorage.set('mobile_permissions_user-1', cachedSettings);
+      idbStorage.set('mobile_permissions_tenant-1_user-1', cachedSettings);
 
       // Make fetch hang to verify cache is used first
       mockFetch.mockReturnValue(new Promise(() => {}));
@@ -314,7 +314,7 @@ describe('useMobilePermissions', () => {
         },
         expiresAt: Date.now() - 1000, // expired 1 second ago
       };
-      idbStorage.set('mobile_permissions_user-1', expiredSettings);
+      idbStorage.set('mobile_permissions_tenant-1_user-1', expiredSettings);
 
       // Backend returns restricted permissions
       mockFetch.mockResolvedValue(createSuccessResponse({
@@ -357,7 +357,7 @@ describe('useMobilePermissions', () => {
 
       // Check cached expiresAt is approximately 8 hours from now
       expect(set).toHaveBeenCalledWith(
-        'mobile_permissions_user-1',
+        'mobile_permissions_tenant-1_user-1',
         expect.objectContaining({
           expiresAt: now + 8 * 60 * 60 * 1000,
         }),
@@ -373,8 +373,8 @@ describe('useMobilePermissions', () => {
 
   describe('Network Error (Fail-Closed)', () => {
     it('should fall back to cache on network error', async () => {
-      // Valid cache exists
-      idbStorage.set('mobile_permissions_user-1', {
+      // Valid cache exists — tenant-scoped key
+      idbStorage.set('mobile_permissions_tenant-1_user-1', {
         settings: {
           isMobileEnabled: true,
           allowedFeatures: {
@@ -394,12 +394,14 @@ describe('useMobilePermissions', () => {
 
       await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
-      // Should use cached permissions
+      // Should use cached permissions (not degraded because cache is valid)
       expect(result.current.isMobileEnabled).toBe(true);
       expect(result.current.canAccess('mortality')).toBe(true);
+      expect(result.current.permissionsDegraded).toBe(false);
+      expect(result.current.permissionSource).toBe('cache');
     });
 
-    it('should use graceful-degradation fallback when no cache and network error', async () => {
+    it('should use fail-closed fallback when no cache and network error (MEDIUM-004)', async () => {
       // No cache exists
       mockFetch.mockRejectedValue(new Error('Network error'));
 
@@ -409,14 +411,16 @@ describe('useMobilePermissions', () => {
 
       await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
-      // WHY: When authenticated but settings endpoint is unreachable AND no cache exists,
-      // use FALLBACK_SETTINGS (graceful degradation) so core features remain usable.
-      // This prevents a completely blank mobile app during backend outages.
-      expect(result.current.isMobileEnabled).toBe(true);
-      expect(result.current.canAccess('mortality')).toBe(true);
-      expect(result.current.canAccess('attendance')).toBe(true);
-      expect(result.current.canAccess('leave')).toBe(true);
-      expect(result.current.canAccess('tasks')).toBe(true);
+      // SECURITY: fail-closed — when authenticated but settings endpoint is
+      // unreachable AND no cache exists, deny all features. Granting access
+      // by default is a privilege escalation vector (MEDIUM-004).
+      expect(result.current.isMobileEnabled).toBe(false);
+      expect(result.current.canAccess('mortality')).toBe(false);
+      expect(result.current.canAccess('attendance')).toBe(false);
+      expect(result.current.canAccess('leave')).toBe(false);
+      expect(result.current.canAccess('tasks')).toBe(false);
+      expect(result.current.permissionsDegraded).toBe(true);
+      expect(result.current.permissionSource).toBe('fail-closed');
     });
   });
 

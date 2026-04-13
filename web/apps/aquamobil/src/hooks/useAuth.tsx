@@ -103,7 +103,7 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
 // SECURITY (FE-CRITICAL-002): clearCache() without tenantId clears ALL tenant
 // namespaces on logout, preventing any residual cached data from leaking to
 // the next user on a shared device.
-async function clearAllUserData(userId?: string): Promise<void> {
+async function clearAllUserData(userId?: string, tenantId?: string | null): Promise<void> {
   // H-FE-01: Clear biometric PII (webauthn_email, webauthn_credential_ids) on logout
   // so the next user on a shared device cannot use or see prior user's biometric data.
   clearBiometricData();
@@ -111,7 +111,11 @@ async function clearAllUserData(userId?: string): Promise<void> {
   await Promise.all([
     clearAllOperations(),
     clearCache(), // No tenantId = clear ALL tenants' cache entries
-    // Clear per-user and legacy permission cache keys
+    // SECURITY: Clear tenant-scoped, per-user, and legacy permission cache keys.
+    // The tenant-scoped key is the current format; the others are legacy fallbacks.
+    ...(userId && tenantId
+      ? [del(`mobile_permissions_${tenantId}_${userId}`).catch(() => {})]
+      : []),
     del(`mobile_permissions${userId ? `_${userId}` : ''}`).catch(() => {}),
     del('mobile_permissions').catch(() => {}),
     // Clear service worker Cache Storage (CRIT-2 / SEC-02)
@@ -286,6 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const currentUserId = state.user?.id;
+    const currentTenantId = state.tenantId;
 
     // Call logout mutation to clear httpOnly cookie server-side
     fetch('/graphql', {
@@ -303,7 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // BUG-03 / SEC-02 / SEC-04: Clear all user data stores before resetting state.
     // Fire-and-forget — UI resets immediately, cleanup runs async.
-    clearAllUserData(currentUserId).catch(() => {});
+    clearAllUserData(currentUserId, currentTenantId).catch(() => {});
 
     // C-FE-01: Notify service worker to clear messaging caches (messaging-graphql-v1,
     // messaging-media-v1). Without this, authenticated GraphQL responses remain in
@@ -322,7 +327,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
     });
     setIsMobileDisabled(false);
-  }, [state.accessToken, state.user?.id]);
+  }, [state.accessToken, state.user?.id, state.tenantId]);
 
   // BUG-18: refreshAuth must update tenantId from the fresh server response.
   // Previously only accessToken was extracted, leaving tenantId stale in React

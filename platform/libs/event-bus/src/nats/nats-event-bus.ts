@@ -34,6 +34,7 @@ import {
   EventMetadata,
 } from '../interfaces/event-bus.interface';
 import { EventUpcasterRegistry } from '@platform/event-contracts';
+import type { EventBusModuleOptions } from './nats.module';
 
 /**
  * NATS JetStream Event Bus Implementation
@@ -80,11 +81,19 @@ export class NatsEventBus
   /** Optional event upcaster registry for v1→v2+ event schema migration */
   private readonly upcasterRegistry?: EventUpcasterRegistry;
 
+  /**
+   * IMPORTANT: fail-closed — when true, broker unavailability always prevents
+   * module startup regardless of environment.  Production ALWAYS fails closed.
+   */
+  private readonly requireBroker: boolean;
+
   constructor(
     private readonly configService: ConfigService,
+    @Inject('EVENT_BUS_OPTIONS') @Optional() moduleOptions?: EventBusModuleOptions,
     @Inject('EVENT_UPCASTER_REGISTRY') @Optional() upcasterRegistry?: EventUpcasterRegistry,
   ) {
     this.upcasterRegistry = upcasterRegistry;
+    this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>(
       'NATS_URL',
       'nats://localhost:4222',
@@ -144,26 +153,40 @@ export class NatsEventBus
     }
   }
 
+  /**
+   * IMPORTANT: fail-closed — broker availability is an explicit startup dependency.
+   *
+   * The service MUST NOT boot when NATS is unreachable if:
+   *   1. The environment is production (NODE_ENV=production), OR
+   *   2. The module was configured with `required: true`.
+   *
+   * Only non-production environments without the `required` flag fall back to
+   * background reconnection.  This prevents services from appearing healthy
+   * while async event workflows are silently disabled.
+   */
   async onModuleInit(): Promise<void> {
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    // IMPORTANT: fail-closed — production OR explicit required flag means the
+    // service cannot start without a working broker connection.
+    const mustHaveBroker = isProduction || this.requireBroker;
+
     try {
       await this.connect();
       await this.setupStream();
       // Activate any subscriptions that were registered before connect completed
       await this.activatePendingSubscriptions();
     } catch (error) {
-      // SECURITY: Fail closed — if NATS is unavailable in production, the service
-      // MUST NOT boot as healthy. Silent event bus failure means async workflows
-      // are disabled while the service appears operational.
-      const isProduction = process.env['NODE_ENV'] === 'production';
-      if (isProduction) {
+      if (mustHaveBroker) {
         this.logger.error(
-          `CRITICAL: Failed to connect to NATS in production. Service startup aborted. ` +
+          `CRITICAL: Failed to connect to NATS (required=${this.requireBroker}, ` +
+          `production=${isProduction}). Service startup aborted. ` +
           `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         throw error;
       }
       this.logger.warn(
-        `Failed to connect to NATS on startup (non-production). Service will continue without event bus. ` +
+        `Failed to connect to NATS on startup (non-production, optional). ` +
+        `Service will continue without event bus. ` +
         `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       this.scheduleReconnect();
@@ -462,6 +485,13 @@ export class NatsEventBus
 
   /**
    * Activate subscriptions that were queued while JetStream was disconnected.
+   *
+   * IMPORTANT: fail-closed — activation errors are collected and re-thrown
+   * so the caller (onModuleInit) can decide whether to abort startup.
+   * Previously errors were swallowed per-subscription, allowing the service
+   * to boot with partial event handling.
+   *
+   * @throws {Error} Aggregated error if any pending subscription fails to activate
    */
   private async activatePendingSubscriptions(): Promise<void> {
     if (this.pendingSubscriptions.length === 0) {
@@ -474,6 +504,7 @@ export class NatsEventBus
 
     // Drain the queue (splice so new entries during iteration are not lost)
     const pending = this.pendingSubscriptions.splice(0);
+    const failures: Array<{ subject: string; message: string }> = [];
 
     for (const { subject, options } of pending) {
       try {
@@ -482,10 +513,23 @@ export class NatsEventBus
         }
         this.logger.log(`Activated pending subscription for ${subject}`);
       } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(
-          `Failed to activate pending subscription for ${subject}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `Failed to activate pending subscription for ${subject}: ${message}`,
         );
+        failures.push({ subject, message });
       }
+    }
+
+    // IMPORTANT: fail-closed — surface ALL activation failures as a single
+    // error so the boot-time decision (throw vs continue) is made by the caller.
+    if (failures.length > 0) {
+      const summary = failures
+        .map((f) => `  - ${f.subject}: ${f.message}`)
+        .join('\n');
+      throw new Error(
+        `Failed to activate ${failures.length} pending subscription(s):\n${summary}`,
+      );
     }
   }
 

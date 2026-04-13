@@ -1,4 +1,4 @@
-import { Module, DynamicModule, Global, Provider } from '@nestjs/common';
+import { Module, DynamicModule, Global, Provider, Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
 import { NatsEventBus } from './nats-event-bus';
@@ -31,6 +31,20 @@ export interface EventBusModuleOptions {
    * Enable auto-discovery of event handlers
    */
   autoDiscovery?: boolean;
+
+  /**
+   * When true, NATS broker availability is a hard startup dependency.
+   * Module init will throw if the broker is unreachable, preventing the
+   * service from booting in a degraded state.
+   *
+   * When false (default), non-production environments will start without
+   * a broker and attempt background reconnection.
+   *
+   * Production environments ALWAYS fail closed regardless of this flag.
+   *
+   * @default false
+   */
+  required?: boolean;
 }
 
 /**
@@ -106,22 +120,40 @@ export class EventBusModule {
 
 /**
  * Event Handler Registry - Auto-discovers and registers event handlers
+ *
+ * IMPORTANT: fail-closed — all subscription registrations are awaited.
+ * If any registration fails, the entire module init fails, preventing
+ * the service from booting with missing event handlers.
  */
 @Global()
 @Module({})
 export class EventHandlerRegistryModule {
+  private readonly logger = new Logger(EventHandlerRegistryModule.name);
+
   constructor(
     private readonly discovery: DiscoveryService,
     private readonly metadataScanner: MetadataScanner,
     private readonly eventBus: NatsEventBus,
   ) {}
 
+  /** @throws {Error} If any subscription registration fails */
   async onModuleInit(): Promise<void> {
     await this.registerEventHandlers();
   }
 
+  /**
+   * Register all discovered event handlers.
+   *
+   * IMPORTANT: fail-closed — every subscription is awaited.  Errors are
+   * collected across all providers so that the boot log shows ALL failures,
+   * not just the first one.  After the loop a single combined error is thrown
+   * to prevent the service from starting with partial subscriptions.
+   *
+   * @throws {Error} Aggregated error listing every failed subscription
+   */
   private async registerEventHandlers(): Promise<void> {
     const providers = this.discovery.getProviders();
+    const failures: Array<{ subject: string; error: Error }> = [];
 
     for (const wrapper of providers) {
       const { instance, metatype } = wrapper;
@@ -129,17 +161,25 @@ export class EventHandlerRegistryModule {
         continue;
       }
 
-      // Check for class-level @EventHandler decorator
+      // ── Class-level @EventHandler decorator ──
       const handlerMetadata = Reflect.getMetadata(
         EVENT_HANDLER_METADATA,
         metatype,
       );
 
       if (handlerMetadata && typeof instance.handle === 'function') {
-        await this.eventBus.subscribe(handlerMetadata.eventName, instance);
+        try {
+          await this.eventBus.subscribe(handlerMetadata.eventName, instance);
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          this.logger.error(
+            `Failed to register class-level handler for ${handlerMetadata.eventName}: ${error.message}`,
+          );
+          failures.push({ subject: handlerMetadata.eventName, error });
+        }
       }
 
-      // Check for method-level @SubscribeTo decorators
+      // ── Method-level @SubscribeTo decorators ──
       for (const methodKey of this.metadataScanner.getAllMethodNames(Object.getPrototypeOf(instance))) {
         const subscriptionMetadata = Reflect.getMetadata(
           EVENT_SUBSCRIPTION_METADATA,
@@ -153,15 +193,34 @@ export class EventHandlerRegistryModule {
             getEventType: () => subscriptionMetadata.topic,
           };
 
-          // IMPORTANT: Await subscription registration so module init fails if
-          // any subscription cannot be established. Previously fire-and-forget
-          // allowed services to boot with missing subscriptions.
-          await this.eventBus.subscribeTo(subscriptionMetadata.topic, handler, {
-            groupId: subscriptionMetadata.groupId,
-            durable: subscriptionMetadata.durable,
-          });
+          // IMPORTANT: fail-closed — await subscription registration so module
+          // init fails if any subscription cannot be established.  Previously
+          // fire-and-forget allowed services to boot with missing subscriptions.
+          try {
+            await this.eventBus.subscribeTo(subscriptionMetadata.topic, handler, {
+              groupId: subscriptionMetadata.groupId,
+              durable: subscriptionMetadata.durable,
+            });
+          } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.logger.error(
+              `Failed to register @SubscribeTo(${subscriptionMetadata.topic}) on ${metatype.name}.${methodKey}: ${error.message}`,
+            );
+            failures.push({ subject: subscriptionMetadata.topic, error });
+          }
         }
       }
+    }
+
+    // IMPORTANT: fail-closed — surface ALL registration failures as a single
+    // boot-time error so operators see the complete list of broken subscriptions.
+    if (failures.length > 0) {
+      const summary = failures
+        .map((f) => `  - ${f.subject}: ${f.error.message}`)
+        .join('\n');
+      throw new Error(
+        `EventHandlerRegistryModule failed to register ${failures.length} subscription(s):\n${summary}`,
+      );
     }
   }
 }

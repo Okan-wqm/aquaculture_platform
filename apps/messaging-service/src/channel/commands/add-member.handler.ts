@@ -140,7 +140,7 @@ export class AddMemberHandler
         userId: targetUserId,
         role,
         addedBy: actorUserId,
-      } as BaseEvent, queryRunner.manager);
+      },  queryRunner.manager);
 
       await queryRunner.commitTransaction();
       return member;

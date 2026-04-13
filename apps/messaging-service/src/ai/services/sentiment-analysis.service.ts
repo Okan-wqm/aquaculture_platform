@@ -192,7 +192,7 @@ export class SentimentAnalysisService {
             avgScore,
             messageCount: CONSECUTIVE_NEGATIVE_ALERT_COUNT,
             detectedAt: new Date().toISOString(),
-          } as BaseEvent, manager);
+          },  manager);
         });
 
         this.logger.warn(

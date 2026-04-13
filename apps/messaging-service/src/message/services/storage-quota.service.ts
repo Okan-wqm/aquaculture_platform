@@ -175,7 +175,7 @@ export class StorageQuotaService {
           quotaBytes: quota,
           usagePercentage: Math.round(usageAfterUpload * 100),
           timestamp: new Date().toISOString(),
-        }, manager);
+        },  manager);
       });
       this.logger.warn(
         `Tenant ${tenantId} storage at ${Math.round(usageAfterUpload * 100)}% ` +

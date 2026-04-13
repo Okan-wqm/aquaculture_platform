@@ -114,7 +114,7 @@ export class ToggleLegalHoldHandler
         reason: hold.reason,
         toggledBy: userId,
         toggledAt: new Date().toISOString(),
-      } as BaseEvent, manager);
+      },  manager);
 
       return hold;
     });

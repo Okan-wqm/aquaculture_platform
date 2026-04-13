@@ -154,7 +154,7 @@ export class ForwardMessageHandler
           sourceChannelId: sourceMessage.channelId,
           contentType: sourceMessage.contentType,
           createdAt: now.toISOString(),
-        } as BaseEvent, manager);
+        },  manager);
 
         return savedMessage;
       },

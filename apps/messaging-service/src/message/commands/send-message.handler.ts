@@ -206,7 +206,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
         hasAttachments: attachmentKeys.length > 0,
         mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
         createdAt: now.toISOString(),
-      } as BaseEvent, manager);
+      },  manager);
 
       return savedMessage;
     });

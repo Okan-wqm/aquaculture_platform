@@ -81,8 +81,8 @@ export class OutboxPublisher {
    *   swallow — a failed validation indicates a contract violation that
    *   would otherwise produce a cross-tenant leak or a lost event.
    */
-  async enqueue(
-    event: BaseEvent,
+  async enqueue<TEvent extends BaseEvent>(
+    event: TEvent,
     manager: EntityManager,
     options?: { idempotencyKey?: string; aggregateId?: string },
   ): Promise<void> {

@@ -411,7 +411,7 @@ export class GdprService {
         ...createBaseEvent('UserDataAnonymized', tenantId),
         userId,
         anonymizedAt,
-      } as BaseEvent, queryRunner.manager);
+      },  queryRunner.manager);
 
       // SECURITY: Cross-service cascade event for ai-service AgentConversation cleanup
       await this.outboxPublisher.enqueue({
@@ -420,7 +420,7 @@ export class GdprService {
         anonymizedAt,
         targetService: 'ai-service',
         targetEntity: 'AgentConversation',
-      } as BaseEvent, queryRunner.manager);
+      },  queryRunner.manager);
 
       // 12. SECURITY: Compliance audit log INSIDE transaction (before commit)
       // BEFORE: audit log was written AFTER commit, so if audit write failed,

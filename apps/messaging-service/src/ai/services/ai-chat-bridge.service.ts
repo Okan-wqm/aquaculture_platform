@@ -373,7 +373,7 @@ export class AiChatBridgeService {
         hasAttachments: false,
         createdAt: now.toISOString(),
         isAiResponse: true,
-      } as BaseEvent, manager);
+      },  manager);
     });
 
     this.logger.debug(`AI response persisted: ${messageId} in channel ${channelId}`);

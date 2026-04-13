@@ -83,7 +83,7 @@ export class SetRetentionPolicyHandler
         policyId: policy.id,
         changedBy: userId,
         changedAt: new Date().toISOString(),
-      } as BaseEvent, manager);
+      },  manager);
 
       this.logger.log(
         `Retention policy set: ${retentionDays} days for tenant=${tenantId}, channel=${channelId ?? 'all'}`,

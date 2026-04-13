@@ -107,7 +107,7 @@ export class RemoveMemberHandler
         userId: targetUserId,
         removedBy: actorUserId,
         selfLeave: isSelfLeave,
-      } as BaseEvent, queryRunner.manager);
+      },  queryRunner.manager);
 
       await queryRunner.commitTransaction();
 

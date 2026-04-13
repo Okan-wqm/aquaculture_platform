@@ -30,8 +30,6 @@ import { KnowledgeEntry } from './entities/knowledge-entry.entity';
 import { EmbeddingsMetadata } from './entities/embeddings-metadata.entity';
 import { Message } from '../message/entities/message.entity';
 import { Channel } from '../channel/entities/channel.entity';
-import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
-
 // Services
 import { AiPrivacyService } from './services/ai-privacy.service';
 import { EmbeddingService } from './services/embedding.service';
@@ -92,7 +90,6 @@ const services = [
       EmbeddingsMetadata,
       Message,
       Channel,
-      MessagingOutbox,
     ]),
     CqrsModule,
     /** SEC-H01: NATS client with shared auth factory. */

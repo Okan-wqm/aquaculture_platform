@@ -593,7 +593,7 @@ export class MessageResolver {
         channelId,
         messageId,
         pinnedBy: user.sub,
-      } as BaseEvent, manager);
+      },  manager);
 
       return savedPin;
     });
@@ -626,7 +626,7 @@ export class MessageResolver {
           channelId,
           messageId,
           unpinnedBy: user.sub,
-        } as BaseEvent, manager);
+        },  manager);
       }
       return (result.affected ?? 0) > 0;
     });
@@ -677,7 +677,7 @@ export class MessageResolver {
         messageId,
         userId: user.sub,
         emoji,
-      } as BaseEvent, manager);
+      },  manager);
 
       return true;
     });
@@ -706,7 +706,7 @@ export class MessageResolver {
           messageId,
           userId: user.sub,
           emoji,
-        } as BaseEvent, manager);
+        },  manager);
       }
       return (result.affected ?? 0) > 0;
     });

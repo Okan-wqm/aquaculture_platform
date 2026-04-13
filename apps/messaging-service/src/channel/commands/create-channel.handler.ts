@@ -159,7 +159,7 @@ export class CreateChannelHandler
         channelId: savedChannel.id,
         channelType: ChannelType.DIRECT,
         memberIds: peerIds,
-      } as BaseEvent, queryRunner.manager);
+      },  queryRunner.manager);
 
       await queryRunner.commitTransaction();
 
@@ -227,7 +227,7 @@ export class CreateChannelHandler
         channelId: savedChannel.id,
         channelType: input.type,
         memberIds,
-      } as BaseEvent, queryRunner.manager);
+      },  queryRunner.manager);
 
       await queryRunner.commitTransaction();
 

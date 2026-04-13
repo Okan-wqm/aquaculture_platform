@@ -98,7 +98,7 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
         messageId: message.id,
         userId,
         readAt: now.toISOString(),
-      } as BaseEvent, manager);
+      },  manager);
     });
 
     // 3. Update Redis unread count (decrement or recalculate)

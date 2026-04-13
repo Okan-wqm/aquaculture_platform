@@ -80,7 +80,7 @@ export class DeleteMessageHandler implements ICommandHandler<DeleteMessageComman
         messageId: message.id,
         deletedBy: userId,
         deletedAt: new Date().toISOString(),
-      } as BaseEvent, manager);
+      },  manager);
     });
 
     this.logger.debug(

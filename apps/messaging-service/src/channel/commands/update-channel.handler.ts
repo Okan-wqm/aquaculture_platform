@@ -108,7 +108,7 @@ export class UpdateChannelHandler
         ...createBaseEvent('ChannelUpdated', command.tenantId),
         channelId: channel.id,
         ...changes,
-      } as BaseEvent, queryRunner.manager);
+      },  queryRunner.manager);
 
       await queryRunner.commitTransaction();
 

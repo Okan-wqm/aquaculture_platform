@@ -75,7 +75,7 @@ export class ArchiveChannelHandler
         ...createBaseEvent('ChannelArchived', tenantId),
         channelId,
         archivedBy: userId,
-      } as BaseEvent, manager);
+      },  manager);
 
       this.logger.log(`Channel ${channelId} archived by user ${userId}`);
       return true;

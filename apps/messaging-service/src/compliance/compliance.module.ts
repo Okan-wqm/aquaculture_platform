@@ -10,7 +10,6 @@ import { ComplianceAuditLog } from './entities/compliance-audit-log.entity';
 
 // External entities referenced by services
 import { Message } from '../message/entities/message.entity';
-import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 
 // Services
 import { RetentionPolicyService } from './services/retention-policy.service';
@@ -52,7 +51,6 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
       LegalHold,
       ComplianceAuditLog,
       Message,
-      MessagingOutbox,
     ]),
     CqrsModule,
   ],

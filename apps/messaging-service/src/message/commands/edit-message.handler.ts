@@ -58,7 +58,7 @@ export class EditMessageHandler implements ICommandHandler<EditMessageCommand, M
         messageId: saved.id,
         senderId: userId,
         editedAt: saved.editedAt?.toISOString() ?? null,
-      } as BaseEvent, manager);
+      },  manager);
 
       return saved;
     });

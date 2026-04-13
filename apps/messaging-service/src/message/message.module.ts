@@ -10,8 +10,6 @@ import { MessageAttachment } from './entities/message-attachment.entity';
 import { MessageReceipt } from './entities/message-receipt.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
 import { PinnedMessage } from './entities/pinned-message.entity';
-import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
-
 // Feature module dependencies
 import { ChannelModule } from '../channel/channel.module';
 import { PresenceModule } from '../presence/presence.module';
@@ -50,7 +48,6 @@ import { MessageResolver } from './resolvers/message.resolver';
       MessageReceipt,
       MessageReaction,
       PinnedMessage,
-      MessagingOutbox,
     ]),
     CqrsModule,
     /** SEC-H01: NATS client with shared auth factory. */

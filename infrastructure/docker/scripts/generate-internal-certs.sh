@@ -31,6 +31,26 @@ generate_server_cert() {
   echo "  [done] ${name} (CN=${cn})"
 }
 
+# SECURITY (HIGH-002): mTLS client certificate — shared across backend services.
+# NATS now enforces `verify: true`; clients without a CA-signed cert are
+# rejected at handshake. Per-service identity still comes from the
+# authorization user/pass, but transport-layer trust requires this cert.
+generate_client_cert() {
+  local name="$1" cn="$2" dir="${CERTS_DIR}/${1}"
+  if [ -f "${dir}/client-cert.pem" ] && [ "$FORCE" = false ]; then
+    echo "  [skip] ${name} client"; return; fi
+  mkdir -p "$dir"
+  openssl genrsa -out "${dir}/client-key.pem" 2048 2>/dev/null
+  openssl req -new -key "${dir}/client-key.pem" -out "${dir}/client.csr" \
+    -subj "/CN=${cn}/O=Aquaculture Platform" 2>/dev/null
+  openssl x509 -req -days 365 -in "${dir}/client.csr" \
+    -CA "${CERTS_DIR}/ca/ca-cert.pem" -CAkey "${CERTS_DIR}/ca/ca-key.pem" \
+    -CAcreateserial -out "${dir}/client-cert.pem" 2>/dev/null
+  rm -f "${dir}/client.csr"
+  chmod 644 "${dir}/client-key.pem" "${dir}/client-cert.pem"
+  echo "  [done] ${name} client (CN=${cn})"
+}
+
 echo "=== Generating Internal TLS Certificates ==="
 CA_DIR="${CERTS_DIR}/ca"
 if [ -f "${CA_DIR}/ca-cert.pem" ] && [ "$FORCE" = false ]; then
@@ -46,6 +66,10 @@ fi
 generate_server_cert "nats" "nats" "DNS:nats,DNS:aqua-nats,DNS:localhost"
 generate_server_cert "redis" "redis" "DNS:redis,DNS:aqua-redis,DNS:localhost"
 generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost"
+
+# mTLS client cert shared across backend services (server identity comes from
+# server cert; client identity at NATS application level is user/pass).
+generate_client_cert "nats" "aqua-services"
 
 # PostgreSQL expects server.crt and server.key (not postgres-cert.pem)
 # Create symlinks so both naming conventions work

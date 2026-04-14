@@ -19,6 +19,12 @@ import { readFileSync } from 'fs';
  *                                    NATS server certificate. REQUIRED when NATS_URL is
  *                                    `tls://...` unless NATS_TLS_INSECURE_ALLOW=true is
  *                                    explicitly set. See TLS section below.
+ *   NATS_TLS_CERT                  — filesystem path to the client certificate PEM.
+ *                                    REQUIRED in production (server enforces mTLS
+ *                                    with verify: true). Paired with NATS_TLS_KEY.
+ *                                    Generate with infrastructure/docker/scripts/
+ *                                    generate-internal-certs.sh (client-cert.pem).
+ *   NATS_TLS_KEY                   — filesystem path to the client private key PEM.
  *   NATS_TLS_INSECURE_ALLOW        — set to `true` to disable TLS hard-failure when
  *                                    no CA is supplied. Only intended for local-dev
  *                                    smoke tests. NEVER enable in production.
@@ -77,9 +83,16 @@ import { readFileSync } from 'fs';
  * `ca` is a PEM bundle as a UTF-8 string; this matches both the nats.js
  * `TlsOptions.ca` field and Node's `tls.connect({ ca })` overload for a
  * single CA chain.
+ *
+ * SECURITY (HIGH-002): `cert` and `key` are the client-side mTLS material.
+ * When the server runs with `verify: true`, the client must present a
+ * CA-signed cert or the handshake fails. nats.js forwards both to
+ * `tls.connect()`.
  */
 interface NatsTlsOptions {
   ca?: string;
+  cert?: string;
+  key?: string;
 }
 
 /**
@@ -184,6 +197,55 @@ export function buildNatsConnectionOptions(serviceName?: string): {
         );
       }
       options.tls = { ca: caPem };
+
+      // SECURITY (HIGH-002): mTLS — load client cert + key if provided.
+      // Required when the NATS server runs with `verify: true` (production
+      // default after IP-1 hardening). If only one of CERT/KEY is set, throw
+      // — partial config would produce a confusing "handshake failed" at
+      // runtime with no hint that a pair is needed.
+      const certPath = process.env['NATS_TLS_CERT'];
+      const keyPath = process.env['NATS_TLS_KEY'];
+      if (certPath && !keyPath) {
+        throw new Error(
+          '[nats-connection.factory] NATS_TLS_CERT is set but NATS_TLS_KEY is not. ' +
+            'Provide both for mTLS, or unset both to fall back to one-way TLS.',
+        );
+      }
+      if (keyPath && !certPath) {
+        throw new Error(
+          '[nats-connection.factory] NATS_TLS_KEY is set but NATS_TLS_CERT is not. ' +
+            'Provide both for mTLS, or unset both to fall back to one-way TLS.',
+        );
+      }
+      if (certPath && keyPath) {
+        let certPem: string;
+        let keyPem: string;
+        try {
+          certPem = readFileSync(certPath, 'utf-8');
+          keyPem = readFileSync(keyPath, 'utf-8');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `[nats-connection.factory] mTLS client cert/key could not be read: ${msg}. ` +
+              'Check that certs/nats/client-cert.pem and client-key.pem are ' +
+              'mounted into the container and the paths match NATS_TLS_CERT / NATS_TLS_KEY.',
+          );
+        }
+        if (!certPem.includes('BEGIN CERTIFICATE')) {
+          throw new Error(
+            `[nats-connection.factory] NATS_TLS_CERT at "${certPath}" is not a valid PEM ` +
+              'certificate. Regenerate via infrastructure/docker/scripts/generate-internal-certs.sh.',
+          );
+        }
+        if (!keyPem.includes('BEGIN') || !keyPem.includes('PRIVATE KEY')) {
+          throw new Error(
+            `[nats-connection.factory] NATS_TLS_KEY at "${keyPath}" is not a valid PEM key. ` +
+              'Regenerate via infrastructure/docker/scripts/generate-internal-certs.sh.',
+          );
+        }
+        options.tls.cert = certPem;
+        options.tls.key = keyPem;
+      }
     } else if (!insecureAllow) {
       // No CA and no explicit opt-in to insecure mode — refuse to
       // produce a connection that would fail at handshake time with

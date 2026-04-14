@@ -1,7 +1,7 @@
 # Package 02: nats-per-service-credentials
 
 ## Metadata
-Status: IN_PROGRESS
+Status: DONE (commit d7ecb9d6)
 Estimated Tokens: 12K
 Priority: HIGH
 Security-Sensitive: yes

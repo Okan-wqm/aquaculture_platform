@@ -26,7 +26,7 @@ CRITICAL: 1 | HIGH: 7 | MEDIUM: 5 | LOW: 1
 - [x] 01-jwt-deployment-contract — distribute RS256 keypair, drop JWT_SECRET from non-auth services [CRITICAL] [security-sensitive] (commit 5b786e7f)
 
 ### Phase 1 — Silent-risk reduction
-- [ ] 02-nats-per-service-credentials — provision per-service NATS users in compose+helm [HIGH] [security-sensitive]
+- [x] 02-nats-per-service-credentials — provision per-service NATS users in compose+helm [HIGH] [security-sensitive] (commit d7ecb9d6)
 - [ ] 03-nats-mtls-enforcement — flip verify:true, distribute client certs [HIGH] [security-sensitive] [blockedBy: 02]
 - [ ] 04a-internal-http-signing-lib — shared signed-http-client + guard enhancement [HIGH] [security-sensitive]
 - [ ] 04b-internal-http-callsite-rollout — migrate every service HTTP caller [HIGH] [security-sensitive] [blockedBy: 04a]
@@ -59,5 +59,5 @@ See: `docs/plans/2026-04-14-hardening-remediation/verification-log.md` (append-o
 - Redis / NATS tenant key-space isolation (requires architectural-arbiter ADR)
 
 ## Progress Summary
-Completed: 1 / 14 packages
+Completed: 2 / 14 packages
 Last Updated: 2026-04-14

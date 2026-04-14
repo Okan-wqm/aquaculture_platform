@@ -3,8 +3,8 @@
 **Date:** 2026-04-14
 **Severity:** CRITICAL
 **Finding ID:** CRITICAL-MSG-001
-**Status:** OPEN
-**Owner:** messaging-expert (next session) — DEADLINE 2026-04-21 (1 week)
+**Status:** RESOLVED — fix shipped 2026-04-14 (architectural re-`run()` of context with schemaName)
+**Owner:** messaging-expert — closed in same session as opening
 **Surfaced by:** 2026-04-14 hardening plan V2 audit
 **Pre-existing:** YES — fail mode predates the 2026-04-14 hardening work
 

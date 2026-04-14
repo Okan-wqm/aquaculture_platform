@@ -1,7 +1,7 @@
 import { Injectable, NestMiddleware, Logger, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { DataSource } from 'typeorm';
-import { getRequestContext } from '../logging/request-context';
+import { requestContextStorage } from '../logging/request-context';
 import { SchemaLRUCache } from '../database/schema-lru-cache';
 import { getTenantSchemaName, isValidUUID } from '../database/tenant-schema.utils';
 
@@ -64,17 +64,27 @@ export function createTenantSchemaMiddleware(defaultSchema: string) {
         req.schemaName = defaultSchema;
       }
 
-      try {
-        const ctx = getRequestContext();
-        if (ctx) {
-          ctx.schemaName = req.schemaName;
-        }
-      } catch {
-        // RequestContext not available
-      }
+      // SECURITY (CRITICAL-MSG-001 ROOT CAUSE):
+      // Mutating the existing AsyncLocalStorage store with `ctx.schemaName = …`
+      // is fragile when downstream Apollo/Express handling can break the
+      // original `requestContextStorage.run()` callback chain — async hops
+      // through resolvers may end up reading a context that NEVER had
+      // schemaName attached, falling through TenantConnectionBootstrap to
+      // the default search_path and triggering SourceSchemaWriteGuard.
+      //
+      // ARCHITECTURAL FIX: re-`run()` the rest of the request inside a
+      // FRESH context that already carries schemaName. Every async
+      // operation scheduled by next() — middleware, resolver, repo.save,
+      // outbox writes, audit logs — runs with `schemaName` GUARANTEED to
+      // be in `getStore()`. No silent loss possible.
+      //
+      // We compose by spreading the current store (correlationId, traceId,
+      // userId, etc.) so we don't drop fields set by upstream middleware.
+      const currentStore = requestContextStorage.getStore();
+      const newStore = { ...(currentStore ?? {}), schemaName: req.schemaName };
 
       this.logger.debug(`Schema: ${req.schemaName} (${Date.now() - startTime}ms)`);
-      next();
+      requestContextStorage.run(newStore, () => next());
     }
 
     /** @internal */

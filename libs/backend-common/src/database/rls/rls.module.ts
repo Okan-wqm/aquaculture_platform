@@ -71,13 +71,21 @@ import { TenantRlsService } from './tenant-rls.service';
  * // (no autoApply — the migration handles policy installation)
  * ```
  *
- * # Module-scoped, not global
+ * # Registration is explicit; consumption is global-within-service
  *
- * `RlsModule` is **NOT** registered as global. Each service explicitly
- * imports it because the bootstrap is parametrised with a service name
- * (for log readability) and because making security infrastructure
- * globally implicit is exactly the kind of magic that produces the "I
- * forgot to wire RLS into the new service" class of incidents.
+ * Each service MUST call `RlsModule.forRoot(...)` in its AppModule —
+ * there is no auto-registration. This guarantees the "I forgot to wire
+ * RLS into the new service" class of incidents is caught at service
+ * setup time (the pool patch would never get applied otherwise).
+ *
+ * Once a service HAS registered the module, however, the `BypassRlsService`
+ * and `TenantRlsService` it exports are `global: true` within that
+ * service's module tree — feature modules can inject them without
+ * re-importing RlsModule. This is deliberate: BypassRlsService has no
+ * per-service configuration (audit label is caller-supplied) and
+ * requiring every submodule that needs it to thread RlsModule through
+ * its imports graph creates import-order hazards and `Nest can't resolve
+ * dependencies` errors with no architectural payoff.
  */
 
 /**
@@ -202,6 +210,11 @@ export class RlsModule {
 
     return {
       module: RlsModule,
+      // global: true makes the exports below injectable throughout the
+      // service's module tree without every feature module having to
+      // re-import RlsModule. Registration itself stays explicit — this
+      // only affects consumption of the already-registered providers.
+      global: true,
       providers,
       // Re-export the bypass + table helpers so feature modules can
       // inject them without re-importing RlsModule. The bootstraps

@@ -51,6 +51,10 @@ import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
+import {
+  BypassRlsService,
+  GLOBAL_TENANT_UUID,
+} from '@aquaculture/backend-common';
 import { EQUIPMENT_TYPES_SEED } from '../../equipment/seeds/equipment-types.seed';
 import { CHEMICAL_TYPES_SEED } from '../../chemical/seeds/chemical-types.seed';
 import { SUPPLIER_TYPES_SEED } from '../../supplier/seeds/supplier-types.seed';
@@ -69,6 +73,16 @@ export class FarmSeedService implements OnApplicationBootstrap {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    // Seed writes carry `tenantId = GLOBAL_TENANT_UUID` (all-zeros) which
+    // the tenant RLS policy — installed by applyTenantRlsToSchema at
+    // service bootstrap — rejects because no `app.current_tenant` GUC is
+    // set during the OnApplicationBootstrap phase. BypassRlsService scopes
+    // an `app.bypass_rls = 'on'` override to the seed's async call tree
+    // via AsyncLocalStorage, leaving every other code path (HTTP handlers,
+    // background workers) subject to the policy. See
+    // libs/backend-common/src/database/rls/bypass-rls.service.ts for the
+    // full audit-trail and scoping rationale.
+    private readonly bypassRls: BypassRlsService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -78,7 +92,15 @@ export class FarmSeedService implements OnApplicationBootstrap {
       // These rows are source-schema templates that are copied into
       // every tenant schema on provisioning via
       // SchemaManagerService.copyReferenceData().
-      await this.seedReferenceDataStandalone();
+      //
+      // Wrapped in withBypass because the writes target the source schema
+      // under a system-owned `app.bypass_rls = 'on'` context — no tenant
+      // request context exists during bootstrap, and the rows carry the
+      // global-template tenantId which would otherwise trip RLS.
+      await this.bypassRls.withBypass(
+        'farm-seed:reference-data',
+        () => this.seedReferenceDataStandalone(),
+      );
     } catch (error) {
       this.logger.error('Error during reference data seed:', error);
     }
@@ -158,14 +180,13 @@ export class FarmSeedService implements OnApplicationBootstrap {
    * continue to work.
    */
   private async seedGlobalCleanerFishSpecies(queryRunner: QueryRunner): Promise<void> {
-    // All-zeros UUID = the global/template tenant that the tenant-
-    // provisioning pipeline clones from when a new customer onboards.
-    const globalTenantId = '00000000-0000-0000-0000-000000000000';
-
+    // GLOBAL_TENANT_UUID (libs/backend-common/src/tenant/constants.ts) is
+    // the platform-wide sentinel for template rows copied into every new
+    // tenant schema by SchemaManagerService.copyReferenceData().
     const existing = await queryRunner.query(
       `SELECT COUNT(*)::int AS count FROM "species"
        WHERE "isCleanerFish" = true AND "tenantId" = $1`,
-      [globalTenantId],
+      [GLOBAL_TENANT_UUID],
     );
     if ((existing[0]?.count ?? 0) > 0) {
       this.logger.log('  Cleaner fish species already present — skipping');
@@ -183,7 +204,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
        (gen_random_uuid(), $1, 'Symphodus melops',     'Corkwing Wrasse',  'Grønngylt', 'CORKWING',  'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false),
        (gen_random_uuid(), $1, 'Ctenolabrus rupestris','Goldsinny Wrasse', 'Bergnebb',  'GOLDSINNY', 'fish', 'saltwater', true, 'wrasse',   'active', true, NOW(), NOW(), false)
        ON CONFLICT DO NOTHING`,
-      [globalTenantId],
+      [GLOBAL_TENANT_UUID],
     );
 
     this.logger.log('  Seeded 4 global cleaner fish species (lumpfish, ballan, corkwing, goldsinny wrasse)');

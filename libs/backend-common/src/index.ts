@@ -1,6 +1,9 @@
 // Types - Canonical shared interfaces
 export * from './types/tenant-request.interface';
 
+// Tenant - Shared tenant-scoped constants (GLOBAL_TENANT_UUID, etc.)
+export * from './tenant/constants';
+
 // Decorators
 export * from './decorators/tenant.decorator';
 export * from './decorators/current-user.decorator';

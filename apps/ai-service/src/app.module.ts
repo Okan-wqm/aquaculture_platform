@@ -33,9 +33,22 @@ import {
   AuditLogInterceptor,
   AuditColumnsModule,
   RlsModule,
+  createMigrationRunnerService,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
+
+/**
+ * AiMigrationRunnerService — runs pending TypeORM migrations in the ai
+ * source schema at OnApplicationBootstrap. Wired in P2d of the 2026-04-14
+ * teardown plan to close the RlsSchemaBootstrap docblock gap (lines
+ * 14-27).
+ *
+ * migrations/ starts empty — ai-service currently relies on
+ * SourceSchemaBootstrapService + TenantSchemaSyncService. Runner is wired
+ * so future migrations can land deterministically.
+ */
+const AiMigrationRunnerService = createMigrationRunnerService('ai');
 import { EventBusModule } from '@platform/event-bus';
 import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';
@@ -87,6 +100,12 @@ const complexityCache = new Map<string, number>();
           ToolExecutionAudit,
         ],
         synchronize: configService.get('DATABASE_SYNC') === 'true' && configService.get('NODE_ENV') !== 'production',
+        // Migrations executed by AiMigrationRunnerService at
+        // OnApplicationBootstrap — search_path pinning, per-migration
+        // transaction isolation, production hard-fail semantics.
+        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        migrationsRun: false,
+        migrationsTableName: 'migrations',
         logging: configService.get('NODE_ENV') === 'development',
         ssl: (() => {
           const sslEnabled = configService.get('DB_SSL') === 'true';
@@ -252,6 +271,8 @@ const complexityCache = new Map<string, number>();
     AuditColumnsModule.forRoot({ serviceName: 'ai' }),
   ],
   providers: [
+    // Migration runner — see const declaration near top of file.
+    AiMigrationRunnerService,
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,

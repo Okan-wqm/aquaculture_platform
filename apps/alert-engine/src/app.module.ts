@@ -27,9 +27,24 @@ import {
   AuditLogModule,
   AuditLogInterceptor,
   RlsModule,
+  createMigrationRunnerService,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
+
+/**
+ * AlertMigrationRunnerService — runs pending TypeORM migrations in the
+ * alert source schema at OnApplicationBootstrap. Wired in P2d of the
+ * 2026-04-14 teardown plan to close the RlsSchemaBootstrap docblock gap
+ * (lines 14-27: "a replacement migration system has not yet been added").
+ *
+ * migrations/ starts empty — alert-engine currently relies on
+ * SourceSchemaBootstrapService + TenantSchemaSyncService for schema
+ * state. Having the runner wired here lets future drift-correcting or
+ * RLS-installing migrations land as deterministic commits without
+ * reviving the hand-applied-psql anti-pattern.
+ */
+const AlertMigrationRunnerService = createMigrationRunnerService('alert');
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';
@@ -71,6 +86,12 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
         // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
         autoLoadEntities: true,
         synchronize: false,
+        // Migrations executed by AlertMigrationRunnerService at
+        // OnApplicationBootstrap — search_path pinning, per-migration
+        // transaction isolation, production hard-fail semantics.
+        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        migrationsRun: false,
+        migrationsTableName: 'migrations',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         extra: { options: '-c search_path=alert,public' },
         // SECURITY: SSL configuration with proper certificate validation
@@ -167,6 +188,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     }),
   ],
   providers: [
+    // Migration runner — see const declaration near top of file.
+    AlertMigrationRunnerService,
     // Global exception filter
     {
       provide: APP_FILTER,

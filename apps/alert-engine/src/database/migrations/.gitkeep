@@ -1,0 +1,4 @@
+# Placeholder so the migrations directory is tracked in git before the
+# first migration lands. alert-engine uses schema-per-tenant — source
+# tables in the alert schema get replicated to each tenant_<uuid> schema
+# at onboarding via TenantSchemaSyncService. Migrations target the source.

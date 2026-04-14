@@ -59,7 +59,12 @@ spec:
       - CreateNamespace=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
+      # ServerSideApply + ServerSideDiff is the 2.10+ combination that
+      # handles Helm upgrades mutating immutable fields (selectors, PVC
+      # specs) cleanly. Without ServerSideDiff, selfHeal + Helm selector
+      # changes loop on "field is immutable" comparison errors.
       - ServerSideApply=true
+      - ServerSideDiff=true
       - RespectIgnoreDifferences=true
       - ApplyOutOfSyncOnly=true
     retry:
@@ -81,7 +86,11 @@ spec:
       kind: HorizontalPodAutoscaler
       jsonPointers:
         - /status
+    # Narrowed from `kind: Secret, jsonPointers: [/data]` (too broad —
+    # masked drift on hand-rolled Secrets like nats-client-certs).
+    # Suppress /data only on Secrets whose .data field is owned by the
+    # External Secrets Operator field-manager (ArgoCD 2.10+).
     - group: ""
       kind: Secret
-      jsonPointers:
-        - /data  # External Secrets Operator populates these
+      managedFieldsManagers:
+        - external-secrets

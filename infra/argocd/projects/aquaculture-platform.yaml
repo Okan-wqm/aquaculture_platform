@@ -28,8 +28,11 @@ metadata:
 spec:
   description: Aquaculture platform workloads — backend services, frontend microfrontends, supporting infra (NATS, External Secrets Operator, cert-manager).
 
+  # ArgoCD compares sourceRepo strings literally. Applications under this
+  # project (infra/argocd/applications/**) all use the non-.git form, so
+  # only that form is allow-listed. Adding a `.git` duplicate here created
+  # dead-weight that telegraphed uncertainty about which URL is authoritative.
   sourceRepos:
-    - https://github.com/Okan-wqm/aquaculture_platform.git
     - https://github.com/Okan-wqm/aquaculture_platform
 
   destinations:

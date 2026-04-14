@@ -45,6 +45,14 @@ export * from './rls';
 // event-store); each calls the factory with its own source schema name.
 export * from './migration-runner';
 
+// Schema drift validator — OnApplicationBootstrap provider factory that
+// compares entity metadata against information_schema on every boot and
+// fails fast on divergence (uuid→text drift, wrong schema, nullability
+// mismatch). Would have caught the 2026-04-14 audit_logs.tenantId drift
+// weeks before it broke RLS in production. Called with a serviceName
+// label for log prefix readability.
+export { createSchemaDriftValidator } from './schema-drift-validator.service';
+
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`
 // are imported by per-service migrations in `auth`, `admin-api`, `farm`,

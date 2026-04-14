@@ -78,10 +78,18 @@ docker exec -i "${POSTGRES_CONTAINER}" \
 DUMP_SIZE=$(stat -c '%s' "${DUMP_PATH}")
 log "pg_dump produced ${DUMP_SIZE} bytes"
 
+# Surface pg_dump stderr unconditionally. TimescaleDB compressed chunks and
+# extension-owned objects produce WARN lines that do not fail the dump but
+# DO indicate incomplete backups; silently discarding them on the success
+# path hides that class of issue. Prefix each line so the job log stays
+# grep-friendly.
+if [ -s "${DUMP_PATH}.stderr" ]; then
+  log "pg_dump stderr (non-empty — review for WARN/NOTICE about skipped objects):"
+  sed 's/^/  pg_dump| /' "${DUMP_PATH}.stderr"
+fi
+
 if [ "${DUMP_SIZE}" -lt "${MIN_DUMP_BYTES}" ]; then
   echo "ERROR: dump is suspiciously small (${DUMP_SIZE} < ${MIN_DUMP_BYTES} bytes)." >&2
-  echo "--- pg_dump stderr ---" >&2
-  cat "${DUMP_PATH}.stderr" >&2 || true
   exit 3
 fi
 

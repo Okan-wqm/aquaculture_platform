@@ -328,6 +328,15 @@ services:
     # Without these flags a Redis restart wipes session tokens, rate-limit
     # counters, outbox offsets, and refresh-token allowlists — all of which
     # the platform writes under the assumption Redis survives a bounce.
+    #
+    # SCOPE: this is restart-durability for the running container only —
+    # NOT a backup. The backup-production.yml workflow only captures
+    # Postgres. If the host disk is lost, the redis_data volume is gone
+    # with no restore path. If that ever becomes load-bearing (e.g.
+    # migrating session storage from JWT to server-side session), add
+    # a `redis-cli --rdb -` step to the nightly backup workflow and
+    # document the restore procedure. Tracked as INFRA-REDIS-BACKUP-001
+    # in the hardening review.
     command: >-
       redis-server
       --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}

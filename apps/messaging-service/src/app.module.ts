@@ -44,6 +44,7 @@ import {
   SourceSchemaBootstrapService,
   createTenantSchemaMiddleware,
   createTenantConnectionBootstrap,
+  createMigrationRunnerService,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   RlsModule,
@@ -53,6 +54,21 @@ import {
 // Tenant infrastructure — 'messaging' source schema for template tables
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('messaging');
+
+/**
+ * MessagingMigrationRunnerService — runs pending TypeORM migrations in the
+ * messaging source schema at OnApplicationBootstrap. Replaces TypeORM's
+ * built-in `migrationsRun: true` path so we get the platform's
+ * search_path invariant between migrations (closes the 2026-04-07
+ * farm-service class of bug where one migration's SET search_path
+ * leaked into the next migration's session).
+ *
+ * Wired as part of the 2026-04-14 messaging-isolation plan (ADR-011
+ * convergence). TypeORM's `migrationsRun` flag is explicitly disabled in
+ * the forRootAsync factory below so there is exactly one source of
+ * truth for migration execution.
+ */
+const MessagingMigrationRunnerService = createMigrationRunnerService('messaging');
 
 // Entities
 import { Channel } from './channel/entities/channel.entity';
@@ -155,9 +171,15 @@ const complexityCache = new Map<string, number>();
           // ALWAYS false — partitioned tables (messages, message_receipts)
           // require migrations. TypeORM synchronize cannot handle PARTITION BY RANGE.
           synchronize: false,
-          // When sync is off (production), run migrations for structural changes.
-          migrationsRun:
-            configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+          // ALWAYS false — migrations are executed by
+          // MessagingMigrationRunnerService at OnApplicationBootstrap,
+          // which pins search_path to "messaging" between migrations.
+          // Setting this to true would bypass that invariant and re-introduce
+          // the 2026-04-07 farm-service search_path leak class of bug.
+          // The runner respects DATABASE_MIGRATIONS_RUN (hard-fails in
+          // production when false).
+          migrationsRun: false,
+          migrationsTableName: 'migrations',
           // Class references (NOT glob paths) — webpack bundles all into main.js,
           // so 'dist/migrations/*.js' would match zero files at runtime.
           migrations: [
@@ -360,6 +382,11 @@ const complexityCache = new Map<string, number>();
     TenantConnectionBootstrap,
     TenantSchemaSyncService,
     SourceSchemaWriteGuardService,
+
+    // Migration runner — runs pending TypeORM migrations on the messaging
+    // source schema at OnApplicationBootstrap with search_path pinning.
+    // See docblock on MessagingMigrationRunnerService above.
+    MessagingMigrationRunnerService,
   ],
 })
 export class AppModule implements NestModule {

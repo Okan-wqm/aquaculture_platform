@@ -399,9 +399,35 @@ secrets:
   # DEPRECATED: HS256 shared secret. Retained as a legacy sentinel for dev fallback
   # (ALLOW_DEV_JWT_SECRET=true). Not used in production RS256 verification path.
   jwtSecret: ""
-  # REQUIRED: NATS connection URL including credentials token
-  # e.g. nats://<token>@nats:4222
+  # REQUIRED: NATS connection URL (no credentials — each service authenticates with its per-service account below).
+  # e.g. tls://nats:4222
   natsUrl: ""
+  # SECURITY (HIGH-001): per-service NATS credentials. Each service has its own
+  # account with subject-level ACLs in nats.conf. Injected into each backend
+  # deployment as NATS_AUTH_USER / NATS_AUTH_PASS (client side) and into the
+  # nats container as $NATS_<SERVICE>_USER / $NATS_<SERVICE>_PASS (server side).
+  # Generate passwords with: openssl rand -base64 32
+  natsAuth:
+    authUser: auth_service
+    authPass: ""
+    farmUser: farm_service
+    farmPass: ""
+    sensorUser: sensor_service
+    sensorPass: ""
+    gatewayUser: gateway_service
+    gatewayPass: ""
+    notificationUser: notification_service
+    notificationPass: ""
+    billingUser: billing_service
+    billingPass: ""
+    alertUser: alert_engine
+    alertPass: ""
+    hrUser: hr_service
+    hrPass: ""
+    messagingUser: messaging_service
+    messagingPass: ""
+    hydroponicsUser: hydroponics_service
+    hydroponicsPass: ""
 
 # External secrets (e.g., from AWS Secrets Manager, Vault)
 externalSecrets:

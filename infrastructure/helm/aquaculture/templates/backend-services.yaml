@@ -36,6 +36,7 @@ spec:
             - containerPort: {{ .Values.authService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "Auth") | nindent 12 }}
             {{- /*
               SECURITY (CRITICAL-001): JWT_PRIVATE_KEY injected ONLY into auth-service.
               Auth-service is the sole RS256 token issuer. Every other backend service
@@ -122,6 +123,7 @@ spec:
             - containerPort: {{ .Values.farmService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "Farm") | nindent 12 }}
           resources:
             {{- toYaml .Values.farmService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.farmService.service.targetPort) | nindent 10 }}
@@ -199,6 +201,7 @@ spec:
             - containerPort: {{ .Values.sensorService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "Sensor") | nindent 12 }}
           resources:
             {{- toYaml .Values.sensorService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.sensorService.service.targetPort) | nindent 10 }}
@@ -296,6 +299,7 @@ spec:
             - containerPort: {{ .Values.alertEngine.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "Alert") | nindent 12 }}
           resources:
             {{- toYaml .Values.alertEngine.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.alertEngine.service.targetPort) | nindent 10 }}
@@ -368,6 +372,7 @@ spec:
             - containerPort: {{ .Values.notificationService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "Notification") | nindent 12 }}
           resources:
             {{- toYaml .Values.notificationService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.notificationService.service.targetPort) | nindent 10 }}
@@ -440,6 +445,7 @@ spec:
             - containerPort: {{ .Values.billingService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "Billing") | nindent 12 }}
             {{- range $key, $val := .Values.billingService.env }}
             - name: {{ $key }}
               value: {{ $val | quote }}
@@ -516,6 +522,7 @@ spec:
             - containerPort: {{ .Values.hrService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "Hr") | nindent 12 }}
             {{- range $key, $val := .Values.hrService.env }}
             - name: {{ $key }}
               value: {{ $val | quote }}

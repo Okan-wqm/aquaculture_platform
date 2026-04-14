@@ -1,7 +1,7 @@
 # Package 01: jwt-deployment-contract
 
 ## Metadata
-Status: IN_PROGRESS
+Status: DONE (commit 5b786e7f)
 Estimated Tokens: 14K
 Priority: CRITICAL
 Security-Sensitive: yes

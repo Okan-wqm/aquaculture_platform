@@ -128,6 +128,35 @@ meaning any compromised service could forge tokens platform-wide.
 {{- end }}
 
 {{/*
+Per-service NATS credentials. Each service authenticates to NATS with its own
+account; subject-level ACLs in nats.conf enforce what that account may
+publish/subscribe. This helper sets the client-facing env vars NATS_AUTH_USER
+and NATS_AUTH_PASS from the per-service secret keys.
+
+Usage:
+  {{- include "aquaculture.natsServiceEnv" (list . "Farm") | nindent 12 }}
+
+The second argument is the PascalCase service name; it maps to secret keys
+`nats<Name>User` / `nats<Name>Pass` defined in templates/secrets.yaml.
+Valid values: Auth, Farm, Sensor, Gateway, Notification, Billing, Alert, Hr,
+Messaging, Hydroponics.
+*/}}
+{{- define "aquaculture.natsServiceEnv" -}}
+{{- $root := index . 0 -}}
+{{- $prefix := index . 1 -}}
+- name: NATS_AUTH_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "aquaculture.fullname" $root }}-secrets
+      key: nats{{ $prefix }}User
+- name: NATS_AUTH_PASS
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "aquaculture.fullname" $root }}-secrets
+      key: nats{{ $prefix }}Pass
+{{- end }}
+
+{{/*
 Liveness probe configuration
 */}}
 {{- define "aquaculture.livenessProbe" -}}

@@ -106,6 +106,22 @@ Her hata için test: "Upstream doğru olsaydı bu koda gerek olur muydu?"
 - Tüm zorunlu field'lar doldurulmalı — eksik field ile publish YASAK
 - `eventType` PascalCase (örn: `TenantCreated`, `BatchHarvested`)
 
+## Schema Ownership (ZORUNLU — ADR-011)
+
+- Her `@Entity()` MUTLAKA `schema:` opsiyonu içermeli — `@Entity('table', { schema: 'farm' })`
+- `public` schema'sına yeni table eklemek YASAK — owning service'in schema'sına git
+- Cross-service shared tablolar `shared` schema'da (audit_logs, gdpr_data_requests, user_consents, user_permissions) — yenisi eklemek için PR review + `SHARED_SCHEMA_TABLES` (e2e/tests/integration/schema-invariants.spec.ts) güncelle
+- CI invariant test her PR'da çalışır; runtime drift validator (`createSchemaDriftValidator`) her cold start'ta tetiklenir
+- Migration runner her bootstrap-pattern service'te wired olmalı (createMigrationRunnerService factory). Runtime bootstrap-only schema pattern'leri DEPRECATED — yeni schema değişikliği migration olarak gönder, bootstrap olarak değil
+
+## Migration Runners (ZORUNLU — ADR-011, ADR-012)
+
+- Her backend service `apps/<svc>/src/database/migrations/` dizinine sahip olmalı
+- Her service `apps/<svc>/src/database/data-source.ts` (TypeORM CLI için) içermeli
+- Her service `app.module.ts`'inde `createMigrationRunnerService('<schema>')`'ı provider olarak kayıt etmeli
+- TypeOrmModule config'inde `migrations: [...glob], migrationsRun: false` (runner çalıştırır, TypeORM değil)
+- Production'da `DATABASE_MIGRATIONS_RUN=false` YASAK (runner hard-fail eder)
+
 ## Build & Test
 
 ```bash

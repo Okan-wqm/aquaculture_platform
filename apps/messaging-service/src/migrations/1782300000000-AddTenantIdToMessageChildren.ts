@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner, Logger as TypeOrmLogger } from 'typeorm';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
 
 /**

@@ -241,7 +241,7 @@ describe('AI Chat (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden|not a member/i);
+      expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member/i);
     });
 
     it('should allow the creator to access their AI channel', async () => {

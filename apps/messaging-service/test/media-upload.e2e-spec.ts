@@ -202,7 +202,7 @@ describe('Media Upload (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden|not a member/i);
+      expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member/i);
     });
 
     it('should allow upload from channel member', async () => {
@@ -220,7 +220,7 @@ describe('Media Upload (E2E)', () => {
 
       if (res.body.errors) {
         // Should not be a membership error
-        expect(res.body.errors[0].message).not.toMatch(/forbidden|not a member/i);
+        expect(res.body.errors[0].message).not.toMatch(/forbidden|not (an active )?member/i);
       } else {
         expect(res.body.data.requestMediaUpload.storageKey).toBeTruthy();
       }

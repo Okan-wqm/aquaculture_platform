@@ -23,6 +23,7 @@ export * from './utils/service-identity.util';
 
 // HTTP - Signed internal HTTP client (HMAC-signed + tenant-bound headers)
 export * from './http/signed-http-client';
+export * from './http/resolve-tenant-id.util';
 
 // Config - Secret provider (Docker Secrets / file-backed env resolution)
 export { readSecret, bootstrapSecrets } from './config/secrets.provider';

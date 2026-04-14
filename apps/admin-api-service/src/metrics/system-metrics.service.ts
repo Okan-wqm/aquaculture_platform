@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common';
 
 export interface SystemMetrics {
   timestamp: string;
@@ -241,7 +242,16 @@ export class SystemMetricsService {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
-        const response = await fetch(endpoint.url, { signal: controller.signal }).catch(() => null);
+        // SECURITY (HIGH-003): admin-api scrapes service /metrics endpoints
+        // — an internal cross-service path. Empty tenantId is the explicit
+        // non-tenant declaration; HMAC keeps the platform invariant intact.
+        const response = await fetch(endpoint.url, {
+          signal: controller.signal,
+          headers: buildSignedInternalHeaders({
+            serviceName: 'admin-api',
+            tenantId: '',
+          }),
+        }).catch(() => null);
         clearTimeout(timeout);
 
         services.push({

@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan, Between } from 'typeorm';
 import * as os from 'os';
 import * as fs from 'fs';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common';
 
 import {
   PerformanceMetric,
@@ -425,7 +426,15 @@ export class PerformanceMonitoringService {
           const timeout = setTimeout(() => controller.abort(), 2000);
           const start = Date.now();
           try {
-            const response = await fetch(endpoint.url, { signal: controller.signal });
+            // SECURITY (HIGH-003): cross-service health probes from
+            // admin-api scheduler are signed for platform invariant.
+            const response = await fetch(endpoint.url, {
+              signal: controller.signal,
+              headers: buildSignedInternalHeaders({
+                serviceName: 'admin-api',
+                tenantId: '',
+              }),
+            });
             const latency = Date.now() - start;
             return { reachable: true, healthy: response.ok, latency };
           } finally {

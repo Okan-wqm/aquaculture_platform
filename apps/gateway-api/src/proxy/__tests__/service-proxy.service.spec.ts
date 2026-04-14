@@ -119,6 +119,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'test-service',
         path: '/api/test',
         method: 'GET',
@@ -132,6 +134,8 @@ describe('ServiceProxyService', () => {
 
     it('should use circuit breaker for requests', async () => {
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'circuit-test-service',
         path: '/api/test',
       };
@@ -147,6 +151,8 @@ describe('ServiceProxyService', () => {
 
     it('should get instance from load balancer', async () => {
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'lb-test-service',
         path: '/api/test',
       };
@@ -160,6 +166,8 @@ describe('ServiceProxyService', () => {
       loadBalancer.getNextInstance.mockReturnValueOnce(null);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'no-instance-service',
         path: '/api/test',
       };
@@ -177,6 +185,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'query-service',
         path: '/api/search',
         query: { q: 'test', page: '1' },
@@ -200,6 +210,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'post-service',
         path: '/api/create',
         method: 'POST',
@@ -227,6 +239,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'header-service',
         path: '/api/test',
         headers: {
@@ -258,6 +272,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'timing-service',
         path: '/api/test',
       };
@@ -289,6 +305,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'strip-prefix-service',
         path: '/api/v1/users',
       };
@@ -320,6 +338,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'add-prefix-service',
         path: '/users',
       };
@@ -342,6 +362,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'override-prefix-service',
         path: '/api/farms',
         stripPrefix: '/api',
@@ -375,6 +397,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(error503).mockResolvedValueOnce(success);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'retry-service',
         path: '/api/test',
         retries: 2,
@@ -402,6 +426,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(error400);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'no-retry-service',
         path: '/api/test',
         retries: 2,
@@ -422,6 +448,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'lb-record-service',
         path: '/api/test',
       };
@@ -442,6 +470,8 @@ describe('ServiceProxyService', () => {
     it('should handle timeout configuration', async () => {
       // Test that timeout config is passed correctly
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'timeout-service',
         path: '/api/test',
         timeout: 5000,
@@ -479,6 +509,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'transform-response-service',
         path: '/api/test',
         transformResponse: (res) => ({
@@ -502,6 +534,8 @@ describe('ServiceProxyService', () => {
       mockFetch.mockResolvedValueOnce(mockResponse);
 
       const config: ProxyRequestConfig = {
+        // Test fixture — tenantId required by HIGH-003 contract; non-tenant test path.
+        tenantId: '',
         serviceName: 'transform-request-service',
         path: '/api/test',
         transformRequest: (req) => ({

@@ -1,5 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common';
 
 /**
  * Health check result for a single service (internal use)
@@ -278,11 +279,18 @@ export class HealthService {
         this.healthCheckTimeout,
       );
 
+      // SECURITY (HIGH-003): keep the platform invariant — every internal
+      // HTTP call signed. Health probes use empty tenantId to declare
+      // explicitly that no tenant context applies (vs. silently omitting).
       const response = await fetch(healthUrl, {
         method: 'GET',
         signal: controller.signal,
         headers: {
           Accept: 'application/json',
+          ...buildSignedInternalHeaders({
+            serviceName: 'gateway-api',
+            tenantId: '',
+          }),
         },
       });
 

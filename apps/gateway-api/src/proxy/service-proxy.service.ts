@@ -9,6 +9,7 @@
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
+import { buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common';
 
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { LoadBalancerService, ServiceInstanceStats, LoadBalancerContext } from './load-balancer.service';
@@ -33,11 +34,18 @@ const BLOCKED_FORWARDED_HEADERS = [
 ];
 
 /**
- * Proxy request configuration
+ * Proxy request configuration.
+ *
+ * SECURITY (HIGH-003): `tenantId` is REQUIRED. Every caller must declare
+ * the tenant context (or empty string for explicit non-tenant paths).
+ * The value is bound into the HMAC signature attached to the outbound
+ * request — no caller can silently inherit a missing/spoofed tenant.
  */
 export interface ProxyRequestConfig {
   serviceName: string;
   path: string;
+  /** Tenant UUID bound into the HMAC. Empty string for non-tenant paths. */
+  tenantId: string;
   method?: string;
   headers?: Record<string, string>;
   body?: unknown;
@@ -255,6 +263,11 @@ export class ServiceProxyService {
     const config: ProxyRequestConfig = {
       serviceName,
       path: req.path,
+      // SECURITY (HIGH-003): bind the resolved tenant UUID into the proxy
+      // contract so executeProxyRequest's HMAC signs the same tenant the
+      // forwarded headers carry — tampering with x-tenant-id mid-flight
+      // fails downstream verification.
+      tenantId: resolveTenantIdFromRequest(req),
       method: req.method,
       headers: this.extractHeaders(req),
       body: req.body,
@@ -337,9 +350,19 @@ export class ServiceProxyService {
         controller.abort();
       });
 
+      // SECURITY (HIGH-003): sign the SSE proxy request with HMAC + tenant
+      // binding so the downstream subgraph guard rejects any forged
+      // x-tenant-id header tampered with in flight.
+      const sseHeaders: Record<string, string> = {
+        ...this.extractHeaders(req),
+        ...buildSignedInternalHeaders({
+          serviceName: 'gateway-api',
+          tenantId: resolveTenantIdFromRequest(req),
+        }),
+      };
       const response = await fetch(targetUrl, {
         method: 'GET',
-        headers: this.extractHeaders(req),
+        headers: sseHeaders,
         signal: controller.signal,
       });
 
@@ -526,9 +549,17 @@ export class ServiceProxyService {
     const timeout = setTimeout(() => controller.abort(), config.timeout || serviceConfig.timeout);
 
     try {
+      // SECURITY (HIGH-003): overlay HMAC + tenant-bound identity headers
+      // on top of caller-supplied headers. signedFetch-style merge: the
+      // X-Service-* + X-Tenant-ID values come from buildSignedInternalHeaders
+      // and override any pre-existing keys so the wire matches the signature.
+      const signedHeaders = buildSignedInternalHeaders({
+        serviceName: 'gateway-api',
+        tenantId: config.tenantId,
+      });
       const fetchOptions: RequestInit = {
         method: proxyRequest.method,
-        headers: proxyRequest.headers,
+        headers: { ...proxyRequest.headers, ...signedHeaders },
         signal: controller.signal,
         redirect: serviceConfig.followRedirects ? 'follow' : 'manual',
       };

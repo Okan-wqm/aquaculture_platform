@@ -10,6 +10,7 @@ import { EventEmitter } from 'events';
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common';
 
 /**
  * Load balancing algorithms
@@ -675,8 +676,18 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+      // SECURITY (HIGH-003): health probes are signed even though the
+      // /health/* path is in createServiceApp's prefixExclusions and the
+      // ServiceIdentityGuard skips non-GraphQL contexts. Pre-signing keeps
+      // the platform invariant "every internal HTTP request is signed"
+      // intact — future tightening of /health endpoints is a zero-edit
+      // change. Empty tenantId is the explicit non-tenant declaration.
       const response = await fetch(url, {
         method: 'GET',
+        headers: buildSignedInternalHeaders({
+          serviceName: 'gateway-api',
+          tenantId: '',
+        }),
         signal: controller.signal,
       });
 

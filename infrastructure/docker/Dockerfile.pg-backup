@@ -1,0 +1,56 @@
+# =============================================================================
+# pg-backup container image
+# =============================================================================
+# Used by infrastructure/kubernetes/base/jobs/pg-backup-cronjob.yaml once the
+# platform migrates off the droplet onto Kubernetes. Bundles postgres-client
+# (for pg_dump / pg_restore / psql), AWS CLI v2 (S3 / DigitalOcean Spaces),
+# and gpg (optional dump encryption), sharing the same backup-databases.sh
+# script the droplet-side workflow uses.
+#
+# Build:
+#   docker build \
+#     -f infrastructure/docker/Dockerfile.pg-backup \
+#     -t ghcr.io/okan-wqm/aquaculture_platform/pg-backup:<version> .
+#
+# The CronJob references this image via digest (not tag) — see the deploy
+# comment in pg-backup-cronjob.yaml. A build+publish workflow at
+# .github/workflows/build-pg-backup-image.yml is tracked as a deferred
+# follow-up (INFRA-BACKUP-003 — not yet authored, see the hardening doc).
+
+FROM alpine:3.20
+
+# Pinned to latest stable on Alpine 3.20. Update deliberately.
+#   postgresql16-client: pg_dump / pg_restore / psql
+#   aws-cli v2:          S3-compatible uploads to DigitalOcean Spaces / S3
+#   gpg:                 dump encryption (optional — activated via
+#                        BACKUP_GPG_RECIPIENT env in backup-databases.sh)
+#   bash:                the backup script is bash, not POSIX sh
+#   ca-certificates:     TLS chain for HTTPS endpoints
+#   tzdata:              dump timestamps in UTC regardless of host tz
+RUN apk add --no-cache \
+      bash \
+      ca-certificates \
+      tzdata \
+      postgresql16-client \
+      aws-cli \
+      gpg \
+      gpg-agent \
+ && update-ca-certificates
+
+# Non-root runtime. Matches the runAsUser/runAsGroup (65534 nobody) in
+# the CronJob PodSpec so /scripts mount + emptyDir scratch are writable
+# under readOnlyRootFilesystem.
+RUN adduser -D -u 65534 -g 65534 -s /sbin/nologin pg-backup || true
+
+# The backup script lives in the repo and is mounted into the CronJob pod
+# via a Kustomize configMapGenerator. Baking it into the image would fork
+# the source of truth. This layer is intentionally absent.
+
+USER 65534
+
+WORKDIR /tmp
+
+# No ENTRYPOINT: the CronJob explicitly invokes
+#   command: ["/bin/bash", "/scripts/backup-databases.sh"]
+# so the image is a neutral execution environment, not a fixed program.
+CMD ["/bin/bash", "-c", "echo 'pg-backup image — no default command; invoke explicitly via CronJob'; exit 2"]

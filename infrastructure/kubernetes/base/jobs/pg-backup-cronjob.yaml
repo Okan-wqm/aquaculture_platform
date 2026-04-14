@@ -71,10 +71,15 @@ spec:
               type: RuntimeDefault
           containers:
             - name: backup
-              # Vendor-pinned image: contains psql client + aws CLI v2 + gpg.
-              # Replace with a platform-owned image during migration — the
-              # public image is fine for the drill phase.
-              image: ghcr.io/aquaculture-platform/pg-backup:1.0.0
+              # Platform-owned image built from infrastructure/docker/Dockerfile.pg-backup
+              # (alpine:3.20 + postgresql16-client + aws-cli v2 + gpg). The image
+              # is NOT yet published to GHCR — a build+publish workflow is
+              # tracked as INFRA-BACKUP-003 follow-up. Until that workflow lands,
+              # the tag `:unbuilt` below causes ImagePullBackOff rather than
+              # pulling an invented URL that looks legitimate. When the build
+              # workflow is enabled, it must produce `pg-backup:<git-sha>` and
+              # overlays should pin to the immutable digest (not the floating tag).
+              image: ghcr.io/okan-wqm/aquaculture_platform/pg-backup:unbuilt
               imagePullPolicy: IfNotPresent
               securityContext:
                 allowPrivilegeEscalation: false

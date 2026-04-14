@@ -1,4 +1,8 @@
-import * as bcrypt from 'bcrypt';
+// Platform convention: every auth-path caller uses bcryptjs (ships its own
+// type declarations, pure-JS, identical hash format to node-bcrypt). Align
+// here so the library has one bcrypt implementation — not two that can
+// drift on cost-factor defaults or constant-time comparison behavior.
+import * as bcrypt from 'bcryptjs';
 import { createHmac } from 'crypto';
 
 /**

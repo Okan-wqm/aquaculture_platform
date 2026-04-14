@@ -113,11 +113,12 @@ services:
       NODE_ENV: development
       PORT: 3000
       GATEWAY_PORT: 3000
-      DATABASE_URL: postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
+      # SECURITY (MEDIUM-003): per-service DB role, no shared aquaculture user.
+      DATABASE_URL: postgres://gateway_service:${GATEWAY_SERVICE_DB_PASS:-devpassword}@postgres:5432/aquaculture
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
       FARM_SERVICE_URL: http://farm-service:3000/graphql
       SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
@@ -192,14 +193,20 @@ services:
       AUTH_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role, no shared aquaculture user.
+      DATABASE_USER: auth_service
+      DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      # SECURITY (CRITICAL-001): auth-service is the sole token issuer.
+      # In dev, ALLOW_DEV_JWT_SECRET=true permits HS256 with DEV_JWT_SECRET
+      # when RS256 keys are not mounted; production paths require RS256.
+      JWT_PRIVATE_KEY_PATH: /var/run/jwt/private.pem
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+      ALLOW_DEV_JWT_SECRET: "true"
+      DEV_JWT_SECRET: "${DEV_JWT_SECRET:-dev-secret-change-me-at-least-32-chars-long}"
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
       # OpenTelemetry Tracing
@@ -244,8 +251,9 @@ services:
       FARM_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: farm_service
+      DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SCHEMA: farm
       DATABASE_SYNC: "true"
@@ -290,8 +298,9 @@ services:
       SENSOR_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: sensor_service
+      DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "false"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
@@ -341,8 +350,9 @@ services:
       ALERT_ENGINE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: alert_service
+      DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
@@ -384,8 +394,9 @@ services:
       BILLING_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: billing_service
+      DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
@@ -425,8 +436,9 @@ services:
       HR_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: hr_service
+      DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
@@ -466,14 +478,15 @@ services:
       HYDROPONICS_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: hydroponics_service
+      DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      # SECURITY (CRITICAL-001): RS256 public-key verification.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
       interval: 30s
@@ -509,8 +522,9 @@ services:
       NOTIFICATION_SERVICE_PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: notification_service
+      DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "true"
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
@@ -545,8 +559,9 @@ services:
       PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: messaging_service
+      DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SYNC: "false"
       REDIS_HOST: redis
@@ -599,8 +614,9 @@ services:
       PORT: 3000
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: aquaculture
-      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      # SECURITY (MEDIUM-003): per-service DB role.
+      DATABASE_USER: admin_service
+      DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SCHEMA: admin
       DATABASE_SYNC: "true"

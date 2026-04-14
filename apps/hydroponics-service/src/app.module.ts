@@ -32,6 +32,7 @@ import {
   SourceSchemaWriteGuardService,
   AuditLogModule,
   AuditLogInterceptor,
+  RlsModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
@@ -186,6 +187,12 @@ const complexityCache = new Map<string, number>();
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant hydroponics). */
+    RlsModule.forRoot({
+      serviceName: 'hydroponics',
+      syncTenantSchemas: true,
+      excludeTables: ['hydroponics_outbox'],
+    }),
   ],
   providers: [
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers

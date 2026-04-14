@@ -32,6 +32,7 @@ import {
   AuditLogModule,
   AuditLogInterceptor,
   AuditColumnsModule,
+  RlsModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
@@ -229,6 +230,16 @@ const complexityCache = new Map<string, number>();
     ChatModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * SECURITY (HIGH-004): Tenant RLS (schema-per-tenant ai).
+     * Conversations and tool executions carry user context — RLS prevents
+     * cross-tenant reads if an app-layer check is bypassed.
+     */
+    RlsModule.forRoot({
+      serviceName: 'ai',
+      syncTenantSchemas: true,
+      excludeTables: ['ai_outbox'],
+    }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
      *

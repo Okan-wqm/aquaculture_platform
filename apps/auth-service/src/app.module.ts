@@ -9,7 +9,7 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist, RlsModule } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
@@ -260,6 +260,20 @@ import { TenantModule } from './modules/tenant/tenant.module';
 
     // Prometheus metrics (per-service /metrics endpoint)
     AuthMetricsModule,
+
+    /**
+     * SECURITY (HIGH-004): Tenant Row-Level Security.
+     * auth-service uses the global `auth` schema with tenantId columns on
+     * User/Tenant/Invitation/ActionToken tables. autoApply installs the
+     * canonical tenant_isolation_policy at OnApplicationBootstrap so
+     * defence-in-depth kicks in without a separate migration.
+     * excludeTables: audit logs and outbox are cross-tenant by design.
+     */
+    RlsModule.forRoot({
+      serviceName: 'auth',
+      autoApply: true,
+      excludeTables: ['auth_outbox', 'audit_log', 'audit_logs'],
+    }),
   ],
   providers: [
     // WHY: All guards use useFactory to bypass reflect-metadata resolution which fails

@@ -46,6 +46,7 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
+  RlsModule,
 } from '@aquaculture/backend-common';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
@@ -332,6 +333,17 @@ const complexityCache = new Map<string, number>();
     AiModule,
     MessagingNotificationModule,
     MetricsModule,
+
+    /**
+     * SECURITY (HIGH-004): Tenant Row-Level Security (schema-per-tenant).
+     * Messages carry user/tenant PII — defence-in-depth isolation via RLS
+     * means an app-layer tenantId bypass cannot read cross-tenant messages.
+     */
+    RlsModule.forRoot({
+      serviceName: 'messaging',
+      syncTenantSchemas: true,
+      excludeTables: ['messaging_outbox', 'outbox'],
+    }),
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

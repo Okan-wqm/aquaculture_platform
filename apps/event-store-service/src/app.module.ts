@@ -68,6 +68,17 @@ import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1
     EventStoreModule,
     ProjectionsModule,
     HealthModule,
+    /**
+     * SECURITY (HIGH-004): Tenant RLS on event-store projections.
+     * stored_events and projection tables carry tenant_id; autoApply runs
+     * the helper at OnApplicationBootstrap so policies are idempotently
+     * installed on every cold start.
+     */
+    RlsModule.forRoot({
+      serviceName: 'event-store',
+      autoApply: true,
+      excludeTables: ['stored_events', 'projection_checkpoint'],
+    }),
   ],
   providers: [
     {

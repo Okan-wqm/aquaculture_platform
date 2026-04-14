@@ -22,6 +22,7 @@ import {
   SourceSchemaBootstrapService,
   ServiceIdentityGuard,
   RedisModule,
+  RlsModule,
 } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -362,6 +363,19 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     // Feature modules
     SensorModule,
     HealthModule,
+
+    /**
+     * SECURITY (HIGH-004): Tenant Row-Level Security (schema-per-tenant).
+     * sensor-service data lives in per-tenant schemas created via
+     * CREATE TABLE LIKE INCLUDING ALL, which does NOT copy RLS policies.
+     * syncTenantSchemas makes RlsModule iterate every tenant_<uuid> schema
+     * at OnApplicationBootstrap and install the canonical policy on each.
+     */
+    RlsModule.forRoot({
+      serviceName: 'sensor',
+      syncTenantSchemas: true,
+      excludeTables: ['sensor_outbox'],
+    }),
 
     // Prometheus metrics (per-service /metrics endpoint)
     SensorMetricsModule,

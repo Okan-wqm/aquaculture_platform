@@ -46,6 +46,7 @@ import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-option
 import { StructuredLoggerService } from '../logging';
 import { logBootstrapError } from './safe-error-logger';
 import { buildNatsTransportOptions } from '../nats/nats-connection.factory';
+import { bootstrapSecrets } from '../config/secrets.provider';
 import helmet from 'helmet';
 import type { HelmetOptions } from 'helmet';
 
@@ -194,6 +195,23 @@ export interface ServiceBootstrapOptions {
    * explicitly so the architectural intent is captured at the boot site.
    */
   serviceVisibility?: 'public' | 'internal';
+
+  /**
+   * Additional env var names to resolve via file-mounted secrets before
+   * NestFactory.create. See the default `PLATFORM_SECRET_ENV_VARS` list in
+   * this file — that covers JWT, DB/Redis/NATS passwords, and the common
+   * inter-service secrets. Services only need to extend this list for
+   * service-specific secrets (e.g. `['STRIPE_SIGNING_SECRET']`).
+   *
+   * Each entry `X` is resolved as follows: if `X_FILE` is set and readable,
+   * the file's contents are injected into `process.env.X`. Otherwise the
+   * existing `process.env.X` value is kept.
+   *
+   * SECURITY (MEDIUM-001): closes the gap where Docker Secrets /
+   * Kubernetes file-mount secrets could be delivered but were never
+   * picked up by the application.
+   */
+  secrets?: readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +507,47 @@ function resolvePort(
  *   },
  * });
  */
+/**
+ * Platform-wide secret env vars auto-resolved via `bootstrapSecrets()` at the
+ * top of every service's boot. Each entry may be provided either directly
+ * (`VAR=value`) or via a file mount (`VAR_FILE=/run/secrets/var`). Docker
+ * Secrets and Kubernetes secret projection both use the file-mount pattern.
+ *
+ * SECURITY (MEDIUM-001): The helper existed in libs/backend-common but was
+ * never invoked by any service's main.ts. That left the file-mounted secret
+ * supply chain disconnected — even though the infra (Helm ExternalSecrets,
+ * Terraform Secrets Manager, Docker secrets) could deliver secrets via
+ * files, services only read from env vars. Wiring the helper into the
+ * shared bootstrap makes the file-path reachable for every service at once
+ * without edits to 15 main.ts files.
+ */
+const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
+  'JWT_PRIVATE_KEY',
+  'JWT_PUBLIC_KEY',
+  'JWT_SECRET',
+  'INTERNAL_SERVICE_SECRET',
+  'POSTGRES_PASSWORD',
+  'REDIS_PASSWORD',
+  'NATS_PASS',
+  'NATS_AUTH_PASS',
+  'NATS_FARM_PASS',
+  'NATS_SENSOR_PASS',
+  'NATS_GATEWAY_PASS',
+  'NATS_NOTIFICATION_PASS',
+  'NATS_BILLING_PASS',
+  'NATS_ALERT_PASS',
+  'NATS_HR_PASS',
+  'NATS_MESSAGING_PASS',
+  'NATS_HYDROPONICS_PASS',
+  'ENCRYPTION_KEY',
+  'MFA_ENCRYPTION_KEY',
+  'SUPER_ADMIN_PASSWORD',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'SMTP_PASS',
+  'OBSERVABILITY_INTERNAL_API_KEY',
+];
+
 export async function createServiceApp(
   appModule: Type<unknown>,
   options: ServiceBootstrapOptions,
@@ -513,9 +572,25 @@ export async function createServiceApp(
     versioning,
     globalGuards = [],
     serviceVisibility = 'public',
+    secrets: secretsOverride,
   } = options;
 
   const logger = new Logger(serviceName);
+
+  // -----------------------------------------------------------------------
+  // SECURITY (MEDIUM-001): Resolve file-mounted secrets into process.env
+  // BEFORE any Nest module or ConfigService is constructed. This makes the
+  // Docker Secrets / Kubernetes file-mount path usable via every existing
+  // `configService.get('SECRET_NAME')` call site without further changes.
+  //
+  // Merge strategy:
+  //   - Default list covers the full platform-wide secret surface.
+  //   - Each service MAY pass an additional `secrets: [...]` array to
+  //     resolve service-specific secret files (e.g. STRIPE_SIGNING_SECRET).
+  // -----------------------------------------------------------------------
+  const secretVars = new Set<string>(PLATFORM_SECRET_ENV_VARS);
+  for (const extra of secretsOverride ?? []) secretVars.add(extra);
+  bootstrapSecrets([...secretVars]);
 
   // -----------------------------------------------------------------------
   // SEC-H15: DATABASE_SYNC production guard

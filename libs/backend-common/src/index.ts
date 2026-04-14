@@ -21,6 +21,9 @@ export * from './utils/service-identity.util';
 // HTTP - Signed internal HTTP client (HMAC-signed + tenant-bound headers)
 export * from './http/signed-http-client';
 
+// Config - Secret provider (Docker Secrets / file-backed env resolution)
+export { readSecret, bootstrapSecrets } from './config/secrets.provider';
+
 // Auth - Centralised JWT verification options + strict token type enforcement
 // All guards MUST use getJwtVerifyOptions() and enforceAccessTokenType().
 export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verification.utils';

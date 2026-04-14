@@ -26,7 +26,7 @@ export enum ChannelType {
 registerEnumType(ChannelType, { name: 'ChannelType' });
 
 @ObjectType()
-@Entity('channels')
+@Entity('channels', { schema: 'messaging' })
 @Check(`"type" IN ('direct', 'group', 'ai')`)
 @Check(
   `("type" = 'direct' AND "dmPairKey" IS NOT NULL) OR ("type" != 'direct' AND "dmPairKey" IS NULL)`,

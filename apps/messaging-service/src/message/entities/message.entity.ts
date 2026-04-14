@@ -28,7 +28,7 @@ registerEnumType(MessageContentType, { name: 'MessageContentType' });
  * Composite PK (id, createdAt) required for partition routing.
  */
 @ObjectType()
-@Entity('messages')
+@Entity('messages', { schema: 'messaging' })
 @Check(`"contentType" IN ('text', 'image', 'file', 'voice', 'system')`)
 @Index('idx_messages_channel_created', ['channelId', 'createdAt'])
 @Index('idx_messages_sender', ['senderId', 'createdAt'])

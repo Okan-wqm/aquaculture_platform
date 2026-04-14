@@ -18,7 +18,7 @@ import { OutboxEntityBase } from '@platform/outbox';
  *
  * synchronize: false — DDL is managed by migrations, not TypeORM sync.
  */
-@Entity({ name: 'messaging_outbox', synchronize: false })
+@Entity({ name: 'messaging_outbox', schema: 'messaging', synchronize: false })
 @Index('idx_outbox_poll', ['createdAt'], {
   where: '"publishedAt" IS NULL AND "nextAttemptAt" <= NOW()',
 })

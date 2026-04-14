@@ -18,7 +18,7 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { Message } from './message.entity';
 
 @ObjectType()
-@Entity('message_reactions')
+@Entity('message_reactions', { schema: 'messaging' })
 @Unique('uq_reaction_message_user_emoji', ['messageId', 'userId', 'emoji'])
 @Index('idx_reactions_message', ['messageId'])
 @Index('idx_reactions_tenant', ['tenantId'])

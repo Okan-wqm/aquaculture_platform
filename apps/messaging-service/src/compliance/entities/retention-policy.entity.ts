@@ -20,7 +20,7 @@ import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
  * @see ADR-012 Phase 3 (Compliance)
  */
 @ObjectType()
-@Entity('retention_policies')
+@Entity('retention_policies', { schema: 'messaging' })
 @Unique('uq_retention_tenant_channel', ['tenantId', 'channelId'])
 @Index('idx_retention_tenant', ['tenantId'])
 export class RetentionPolicy {

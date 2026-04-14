@@ -33,7 +33,7 @@ registerEnumType(ChannelMemberRole, { name: 'ChannelMemberRole' });
 registerEnumType(NotificationPreference, { name: 'NotificationPreference' });
 
 @ObjectType()
-@Entity('channel_members')
+@Entity('channel_members', { schema: 'messaging' })
 @Unique('uq_channel_member', ['channelId', 'userId'])
 @Index('idx_channel_members_user_id', ['userId'])
 @Index('idx_channel_members_channel_id', ['channelId'])

@@ -18,7 +18,7 @@ import { DecimalTransformer } from '@aquaculture/backend-common';
 import { Message } from './message.entity';
 
 @ObjectType()
-@Entity('message_attachments')
+@Entity('message_attachments', { schema: 'messaging' })
 @Index('idx_attachments_message', ['messageId'])
 @Index('idx_attachments_tenant', ['tenantId'])
 export class MessageAttachment {

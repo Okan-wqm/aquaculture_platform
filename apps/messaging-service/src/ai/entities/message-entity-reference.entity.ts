@@ -33,7 +33,7 @@ export enum DomainEntityType {
 registerEnumType(DomainEntityType, { name: 'DomainEntityType' });
 
 @ObjectType()
-@Entity('message_entity_references')
+@Entity('message_entity_references', { schema: 'messaging' })
 @Check(`"entityType" IN ('tank', 'batch', 'site', 'species', 'parameter')`)
 @Unique('uq_message_entity', ['messageId', 'entityType', 'entityId'])
 @Index('idx_entity_refs_entity', ['entityType', 'entityId'])

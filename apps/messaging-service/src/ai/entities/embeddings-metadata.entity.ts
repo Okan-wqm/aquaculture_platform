@@ -15,7 +15,7 @@ import {
 import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 
 @ObjectType()
-@Entity('embeddings_metadata')
+@Entity('embeddings_metadata', { schema: 'messaging' })
 @Unique('uq_active_model', ['modelName', 'isActive'])
 export class EmbeddingsMetadata {
   @Field(() => ID)

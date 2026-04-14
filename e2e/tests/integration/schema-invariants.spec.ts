@@ -76,6 +76,32 @@ const MOVED_TABLES: Array<[string, string]> = [
   ['employees', 'hr'],
 ];
 
+/**
+ * Messaging service tables — established in their messaging-schema home
+ * by the 2026-04-14 messaging-isolation plan (P7 entity decoration).
+ * Asserts each of the 17 messaging entities lives in `messaging` and
+ * NOT in `public`. Same assertion semantics as MOVED_TABLES.
+ */
+const MESSAGING_TABLES: Array<[string, string]> = [
+  ['channels', 'messaging'],
+  ['channel_members', 'messaging'],
+  ['messages', 'messaging'],
+  ['message_attachments', 'messaging'],
+  ['message_receipts', 'messaging'],
+  ['message_reactions', 'messaging'],
+  ['pinned_messages', 'messaging'],
+  ['messaging_outbox', 'messaging'],
+  ['retention_policies', 'messaging'],
+  ['legal_holds', 'messaging'],
+  ['compliance_audit_log', 'messaging'],
+  ['message_analysis', 'messaging'],
+  ['message_entity_references', 'messaging'],
+  ['knowledge_entries', 'messaging'],
+  ['embeddings_metadata', 'messaging'],
+  ['tenant_ai_settings', 'messaging'],
+  ['user_ai_consents', 'messaging'],
+];
+
 describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
   const db = new TestDatabase();
 
@@ -166,6 +192,46 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
           `Table "${tableName}" expected in schema "${expectedSchema}" but ` +
             `found only in: ${locations.join(', ')}. ` +
             `Update MOVED_TABLES if the canonical home changed.`,
+        );
+      }
+    },
+  );
+
+  it.each(MESSAGING_TABLES)(
+    'messaging-service table %s lives in %s schema (not public, not tenant_*)',
+    async (tableName, expectedSchema) => {
+      // Look only in non-tenant schemas — tenant_<uuid>.<table> clones are
+      // a separate concern (managed by TenantSchemaSyncService) and may
+      // legitimately exist alongside the source table.
+      const result = await db.query<{ schemaname: string }>(
+        `SELECT schemaname FROM pg_tables
+         WHERE tablename = $1
+           AND schemaname NOT LIKE 'tenant\\_%' ESCAPE '\\'
+         ORDER BY schemaname`,
+        [tableName],
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error(
+          `Messaging table "${tableName}" not found in any non-tenant schema. ` +
+            `The 1782300000000-AddTenantIdToMessageChildren or the original ` +
+            `1711800000000-CreateMessagingTables migration may have failed to ` +
+            `apply, or the table was dropped without updating MESSAGING_TABLES.`,
+        );
+      }
+
+      const locations = result.rows.map((r) => r.schemaname);
+      if (locations.includes('public')) {
+        throw new Error(
+          `Messaging table "${tableName}" leaked into public schema. ` +
+            `Verify the @Entity decorator declares { schema: 'messaging' } — ` +
+            `ADR-011 mandates explicit schema decoration on every entity.`,
+        );
+      }
+      if (!locations.includes(expectedSchema)) {
+        throw new Error(
+          `Messaging table "${tableName}" expected in "${expectedSchema}" but ` +
+            `found only in: ${locations.join(', ')}.`,
         );
       }
     },

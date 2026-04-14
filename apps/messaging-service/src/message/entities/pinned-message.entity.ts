@@ -22,10 +22,19 @@ import { Message } from './message.entity';
 @Entity('pinned_messages')
 @Unique('uq_pin_channel_message', ['channelId', 'messageId'])
 @Index('idx_pins_channel', ['channelId', 'pinnedAt'])
+@Index('idx_pins_tenant', ['tenantId'])
 export class PinnedMessage {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier — backfilled from parent channel in migration
+   * 1782300000000-AddTenantIdToMessageChildren. Required for
+   * tenant_isolation_policy RLS predicate (ADR-011).
+   */
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Field()
   @Column({ type: 'uuid' })

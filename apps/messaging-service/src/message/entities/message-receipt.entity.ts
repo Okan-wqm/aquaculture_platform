@@ -26,9 +26,18 @@ registerEnumType(ReceiptStatus, { name: 'ReceiptStatus' });
 @Check(`"status" IN ('delivered', 'read')`)
 @Index('idx_receipts_user_status', ['userId', 'status'])
 @Index('idx_receipts_message', ['messageId'])
+@Index('idx_receipts_tenant', ['tenantId'])
 export class MessageReceipt {
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
   id: string;
+
+  /**
+   * Tenant identifier — backfilled from parent message in migration
+   * 1782300000000-AddTenantIdToMessageChildren. Required for
+   * tenant_isolation_policy RLS predicate (ADR-011).
+   */
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Column({ type: 'uuid' })
   messageId: string;

@@ -38,10 +38,19 @@ registerEnumType(DomainEntityType, { name: 'DomainEntityType' });
 @Unique('uq_message_entity', ['messageId', 'entityType', 'entityId'])
 @Index('idx_entity_refs_entity', ['entityType', 'entityId'])
 @Index('idx_entity_refs_message', ['messageId'])
+@Index('idx_entity_refs_tenant', ['tenantId'])
 export class MessageEntityReference {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier — backfilled from parent message in migration
+   * 1782300000000-AddTenantIdToMessageChildren. Required for
+   * tenant_isolation_policy RLS predicate (ADR-011).
+   */
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Field()
   @Column({ type: 'uuid' })

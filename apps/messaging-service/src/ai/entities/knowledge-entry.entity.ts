@@ -43,10 +43,21 @@ export interface KnowledgeEntityRef {
 @ObjectType()
 @Entity('knowledge_entries')
 @Index('idx_knowledge_category', ['category', 'createdAt'])
+@Index('idx_knowledge_tenant', ['tenantId'])
 export class KnowledgeEntry {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier — backfilled from sourceMessageId → messages.tenantId
+   * in migration 1782300000000-AddTenantIdToMessageChildren. Rows that
+   * were orphaned (sourceMessageId NULL after FK ON DELETE SET NULL)
+   * are deleted by that migration; surviving rows always have a tenant.
+   * Required for tenant_isolation_policy RLS predicate (ADR-011).
+   */
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })

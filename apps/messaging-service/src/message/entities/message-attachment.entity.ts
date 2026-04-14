@@ -20,10 +20,19 @@ import { Message } from './message.entity';
 @ObjectType()
 @Entity('message_attachments')
 @Index('idx_attachments_message', ['messageId'])
+@Index('idx_attachments_tenant', ['tenantId'])
 export class MessageAttachment {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier — backfilled from parent message in
+   * migration 1782300000000-AddTenantIdToMessageChildren. Required
+   * for the tenant_isolation_policy RLS predicate (ADR-011).
+   */
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Column({ type: 'uuid' })
   messageId: string;

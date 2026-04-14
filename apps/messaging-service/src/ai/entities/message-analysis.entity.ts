@@ -61,10 +61,19 @@ export interface TopicResult {
 @Check(`"analysisType" IN ('sentiment', 'entity', 'topic')`)
 @Index('idx_analysis_message', ['messageId'])
 @Index('idx_analysis_type', ['analysisType', 'analyzedAt'])
+@Index('idx_analysis_tenant', ['tenantId'])
 export class MessageAnalysis {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier — backfilled from parent message in migration
+   * 1782300000000-AddTenantIdToMessageChildren. Required for
+   * tenant_isolation_policy RLS predicate (ADR-011).
+   */
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Field()
   @Column({ type: 'uuid' })

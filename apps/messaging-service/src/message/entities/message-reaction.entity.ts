@@ -21,10 +21,19 @@ import { Message } from './message.entity';
 @Entity('message_reactions')
 @Unique('uq_reaction_message_user_emoji', ['messageId', 'userId', 'emoji'])
 @Index('idx_reactions_message', ['messageId'])
+@Index('idx_reactions_tenant', ['tenantId'])
 export class MessageReaction {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * Tenant identifier — backfilled from parent message in migration
+   * 1782300000000-AddTenantIdToMessageChildren. Required for
+   * tenant_isolation_policy RLS predicate (ADR-011).
+   */
+  @Column({ type: 'uuid' })
+  tenantId: string;
 
   @Column({ type: 'uuid' })
   messageId: string;

@@ -143,6 +143,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   CREATE SCHEMA IF NOT EXISTS hydroponics AUTHORIZATION hydroponics_service;
   CREATE SCHEMA IF NOT EXISTS ai AUTHORIZATION ai_service;
   CREATE SCHEMA IF NOT EXISTS messaging AUTHORIZATION messaging_service;
+  CREATE SCHEMA IF NOT EXISTS notification AUTHORIZATION notification_service;
 
   -- Idempotent ownership fix: if schemas already existed, AUTHORIZATION was
   -- skipped by IF NOT EXISTS. ALTER OWNER TO ensures correct ownership.
@@ -157,6 +158,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER SCHEMA hydroponics OWNER TO hydroponics_service;
   ALTER SCHEMA ai OWNER TO ai_service;
   ALTER SCHEMA messaging OWNER TO messaging_service;
+  ALTER SCHEMA notification OWNER TO notification_service;
 
   -- Grant the shared application user access to all schemas (backward compat)
   GRANT USAGE ON SCHEMA auth TO ${POSTGRES_USER};
@@ -170,6 +172,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT USAGE ON SCHEMA hydroponics TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA ai TO ${POSTGRES_USER};
   GRANT USAGE ON SCHEMA messaging TO ${POSTGRES_USER};
+  GRANT USAGE ON SCHEMA notification TO ${POSTGRES_USER};
 
   -- Grant all privileges on tables in each schema
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO ${POSTGRES_USER};
@@ -183,6 +186,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA hydroponics TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ai TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA messaging TO ${POSTGRES_USER};
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA notification TO ${POSTGRES_USER};
 
   -- Grant sequence privileges (needed for auto-increment)
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO ${POSTGRES_USER};
@@ -196,6 +200,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA hydroponics TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ai TO ${POSTGRES_USER};
   GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA messaging TO ${POSTGRES_USER};
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA notification TO ${POSTGRES_USER};
 
   -- Set default privileges for future tables
   ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO ${POSTGRES_USER};
@@ -209,6 +214,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA hydroponics GRANT ALL ON TABLES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON TABLES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON TABLES TO ${POSTGRES_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA notification GRANT ALL ON TABLES TO ${POSTGRES_USER};
 
   ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
@@ -221,6 +227,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA hydroponics GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA ai GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA messaging GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
+  ALTER DEFAULT PRIVILEGES IN SCHEMA notification GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
 
   -- ========================================================================
   -- Cross-schema read access for analytics
@@ -295,7 +302,15 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON TABLES TO gateway_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA gateway GRANT ALL ON SEQUENCES TO gateway_service;
 
-  -- notification_service needs access to public schema for shared tables
+  -- notification_service owns its own schema (device_tokens, notification_logs
+  -- land here after Phase 6/7 moves). Public grants retained for the four
+  -- cross-service shared tables (audit_logs, gdpr_data_requests, user_consents,
+  -- user_permissions) until Phase 9 moves them to the `shared` schema.
+  GRANT USAGE ON SCHEMA notification TO notification_service;
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA notification TO notification_service;
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA notification TO notification_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA notification GRANT ALL ON TABLES TO notification_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA notification GRANT ALL ON SEQUENCES TO notification_service;
   GRANT USAGE ON SCHEMA public TO notification_service;
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO notification_service;
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO notification_service;

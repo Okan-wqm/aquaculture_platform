@@ -405,6 +405,20 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'user_role_assignments',
     ],
   },
+  {
+    // notification-service is global-schema (no per-tenant copies). These
+    // tables live in the `notification` schema after Phase 6/7 moves them
+    // out of `public`. Listed here so that when notification-service starts
+    // wiring SourceSchemaBootstrap (P2 migration runner work), orphan-drop
+    // and table-presence checks have a declarative truth source.
+    moduleName: 'notification',
+    sourceSchema: 'notification',
+    referenceDataTables: [],
+    tables: [
+      'device_tokens',
+      'notification_logs',
+    ],
+  },
 ];
 
 /**

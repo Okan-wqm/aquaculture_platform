@@ -1,0 +1,68 @@
+{{/*
+=============================================================================
+Aquaculture Platform - Internal cert-manager Issuer (SECURITY MEDIUM-002)
+=============================================================================
+Automates the internal PKI lifecycle that was previously managed by
+infrastructure/docker/scripts/generate-internal-certs.sh. The script still
+works for docker-compose environments; in Kubernetes, cert-manager handles
+issuance, renewal, and rotation without manual intervention.
+
+Two-stage bootstrap (RFC5280 §3.1 "root CA + issuing CA" shape):
+
+  1. SelfSigned issuer → issues the platform root CA (10-year lifetime).
+  2. CA issuer         → uses the root CA to sign leaf certificates for
+                         NATS, Redis, PostgreSQL, and the mTLS client.
+
+Disable the whole chain with `certManager.internal.enabled=false` in
+values.yaml — useful for clusters that do not run cert-manager.
+=============================================================================
+*/}}
+{{- if and .Values.certManager .Values.certManager.internal .Values.certManager.internal.enabled }}
+
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-selfsigned-bootstrap
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+
+---
+{{/* Root CA Certificate (self-signed via the bootstrap issuer above). */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-internal-ca
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: "Aquaculture Internal CA"
+  secretName: {{ include "aquaculture.fullname" . }}-internal-ca-secret
+  duration: {{ .Values.certManager.internal.caDuration | default "87600h" | quote }}
+  renewBefore: {{ .Values.certManager.internal.caRenewBefore | default "2160h" | quote }}
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  issuerRef:
+    name: {{ include "aquaculture.fullname" . }}-selfsigned-bootstrap
+    kind: Issuer
+    group: cert-manager.io
+
+---
+{{/* CA Issuer — signs every internal leaf certificate. */}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-internal-ca-issuer
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "aquaculture.fullname" . }}-internal-ca-secret
+
+{{- end }}

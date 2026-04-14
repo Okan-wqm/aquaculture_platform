@@ -394,6 +394,24 @@ networkPolicy:
   enabled: true
 
 # =============================================================================
+# cert-manager integration
+# =============================================================================
+# SECURITY (MEDIUM-002): automate internal PKI lifecycle via cert-manager.
+# Replaces the manual infrastructure/docker/scripts/generate-internal-certs.sh
+# flow with CRD-based issuance + renewal. Requires cert-manager installed in
+# the cluster. Defaults to disabled so clusters without cert-manager are not
+# forced to install it before this chart renders.
+certManager:
+  internal:
+    enabled: false
+    # Root CA duration: 10 years. Renew trigger: 3 months before expiry.
+    caDuration: "87600h"
+    caRenewBefore: "2160h"
+    # Leaf cert duration: 1 year. Renew trigger: 30 days before expiry.
+    leafDuration: "8760h"
+    leafRenewBefore: "720h"
+
+# =============================================================================
 # Secrets
 # =============================================================================
 # All credential fields are REQUIRED and have no default.

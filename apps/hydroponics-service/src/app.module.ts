@@ -171,14 +171,33 @@ const complexityCache = new Map<string, number>();
     }),
     // NOTE: CqrsModule intentionally omitted — no CQRS handlers are wired in this service yet.
     // Re-add CqrsModule.forRoot() once actual command/query handlers are implemented.
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
+    // hydroponics-service is a token CONSUMER, not an issuer. It verifies
+    // tokens using the RSA public key from auth-service. JWT_SECRET (HS256)
+    // was deprecated by commit 7c076361 (auth-service migrated to RS256);
+    // hydroponics-service was missed in that pass and stayed on the legacy
+    // shared-secret path until its config getOrThrow('JWT_SECRET') started
+    // crashing at boot when the env var was no longer provisioned.
+    //
+    // Migrated 2026-04-14 to mirror farm-service / sensor-service / hr /
+    // billing / alert / messaging / admin-api JWT verification pattern via
+    // the shared backend-common helper getJwtVerifyOptions.
     JwtModule.registerAsync({
       global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
+        const verifyOpts = getJwtVerifyOptions(configService);
+        return {
+          publicKey: verifyOpts.publicKey,
+          verifyOptions: {
+            algorithms: ['RS256'],
+            issuer: verifyOpts.issuer,
+            audience: verifyOpts.audience,
+          },
+        };
+      },
     }),
     // Rate limiting: applies sliding-window throttling to all GraphQL and REST endpoints.
     // Limits are configurable via THROTTLE_DEFAULT_LIMIT, THROTTLE_DEFAULT_TTL,

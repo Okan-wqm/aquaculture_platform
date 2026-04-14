@@ -25,7 +25,6 @@ import {
   RedisService,
   generateServiceIdentityHeaders,
   JWT_SECURITY_CONSTANTS,
-  RlsModule,
 } from '@aquaculture/backend-common';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
@@ -581,18 +580,28 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     }),
 
     /**
-     * SECURITY (HIGH-004, V6): RlsConnectionBootstrap for pool-level GUC
-     * propagation. gateway-api does not own tenant-scoped business tables,
-     * but its `gateway_service` DB role holds tenant-lookup / session /
-     * audit reads. Registering the module makes the GUC-propagation path
-     * uniform across every service with a pool — consistent deny-by-default
-     * behavior even on services that only read.
+     * REMOVED 2026-04-14 (architectural correction):
+     *
+     * RlsModule.forRoot was added in commit c48e2edb (V6) under the
+     * stated rationale "gateway-api ... holds tenant-lookup / session /
+     * audit reads". That rationale is FALSE — gateway-api has zero
+     * TypeORM/DataSource code (confirmed by grep). Apollo's
+     * RemoteGraphQLDataSource is a GraphQL data source abstraction,
+     * NOT a SQL connection pool.
+     *
+     * RlsConnectionBootstrap requires a TypeORM DataSource at index [0]
+     * to patch its checkout hook for GUC injection. Without a pool,
+     * NestJS DI fails at startup:
+     *
+     *   "Nest can't resolve dependencies of the
+     *    RlsConnectionBootstrapImpl (?). DataSource at index [0]..."
+     *
+     * The "uniform GUC contract" intent is achieved by every
+     * pool-owning service registering RlsModule (auth, farm, sensor,
+     * hr, billing, alert, hydroponics, messaging, notification, config,
+     * admin-api, ai). Pool-LESS services like gateway-api don't need
+     * GUC because they have no rows to filter.
      */
-    RlsModule.forRoot({
-      serviceName: 'gateway',
-      autoApply: false,
-      excludeTables: [],
-    }),
   ],
   providers: [
     // SECURITY: TenantLookupService is required for production tenant resolution.

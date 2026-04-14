@@ -745,23 +745,34 @@ jobs:
             git checkout -f ${{ github.sha }}
 
             # IP-1: Auto-generate/renew TLS certificates for NATS/Redis/PostgreSQL.
-            # Server certs expire after 365 days. This step regenerates them if:
-            #   - certs/ directory doesn't exist (first deploy)
-            #   - any cert expires within 30 days (proactive renewal)
-            echo "=== TLS certificate check ==="
+            #
+            # ARCHITECTURAL CHANGE 2026-04-14: ALWAYS run generate-internal-certs.sh.
+            #
+            # Previous gate "if redis cert valid > 30 days, skip generation" caused
+            # an outage: new per-service NATS client certs (commit 11c21fda added
+            # auth_service / farm_service / .../ messaging_service / hydroponics_service
+            # certs to the script's `for svc in ...` loop) were NEVER generated on
+            # droplets where redis cert was still valid — the gate skipped the
+            # whole script. Result: clients/<svc>-cert.pem files missing → mTLS
+            # handshake fails → 'Authorization Violation' across every backend.
+            #
+            # Tier-1 Make-Impossible fix: ALWAYS invoke the script. Its per-file
+            # skip-if-exists logic (line 45-46 of generate-internal-certs.sh)
+            # makes the no-op case ~100ms total. New per-service certs added in
+            # lockstep with services.yaml will land on next deploy automatically,
+            # without operator intervention. --force is reserved for proactive
+            # renewal of existing certs nearing expiry.
+            echo "=== TLS certificate generation (always-run; idempotent) ==="
             CERT_RENEW=false
-            if [ ! -f "certs/redis/redis-cert.pem" ]; then
-              echo "  Certificates missing — generating..."
-              CERT_RENEW=true
-            else
+            if [ -f "certs/redis/redis-cert.pem" ]; then
               EXPIRY=$(openssl x509 -enddate -noout -in certs/redis/redis-cert.pem 2>/dev/null | cut -d= -f2)
               if [ -n "$EXPIRY" ]; then
                 EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s 2>/dev/null || echo 0)
                 NOW_EPOCH=$(date +%s)
                 DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
-                echo "  Certificate expires in ${DAYS_LEFT} days"
+                echo "  Server certificate expires in ${DAYS_LEFT} days"
                 if [ "$DAYS_LEFT" -lt 30 ]; then
-                  echo "  Expiring soon — regenerating..."
+                  echo "  Expiring soon — proactive full regeneration"
                   CERT_RENEW=true
                 fi
               fi
@@ -769,8 +780,75 @@ jobs:
             if [ "$CERT_RENEW" = true ]; then
               bash infrastructure/docker/scripts/generate-internal-certs.sh --force
             else
-              echo "  Certificates valid — skipping generation"
+              # No --force: script generates ONLY missing certs; existing valid
+              # certs stay untouched. Catches "new service added since last
+              # deploy" → its client cert gets generated even if shared CA cert
+              # is still valid for 300+ days.
+              bash infrastructure/docker/scripts/generate-internal-certs.sh
             fi
+
+            # ──────────────────────────────────────────────────────────────
+            # ADR-016 Phase A — Pre-flight validation
+            # ──────────────────────────────────────────────────────────────
+            #
+            # All checks below MUST pass before we touch live production
+            # state. A bad commit caught here means zero-impact rollback
+            # (we never destroyed the running containers). A bad commit
+            # NOT caught here costs 5 minutes of timeout + log dive +
+            # health-check rollback.
+            #
+            # Tier-1 Make-Impossible: the compose interpolation, NATS
+            # SSoT drift, and required-secret presence are all detectable
+            # in <1s without touching containers. Failing fast here is
+            # always cheaper than failing during boot.
+            #
+            # Phase A2 — docker-compose interpolation valid
+            echo "=== Pre-flight: compose interpolation ==="
+            if ! docker compose -f docker-compose.droplet.yml config --quiet; then
+              echo "::error::docker-compose.droplet.yml interpolation failed."
+              echo "  Likely cause: missing :? required env var in /var/aqua-saas/.env"
+              echo "  Aborting BEFORE any container actions — no production state changed."
+              exit 1
+            fi
+            echo "  OK: compose interpolates cleanly"
+
+            # Phase A3 — NATS SSoT not drifted from generated nats.conf
+            echo "=== Pre-flight: NATS SSoT drift check ==="
+            if [ -f scripts/nats/generate-nats-conf.py ]; then
+              python3 scripts/nats/generate-nats-conf.py
+              if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
+                echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
+                echo "  Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
+                git diff infrastructure/docker/nats/nats.conf | head -50
+                exit 1
+              fi
+              echo "  OK: nats.conf matches services.yaml"
+            else
+              echo "  SKIP: generator script not present (commit predates ADR-015)"
+            fi
+
+            # Phase A4 — required secrets present in .env (don't generate, just check)
+            echo "=== Pre-flight: required secrets presence ==="
+            REQUIRED_SECRETS=(
+              POSTGRES_PASSWORD
+              REDIS_PASSWORD
+              INTERNAL_SERVICE_SECRET
+              PASSWORD_PEPPER
+            )
+            MISSING=()
+            for SECRET in "${REQUIRED_SECRETS[@]}"; do
+              if ! grep -q "^${SECRET}=" /var/aqua-saas/.env 2>/dev/null; then
+                MISSING+=("$SECRET")
+              fi
+            done
+            if [ ${#MISSING[@]} -gt 0 ]; then
+              echo "::error::Required secrets missing from /var/aqua-saas/.env: ${MISSING[*]}"
+              echo "  Aborting BEFORE container actions — set these and retry."
+              exit 1
+            fi
+            echo "  OK: ${#REQUIRED_SECRETS[@]} required secrets present"
+
+            # End of pre-flight ──────────────────────────────────────────
 
             # SEC-CI-001: GITHUB_TOKEN (packages:read) is substituted at template time by the
             # GitHub Actions runner and masked as *** in all logs. Short-lived, run-scoped only.

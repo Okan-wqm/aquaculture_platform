@@ -86,7 +86,7 @@ jobs:
           | kubeconform \
               -strict \
               -ignore-missing-schemas \
-              -kubernetes-version 1.29.0 \
+              -kubernetes-version 1.31.0 \
               -summary
 
   raw-manifests:
@@ -120,7 +120,7 @@ jobs:
               | xargs -0 --no-run-if-empty kubeconform \
                   -strict \
                   -ignore-missing-schemas \
-                  -kubernetes-version 1.29.0 \
+                  -kubernetes-version 1.31.0 \
                   -summary
           else
             echo "infrastructure/kubernetes/ not present — skipping"
@@ -137,7 +137,7 @@ jobs:
               | xargs -0 --no-run-if-empty kubeconform \
                   -strict \
                   -ignore-missing-schemas \
-                  -kubernetes-version 1.29.0 \
+                  -kubernetes-version 1.31.0 \
                   -summary
           else
             echo "infra/argocd/ not present — skipping"

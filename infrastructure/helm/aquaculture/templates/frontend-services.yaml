@@ -480,6 +480,10 @@ metadata:
     {{- include "aquaculture.labels" . | nindent 4 }}
 spec:
   minAvailable: 1
+  # K8s 1.27+: evict pods that are not-yet-Ready during node drains so a
+  # rolling restart in flight does not block a drain indefinitely.
+  # Frontends are stateless — AlwaysAllow is always the right choice here.
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app: shell
@@ -496,6 +500,7 @@ metadata:
     {{- include "aquaculture.labels" . | nindent 4 }}
 spec:
   minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app: dashboard
@@ -512,6 +517,7 @@ metadata:
     {{- include "aquaculture.labels" . | nindent 4 }}
 spec:
   minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app: farm-module
@@ -528,6 +534,7 @@ metadata:
     {{- include "aquaculture.labels" . | nindent 4 }}
 spec:
   minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app: process-editor
@@ -544,6 +551,7 @@ metadata:
     {{- include "aquaculture.labels" . | nindent 4 }}
 spec:
   minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app: admin-panel

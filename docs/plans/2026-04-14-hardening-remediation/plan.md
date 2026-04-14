@@ -41,7 +41,7 @@ CRITICAL: 1 | HIGH: 7 | MEDIUM: 5 | LOW: 1
 - [ ] 10-password-pepper-bcrypt — PASSWORD_PEPPER HMAC layer [MEDIUM] [security-sensitive]
 
 ### Phase 3 — Policy & tooling
-- [ ] 11-secret-leak-prevention — gitleaks pre-commit hook + CI scan [MEDIUM]
+- [x] 11-secret-leak-prevention — gitleaks pre-commit hook + CI scan [MEDIUM] (commit 3e576623)
 - [ ] 12-k8s-pod-security-standards — restricted PSS labels [MEDIUM]
 - [ ] 13-structured-json-logging — JSON formatter in bootstrap [LOW]
 

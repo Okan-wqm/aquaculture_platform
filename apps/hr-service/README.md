@@ -108,7 +108,7 @@ The service uses Command Query Responsibility Segregation:
 |----------|-------------|----------|
 | `DATABASE_URL` | PostgreSQL connection string | Yes |
 | `DATABASE_PASSWORD` | Database password (production) | Production |
-| `JWT_SECRET` | JWT signing secret | Yes |
+| `JWT_PUBLIC_KEY` | RSA public key (RS256) — inline PEM. See also `JWT_PUBLIC_KEY_FILE` for path-based load. | Yes |
 | `CORS_ORIGINS` | Allowed CORS origins | Production |
 | `NODE_ENV` | Environment (development/production) | Yes |
 

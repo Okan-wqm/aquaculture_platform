@@ -107,7 +107,7 @@ const canView = await userPermissionsService.hasPermission(
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `DATABASE_URL` | PostgreSQL connection string | Yes |
-| `JWT_SECRET` | JWT signing secret | Yes |
+| `JWT_PUBLIC_KEY` | RSA public key (RS256) — inline PEM. See also `JWT_PUBLIC_KEY_FILE` for path-based load. | Yes |
 | `SUPER_ADMIN_EMAIL` | Super admin email address | Yes |
 | `ENCRYPTION_KEY` | AES-256 encryption key (min 32 chars) | Yes |
 | `CORS_ORIGINS` | Allowed CORS origins | Production |

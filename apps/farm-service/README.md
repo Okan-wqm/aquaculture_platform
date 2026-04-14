@@ -96,7 +96,7 @@ REGULATORY_ENCRYPTION_KEY=optional-override
 | `DATABASE_URL` | PostgreSQL connection string | Yes |
 | `ENCRYPTION_KEY` | AES-256 encryption key (min 32 chars) | Yes |
 | `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | Production |
-| `JWT_SECRET` | JWT signing secret | Yes |
+| `JWT_PUBLIC_KEY` | RSA public key (RS256) — inline PEM. See also `JWT_PUBLIC_KEY_FILE` for path-based load. | Yes |
 | `SENTINEL_HUB_CLIENT_ID` | Sentinel Hub API client ID | No |
 | `SENTINEL_HUB_INSTANCE_ID` | Sentinel Hub instance ID | No |
 

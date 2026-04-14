@@ -348,6 +348,16 @@ jobs:
       - name: Required boot signals manifest (WS7)
         run: node scripts/ci/validate-signals-manifest.ts
 
+      # WS8 — required-secrets manifest ↔ `${VAR:?}` references in
+      # every tracked compose file. Both directions: compose cannot
+      # add a required var without a manifest entry; the manifest
+      # cannot collect stale entries nobody uses. Schema-level checks
+      # enforce that every `secret`-type entry declares a rotation
+      # cadence + runbook — secrets without a rotation story are
+      # forbidden by CLAUDE.md operational discipline.
+      - name: Required secrets manifest (WS8)
+        run: node scripts/ci/validate-secrets-manifest.ts
+
   # M-FE-03: npm audit on every PR — catches vulnerable dependencies before merge.
   # Only runs on PRs (not push to main) to avoid blocking deploys.
   security-audit:

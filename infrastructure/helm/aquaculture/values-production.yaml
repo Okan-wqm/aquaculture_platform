@@ -115,12 +115,20 @@ nats:
       replicas: 3
     jetstream:
       enabled: true
-      fileStorage:
+      # Upstream chart key names (nats-io/k8s chart 1.2.5, see
+      # infrastructure/helm/aquaculture/Chart.yaml:52-55):
+      #   fileStore.pvc.size      — NOT fileStorage.size
+      #   memoryStore.{enabled,maxSize} — NOT memStorage.{enabled,size}
+      # Helm silently drops unknown keys, so a typo here renders a NATS
+      # StatefulSet with the chart's defaults (fileStore.pvc.size 10Gi,
+      # memoryStore disabled). This block uses the keys the chart
+      # actually consumes.
+      fileStore:
+        pvc:
+          size: 10Gi
+      memoryStore:
         enabled: true
-        size: 10Gi
-      memStorage:
-        enabled: true
-        size: 512Mi
+        maxSize: 512Mi
 
 # Enable external secrets integration in production
 externalSecrets:

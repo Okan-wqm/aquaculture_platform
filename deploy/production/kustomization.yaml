@@ -9,7 +9,6 @@ namespace: aquaculture-prod
 resources:
   - ../base
   - hpa.yaml
-  - pdb.yaml
 
 commonLabels:
   environment: production

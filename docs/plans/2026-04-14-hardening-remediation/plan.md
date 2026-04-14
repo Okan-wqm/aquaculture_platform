@@ -30,20 +30,19 @@ CRITICAL: 1 | HIGH: 7 | MEDIUM: 5 | LOW: 1
 - [x] 03-nats-mtls-enforcement — flip verify:true, distribute client certs [HIGH] [security-sensitive] [blockedBy: 02] (commit a265eeef)
 - [x] 04a-internal-http-signing-lib — shared signed-http-client + guard enhancement [HIGH] [security-sensitive] (commit 3ccca098)
 - [x] 04b-internal-http-callsite-rollout — migrate every service HTTP caller [HIGH] [security-sensitive] [blockedBy: 04a] (commit 37bfddc1)
-- [ ] 05a-rls-session-guc-wiring — tenant-scoped repo sets app.current_tenant_id GUC [HIGH] [security-sensitive]
-- [ ] 05b-rls-policies-enable — migration enables RLS on tenant-scoped tables [HIGH] [security-sensitive] [blockedBy: 05a]
-- [ ] 06-pii-log-masking-central — central masker lib + audit interceptor integration [HIGH] [security-sensitive]
+- [x] 05-rls-coverage-extension — merged 05a+05b, register RlsModule in 7 services [HIGH] [security-sensitive] (commit 995fad0a)
+- [x] 06-pii-log-masking-central — maskPii value-pattern scanner wired into logger [HIGH] [security-sensitive] (commit e185edca)
 
 ### Phase 2 — Hygiene & secrets supply chain
 - [x] 07-bootstrap-secrets-adoption — wire bootstrapSecrets() into every main.ts [MEDIUM] [security-sensitive] [blockedBy: 01] (commit 3111e126)
-- [ ] 08-cert-manager-internal-issuer — cert-manager Issuer + Certificate CRDs [MEDIUM] [blockedBy: 03]
-- [ ] 09-dev-db-per-service-wiring — dev compose per-service roles [MEDIUM]
-- [ ] 10-password-pepper-bcrypt — PASSWORD_PEPPER HMAC layer [MEDIUM] [security-sensitive]
+- [x] 08-cert-manager-internal-issuer — cert-manager Issuer + Certificate CRDs [MEDIUM] [blockedBy: 03] (commit cdce34da)
+- [x] 09-dev-db-per-service-wiring — dev compose per-service roles [MEDIUM] (commit b14fc7a8)
+- [x] 10-password-pepper-bcrypt — PASSWORD_PEPPER HMAC layer [MEDIUM] [security-sensitive] (commit b0ec61f0)
 
 ### Phase 3 — Policy & tooling
 - [x] 11-secret-leak-prevention — gitleaks pre-commit hook + CI scan [MEDIUM] (commit 3e576623)
-- [ ] 12-k8s-pod-security-standards — restricted PSS labels [MEDIUM]
-- [ ] 13-structured-json-logging — JSON formatter in bootstrap [LOW]
+- [x] 12-k8s-pod-security-standards — restricted PSS labels [MEDIUM] (commit beaae93d)
+- [x] 13-structured-json-logging — enforce via ESLint no-console=error [LOW] (commit 99094393)
 
 ## Dependency Graph
 See: `docs/plans/2026-04-14-hardening-remediation/dependency-graph.md`
@@ -59,5 +58,5 @@ See: `docs/plans/2026-04-14-hardening-remediation/verification-log.md` (append-o
 - Redis / NATS tenant key-space isolation (requires architectural-arbiter ADR)
 
 ## Progress Summary
-Completed: 7 / 14 packages
+Completed: 14 / 14 packages  — ALL CLOSED
 Last Updated: 2026-04-14

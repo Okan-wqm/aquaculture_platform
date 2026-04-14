@@ -11,7 +11,23 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService } from '@aquaculture/backend-common';
+
+/**
+ * BillingMigrationRunnerService — runs pending TypeORM migrations in the
+ * billing schema at OnApplicationBootstrap. Closes the architectural gap
+ * documented in RlsSchemaBootstrap's docblock
+ * (libs/backend-common/src/database/rls/rls-schema-bootstrap.service.ts
+ * lines 14-27: *"a replacement migration system has not yet been added"*).
+ *
+ * billing-service previously had no migration runner — synchronize was
+ * removed in commit 5ce2b127 for production safety, leaving any column
+ * drift between entity and DB uncorrectable (see 2026-04-14 log audit
+ * G5: "column Plan.deleted_at does not exist" crash). Migrations now
+ * live in apps/billing-service/src/database/migrations/ and the runner
+ * enforces them on every cold start.
+ */
+const BillingMigrationRunnerService = createMigrationRunnerService('billing');
 import { EventBusModule } from '@platform/event-bus';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { BillingModule } from './billing/billing.module';
@@ -53,6 +69,15 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
         autoLoadEntities: true,
         synchronize: configService.get('NODE_ENV') !== 'production',
         logging: configService.get('NODE_ENV') === 'development',
+        // Migrations discovered at build time — compiled to dist/ alongside
+        // the rest of the service code. MigrationRunnerService executes
+        // pending migrations at OnApplicationBootstrap; migrationsRun:false
+        // here prevents TypeORM from auto-running them during DataSource
+        // init (which would bypass the search_path pinning + per-migration
+        // transaction isolation the runner provides).
+        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        migrationsRun: false,
+        migrationsTableName: 'migrations',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
           const sslEnabled = configService.get('DB_SSL') === 'true';
@@ -177,6 +202,15 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     AuditColumnsModule.forRoot({ serviceName: 'billing' }),
   ],
   providers: [
+    // Migration runner — runs pending TypeORM migrations on the billing
+    // schema at OnApplicationBootstrap. Declared first in the provider
+    // list so NestJS instantiates it early (NestJS does not guarantee
+    // OnApplicationBootstrap order beyond module dependency graph, but
+    // declaration order is a reliable tiebreaker for same-module
+    // providers). The runner itself uses search_path pinning and a
+    // dedicated QueryRunner — see createMigrationRunnerService for the
+    // full architectural rationale.
+    BillingMigrationRunnerService,
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
     // Must be FIRST guard (before auth/tenant/roles) to verify request origin
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

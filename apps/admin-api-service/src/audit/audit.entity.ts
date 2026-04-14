@@ -57,7 +57,30 @@ export enum AuditSeverity {
   CRITICAL = 'critical',
 }
 
-@Entity('audit_logs')
+/**
+ * admin-api-service's own audit log table — distinct from
+ * `shared.audit_logs` (cross-service trail) and `auth.audit_logs`
+ * (auth-service operational audit).
+ *
+ * # Why three audit tables
+ *
+ * Admin-api's audit captures cross-tenant SUPER_ADMIN actions: tenant
+ * impersonation start/stop, tenant suspension, plan changes, etc. These
+ * are written under `BypassRlsService.withBypass()` (admin-api wraps every
+ * request via AdminBypassRlsInterceptor) and need extended fields
+ * (`AuditAction` enum, `AuditSeverity`, structured details) that don't
+ * fit `shared.audit_logs`'s tighter schema.
+ *
+ * # Why explicit `schema: 'admin'`
+ *
+ * Same rationale as the auth-service AuditLog comment: without a schema
+ * decorator, TypeORM defaults to `public`. Combined with autoLoadEntities
+ * + transitive import of backend-common's AuditLogEntity (now in `shared`),
+ * three classes named `AuditLog` would have collided in TypeORM's metadata
+ * store with two of them defaulting to `public`. The schema-invariants CI
+ * test would fail. Closes CRITICAL-002 from the 2026-04-14 review.
+ */
+@Entity('audit_logs', { schema: 'admin' })
 @Index(['action'])
 @Index(['entityType', 'entityId'])
 @Index(['performedBy'])

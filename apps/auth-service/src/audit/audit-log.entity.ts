@@ -16,7 +16,32 @@ export enum AuditLogSeverity {
   CRITICAL = 'critical',
 }
 
-@Entity('audit_logs')
+/**
+ * auth-service's own audit log table — distinct from `shared.audit_logs`
+ * (cross-service trail in backend-common's AuditLogEntity).
+ *
+ * # Why two tables
+ *
+ * auth-service's audit needs include `entityType` / `entityId` / `previousValue`
+ * / `newValue` for fine-grained mutation history (login attempts, token
+ * issuance, MFA enrolment) — fields not present in the cross-service
+ * `shared.audit_logs` schema. Rather than fork backend-common's entity or
+ * inflate the shared table with auth-specific nullable columns, auth keeps
+ * its own table in its own schema.
+ *
+ * # Why explicit `schema: 'auth'`
+ *
+ * Without `schema:`, TypeORM defaults to `public`. Combined with
+ * autoLoadEntities + transitive import of backend-common's
+ * `AuditLogEntity('audit_logs', { schema: 'shared' })`, having both classes
+ * register under the bare table name `audit_logs` in different schemas was
+ * tolerated until 2026-04-14 P9: now the shared one is anchored in `shared`
+ * via decorator, but this one defaulted to `public`. CI invariant
+ * (e2e/tests/integration/schema-invariants.spec.ts) asserts public has zero
+ * application tables, so this entity needed an explicit schema declaration.
+ * Closes CRITICAL-002 from the 2026-04-14 review.
+ */
+@Entity('audit_logs', { schema: 'auth' })
 @Index('IDX_audit_tenant_created', ['tenantId', 'createdAt'])
 @Index('IDX_audit_performer_tenant', ['performedBy', 'tenantId'])
 @Index('IDX_audit_entity', ['entityType', 'entityId', 'tenantId'])

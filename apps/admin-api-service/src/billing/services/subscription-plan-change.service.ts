@@ -177,7 +177,7 @@ export class SubscriptionPlanChangeService {
       // Log the plan change
       await manager.query(
         `
-        INSERT INTO shared.audit_logs (
+        INSERT INTO admin.audit_logs (
           id, action, "entityType", "entityId", "tenantId",
           "performedBy", details, "createdAt"
         ) VALUES (

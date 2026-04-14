@@ -204,7 +204,7 @@ export class SubscriptionCoreService {
       // Log cancellation
       await manager.query(
         `
-        INSERT INTO shared.audit_logs (
+        INSERT INTO admin.audit_logs (
           id, action, "entityType", "entityId", "tenantId",
           "performedBy", details, "createdAt"
         ) VALUES (
@@ -531,7 +531,7 @@ export class SubscriptionCoreService {
       // Log creation in audit
       await manager.query(
         `
-        INSERT INTO shared.audit_logs (
+        INSERT INTO admin.audit_logs (
           id, action, "entityType", "entityId", "tenantId",
           "performedBy", details, "createdAt"
         ) VALUES (

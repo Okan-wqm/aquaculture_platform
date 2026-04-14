@@ -1,0 +1,34 @@
+{
+  "name": "db-migrate",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/db-migrate/src",
+  "projectType": "application",
+  "tags": [
+    "scope:backend",
+    "type:tooling"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [
+        "{workspaceRoot}/dist/apps/db-migrate"
+      ],
+      "defaultConfiguration": "production",
+      "options": {
+        "command": "bash tools/build/build-service.sh db-migrate"
+      },
+      "configurations": {
+        "development": {},
+        "production": {}
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": [
+          "apps/db-migrate/**/*.{ts,tsx}"
+        ]
+      }
+    }
+  }
+}

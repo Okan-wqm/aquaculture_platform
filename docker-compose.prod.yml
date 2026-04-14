@@ -110,6 +110,40 @@ services:
       retries: 5
 
   # ===========================================================================
+  # aqua-db-migrate: One-shot schema migration runner.
+  # WS10 / ADR-016 Phase E — Phase 1 (backward-compatible).
+  #
+  # Runs all pending schema migrations in deterministic order BEFORE any
+  # backend service container starts. Uses the same search_path pinning +
+  # per-migration transaction invariants as createMigrationRunnerService
+  # so its behavior is identical to per-service runners.
+  #
+  # Phase 1 is backward-compatible: per-service runners stay in place. If
+  # this container fails, services still boot via their own runners
+  # (idempotent — they observe "all migrations applied" and proceed).
+  # Phase 2 (TRACKED-DEPLOY-003) removes per-service runners after
+  # WS9 staging validation.
+  # ===========================================================================
+  db-migrate:
+    image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${TAG:-latest}
+    container_name: aqua-db-migrate
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DATABASE_MIGRATIONS_RUN: "true"
+      DATABASE_SSL: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aqua-internal
+
+  # ===========================================================================
   # Backend Services (from GHCR)
   # ===========================================================================
 
@@ -157,6 +191,9 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-network
       - aqua-internal
@@ -198,8 +235,13 @@ services:
       # SECURITY (HIGH-002): NATS mTLS certs for auth-service.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -234,8 +276,13 @@ services:
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -269,8 +316,13 @@ services:
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -304,8 +356,13 @@ services:
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -339,8 +396,13 @@ services:
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -376,9 +438,15 @@ services:
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
-      - nats
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -419,9 +487,15 @@ services:
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
-      - nats
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -464,8 +538,13 @@ services:
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
       - ./certs/nats:/etc/ssl/nats:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - aqua-internal
     healthcheck:
@@ -491,7 +570,11 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: aquaculture
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
     # Attached to aqua-internal only — no published ports, not reachable from aqua-network
     networks:
       - aqua-internal

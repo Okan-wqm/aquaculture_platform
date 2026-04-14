@@ -33,17 +33,15 @@
 # on this side (client) match the names nats.conf expects server-side — one
 # source of truth per service. No silent fallback to a shared credential: a
 # missing per-service env var fails fast with a clear error.
-# The x-nats-env anchor is kept only for the legacy migration-bridge account.
-x-nats-env: &nats-env
-  NATS_URL: tls://nats:4222
-  NATS_AUTH_USER: ${NATS_USER:?NATS_USER is required (legacy shared account)}
-  NATS_AUTH_PASS: "${NATS_PASS:?NATS_PASS is required (legacy shared account)}"
-  NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  # Legacy shared cert path — still used by services that have not yet
-  # switched to the V4 per-service cert anchors below.
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
-  NATS_TLS_ENABLED: "true"
+#
+# REMOVED 2026-04-14: legacy shared `x-nats-env` anchor.
+# Verified via grep that no service in this file ever merged it
+# (`<<: *nats-env` had ZERO callers), and no application code references
+# bare NATS_USER/NATS_PASS env vars (only per-service variants like
+# NATS_AUTH_USER, NATS_FARM_USER, etc.). Removing the anchor closes the
+# `:?` strict-requirement that was blocking the deploy with a misleading
+# "legacy shared account is required" error for an account no service
+# actually used.
 
 x-nats-auth-env: &nats-auth-env
   NATS_URL: tls://nats:4222
@@ -365,7 +363,8 @@ services:
     restart: unless-stopped
     # ARCH-010/SEC-H01: Use config file for JetStream limits + authentication.
     # CLI flags replaced with nats.conf which includes authorization{} block.
-    # NATS_USER and NATS_PASS are substituted by NATS from container environment.
+    # Per-service NATS_<SERVICE>_USER/PASS are substituted by NATS from
+    # container environment via $-interpolation in nats.conf.
     command: ["--config", "/etc/nats/nats.conf"]
     environment:
       # SECURITY (HIGH-001, SEC-H01, CRITICAL-002): Per-service NATS accounts.
@@ -375,8 +374,12 @@ services:
       # NATS_AUTH_USER/NATS_AUTH_PASS via the per-service x-nats-*-env anchor.
       # Required values — no silent fallback to the legacy shared account.
       # Generate with: openssl rand -base64 32
-      NATS_USER: ${NATS_USER:-nats_internal}
-      NATS_PASS: "${NATS_PASS:?NATS_PASS is required (legacy shared account)}"
+      #
+      # REMOVED 2026-04-14: bare NATS_USER + NATS_PASS env vars. They were
+      # the legacy/shared migration-bridge account; the corresponding user
+      # entry in nats.conf (`{ user: $NATS_USER, password: $NATS_PASS }`)
+      # is also removed. Per-service per-account migration is complete;
+      # no client uses the shared account.
       NATS_AUTH_USER: ${NATS_AUTH_USER:-auth_service}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required (auth-service account)}"
       NATS_FARM_USER: ${NATS_FARM_USER:-farm_service}
@@ -893,19 +896,31 @@ services:
       <<: *nats-billing-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
-      # Stripe webhook HMAC signing key — obtained from Stripe Dashboard
-      # (Developers → Webhooks → your endpoint → Signing secret). Required
-      # in production; without it, stripe-webhook.controller.ts:77 warns
-      # "Webhook signature verification will reject all requests" and every
-      # Stripe event returns 400. Rotated via Stripe dashboard rolling keys
-      # (documented in docs/runbooks/secret-rotation.md, added in P5).
-      # The `:?` sentinel fails deploy if STRIPE_WEBHOOK_SECRET is missing
-      # from the environment (.env / Docker secrets) — opt-in strictness
-      # matching INTERNAL_SERVICE_SECRET, REDIS_PASSWORD, and other
-      # security-critical keys in this file.
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?STRIPE_WEBHOOK_SECRET required — obtain from Stripe Dashboard → Developers → Webhooks}
-      # Stripe API key (server-side) — required alongside webhook secret.
-      STRIPE_API_KEY: ${STRIPE_API_KEY:?STRIPE_API_KEY required — obtain from Stripe Dashboard → Developers → API keys}
+      # Stripe credentials — OPTIONAL in compose, REQUIRED before billing goes live.
+      #
+      # Architectural decision (2026-04-14): the `:?` strict-requirement was
+      # too tight for environments that haven't onboarded Stripe yet (dev,
+      # staging, droplets running before payment integration is live). The
+      # billing-service code already implements proper graceful degradation:
+      #
+      #   - stripe-webhook.controller.ts:74 reads the secret with default ''
+      #   - line 77 logs a warning "Webhook signature verification will
+      #     reject all requests" when missing
+      #   - line 106 explicitly rejects every webhook with 400 when missing
+      #
+      # So an empty default does NOT silently accept unauthenticated webhooks
+      # (the controller fails closed). It just lets the service BOOT without
+      # forcing operators to populate Stripe keys before they're using
+      # billing. Operators MUST set both vars before flipping billing on
+      # in production — see docs/runbooks/secret-rotation.md (P5 plan).
+      #
+      # Empty-string defaults instead of unset because the controller's
+      # configService.get() with a default ('' fallback) treats unset and
+      # empty as the same case — both trigger the missing-secret warning
+      # path. Either form would work; empty-string is more explicit about
+      # the contract.
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

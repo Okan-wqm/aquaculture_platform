@@ -150,6 +150,17 @@ Hızlı düzeltmenin maliyeti sonsuza kadar ödenir; doğru düzeltmenin maliyet
 - TypeOrmModule config'inde `migrations: [...glob], migrationsRun: false` (runner çalıştırır, TypeORM değil)
 - Production'da `DATABASE_MIGRATIONS_RUN=false` YASAK (runner hard-fail eder)
 
+## NATS Authentication (ZORUNLU — ADR-014, ADR-015)
+
+- NATS kimliği SADECE mTLS client cert CN'inden gelir (`verify_and_map: true`). Kullanıcı adı/parola auth YASAK — server CONNECT-frame user/pass'i ignore eder
+- `infrastructure/nats/services.yaml` tek source of truth — yeni NATS servisi eklemek için: services.yaml + cert CN + `scripts/nats/generate-nats-conf.py` çalıştır (üçü aynı commit'te — CI invariant enforces)
+- `infrastructure/docker/nats/nats.conf` authorization{} users[] bloğu **GENERATED** — `# BEGIN GENERATED` / `# END GENERATED` sentinels arası el-edit YASAK (invariant test fails)
+- `nats.conf` authorization block'ta `password:` field YASAK (verify_and_map handles identity; passwords redundant drift vector)
+- `nats.conf` authorization block'ta `$NATS_*_USER` / `$NATS_*_PASS` substitution YASAK (literal user names only, matching cert CNs)
+- Client libraries (`libs/backend-common/src/nats/nats-connection.factory.ts`) mtls-cert mode'da user/pass/token alanları CONNECT frame'ine yazmaz — cert-only means cert ONLY
+- Operator how-to: `docs/runbooks/nats-service-addition.md`
+- CI invariant: `e2e/tests/integration/nats-invariants.spec.ts`
+
 ## Build & Test
 
 ```bash

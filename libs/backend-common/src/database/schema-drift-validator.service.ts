@@ -149,16 +149,17 @@ export function createSchemaDriftValidator(
            LIMIT 1`,
           [tableName, schema],
         );
-      if (tableRows.length === 0) {
+      const [firstRow] = tableRows;
+      if (!firstRow) {
         // Table doesn't exist in any non-tenant schema — NOT a drift from
         // this validator's perspective (could be a synchronize-yet-to-run
         // state, or a source table that's only replicated to tenant_*
         // schemas at provision time). Skip.
         return;
       }
-      if (tableRows[0].schemaname !== schema) {
+      if (firstRow.schemaname !== schema) {
         violations.push(
-          `[${tableName}] entity declares schema='${schema}' but table lives in '${tableRows[0].schemaname}'`,
+          `[${tableName}] entity declares schema='${schema}' but table lives in '${firstRow.schemaname}'`,
         );
         return;
       }

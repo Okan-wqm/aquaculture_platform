@@ -58,9 +58,9 @@ export const AreaChart: React.FC<AreaChartProps> = ({
 
   const gradientId = useMemo(() => `area-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  const { points, path, areaPath, yTicks, minValue, maxValue } = useMemo(() => {
+  const { points, path, areaPath, yTicks } = useMemo(() => {
     if (!data || data.length === 0) {
-      return { points: [], path: '', areaPath: '', yTicks: [], minValue: 0, maxValue: 0 };
+      return { points: [], path: '', areaPath: '', yTicks: [] };
     }
 
     const values = data.map((d) => d.value);
@@ -97,7 +97,7 @@ export const AreaChart: React.FC<AreaChartProps> = ({
       return { value: Math.round(value), y };
     });
 
-    return { points: pts, path: pathD, areaPath: areaD, yTicks: ticks, minValue: min, maxValue: max };
+    return { points: pts, path: pathD, areaPath: areaD, yTicks: ticks };
   }, [data, chartWidth, chartHeight, padding]);
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {

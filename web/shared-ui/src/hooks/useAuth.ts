@@ -122,7 +122,7 @@ export function useAuth(): UseAuthReturn {
 
   // İzin kontrolü - rol hiyerarşisine göre
   const hasPermission = useCallback(
-    (permission: string): boolean => {
+    (_permission: string): boolean => {
       if (!user) return false;
       // Basit izin kontrolü: SUPER_ADMIN her şeye erişebilir
       if (user.role === 'SUPER_ADMIN') return true;

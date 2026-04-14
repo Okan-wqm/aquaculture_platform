@@ -4,7 +4,7 @@
  * Birim (unit) gösterimi ve min/max desteği
  */
 
-import React, { forwardRef, InputHTMLAttributes, useId } from 'react';
+import { forwardRef, InputHTMLAttributes, useId } from 'react';
 import type { Size } from '../../types';
 
 // ============================================================================

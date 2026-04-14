@@ -178,7 +178,7 @@ function clearBrowserStorage(): void {
  * await logoutCleanup({ queryClient: mobileQueryClient });
  */
 export async function logoutCleanup(options: LogoutCleanupOptions = {}): Promise<void> {
-  const { queryClient, zustandResetFns, revokeServerToken } = options;
+  const { queryClient, zustandResetFns, revokeServerToken: _revokeServerToken } = options;
 
   // ── 1. Clear in-memory token state (api-client closure) ──
   clearSession();

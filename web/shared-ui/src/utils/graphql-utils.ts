@@ -66,11 +66,6 @@ export type QueryKeyFactory<T extends string> = {
 // ============================================================================
 
 /**
- * HTTP status codes that should not trigger retry
- */
-const NON_RETRYABLE_STATUS_CODES = [400, 401, 403, 404, 422];
-
-/**
  * GraphQL error codes that should not trigger retry
  */
 const NON_RETRYABLE_ERROR_CODES = [

@@ -3,7 +3,7 @@
  * Application side navigation — menu items, module access
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import type { NavigationItem, UserRole } from '../../types';
 
 // Alias for backward compatibility

@@ -58,13 +58,11 @@ export interface DataTableProps<T> {
   pageSizeOptions?: number[];
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (limit: number) => void;
-  serverSidePagination?: boolean;
 
   // Filtering
   filterable?: boolean;
   filters?: FilterConfig;
   onFilterChange?: (filters: FilterConfig) => void;
-  serverSideFilter?: boolean;
 
   // Search
   searchable?: boolean;
@@ -347,11 +345,9 @@ export function DataTable<T>({
   pageSizeOptions = [10, 25, 50, 100],
   onPageChange,
   onPageSizeChange,
-  serverSidePagination = false,
   filterable = false,
   filters = {},
   onFilterChange,
-  serverSideFilter = false,
   searchable = true,
   searchPlaceholder = 'Search...',
   searchValue = '',

@@ -4,7 +4,7 @@
  * Multi-tenant yapıda tenant izolasyonu sağlar
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useTenantContext } from '../contexts/TenantContext';
 import type { Tenant, TenantSettings, TenantLimits, TenantTier } from '../types';
 

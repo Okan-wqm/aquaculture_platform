@@ -4,7 +4,6 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { ChartTooltip } from './ChartTooltip';
 
 export interface BarDataset {
   label: string;
@@ -22,7 +21,6 @@ export interface BarChartProps {
   showTooltip?: boolean;
   showLegend?: boolean;
   showValues?: boolean;
-  horizontal?: boolean;
   stacked?: boolean;
   barRadius?: number;
   animate?: boolean;
@@ -51,7 +49,6 @@ export const BarChart: React.FC<BarChartProps> = ({
   showTooltip = true,
   showLegend = true,
   showValues = false,
-  horizontal = false,
   stacked = false,
   barRadius = 4,
   animate = true,
@@ -70,9 +67,9 @@ export const BarChart: React.FC<BarChartProps> = ({
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
-  const { bars, yTicks, maxValue } = useMemo(() => {
+  const { bars, yTicks } = useMemo(() => {
     if (!datasets || datasets.length === 0 || labels.length === 0) {
-      return { bars: [], yTicks: [], maxValue: 0 };
+      return { bars: [], yTicks: [] };
     }
 
     let max: number;

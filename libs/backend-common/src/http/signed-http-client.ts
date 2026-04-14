@@ -94,11 +94,11 @@ export function buildSignedInternalHeaders(args: {
     'X-Service-Timestamp': identityHeaders['X-Service-Timestamp'],
     'X-Service-Signature': identityHeaders['X-Service-Signature'],
   };
-  if (tenantId) {
+  if (args.tenantId) {
     // Only forward the tenant header when there is one — the signature was
     // computed against empty string otherwise, so sending an empty header
     // would be semantically wrong.
-    headers['X-Tenant-ID'] = tenantId;
+    headers['X-Tenant-ID'] = args.tenantId;
   }
   return headers;
 }

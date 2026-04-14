@@ -11,6 +11,8 @@ resources:
   - configmap.yaml
   - secrets.yaml
   - rbac.yaml
+  # INFRA-SECRETS-002: ClusterSecretStore binding ESO → AWS Secrets Manager
+  - cluster-secret-store.yaml
   # Backend services
   - gateway-api.yaml
   - auth-service.yaml

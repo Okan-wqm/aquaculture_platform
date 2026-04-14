@@ -1,6 +1,10 @@
 import { ObjectType, Field, ID, HideField, registerEnumType, Directive } from '@nestjs/graphql';
-import { Role } from '@aquaculture/backend-common';
-import * as bcrypt from 'bcryptjs';
+import {
+  Role,
+  hashPassword as hashPasswordWithPepper,
+  verifyPassword as verifyPasswordWithPepper,
+  PEPPERED_PREFIX_V1,
+} from '@aquaculture/backend-common';
 import {
   Entity,
   Column,
@@ -264,23 +268,48 @@ export class User {
   @BeforeInsert()
   @BeforeUpdate()
   async hashPassword(): Promise<void> {
-    // Only hash if password exists and is not already a bcrypt hash.
-    // SECURITY: Use proper bcrypt hash regex instead of startsWith('$2')
-    // to avoid false positives on passwords that happen to start with '$2'.
+    // SECURITY (HIGH-006): HMAC-peppered bcrypt via hashPasswordWithPepper.
+    // Already-hashed values are detected by the `p1:` prefix (new format) or
+    // the bcrypt `$2*$` prefix (legacy format) and left alone so subsequent
+    // @BeforeUpdate hooks do not double-hash.
+    if (!this.password) return;
     const bcryptHashPattern = /^\$2[aby]?\$\d{2}\$/;
-    if (this.password && !bcryptHashPattern.test(this.password)) {
-      const salt = await bcrypt.genSalt(12);
-      this.password = await bcrypt.hash(this.password, salt);
+    if (this.password.startsWith(PEPPERED_PREFIX_V1) || bcryptHashPattern.test(this.password)) {
+      return;
     }
+    this.password = await hashPasswordWithPepper(this.password);
   }
 
   // ============================================
   // Methods
   // ============================================
 
+  /**
+   * Verify a plaintext password against this entity's stored hash.
+   *
+   * SECURITY (HIGH-006): delegates to verifyPasswordWithPepper which routes
+   * between peppered (`p1:` prefix) and legacy bcrypt formats. The returned
+   * boolean is the match result; callers that need the lazy-migration hint
+   * should call the util directly and persist the re-hashed password when
+   * `shouldMigrate` is true.
+   */
   async validatePassword(password: string): Promise<boolean> {
     if (!this.password) return false;
-    return bcrypt.compare(password, this.password);
+    const result = await verifyPasswordWithPepper(password, this.password);
+    return result.matched;
+  }
+
+  /**
+   * Lower-level verification that exposes the lazy-migration signal. Use this
+   * from the login path so legacy bcrypt hashes transparently upgrade to
+   * peppered on successful login.
+   */
+  async verifyPasswordAndSignalMigration(password: string): Promise<{
+    matched: boolean;
+    shouldMigrate: boolean;
+  }> {
+    if (!this.password) return { matched: false, shouldMigrate: false };
+    return verifyPasswordWithPepper(password, this.password);
   }
 
   isLocked(): boolean {

@@ -29,6 +29,10 @@ export { readSecret, bootstrapSecrets } from './config/secrets.provider';
 export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verification.utils';
 export type { JwtVerifyConfig } from './auth/jwt-verification.utils';
 
+// Auth - Password hashing with HMAC pepper + legacy lazy-migration path.
+export { hashPassword, verifyPassword, PEPPERED_PREFIX_V1 } from './auth/password.util';
+export type { VerifyPasswordResult } from './auth/password.util';
+
 // Utils - PII masking for GDPR-compliant logging
 export { maskEmail, logSafeUserId, maskPhone, maskPii, maskPiiDeep } from './utils/pii-mask.util';
 

@@ -223,9 +223,12 @@ export class SeedService implements OnModuleInit {
 
     this.logger.log(`Creating SUPER_ADMIN user: ${superAdminEmail}`);
 
-    // Hash password manually (bypassing entity hook for clarity)
-    const salt = await bcrypt.genSalt(SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
-    const hashedPassword = await bcrypt.hash(superAdminPassword, salt);
+    // SECURITY (HIGH-006): use platform hashPassword (HMAC-peppered bcrypt).
+    // In production PASSWORD_PEPPER is required so the seeded super-admin hash
+    // includes the p1: prefix; in dev without a pepper the hash falls back to
+    // plain bcrypt (matching the previous seed behaviour).
+    const { hashPassword } = await import('@aquaculture/backend-common');
+    const hashedPassword = await hashPassword(superAdminPassword);
 
     const superAdmin = this.userRepository.create({
       email: superAdminEmail,

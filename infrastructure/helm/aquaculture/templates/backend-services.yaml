@@ -47,6 +47,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "aquaculture.fullname" . }}-secrets
                   key: jwtPrivateKey
+            # SECURITY (HIGH-006): password pepper for HMAC-layered bcrypt.
+            - name: PASSWORD_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aquaculture.fullname" . }}-secrets
+                  key: passwordPepper
             - name: JWT_EXPIRES_IN
               value: {{ .Values.authService.env.JWT_EXPIRES_IN | quote }}
             - name: REFRESH_TOKEN_EXPIRES_IN

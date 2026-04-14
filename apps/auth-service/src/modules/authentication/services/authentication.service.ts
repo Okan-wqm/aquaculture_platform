@@ -271,7 +271,14 @@ export class AuthenticationService {
       }
 
       // Validate password
-      const isPasswordValid = await user.validatePassword(input.password);
+      // SECURITY (HIGH-006): verifyPasswordAndSignalMigration returns a
+      // lazy-migration flag so legacy (unpeppered) hashes transparently
+      // upgrade to the HMAC-peppered format on successful login. We only
+      // re-hash AFTER all the other login-time checks (MFA, session cap)
+      // have cleared — see the block further down that persists the rehash.
+      const verifyResult = await user.verifyPasswordAndSignalMigration(input.password);
+      const isPasswordValid = verifyResult.matched;
+      const shouldMigratePasswordHash = verifyResult.shouldMigrate;
 
       if (!isPasswordValid) {
         // M-04: Use returned attempt count for accurate audit logging
@@ -332,7 +339,18 @@ export class AuthenticationService {
         };
       }
 
-      // No MFA — proceed with full login
+      // No MFA — proceed with full login.
+      //
+      // SECURITY (HIGH-006): lazy password-hash migration.
+      // If the stored hash was a legacy (unpeppered) bcrypt AND a pepper is
+      // now configured, re-hash the plaintext with the peppered format and
+      // persist. The @BeforeUpdate hook is skipped here because the entity
+      // already has a hashed password; instead we set the plaintext back
+      // onto the field before save() so the BeforeUpdate hook catches it.
+      if (shouldMigratePasswordHash) {
+        user.password = input.password;
+        this.logger.debug(`Migrating legacy password hash to peppered format: userId=${user.id}`);
+      }
       user.lastLoginAt = new Date();
       await this.userRepository.save(user);
 

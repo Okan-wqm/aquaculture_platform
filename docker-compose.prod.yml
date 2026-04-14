@@ -213,6 +213,9 @@ services:
       JWT_PRIVATE_KEY_PATH: /var/run/jwt/private.pem
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      # SECURITY (HIGH-006): server-side password pepper, kept out of the DB.
+      # Generate with: openssl rand -base64 48
+      PASSWORD_PEPPER: "${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}"
     volumes:
       - ./certs/jwt:/var/run/jwt:ro
       # SECURITY (HIGH-002): NATS mTLS certs for auth-service.

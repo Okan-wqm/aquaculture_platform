@@ -457,3 +457,94 @@ spec:
   selector:
     app: admin-panel
 {{- end }}
+
+{{/*
+=============================================================================
+Frontend PodDisruptionBudgets — INFRA-PDB-001
+-----------------------------------------------------------------------------
+Each block guards on `enabled AND replicaCount > 1` so single-replica
+deployments do not end up with a PDB that blocks node drains outright.
+minAvailable: 1 matches the backend-services pattern (see auth-service PDB
+at backend-services.yaml:85-96).
+=============================================================================
+*/}}
+
+{{- if and .Values.shell.enabled (gt (int .Values.shell.replicaCount) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-shell-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: shell
+{{- end }}
+
+{{- if and .Values.dashboard.enabled (gt (int .Values.dashboard.replicaCount) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-dashboard-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: dashboard
+{{- end }}
+
+{{- if and .Values.farmModule.enabled (gt (int .Values.farmModule.replicaCount) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-farm-module-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: farm-module
+{{- end }}
+
+{{- if and .Values.processEditor.enabled (gt (int .Values.processEditor.replicaCount) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-process-editor-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: process-editor
+{{- end }}
+
+{{- if and .Values.adminPanel.enabled (gt (int .Values.adminPanel.replicaCount) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aquaculture.fullname" . }}-admin-panel-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "aquaculture.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: admin-panel
+{{- end }}

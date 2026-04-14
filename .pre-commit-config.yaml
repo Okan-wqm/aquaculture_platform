@@ -1,0 +1,35 @@
+# Pre-commit configuration — aquaculture platform
+# https://pre-commit.com
+#
+# SECURITY (MEDIUM-005): gitleaks runs on every staged diff so accidental
+# secret commits are blocked BEFORE they reach the remote. The same rule
+# pack (.gitleaks.toml) runs in CI as a safety net.
+#
+# Install once per dev machine:
+#   pip install pre-commit
+#   pre-commit install
+#
+# The hook then runs automatically on `git commit`.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    # Pinned to a released tag for reproducible builds. Bump deliberately.
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: gitleaks (staged diff)
+        # --redact hides secret values in the console output so they don't end
+        # up in shell history if the developer shares the terminal paste.
+        args: ["protect", "--staged", "--redact", "--verbose"]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: '^(certs/|dist/|build/|.*\.snap$)'
+      - id: trailing-whitespace
+        exclude: '^(certs/|dist/|build/|.*\.snap$)'

@@ -1,0 +1,72 @@
+# Gitleaks configuration — aquaculture platform
+# https://github.com/gitleaks/gitleaks
+#
+# SECURITY (MEDIUM-005): enforce secret-leak prevention at pre-commit and CI.
+# Without this, accidental commits of .env files, PEM keys, tokens, or other
+# secrets would only be caught (if at all) by manual review.
+
+title = "aquaculture-gitleaks"
+
+[extend]
+# Inherit gitleaks' curated rule pack (AWS, GCP, Azure, Stripe, GitHub PATs,
+# Slack tokens, JWT, private keys, and ~100 other patterns). Our custom rules
+# below add platform-specific patterns.
+useDefault = true
+
+# ──────────────────────────────────────────────────────────────────────
+# Custom rules
+# ──────────────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "aquaculture-env-secret-assignment"
+description = "High-entropy assignment to a suspicious env var in a committed file"
+regex = '''(?i)(JWT_SECRET|INTERNAL_SERVICE_SECRET|ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SMTP_PASS|NATS_.*_PASS|SUPER_ADMIN_PASSWORD|REDIS_PASSWORD|POSTGRES_PASSWORD|ADMIN_SERVICE_DB_PASS|AUTH_SERVICE_DB_PASS)\s*[=:]\s*['\"]?([A-Za-z0-9+\/=_\-]{12,})['\"]?'''
+tags = ["secret", "env"]
+# Allow tombstoned / obvious placeholders — the CI failure noise from these
+# is worse than the risk of a real secret matching them.
+[rules.allowlist]
+regexes = [
+  '''(?i)(changeme|replace-?me|your-?secret|example|placeholder|<[a-z0-9_-]+>|dummy|fake|testonly|<[^>]+>|\$\{[^}]+\})''',
+]
+
+# ──────────────────────────────────────────────────────────────────────
+# Global allowlist
+# ──────────────────────────────────────────────────────────────────────
+
+[allowlist]
+description = "Paths and patterns that gitleaks should skip"
+paths = [
+  # Template and example files — these are documentation, not secrets.
+  '''\.env\.example$''',
+  '''\.env\.sample$''',
+  # Lockfiles and build artefacts
+  '''package-lock\.json$''',
+  '''yarn\.lock$''',
+  '''pnpm-lock\.yaml$''',
+  '''dist/''',
+  '''build/''',
+  '''\.nx/''',
+  '''node_modules/''',
+  # Generated cert directory (gitignored but kept out of scan as defense in depth)
+  '''^certs/''',
+  # Our own plan / review docs quote finding IDs verbatim and sometimes
+  # reference the relevant env var names.
+  '''^docs/plans/''',
+  '''^docs/reviews/''',
+  '''^docs/security/''',
+  '''^docs/audits/''',
+  # Test fixtures frequently contain deliberately insecure values.
+  '''__tests__/.*fixture''',
+  '''__mocks__/''',
+  '''\.spec\.ts$''',
+  '''\.test\.ts$''',
+]
+
+regexes = [
+  # Example / dummy placeholders that look like entropy but aren't.
+  '''(?i)(changeme|replace-?me|your-?secret|example|placeholder|<[a-z0-9_-]+>|dummy|fake|testonly|\$\{[^}]+\})''',
+  # Docker env-var default syntax: ${VAR:-default} / ${VAR:?required}
+  '''\$\{[A-Z_][A-Z0-9_]*:[:\-?][^}]*\}''',
+  # Pre-generated Ed25519 / ECDSA fingerprints in unit test fixtures
+  '''SHA256:[A-Za-z0-9+\/=]{32,}''',
+]

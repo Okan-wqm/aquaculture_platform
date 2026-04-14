@@ -225,7 +225,32 @@ export class AuditLogService {
   }
 
   /**
-   * Get security-related audit logs
+   * Get security-related audit logs.
+   *
+   * # Cross-tenant semantics
+   *
+   * When `tenantId` is supplied, the query is scoped to that tenant.
+   * When omitted, the call returns security events platform-wide across
+   * EVERY tenant. Cross-tenant read is intentional for SUPER_ADMIN
+   * platform-level security dashboards, and is safe here because:
+   *
+   *   1. Access is gated by `PlatformAdminGuard` at the global APP_GUARD
+   *      level (apps/admin-api-service/src/app.module.ts:254-263) — every
+   *      endpoint in admin-api-service requires SUPER_ADMIN role.
+   *
+   *   2. `AdminBypassRlsInterceptor` wraps every admin-api request in
+   *      `BypassRlsService.withBypass()`, which sets `app.bypass_rls = 'on'`
+   *      on the connection. RLS policy lets the query see cross-tenant
+   *      rows only under this explicit bypass — which is audit-logged
+   *      (WARN level, `RLS BYPASS GRANTED`) for compliance review.
+   *
+   *   3. The caller (audit.controller.ts) also writes a meta-audit entry
+   *      via `writeMetaAudit()` so there's a second trail recording
+   *      "admin X queried audit logs at time T with filter F".
+   *
+   * If a caller wants EXPLICIT platform-wide semantics to avoid the
+   * "tenantId accidentally undefined" footgun, pass `null` or `undefined`
+   * deliberately — the meta-audit entry records the absence.
    */
   async getSecurityLogs(
     tenantId?: string,
@@ -252,6 +277,14 @@ export class AuditLogService {
 
     if (tenantId) {
       queryBuilder.andWhere('audit.tenantId = :tenantId', { tenantId });
+    } else {
+      // Explicit platform-wide branch. No WHERE clause on tenantId is
+      // intentional — documented in the JSDoc above. The `1=1`-style
+      // implicit case has been replaced with this explicit branch so a
+      // reader cannot mistake it for a missing filter.
+      this.logger?.debug(
+        'getSecurityLogs called without tenantId — returning platform-wide results (SUPER_ADMIN context required; bypass audited by AdminBypassRlsInterceptor)',
+      );
     }
 
     return queryBuilder.getMany();
@@ -277,7 +310,16 @@ export class AuditLogService {
     const last24HoursDate = new Date();
     last24HoursDate.setHours(last24HoursDate.getHours() - 24);
 
-    // Build base where clause
+    // Build base where clause.
+    //
+    // `1=1` when tenantId is absent is an EXPLICIT platform-wide branch
+    // — see getSecurityLogs() JSDoc above for the cross-tenant
+    // authorisation model (PlatformAdminGuard + AdminBypassRlsInterceptor).
+    // The literal is used instead of an empty string because TypeORM's
+    // `andWhere('')` does not no-op cleanly — a truthy placeholder is
+    // needed so subsequent `andWhere(dateWhere)` chains compose.
+    // WHY: DO NOT remove this comment without updating the getSecurityLogs
+    // docblock too; they are co-load-bearing in review.
     const baseWhere = tenantId ? 'audit.tenantId = :tenantId' : '1=1';
     const baseParams = tenantId ? { tenantId } : {};
 

@@ -34,6 +34,38 @@ SPACES_ENDPOINT="${SPACES_ENDPOINT:-https://fra1.digitaloceanspaces.com}"
 : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY required}"
 : "${BACKUP_KEY:?BACKUP_KEY required (e.g., pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump)}"
 
+# -----------------------------------------------------------------------------
+# Tier-1 destructive-operation guards
+# -----------------------------------------------------------------------------
+# This script unconditionally DROPs TARGET_DB. A misconfigured environment
+# (TARGET_DB=aquaculture + TARGET_CONTAINER=aqua-postgres) would wipe
+# production in one step. The guards below refuse any combination that
+# could touch live data without an explicit consciously-typed override.
+
+# 1. Protected database names — refuse outright.
+_PROTECTED_DBS=(aquaculture postgres template0 template1)
+for _protected in "${_PROTECTED_DBS[@]}"; do
+  if [ "${TARGET_DB}" = "${_protected}" ]; then
+    echo "FATAL: refusing to DROP protected database '${TARGET_DB}'." >&2
+    echo "       Use a disposable drill DB name, e.g. aquaculture_restore_$(date -u +%s)." >&2
+    exit 4
+  fi
+done
+
+# 2. Live production container — refuse unless the operator consciously
+#    typed I_UNDERSTAND_DRILL_AGAINST_LIVE_CONTAINER=1. The drill runbook
+#    (docs/runbooks/database-restore-drill.md) brings up a SEPARATE
+#    aqua-postgres-drill container; touching aqua-postgres is outside the
+#    documented procedure.
+if [ "${TARGET_CONTAINER}" = "aqua-postgres" ] && \
+   [ -z "${I_UNDERSTAND_DRILL_AGAINST_LIVE_CONTAINER:-}" ]; then
+  echo "FATAL: refusing to restore into live container '${TARGET_CONTAINER}'." >&2
+  echo "       The drill runbook uses aqua-postgres-drill (separate container)." >&2
+  echo "       If you truly need to restore into the live container, set" >&2
+  echo "       I_UNDERSTAND_DRILL_AGAINST_LIVE_CONTAINER=1 after reading the runbook." >&2
+  exit 4
+fi
+
 if ! command -v aws >/dev/null 2>&1; then
   echo "ERROR: aws CLI not found on PATH." >&2
   exit 2

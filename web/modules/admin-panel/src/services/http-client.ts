@@ -1,9 +1,22 @@
 /**
  * HTTP Client with Error Handling & Retry Logic
  * Shared infrastructure for all domain API modules
+ *
+ * SECURITY:
+ *  - Waits for token lifecycle barrier before firing (prevents 401 race on page load)
+ *  - Retries once on 401 after a silent refresh (keeps user logged in across token expiry)
+ *  - Injects X-Tenant-Id from the shared auth store (prevents cross-tenant leak)
+ *  - Adds X-CSRF-Token header from the XSRF-TOKEN cookie on mutating methods
+ *  - Preserves the existing exponential backoff retry for 502/503/504 errors
  */
 
-import { getAccessToken } from '@aquaculture/shared-ui';
+import {
+  getAccessToken,
+  getTenantId,
+  tokenLifecycle,
+  silentRefresh,
+  clearSession,
+} from '@aquaculture/shared-ui';
 
 // API URL - Shell nginx uzerinden /api prefix'i ile admin-api-service'e yonlendirilir
 export const ADMIN_API_URL = import.meta.env.VITE_ADMIN_API_URL || '/api';
@@ -30,6 +43,14 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxDelay: 10000,
 };
 
+/** HTTP methods that mutate server state and therefore require CSRF protection. */
+const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set([
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+]);
+
 // ============================================================================
 // Internal Helpers
 // ============================================================================
@@ -45,7 +66,34 @@ const generateRequestId = (): string => {
   return crypto.randomUUID();
 };
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * SECURITY: Read the CSRF token from the non-httpOnly XSRF-TOKEN cookie.
+ * WHY: Double-submit cookie pattern — the server set this cookie and will
+ * reject mutating requests whose X-CSRF-Token header does not match.
+ * Safe methods (GET / HEAD / OPTIONS) are excluded per OWASP guidelines.
+ */
+const getCsrfTokenFromCookie = (): string | null => {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+};
+
+/** Construct a well-typed ApiError without resorting to `as any`. */
+const createApiError = (
+  message: string,
+  status?: number,
+  code?: string,
+  details?: Record<string, unknown>,
+): ApiError => {
+  const error = new Error(message) as ApiError;
+  if (status !== undefined) error.status = status;
+  if (code !== undefined) error.code = code;
+  if (details !== undefined) error.details = details;
+  return error;
+};
 
 // ============================================================================
 // Core API Fetch
@@ -54,29 +102,94 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function apiFetch<T>(
   endpoint: string,
   options?: RequestInit,
-  retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG
+  retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG,
 ): Promise<T> {
+  // SECURITY / LIFECYCLE BARRIER: wait for the silent refresh on page load to
+  // complete before firing. Without this barrier every REST call races the
+  // refresh and returns 401 until the access token lands in memory.
+  try {
+    await tokenLifecycle.waitForReady();
+  } catch {
+    // Barrier timed out or rejected. WHY: proceed only if a token is already
+    // available — otherwise fail fast with 401 instead of hitting the server
+    // with an unauthenticated request that will be rejected anyway.
+    if (!getAccessToken()) {
+      throw createApiError('Authentication required', 401);
+    }
+  }
+
+  const method = (options?.method ?? 'GET').toUpperCase();
   let lastError: ApiError | null = null;
+  let has401Retried = false;
 
   for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
     try {
+      // Build headers fresh on every attempt so we pick up the refreshed
+      // access token after a 401 → silentRefresh() retry.
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Request-ID': generateRequestId(),
+        ...getAuthHeader(),
+      };
+
+      // SECURITY: attach X-Tenant-Id so the gateway can enforce tenant isolation
+      // and the backend can scope queries. WHY: without this header the server
+      // falls back to the JWT claim which may be stale during tenant switches.
+      const tenantId = getTenantId();
+      if (tenantId) {
+        headers['X-Tenant-Id'] = tenantId;
+      }
+
+      // SECURITY: double-submit CSRF for mutating methods. Server-set XSRF-TOKEN
+      // cookie is echoed back in X-CSRF-Token; server rejects on mismatch.
+      if (CSRF_PROTECTED_METHODS.has(method)) {
+        const csrfToken = getCsrfTokenFromCookie();
+        if (csrfToken) {
+          headers['X-CSRF-Token'] = csrfToken;
+        }
+      }
+
+      // Caller-supplied headers win last so tests / special cases can override.
+      const mergedHeaders: HeadersInit = {
+        ...headers,
+        ...(options?.headers as Record<string, string> | undefined),
+      };
+
       const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {
         ...options,
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Request-ID': generateRequestId(),
-          ...getAuthHeader(),
-          ...options?.headers,
-        },
+        headers: mergedHeaders,
       });
+
+      // ── 401 Unauthorized: attempt silent refresh once, then retry ──
+      // SECURITY: retry exactly once per apiFetch() invocation to avoid a
+      // refresh loop if the refresh token is also expired.
+      if (response.status === 401 && !has401Retried) {
+        has401Retried = true;
+        try {
+          const refreshed = await silentRefresh();
+          if (refreshed) {
+            // Re-enter the loop on the same attempt counter so the 401 retry
+            // does not consume one of the 5xx retry budgets.
+            attempt--;
+            continue;
+          }
+        } catch {
+          // fall through to session-expired path
+        }
+        // Refresh failed — session is irrecoverable.
+        clearSession();
+        throw createApiError('Session expired', 401);
+      }
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => ({ message: 'API Error' }));
-        const error: ApiError = new Error(errorBody.message || `HTTP ${response.status}`);
-        error.status = response.status;
-        error.code = errorBody.code;
-        error.details = errorBody.details;
+        const error = createApiError(
+          errorBody.message || `HTTP ${response.status}`,
+          response.status,
+          errorBody.code,
+          errorBody.details,
+        );
 
         // Don't retry client errors (4xx) -- they indicate invalid
         // requests that will fail identically on every attempt.
@@ -97,7 +210,7 @@ export async function apiFetch<T>(
         if (attempt < retryConfig.maxRetries) {
           const delay = Math.min(
             retryConfig.baseDelay * Math.pow(2, attempt),
-            retryConfig.maxDelay
+            retryConfig.maxDelay,
           );
           await sleep(delay);
           continue;
@@ -130,7 +243,7 @@ export async function apiFetch<T>(
         if (attempt < retryConfig.maxRetries) {
           const delay = Math.min(
             retryConfig.baseDelay * Math.pow(2, attempt),
-            retryConfig.maxDelay
+            retryConfig.maxDelay,
           );
           await sleep(delay);
           continue;

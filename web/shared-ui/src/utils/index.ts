@@ -26,6 +26,7 @@ export {
   setTenantId,
   getTenantId,
   onTenantChange,
+  silentRefresh,
   GraphQLClientError,
   RestClientError,
 } from './api-client';

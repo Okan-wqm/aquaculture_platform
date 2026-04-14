@@ -332,9 +332,15 @@ jobs:
       # only add redundant CI cost.
       - name: Compose interpolation pre-flight (droplet + prod)
         run: |
-          python3 scripts/ci/preflight-validate.py \
+          node scripts/ci/preflight-validate.ts \
             docker-compose.droplet.yml \
             docker-compose.prod.yml
+
+      # WS6 — service-criticality manifest ↔ compose services SSoT check.
+      # Asserts every service declared in compose has a criticality
+      # entry and vice versa. Drift is caught at PR merge, not deploy.
+      - name: Service criticality manifest coverage (WS6)
+        run: node scripts/ci/validate-criticality-manifest.ts
 
   # M-FE-03: npm audit on every PR — catches vulnerable dependencies before merge.
   # Only runs on PRs (not push to main) to avoid blocking deploys.

@@ -1,0 +1,253 @@
+#!/usr/bin/env node
+/**
+ * WS6 / ADR-016 Phase C — criticality-aware deploy health gate.
+ *
+ * Reads `infrastructure/deploy/service-criticality.yaml` and polls
+ * every listed container for docker-inspect health state. Fails the
+ * deploy according to the criticality level declared in the manifest.
+ *
+ * Replaces the legacy "poll only gateway-api /health/live" check that
+ * silently passed when other backends crash-looped (the 2026-04-14
+ * cascade failure mode).
+ *
+ * Runs on the droplet via SSH — Node.js is already required there
+ * because the service images are Node-based. Node 22's built-in
+ * type-stripping lets us ship a .ts file without a transpile step.
+ *
+ * Environment:
+ *   COMPOSE_FILE   compose file path (default: docker-compose.droplet.yml)
+ *   MANIFEST       override manifest path
+ *   POLL_INTERVAL  seconds between polling rounds (default: 10)
+ *
+ * Exit codes:
+ *   0  every `critical` / `required` service is healthy
+ *   1  at least one `critical` or `required` service failed
+ *   2  invocation error
+ */
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import yaml from 'js-yaml';
+
+const COMPOSE_FILE =
+  process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
+const MANIFEST_PATH =
+  process.env['MANIFEST'] ??
+  'infrastructure/deploy/service-criticality.yaml';
+const POLL_INTERVAL = Number.parseInt(
+  process.env['POLL_INTERVAL'] ?? '10',
+  10,
+);
+
+type CriticalityLevel = 'critical' | 'required' | 'warning' | 'ignored';
+
+interface ManifestEntry {
+  name: string;
+  level: CriticalityLevel;
+  reason?: string;
+}
+
+interface Manifest {
+  schema_version?: number;
+  defaults?: { readiness_sla_seconds?: number };
+  services?: ManifestEntry[];
+}
+
+interface ContainerState {
+  service: string;
+  container: string;
+  health: string; // "healthy" / "unhealthy" / "starting" / ""
+  state: string;  // "running" / "exited" / ...
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function loadManifest(path: string): { services: ManifestEntry[]; sla: number } {
+  if (!existsSync(path)) {
+    console.error(`::error::manifest not found at ${path}`);
+    process.exit(2);
+  }
+  const data = yaml.load(readFileSync(path, 'utf8')) as Manifest | null;
+  const defaults = data?.defaults ?? {};
+  const sla = Number.parseInt(
+    String(defaults.readiness_sla_seconds ?? 300),
+    10,
+  );
+  const services = Array.isArray(data?.services) ? data!.services! : [];
+  return { services, sla };
+}
+
+function composeServices(composeFile: string): string[] {
+  const out = execFileSync(
+    'docker',
+    ['compose', '-f', composeFile, 'config', '--services'],
+    { encoding: 'utf8' },
+  );
+  return out
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .sort();
+}
+
+/**
+ * Collect `{ service, container, health, state }` for every container
+ * reported by `docker compose ps --format json`. Both compose v2.21+
+ * (NDJSON) and v2.29+ (JSON array) shapes are handled.
+ */
+function currentStates(composeFile: string): Map<string, ContainerState> {
+  const result = spawnSync(
+    'docker',
+    ['compose', '-f', composeFile, 'ps', '--format', 'json'],
+    { encoding: 'utf8' },
+  );
+  if (result.status !== 0) return new Map();
+  const raw = (result.stdout ?? '').trim();
+  if (!raw) return new Map();
+
+  let objects: Array<Record<string, unknown>>;
+  if (raw.startsWith('[')) {
+    objects = JSON.parse(raw) as Array<Record<string, unknown>>;
+  } else {
+    objects = raw
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  const states = new Map<string, ContainerState>();
+  for (const obj of objects) {
+    const svc = obj['Service'];
+    if (typeof svc !== 'string' || !svc) continue;
+    states.set(svc, {
+      service: svc,
+      container: String(obj['Name'] ?? ''),
+      health: String(obj['Health'] ?? '').toLowerCase(),
+      state: String(obj['State'] ?? '').toLowerCase(),
+    });
+  }
+  return states;
+}
+
+/**
+ * A container is "satisfied" for its criticality level when either:
+ *   - its health is `healthy`, OR
+ *   - it has no healthcheck declared (`health === ""`) and its docker
+ *     state is `running` — some compose entries intentionally omit a
+ *     healthcheck (nginx frontends, etc) and must still gate on simple
+ *     liveness.
+ *
+ * `ignored` entries always count as satisfied.
+ */
+function isSatisfied(
+  entry: ManifestEntry,
+  state: ContainerState | undefined,
+): boolean {
+  if (entry.level === 'ignored') return true;
+  if (!state) return false;
+  if (state.health === 'healthy') return true;
+  if (state.health === '' && state.state === 'running') return true;
+  return false;
+}
+
+function report(
+  manifest: ManifestEntry[],
+  states: Map<string, ContainerState>,
+  slaSeconds: number,
+): number {
+  console.log('=== Final state ===');
+  let failCritical = 0;
+  let failRequired = 0;
+  let warnings = 0;
+
+  for (const entry of manifest) {
+    if (entry.level === 'ignored') continue;
+    const state = states.get(entry.name);
+    const detail = state
+      ? `container=${state.container} health=${state.health || 'n/a'} state=${state.state}`
+      : 'container not found';
+    console.log(`  [${entry.level.padEnd(8)}] ${entry.name} — ${detail}`);
+
+    const ok = isSatisfied(entry, state);
+    if (entry.level === 'critical' && !ok) failCritical += 1;
+    else if (entry.level === 'required' && !ok) failRequired += 1;
+    else if (entry.level === 'warning' && !ok) warnings += 1;
+  }
+
+  if (failCritical > 0) {
+    console.error(
+      `::error::${failCritical} critical service(s) failed to reach ` +
+        `healthy within ${slaSeconds}s SLA. Rollback required.`,
+    );
+    return 1;
+  }
+  if (failRequired > 0) {
+    console.error(
+      `::error::${failRequired} required service(s) failed. Operator ` +
+        'investigation required before declaring success.',
+    );
+    return 1;
+  }
+  if (warnings > 0) {
+    console.warn(
+      `::warning::${warnings} non-critical service(s) are not healthy ` +
+        '— deploy proceeding but follow up.',
+    );
+  }
+  console.log('=== Service health check passed ===');
+  return 0;
+}
+
+async function main(): Promise<void> {
+  const { services: manifest, sla } = loadManifest(MANIFEST_PATH);
+
+  // Coverage check: every manifest entry must name a real compose
+  // service. Prevents manifest drift referencing renamed / deleted
+  // services.
+  const composeSvcs = composeServices(COMPOSE_FILE);
+  const missing = manifest
+    .map((e) => e.name)
+    .filter((n) => !composeSvcs.includes(n));
+  if (missing.length > 0) {
+    console.error(
+      `::error::manifest references services not in ${COMPOSE_FILE}:`,
+    );
+    for (const name of missing) console.error(`  - ${name}`);
+    process.exit(2);
+  }
+
+  const maxRounds = Math.max(1, Math.floor(sla / POLL_INTERVAL));
+  console.log('=== Service health check ===');
+  console.log(`  manifest: ${MANIFEST_PATH}`);
+  console.log(`  compose : ${COMPOSE_FILE}`);
+  console.log(`  SLA     : ${sla}s (${maxRounds} rounds × ${POLL_INTERVAL}s)`);
+
+  let states: Map<string, ContainerState> = new Map();
+  for (let round = 1; round <= maxRounds; round += 1) {
+    console.log(`--- Round ${round}/${maxRounds} ---`);
+    states = currentStates(COMPOSE_FILE);
+
+    const criticalOk = manifest
+      .filter((e) => e.level === 'critical')
+      .every((e) => isSatisfied(e, states.get(e.name)));
+
+    if (criticalOk) {
+      console.log('  all critical services satisfied');
+      break;
+    }
+
+    if (round < maxRounds) {
+      await sleep(POLL_INTERVAL * 1000);
+    }
+  }
+
+  process.exit(report(manifest, states, sla));
+}
+
+main().catch((err: unknown) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`::error::unhandled error: ${msg}`);
+  process.exit(2);
+});

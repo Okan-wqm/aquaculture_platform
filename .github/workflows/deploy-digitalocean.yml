@@ -1144,24 +1144,22 @@ jobs:
               fi
             done
 
-            echo "=== Waiting for gateway ==="
-            HEALTHY=false
-            for i in $(seq 1 30); do
-              sleep 10
-              GW_STATUS=$(docker inspect --format='{{.State.Status}} ({{.State.ExitCode}})' aqua-gateway 2>/dev/null || echo "not found")
-              PORT_OPEN=$(nc -z localhost 3000 2>/dev/null && echo "open" || echo "closed")
-              HTTP_CODE=$(curl -o /dev/null -w "%{http_code}" -s --max-time 5 http://localhost:3000/health/live 2>/dev/null || echo "000")
-              if [ "$HTTP_CODE" = "200" ]; then
-                echo "Gateway API: OK (attempt ${i})"
-                HEALTHY=true
-                break
-              fi
-              echo "Gateway API: not ready yet (attempt ${i}/30, container=${GW_STATUS}, port=${PORT_OPEN}, http=${HTTP_CODE})"
-            done
-
-            # ARCH-CI-007: Rollback if health check fails after all retries
-            if [ "$HEALTHY" != "true" ]; then
-              echo "::error::Health check failed after 5 minutes. Initiating rollback."
+            # ADR-016 Phase C / WS6 — criticality-aware multi-service health
+            # gate. Replaces the old "poll only gateway-api /health/live" block
+            # that silently passed when other backends crash-looped (2026-04-14
+            # cascade failure mode). The script reads
+            # `infrastructure/deploy/service-criticality.yaml` and rolls back
+            # only when a `critical` level service fails to reach healthy
+            # inside the SLA. Non-critical services surface as warnings.
+            # Uses Node 22 built-in TypeScript type-stripping so no
+            # tsc/tsx/python is required on the droplet — Node is already
+            # a base dependency for the service containers.
+            echo "=== Waiting for all critical services ==="
+            if ! COMPOSE_FILE=docker-compose.droplet.yml \
+                 MANIFEST=infrastructure/deploy/service-criticality.yaml \
+                 POLL_INTERVAL=10 \
+                 node scripts/deploy/check-service-health.ts; then
+              echo "::error::Critical service health check failed. Initiating rollback."
               if [ -n "$PREV_GATEWAY" ]; then
                 echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
                 docker tag "${PREV_GATEWAY}" $(docker compose -f docker-compose.droplet.yml config | grep 'image:.*gateway-api' | awk '{print $2}' | head -1) 2>/dev/null || true

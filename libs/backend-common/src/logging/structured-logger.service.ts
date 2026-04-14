@@ -1,5 +1,6 @@
 import { LoggerService, LogLevel } from '@nestjs/common';
 import { getRequestContext } from './request-context';
+import { maskPii } from '../utils/pii-mask.util';
 
 /**
  * Sensitive keys whose values are replaced with [REDACTED] before serialisation.
@@ -33,9 +34,22 @@ function toSeverity(level: string): string {
 /**
  * Recursively mask sensitive values in an object.
  * Returns a shallow-ish clone with sensitive leaves replaced by "[REDACTED]".
+ *
+ * SECURITY (HIGH-005): two-layer redaction.
+ *   Layer 1 — KEY-based: whole value is replaced with [REDACTED] when the
+ *             key name matches SENSITIVE_KEYS (password, token, etc.).
+ *   Layer 2 — VALUE-based: every surviving string leaf is passed through
+ *             `maskPii()` which replaces email / phone / credit-card / SSN
+ *             / IP patterns regardless of the key name. Closes the gap
+ *             where PII was embedded in free-form strings (e.g. "failed
+ *             login for alice@example.com from 10.1.2.3").
  */
 function maskSensitive(obj: unknown, depth = 0): unknown {
   if (depth > MAX_DEPTH || obj === null || obj === undefined) return obj;
+
+  // Value-level PII redaction for string leaves that don't already live
+  // under a sensitive key. For objects and arrays, recurse before returning.
+  if (typeof obj === 'string') return maskPii(obj);
   if (typeof obj !== 'object') return obj;
 
   if (Array.isArray(obj)) {
@@ -48,6 +62,8 @@ function maskSensitive(obj: unknown, depth = 0): unknown {
       masked[key] = '[REDACTED]';
     } else if (typeof value === 'object' && value !== null) {
       masked[key] = maskSensitive(value, depth + 1);
+    } else if (typeof value === 'string') {
+      masked[key] = maskPii(value);
     } else {
       masked[key] = value;
     }

@@ -72,3 +72,88 @@ export function logSafeUserId(
   }
   return user.sub || user.id || (user.email ? maskEmail(user.email) : 'unknown');
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// SECURITY (HIGH-005): value-pattern PII masking
+// ──────────────────────────────────────────────────────────────────────
+// The structured logger's key-based masker (SENSITIVE_KEYS regex) only
+// catches leaves whose KEY name is suspicious. It does not help for
+// arbitrary-keyed fields that hold PII (e.g. `logger.log({ details: "call from
+// +15551234567 about foo@bar.com" })`). These helpers inspect the VALUE and
+// redact patterns that look like PII regardless of where they appear.
+// ──────────────────────────────────────────────────────────────────────
+
+/** RFC5321-simplified email regex — correct enough for log scrubbing. */
+const EMAIL_PATTERN = /([A-Za-z0-9_.+-])[A-Za-z0-9_.+-]*@([A-Za-z0-9])[A-Za-z0-9.-]*\.([A-Za-z]{2,})/g;
+
+/** E.164 and common national formats: +CC followed by 7-15 digits, optional separators. */
+const PHONE_PATTERN = /(?:\+\d{1,3}[\s-]?)?(?:\(\d{1,4}\)[\s-]?)?\d{3,4}[\s-]?\d{3,4}[\s-]?\d{3,4}/g;
+
+/** 13–19 digit credit-card-like sequences (Luhn not validated — bias toward false-positive masking). */
+const CREDIT_CARD_PATTERN = /\b(?:\d[ -]?){13,19}\b/g;
+
+/** US SSN format (other national ID schemes can be added here). */
+const SSN_PATTERN = /\b\d{3}-\d{2}-\d{4}\b/g;
+
+/** IPv4 private + public. Masks the last octet to retain debugging utility. */
+const IPV4_PATTERN = /\b((?:\d{1,3}\.){3})\d{1,3}\b/g;
+
+/**
+ * Mask a phone number. Preserves country code and last two digits — enough
+ * for correlation without revealing the full number.
+ *
+ * @example maskPhone('+15551234567') => '+1***67'
+ */
+export function maskPhone(phone: string): string {
+  if (!phone) return '***';
+  const digits = phone.replace(/[^\d+]/g, '');
+  if (digits.length < 6) return '***';
+  const prefix = digits.startsWith('+') ? digits.slice(0, Math.min(3, digits.length - 2)) : '';
+  const tail = digits.slice(-2);
+  return `${prefix}***${tail}`;
+}
+
+/**
+ * Apply every value-pattern PII rule to an arbitrary string. Matches are
+ * replaced with fixed tokens — not the per-value maskers — because the logger
+ * path is hot and we optimise for speed of redaction, not for preserving
+ * debuggability at the match site (the surrounding context in the log line
+ * still provides the signal).
+ *
+ * Use `maskPii` for untyped log values, and `maskEmail`/`maskPhone` directly
+ * for typed values where you want to keep some signal.
+ */
+export function maskPii(value: string): string {
+  if (!value) return value;
+  let result = value;
+  // Order matters: credit card / SSN before phone because phone pattern
+  // would otherwise swallow contiguous digit blocks.
+  result = result.replace(CREDIT_CARD_PATTERN, '[CC-REDACTED]');
+  result = result.replace(SSN_PATTERN, '[SSN-REDACTED]');
+  result = result.replace(EMAIL_PATTERN, '[EMAIL-REDACTED]');
+  result = result.replace(PHONE_PATTERN, '[PHONE-REDACTED]');
+  result = result.replace(IPV4_PATTERN, '$1***');
+  return result;
+}
+
+/**
+ * Recursively walk an object and apply `maskPii` to every string leaf.
+ * Complements the structured logger's key-based masker — use the key masker
+ * when the field NAME identifies the sensitivity, and this value masker
+ * when the VALUE might contain PII regardless of the key.
+ */
+export function maskPiiDeep<T>(value: T, depth = 0, maxDepth = 4): T {
+  if (depth > maxDepth || value == null) return value;
+  if (typeof value === 'string') return maskPii(value) as unknown as T;
+  if (Array.isArray(value)) {
+    return value.map((item) => maskPiiDeep(item, depth + 1, maxDepth)) as unknown as T;
+  }
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = maskPiiDeep(v, depth + 1, maxDepth);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}

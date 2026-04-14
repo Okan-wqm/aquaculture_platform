@@ -30,7 +30,7 @@ export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verifica
 export type { JwtVerifyConfig } from './auth/jwt-verification.utils';
 
 // Utils - PII masking for GDPR-compliant logging
-export { maskEmail, logSafeUserId } from './utils/pii-mask.util';
+export { maskEmail, logSafeUserId, maskPhone, maskPii, maskPiiDeep } from './utils/pii-mask.util';
 
 // Filters
 export * from './filters/http-exception.filter';

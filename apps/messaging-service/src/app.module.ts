@@ -111,6 +111,10 @@ import { AddMissingOutboxColumns1782200000000 } from './migrations/1782200000000
 // P3 of 2026-04-14 messaging-isolation plan — tenantId on 7 child tables;
 // prerequisite for the P4 RLS install.
 import { AddTenantIdToMessageChildren1782300000000 } from './migrations/1782300000000-AddTenantIdToMessageChildren';
+// P4 of 2026-04-14 messaging-isolation plan — canonical tenant_isolation_policy
+// on messaging source schema. Tenant-schema clones receive the same policy
+// via TenantRlsSyncService (wired by RlsModule.forRoot syncTenantSchemas: true).
+import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -197,6 +201,7 @@ const complexityCache = new Map<string, number>();
             AddMessagingOutboxNotifyTrigger1782100000000,
             AddMissingOutboxColumns1782200000000,
             AddTenantIdToMessageChildren1782300000000,
+            EnableRowLevelSecurity1782400000000,
           ],
           logging: configService.get('NODE_ENV') === 'development',
           ssl: (() => {

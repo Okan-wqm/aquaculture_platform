@@ -1,0 +1,3 @@
+# Placeholder so the migrations directory is tracked in git before the
+# first migration lands. First expected migration: move device_tokens +
+# notification_logs out of public schema (P6/P7 of the 2026-04-14 plan).

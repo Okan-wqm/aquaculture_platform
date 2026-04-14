@@ -22,7 +22,23 @@ import {
   AuditLogInterceptor,
   RlsModule,
   AuditColumnsModule,
+  createMigrationRunnerService,
 } from '@aquaculture/backend-common';
+
+/**
+ * NotificationMigrationRunnerService — runs pending TypeORM migrations
+ * in the notification schema at OnApplicationBootstrap. Added in P2c of
+ * the 2026-04-14 public-schema teardown to close the RlsSchemaBootstrap
+ * docblock gap (lines 14-27: *"a replacement migration system has not
+ * yet been added"*).
+ *
+ * Source schema is 'notification' (created in P1 via 00-init-schemas.sh).
+ * Tables currently live in public (device_tokens, notification_logs);
+ * P6 + P7 migrations will move them into the notification schema, at
+ * which point the search_path pin here puts them at the front of the
+ * resolution chain.
+ */
+const NotificationMigrationRunnerService = createMigrationRunnerService('notification');
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
@@ -57,6 +73,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
         database: configService.get('DATABASE_NAME', 'notification_service'),
         autoLoadEntities: true,
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+        // Migrations executed by NotificationMigrationRunnerService at
+        // OnApplicationBootstrap (search_path pinning + per-migration
+        // transaction isolation + production hard-fail semantics).
+        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        migrationsRun: false,
+        migrationsTableName: 'migrations',
         logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
         extra: {
           max: configService.get<number>('DATABASE_POOL_MAX', 20),
@@ -197,6 +219,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     AuditColumnsModule.forRoot({ serviceName: 'notification' }),
   ],
   providers: [
+    // Migration runner — see const declaration near top of file.
+    NotificationMigrationRunnerService,
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,

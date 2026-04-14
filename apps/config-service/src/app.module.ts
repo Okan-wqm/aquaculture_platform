@@ -8,7 +8,21 @@ import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule } from '@aquaculture/backend-common';
+import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService } from '@aquaculture/backend-common';
+
+/**
+ * ConfigMigrationRunnerService — runs pending TypeORM migrations in the
+ * public schema (config-service's current source — will migrate to a
+ * dedicated `config` schema in P6-P10 of the 2026-04-14 teardown plan).
+ *
+ * Added in P2c of the teardown: migrations/ starts empty because
+ * config-service currently relies on TypeORM autoLoadEntities + the RLS
+ * bootstrap for schema state. The runner is wired now so that future
+ * drift-correcting or RLS-installing migrations can land as deterministic
+ * commits rather than another round of hand-applied psql statements (see
+ * RlsSchemaBootstrap docblock lines 14-27 for the gap this closes).
+ */
+const ConfigMigrationRunnerService = createMigrationRunnerService('public');
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -39,6 +53,13 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           database: configService.get('DATABASE_NAME', 'config_service'),
           autoLoadEntities: true,
           synchronize: false,
+          // Discover migrations at boot but defer execution to
+          // ConfigMigrationRunnerService so we get search_path pinning,
+          // per-migration transaction isolation, and production hard-fail
+          // semantics on DATABASE_MIGRATIONS_RUN=false.
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          migrationsRun: false,
+          migrationsTableName: 'migrations',
           logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
           ssl: (() => {
             const sslEnabled = configService.get('DATABASE_SSL') === 'true';
@@ -118,6 +139,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     AuditColumnsModule.forRoot({ serviceName: 'config' }),
   ],
   providers: [
+    // Migration runner — runs pending TypeORM migrations at
+    // OnApplicationBootstrap. See const declaration near top of file for
+    // architectural rationale.
+    ConfigMigrationRunnerService,
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,

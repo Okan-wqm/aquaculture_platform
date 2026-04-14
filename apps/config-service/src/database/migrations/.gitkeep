@@ -1,0 +1,3 @@
+# Placeholder so the migrations directory is tracked in git before the
+# first migration lands. Ensures the MigrationRunnerService factory pattern
+# in app.module.ts has a discoverable source path from the first deploy.

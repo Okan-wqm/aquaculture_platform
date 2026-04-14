@@ -92,6 +92,22 @@
           {
             "selector": "CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.length>2]",
             "message": "JSON.stringify with an indent argument produces multi-line output that breaks structured JSON logging. Use the NestJS Logger — it calls StructuredLoggerService and emits a single JSON event per log."
+          },
+          {
+            "selector": "CallExpression[callee.property.name='get'][arguments.0.value='JWT_SECRET']",
+            "message": "JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). The platform migrated from HS256 (shared JWT_SECRET) to RS256 (auth-service signs with private key, every consumer verifies with public key) in commit 7c076361. Reintroducing JWT_SECRET reads recreates the algorithm-confusion + shared-secret-leak surface the migration eliminated. Token-CONSUMER services: import PlatformJwtModule from @aquaculture/backend-common (it wraps getJwtVerifyOptions which loads JWT_PUBLIC_KEY). Token-ISSUER (auth-service): use JWT_PRIVATE_KEY for signing; the dev-only fallback uses DEV_JWT_SECRET (a different env var)."
+          },
+          {
+            "selector": "CallExpression[callee.property.name='getOrThrow'][arguments.0.value='JWT_SECRET']",
+            "message": "JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). See the .get('JWT_SECRET') message above for the migration path: PlatformJwtModule for consumers, JWT_PRIVATE_KEY for the issuer. The 2026-04-14 hydroponics-service deploy outage was a configService.getOrThrow<string>('JWT_SECRET') call that crashed at boot when JWT_SECRET stopped being provisioned — this rule exists to prevent that recurrence."
+          },
+          {
+            "selector": "MemberExpression[object.object.name='process'][object.property.name='env'][property.name='JWT_SECRET']",
+            "message": "process.env.JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). Use PlatformJwtModule (consumer services) or JWT_PRIVATE_KEY (auth-service issuer)."
+          },
+          {
+            "selector": "MemberExpression[object.object.name='process'][object.property.name='env'][computed=true][property.value='JWT_SECRET']",
+            "message": "process.env['JWT_SECRET'] reads are banned (WS2.C / ADR-016 Phase B). Use PlatformJwtModule (consumer services) or JWT_PRIVATE_KEY (auth-service issuer)."
           }
         ]
       }
@@ -122,14 +138,25 @@
       }
     },
     {
-      "files": ["*.spec.ts", "*.spec.tsx", "*.spec.js", "*.spec.jsx", "test/**/*.ts", "**/__tests__/**"],
+      "files": ["*.spec.ts", "*.spec.tsx", "*.spec.js", "*.spec.jsx", "test/**/*.ts", "**/__tests__/**", "e2e/**/*.ts", "tests/**/*.ts"],
       "env": {
         "jest": true
       },
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
         "@typescript-eslint/unbound-method": "off",
-        "no-console": "off"
+        "no-console": "off",
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.property.name='getRepository']",
+            "message": "Direct getRepository() bypasses TenantAwareRepository and skips tenantId injection on all find operations, creating IDOR vulnerabilities. Use getScopedRepository() instead. For cross-tenant admin operations, use getUnfilteredRepository() with explicit justification."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.length>2]",
+            "message": "JSON.stringify with an indent argument produces multi-line output that breaks structured JSON logging. Use the NestJS Logger — it calls StructuredLoggerService and emits a single JSON event per log."
+          }
+        ]
       }
     }
   ]

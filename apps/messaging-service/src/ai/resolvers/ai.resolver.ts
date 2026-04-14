@@ -219,15 +219,12 @@ export class AiResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<AiSettingsType> {
-    const [tenantSettings, userConsent] = await Promise.all([
-      this.privacyService.getTenantAiSettings(tenantId),
-      this.privacyService.getUserAiConsent(tenantId, user.sub),
+    const [tenantAiEnabled, userAiConsent] = await Promise.all([
+      this.privacyService.isTenantAiEnabled(tenantId),
+      this.privacyService.hasUserConsented(tenantId, user.sub),
     ]);
 
-    return {
-      tenantAiEnabled: tenantSettings.aiAnalysisEnabled,
-      userAiConsent: userConsent.aiAnalysisConsent,
-    };
+    return { tenantAiEnabled, userAiConsent };
   }
 
   // -------------------------------------------------------------------------
@@ -247,7 +244,7 @@ export class AiResolver {
     @Args('enabled', { type: () => Boolean }) enabled: boolean,
     @Tenant() tenantId: string,
   ): Promise<boolean> {
-    await this.privacyService.updateTenantAiSetting(tenantId, enabled);
+    await this.privacyService.setTenantAiEnabled(tenantId, enabled);
     return true;
   }
 
@@ -265,7 +262,7 @@ export class AiResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<boolean> {
-    await this.privacyService.updateUserAiConsent(tenantId, user.sub, consent);
+    await this.privacyService.setUserAiConsent(tenantId, user.sub, consent);
     return true;
   }
 

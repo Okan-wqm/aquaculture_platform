@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource } from 'typeorm';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import type { Repository } from 'typeorm';
+import { BypassRlsService } from '@aquaculture/backend-common';
 import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import { AiPrivacyService } from '../ai-privacy.service';
+import { TenantAiSetting } from '../../entities/tenant-ai-setting.entity';
+import { UserAiConsent } from '../../entities/user-ai-consent.entity';
 import {
   createMockRedis,
   fakeUuid,
@@ -10,10 +14,29 @@ import {
   TENANT_A,
 } from '../../../__tests__/test-helpers';
 
+/**
+ * AiPrivacyService — behavior contracts
+ * ============================================================================
+ *
+ * Tests exercise the SERVICE BEHAVIOR via repository + Redis mocks. We do
+ * NOT assert on raw SQL strings (the prior revision did, which created the
+ * exact "audit theater" pattern that hid four layers of naming drift —
+ * unit tests passed against fictional table names while production failed).
+ *
+ * The repositories are TypeORM `Repository<Entity>` objects whose method
+ * signatures (`findOne`, `upsert`, `query`) carry the entity metadata
+ * inside TypeORM. Mocking those methods is the correct surface — if the
+ * service tries to query the wrong table or column, the entity → SQL
+ * translation happens INSIDE TypeORM and our mocks return whatever we
+ * tell them. Drift is detected by integration / e2e tests that hit the
+ * real DB.
+ */
 describe('AiPrivacyService', () => {
   let service: AiPrivacyService;
   let redisClient: MockRedis;
-  let mockDataSource: { query: jest.Mock };
+  let tenantRepo: jest.Mocked<Pick<Repository<TenantAiSetting>, 'findOne' | 'upsert' | 'query'>>;
+  let userRepo: jest.Mocked<Pick<Repository<UserAiConsent>, 'findOne' | 'upsert'>>;
+  let bypassRls: jest.Mocked<Pick<BypassRlsService, 'withBypass'>>;
 
   const userId = fakeUuid('usr');
 
@@ -21,13 +44,30 @@ describe('AiPrivacyService', () => {
     resetUuidCounter();
 
     redisClient = createMockRedis();
-    mockDataSource = { query: jest.fn().mockResolvedValue([]) };
+    tenantRepo = {
+      findOne: jest.fn(),
+      upsert: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue([[], 0]),
+    } as jest.Mocked<Pick<Repository<TenantAiSetting>, 'findOne' | 'upsert' | 'query'>>;
+    userRepo = {
+      findOne: jest.fn(),
+      upsert: jest.fn().mockResolvedValue(undefined),
+    } as jest.Mocked<Pick<Repository<UserAiConsent>, 'findOne' | 'upsert'>>;
+    bypassRls = {
+      // Pass-through: invoke the callback synchronously so embedding-sweep
+      // SQL still hits tenantRepo.query for assertion.
+      withBypass: jest.fn(async (_label: string, cb: () => Promise<unknown> | unknown) => {
+        return cb();
+      }) as jest.MockedFunction<BypassRlsService['withBypass']>,
+    } as jest.Mocked<Pick<BypassRlsService, 'withBypass'>>;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AiPrivacyService,
-        { provide: DataSource, useValue: mockDataSource },
+        { provide: getRepositoryToken(TenantAiSetting), useValue: tenantRepo },
+        { provide: getRepositoryToken(UserAiConsent), useValue: userRepo },
         { provide: REDIS_CLIENT, useValue: redisClient },
+        { provide: BypassRlsService, useValue: bypassRls },
       ],
     }).compile();
 
@@ -39,104 +79,153 @@ describe('AiPrivacyService', () => {
   });
 
   // -----------------------------------------------------------------------
-  // canAnalyzeMessage — dual consent
+  // canAnalyzeMessage — dual consent gate
   // -----------------------------------------------------------------------
-  it('returns true when both tenant AI enabled and user consented', async () => {
-    // Tenant enabled in Redis cache
-    redisClient.get.mockResolvedValueOnce('true');
-    // User consented in Redis cache
-    redisClient.get.mockResolvedValueOnce('true');
+  it('returns true when both tenant AI enabled and user consented (cache hit both)', async () => {
+    redisClient.get.mockResolvedValueOnce('true'); // tenant flag
+    redisClient.get.mockResolvedValueOnce('true'); // user consent
 
-    const result = await service.canAnalyzeMessage(TENANT_A, userId);
+    expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(true);
 
-    expect(result).toBe(true);
+    // Repos NOT touched — both came from cache.
+    expect(tenantRepo.findOne).not.toHaveBeenCalled();
+    expect(userRepo.findOne).not.toHaveBeenCalled();
   });
 
   it('returns false when tenant AI is disabled', async () => {
     redisClient.get.mockResolvedValueOnce('false');
-    // User consent is never checked because tenant is disabled
+    redisClient.get.mockResolvedValueOnce('true');
 
-    const result = await service.canAnalyzeMessage(TENANT_A, userId);
-
-    expect(result).toBe(false);
+    expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(false);
   });
 
   it('returns false when user has not consented', async () => {
-    // Tenant enabled
     redisClient.get.mockResolvedValueOnce('true');
-    // User NOT consented
     redisClient.get.mockResolvedValueOnce('false');
 
-    const result = await service.canAnalyzeMessage(TENANT_A, userId);
+    expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(false);
+  });
 
-    expect(result).toBe(false);
+  it('fail-closed: returns false on unexpected error (e.g. DB outage)', async () => {
+    // Cache miss for both
+    redisClient.get.mockResolvedValue(null);
+    // Simulate DB outage
+    tenantRepo.findOne.mockRejectedValueOnce(new Error('DB unreachable'));
+
+    expect(await service.canAnalyzeMessage(TENANT_A, userId)).toBe(false);
   });
 
   // -----------------------------------------------------------------------
-  // updateTenantAiSetting — Redis + DB
+  // isTenantAiEnabled — cache → repo fallback
   // -----------------------------------------------------------------------
-  it('stores tenant AI setting in DB and invalidates Redis cache', async () => {
-    mockDataSource.query.mockResolvedValueOnce([]);
-
-    await service.updateTenantAiSetting(TENANT_A, true);
-
-    expect(mockDataSource.query).toHaveBeenCalledWith(
-      expect.stringContaining('tenant_settings'),
-      expect.arrayContaining([TENANT_A, true]),
-    );
-    expect(redisClient.del).toHaveBeenCalledWith(
-      expect.stringContaining(TENANT_A),
-    );
-  });
-
-  // -----------------------------------------------------------------------
-  // updateUserAiConsent — Redis + DB
-  // -----------------------------------------------------------------------
-  it('stores user AI consent in DB and invalidates Redis cache', async () => {
-    mockDataSource.query.mockResolvedValueOnce([]);
-
-    await service.updateUserAiConsent(TENANT_A, userId, true);
-
-    expect(mockDataSource.query).toHaveBeenCalledWith(
-      expect.stringContaining('user_preferences'),
-      expect.arrayContaining([userId, TENANT_A, true]),
-    );
-    expect(redisClient.del).toHaveBeenCalledWith(
-      expect.stringContaining(userId),
-    );
-  });
-
-  // -----------------------------------------------------------------------
-  // Redis failure — falls back to DB
-  // -----------------------------------------------------------------------
-  it('falls back to DB when Redis GET fails for tenant setting', async () => {
-    // Redis fails
-    redisClient.get.mockRejectedValueOnce(new Error('Redis timeout'));
-    // DB returns tenant enabled
-    mockDataSource.query.mockResolvedValueOnce([{ aiAnalysisEnabled: true }]);
-    // User consent from Redis succeeds
+  it('isTenantAiEnabled: cache hit returns cached value without DB read', async () => {
     redisClient.get.mockResolvedValueOnce('true');
+    expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
+    expect(tenantRepo.findOne).not.toHaveBeenCalled();
+  });
 
-    const result = await service.canAnalyzeMessage(TENANT_A, userId);
+  it('isTenantAiEnabled: cache miss queries repo and writes back to cache', async () => {
+    redisClient.get.mockResolvedValueOnce(null);
+    tenantRepo.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
 
-    expect(result).toBe(true);
-    // Verify DB was queried as fallback
-    expect(mockDataSource.query).toHaveBeenCalledWith(
-      expect.stringContaining('tenant_settings'),
-      expect.arrayContaining([TENANT_A]),
+    expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
+    expect(tenantRepo.findOne).toHaveBeenCalledWith({ where: { tenantId: TENANT_A } });
+    expect(redisClient.setex).toHaveBeenCalledWith(
+      `ai:tenant:${TENANT_A}`,
+      60,
+      'true',
     );
   });
 
-  it('falls back to DB when Redis GET fails for user consent', async () => {
-    // Tenant setting from Redis
-    redisClient.get.mockResolvedValueOnce('true');
-    // User consent Redis fails
-    redisClient.get.mockRejectedValueOnce(new Error('Redis timeout'));
-    // DB returns user consented
-    mockDataSource.query.mockResolvedValueOnce([{ aiAnalysisConsent: true }]);
+  it('isTenantAiEnabled: missing row defaults to false (deny-by-default)', async () => {
+    redisClient.get.mockResolvedValueOnce(null);
+    tenantRepo.findOne.mockResolvedValueOnce(null);
 
-    const result = await service.canAnalyzeMessage(TENANT_A, userId);
+    expect(await service.isTenantAiEnabled(TENANT_A)).toBe(false);
+  });
 
-    expect(result).toBe(true);
+  it('isTenantAiEnabled: Redis GET failure falls through to repo (resilience)', async () => {
+    redisClient.get.mockRejectedValueOnce(new Error('Redis down'));
+    tenantRepo.findOne.mockResolvedValueOnce({ aiEnabled: true } as TenantAiSetting);
+
+    expect(await service.isTenantAiEnabled(TENANT_A)).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // hasUserConsented — cache → repo fallback
+  // -----------------------------------------------------------------------
+  it('hasUserConsented: cache miss queries repo with composite key and writes back', async () => {
+    redisClient.get.mockResolvedValueOnce(null);
+    userRepo.findOne.mockResolvedValueOnce({ consented: true } as UserAiConsent);
+
+    expect(await service.hasUserConsented(TENANT_A, userId)).toBe(true);
+    expect(userRepo.findOne).toHaveBeenCalledWith({
+      where: { tenantId: TENANT_A, userId },
+    });
+  });
+
+  it('hasUserConsented: missing row defaults to false', async () => {
+    redisClient.get.mockResolvedValueOnce(null);
+    userRepo.findOne.mockResolvedValueOnce(null);
+
+    expect(await service.hasUserConsented(TENANT_A, userId)).toBe(false);
+  });
+
+  // -----------------------------------------------------------------------
+  // setTenantAiEnabled — upsert + cache invalidation
+  // -----------------------------------------------------------------------
+  it('setTenantAiEnabled: upserts repo and invalidates cache', async () => {
+    await service.setTenantAiEnabled(TENANT_A, true);
+
+    expect(tenantRepo.upsert).toHaveBeenCalledWith(
+      { tenantId: TENANT_A, aiEnabled: true },
+      { conflictPaths: ['tenantId'] },
+    );
+    expect(redisClient.del).toHaveBeenCalledWith(`ai:tenant:${TENANT_A}`);
+  });
+
+  // -----------------------------------------------------------------------
+  // setUserAiConsent — upsert + cache invalidation + sweep on revoke
+  // -----------------------------------------------------------------------
+  it('setUserAiConsent: granting consent does NOT trigger embedding sweep', async () => {
+    await service.setUserAiConsent(TENANT_A, userId, true);
+
+    expect(userRepo.upsert).toHaveBeenCalledWith(
+      { tenantId: TENANT_A, userId, consented: true },
+      { conflictPaths: ['tenantId', 'userId'] },
+    );
+    expect(redisClient.del).toHaveBeenCalledWith(`ai:user:consent:${TENANT_A}:${userId}`);
+    expect(bypassRls.withBypass).not.toHaveBeenCalled();
+  });
+
+  it('setUserAiConsent: revoking consent triggers embedding sweep wrapped in BypassRls', async () => {
+    tenantRepo.query.mockResolvedValueOnce([[], 5]);
+
+    await service.setUserAiConsent(TENANT_A, userId, false);
+
+    // Bypass invoked with auditable label
+    expect(bypassRls.withBypass).toHaveBeenCalledWith(
+      expect.stringMatching(/^ai-privacy:embedding-sweep:tenant=.+:user=.+$/),
+      expect.any(Function),
+    );
+    // Sweep query schema-qualified to messaging.* (post-P7 entity decoration)
+    expect(tenantRepo.query).toHaveBeenCalledWith(
+      expect.stringContaining('"messaging"."messages"'),
+      [TENANT_A, userId],
+    );
+    expect(tenantRepo.query).toHaveBeenCalledWith(
+      expect.stringContaining('"messaging"."channels"'),
+      [TENANT_A, userId],
+    );
+  });
+
+  it('setUserAiConsent: sweep failure does NOT roll back consent change (logged + escalated)', async () => {
+    tenantRepo.query.mockRejectedValueOnce(new Error('vector op failed'));
+
+    // Must NOT throw — consent revocation is GDPR-mandated and persists
+    await expect(service.setUserAiConsent(TENANT_A, userId, false)).resolves.toBeUndefined();
+
+    // Consent flag was still upserted
+    expect(userRepo.upsert).toHaveBeenCalled();
   });
 });

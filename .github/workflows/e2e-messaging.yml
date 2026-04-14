@@ -150,7 +150,7 @@ jobs:
               --runInBand \
               --verbose \
               --forceExit \
-              --testPathPattern="$TEST_FILTER"
+              --testPathPatterns="$TEST_FILTER"
           else
             npx jest \
               --config apps/messaging-service/test/jest-e2e.config.ts \

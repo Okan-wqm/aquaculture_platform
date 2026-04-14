@@ -34,17 +34,21 @@ export class AddMissingOutboxColumns1782200000000 implements MigrationInterface 
       await queryRunner.query(sql);
     }
 
-    // Update polling index to include new dead-letter and lease filters
+    // Update polling index to include dead-letter filter.
+    //
+    // WHY no NOW() in predicate: PostgreSQL requires functions in index
+    // predicates to be IMMUTABLE. NOW() is VOLATILE and rejected. The
+    // time-based filters (nextAttemptAt <= NOW(), leasedAt expiry) are
+    // applied at query time in OutboxWorkerService, not in the index.
+    // The index still dramatically reduces the scan set by filtering
+    // out published and dead-lettered rows.
     await queryRunner.query(`
       DROP INDEX IF EXISTS "idx_outbox_poll";
     `);
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_outbox_poll"
         ON "messaging_outbox" ("createdAt")
-        WHERE "publishedAt" IS NULL
-          AND "isDeadLettered" = false
-          AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= NOW())
-          AND ("leasedAt" IS NULL OR "leasedAt" < NOW() - INTERVAL '5 minutes');
+        WHERE "publishedAt" IS NULL AND "isDeadLettered" = false;
     `);
   }
 
@@ -53,7 +57,7 @@ export class AddMissingOutboxColumns1782200000000 implements MigrationInterface 
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_outbox_poll"
         ON "messaging_outbox" ("createdAt")
-        WHERE "publishedAt" IS NULL AND "nextAttemptAt" <= NOW();
+        WHERE "publishedAt" IS NULL;
     `);
 
     const columns = [

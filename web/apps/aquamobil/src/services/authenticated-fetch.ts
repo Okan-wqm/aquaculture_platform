@@ -31,6 +31,35 @@ const authStore: AuthStore = {
   refreshAuth: null,
 };
 
+// ---------------------------------------------------------------------------
+// Auth readiness barrier
+//
+// WHY: On page load, AuthProvider's restoreSession() is async — the token
+// arrives later via syncAuthStore(). Without a barrier, authenticatedFetch()
+// calls fire before the token is in memory and get 401 Unauthorized.
+//
+// React Native / PWA environment cannot use shared-ui's window-based
+// tokenLifecycle, so this is a parallel promise-based implementation with
+// the same semantics.
+// ---------------------------------------------------------------------------
+
+let authReadyResolve: (() => void) | null = null;
+const authReadyPromise = new Promise<void>((resolve) => {
+  authReadyResolve = resolve;
+});
+
+/**
+ * Mark auth as ready — called by useAuth.tsx after restoreSession completes
+ * (whether successful or not). This unblocks pending authenticatedFetch() calls.
+ * Idempotent: safe to call multiple times.
+ */
+export function markAuthReady(): void {
+  if (authReadyResolve) {
+    authReadyResolve();
+    authReadyResolve = null;
+  }
+}
+
 /**
  * Called by AuthProvider to keep the module-level store in sync with React state.
  * This avoids the need for hooks inside plain functions.
@@ -43,6 +72,12 @@ export function syncAuthStore(
   authStore.accessToken = accessToken;
   authStore.tenantId = tenantId;
   authStore.refreshAuth = refreshAuth;
+  // WHY: Secondary resolution path — if a token arrives via sync (e.g.,
+  // restoreSession resolved with a valid session), mark ready immediately
+  // so pending requests don't wait on the useAuth.tsx finally block.
+  if (accessToken) {
+    markAuthReady();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +96,19 @@ export async function authenticatedFetch(
   url: string,
   options?: RequestInit,
 ): Promise<Response> {
+  // LIFECYCLE BARRIER: wait for AuthProvider to complete restoreSession.
+  // WHY: On page load, the token arrives async via syncAuthStore(). Without
+  // this barrier, requests fire before the token is in memory → 401.
+  // 15s timeout prevents indefinite hang if AuthProvider never initializes.
+  await Promise.race([
+    authReadyPromise,
+    new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error('Auth initialization timed out')), 15_000),
+    ),
+  ]).catch(() => {
+    // Barrier timed out — proceed anyway; request will fail 401 if no token
+  });
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest',

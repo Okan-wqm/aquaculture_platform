@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, Re
 import { del } from 'idb-keyval';
 import type { AuthState } from '@/types';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
-import { syncAuthStore } from '@/services/authenticated-fetch';
+import { markAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
 import { clearBiometricData } from '@/hooks/useWebAuthn';
 
 interface AuthContextValue extends AuthState {
@@ -185,6 +185,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // No valid session
       } finally {
         setIsLoading(false);
+        // WHY: unblock pending authenticatedFetch() calls — resolves the
+        // authReadyPromise barrier whether restoreSession succeeded or not.
+        // New visitors and expired-refresh-token users must also unblock.
+        markAuthReady();
       }
     };
 

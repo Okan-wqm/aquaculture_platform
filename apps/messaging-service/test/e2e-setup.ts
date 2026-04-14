@@ -60,8 +60,11 @@ export async function createE2eTestApp(
 ): Promise<E2eTestContext> {
   // ── Environment setup for production-safe app bootstrap ──
 
-  // SECURITY: ServiceIdentityGuard auto-disables when INTERNAL_SERVICE_SECRET
-  // is not set (dev mode). No override needed — same as local dev.
+  // SECURITY: ServiceIdentityGuard validates HMAC signature of inter-service
+  // requests. Tests hit /graphql directly without signatures, so the guard
+  // must be bypassed. Clear INTERNAL_SERVICE_SECRET to force dev-mode
+  // behavior (guard allows all requests when secret is unset).
+  delete process.env['INTERNAL_SERVICE_SECRET'];
 
   // ThrottlerGuard reads THROTTLE_ENABLED from ConfigService.
   // Disable unless explicitly testing rate limits.
@@ -73,16 +76,19 @@ export async function createE2eTestApp(
 
   // JWT: The JwtModule requires an RSA public key for RS256 verification.
   // In E2E tests we don't verify JWTs (user context comes from x-user-payload
-  // header), but the module MUST bootstrap without crashing. Generate a
-  // throwaway RSA key pair so getJwtVerifyOptions() succeeds.
-  if (!process.env['JWT_PUBLIC_KEY'] && !process.env['JWT_PUBLIC_KEY_PATH']) {
-    const { publicKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-    });
-    process.env['JWT_PUBLIC_KEY'] = publicKey;
-  }
+  // header), but the module MUST bootstrap without crashing.
+  //
+  // WHY unconditional: Production environments have JWT_PUBLIC_KEY_PATH set
+  // (e.g. /etc/ssl/jwt/public.pem) but that file may not exist in the test
+  // environment (CI runners, local dev machines). We MUST override both env
+  // vars to guarantee the generated key is used, not a stale file path.
+  const { publicKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+  process.env['JWT_PUBLIC_KEY'] = publicKey;
+  delete process.env['JWT_PUBLIC_KEY_PATH'];
 
   // ── NATS Mock ──
   // WHY: No NATS broker in CI. Two separate NATS dependencies exist:
@@ -376,9 +382,10 @@ async function createTestPartitions(
  * Uses CASCADE to handle FK relationships.
  */
 export async function cleanupTenantData(
-  dataSource: DataSource,
+  dataSource: DataSource | undefined,
   tenantId: string,
 ): Promise<void> {
+  if (!dataSource) return;
   const schemaName = getTenantSchemaName(tenantId);
 
   const tables = [
@@ -412,9 +419,10 @@ export async function cleanupTenantData(
  * Flush Redis keys matching a pattern for clean test isolation.
  */
 export async function flushRedisKeys(
-  redis: Redis,
+  redis: Redis | undefined,
   pattern: string,
 ): Promise<void> {
+  if (!redis) return;
   const keys = await redis.keys(pattern);
   if (keys.length > 0) {
     await redis.del(...keys);
@@ -424,7 +432,7 @@ export async function flushRedisKeys(
 /**
  * Flush all messaging Redis keys for both test tenants.
  */
-export async function flushAllTestRedisKeys(redis: Redis): Promise<void> {
+export async function flushAllTestRedisKeys(redis: Redis | undefined): Promise<void> {
   await flushRedisKeys(redis, `msg:${TENANT_A}:*`);
   await flushRedisKeys(redis, `msg:${TENANT_B}:*`);
 }

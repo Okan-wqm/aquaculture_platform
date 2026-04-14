@@ -33,6 +33,11 @@ export { readSecret, bootstrapSecrets } from './config/secrets.provider';
 export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verification.utils';
 export type { JwtVerifyConfig } from './auth/jwt-verification.utils';
 
+// Auth - Shared RS256 JwtModule wiring for all token-CONSUMER services.
+// Token ISSUER (auth-service) keeps its own JwtModule block; every other
+// service must import PlatformJwtModule and never hand-roll JwtModule.
+export { PlatformJwtModule } from './auth/platform-jwt.module';
+
 // Auth - Password hashing with HMAC pepper + legacy lazy-migration path.
 export { hashPassword, verifyPassword, PEPPERED_PREFIX_V1 } from './auth/password.util';
 export type { VerifyPasswordResult } from './auth/password.util';

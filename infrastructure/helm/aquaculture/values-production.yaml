@@ -101,6 +101,27 @@ postgresql:
 redis:
   enabled: false  # Use ElastiCache — set secrets.redisUrl to ElastiCache endpoint
 
+# INFRA-NATS-CLUSTER-001 / INFRA-CRITICAL-001: JetStream HA cluster.
+# Single-node NATS is a SPOF on the droplet (event stream loss if the pod
+# crashes). In production the subchart runs as a 3-replica cluster so
+# JetStream streams can be provisioned with Replicas=3 and survive the
+# loss of any single node. Per-node file storage is sized generously —
+# streams retain 7 days of events at current ingest rate.
+nats:
+  enabled: true
+  config:
+    cluster:
+      enabled: true
+      replicas: 3
+    jetstream:
+      enabled: true
+      fileStorage:
+        enabled: true
+        size: 10Gi
+      memStorage:
+        enabled: true
+        size: 512Mi
+
 # Enable external secrets integration in production
 externalSecrets:
   enabled: true

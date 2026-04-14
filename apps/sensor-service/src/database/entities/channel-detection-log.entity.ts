@@ -29,7 +29,7 @@ export enum UserAction {
  * Tracks raw samples, AI analysis results, and user decisions on proposed channels.
  */
 @ObjectType()
-@Entity('channel_detection_log')
+@Entity('channel_detection_log', { schema: 'sensor' })
 @Index(['tenantId'])
 @Index(['sensorId'])
 export class ChannelDetectionLog {

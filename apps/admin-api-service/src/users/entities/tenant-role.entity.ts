@@ -15,7 +15,7 @@ import { TenantRolePermissions } from './tenant-role-permissions.entity';
  * Stored in tenant-specific schema (tenant_XXXX)
  * Allows tenant admins to create custom roles for their organization
  */
-@Entity({ name: 'tenant_roles', synchronize: false })
+@Entity({ name: 'tenant_roles', schema: 'auth', synchronize: false })
 @Index(['name'], { unique: true })
 @Index(['level'])
 @Index(['isDefault'])

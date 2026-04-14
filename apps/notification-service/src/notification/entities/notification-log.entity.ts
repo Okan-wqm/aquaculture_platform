@@ -34,7 +34,7 @@ export enum NotificationChannel {
  * Notification Log Entity
  * Records all sent notifications for audit and tracking
  */
-@Entity('notification_logs')
+@Entity('notification_logs', { schema: 'notification' })
 @Index(['tenantId', 'sentAt'])
 @Index(['channel', 'status'])
 /**

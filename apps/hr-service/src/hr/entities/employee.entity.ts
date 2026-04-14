@@ -139,7 +139,7 @@ export class EmergencyInfo {
 }
 
 @ObjectType()
-@Entity('employees')
+@Entity('employees', { schema: 'hr' })
 // Unique composite indexes
 @Index('idx_employee_email_tenant', ['tenantId', 'email'], { unique: true })
 @Index('idx_employee_number_tenant', ['employeeNumber', 'tenantId'], { unique: true })

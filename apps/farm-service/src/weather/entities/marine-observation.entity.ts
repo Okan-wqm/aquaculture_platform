@@ -16,7 +16,7 @@ import { ObjectType, Field, ID, Float } from '@nestjs/graphql';
 import { WeatherDataType } from './weather-observation.entity';
 
 @ObjectType()
-@Entity('marine_observations')
+@Entity('marine_observations', { schema: 'farm' })
 @Unique('uq_marine_obs', ['tenantId', 'siteId', 'observedAt', 'dataType'])
 @Index(['tenantId'])
 @Index(['tenantId', 'siteId', 'observedAt'])

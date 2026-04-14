@@ -10,7 +10,7 @@ import {
  * Device Token Entity
  * Stores FCM/push notification device tokens for users
  */
-@Entity('device_tokens')
+@Entity('device_tokens', { schema: 'notification' })
 @Unique(['userId', 'token'])
 export class DeviceToken {
   @PrimaryGeneratedColumn('uuid')

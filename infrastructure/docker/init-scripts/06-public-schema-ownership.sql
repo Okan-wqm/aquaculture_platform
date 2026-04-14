@@ -91,29 +91,33 @@ GRANT shared_public_owner TO gateway_service;
 GRANT shared_public_owner TO notification_service;
 
 -- ----------------------------------------------------------------------------
--- 3. Transfer ownership of all tenant-scoped `public` tables
+-- 3. Transfer ownership of genuinely cross-service `public` tables
 --
--- Discovered via:
---   SELECT table_name FROM information_schema.columns
---   WHERE table_schema='public' AND column_name IN ('tenantId','tenant_id');
+-- After P6-P8 of the 2026-04-14 teardown moved 10 single-owner tables
+-- to their proper service schemas, only four tables remain in `public`
+-- that need shared ownership (each is written by three or more
+-- services):
 --
--- If a new tenant-scoped table lands in `public`, add an ALTER TABLE here.
--- Better long-term: move the table to its owning service's schema.
+--   - audit_logs         shared audit trail (backend-common AuditLogEntity)
+--   - gdpr_data_requests shared compliance (GDPR data export requests)
+--   - user_consents      shared compliance (per-user consent records)
+--   - user_permissions   platform-wide RBAC (explicit `schema: 'public'`
+--                        in its entity, apps/admin-api-service/src/users/
+--                        entities/user-permissions.entity.ts:97)
+--
+-- P9 consolidates these into a dedicated `shared` schema. Until then
+-- they stay in `public` under shared_public_owner so every service's
+-- RLS bootstrap can ALTER them via role membership.
+--
+-- If a new tenant-scoped table lands in `public`, the architectural
+-- answer is always: add `schema:` to its @Entity decorator and write a
+-- SET SCHEMA migration in the owning service. Do not add it to this
+-- list unless it is genuinely shared across three or more services.
 -- ----------------------------------------------------------------------------
 ALTER TABLE IF EXISTS public.audit_logs              OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.channel_detection_log   OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.device_tokens           OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.employees               OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.feeder_calibrations     OWNER TO shared_public_owner;
 ALTER TABLE IF EXISTS public.gdpr_data_requests      OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.marine_observations     OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.notification_logs       OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.sensor_type_definitions OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.tenant_roles            OWNER TO shared_public_owner;
 ALTER TABLE IF EXISTS public.user_consents           OWNER TO shared_public_owner;
 ALTER TABLE IF EXISTS public.user_permissions        OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.weather_observations    OWNER TO shared_public_owner;
-ALTER TABLE IF EXISTS public.weather_settings        OWNER TO shared_public_owner;
 
 -- ----------------------------------------------------------------------------
 -- 4. Fix tenant_id / tenantId column-type drift (text/varchar → uuid)

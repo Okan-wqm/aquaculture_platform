@@ -33,7 +33,24 @@ import {
   AuditLogModule,
   AuditLogInterceptor,
   AuditColumnsModule,
+  createMigrationRunnerService,
 } from '@aquaculture/backend-common';
+
+/**
+ * HrMigrationRunnerService — runs pending TypeORM migrations in the hr
+ * source schema at OnApplicationBootstrap. Wired in P6-P8 of the
+ * 2026-04-14 teardown plan, replacing the app.module.ts:300 gap
+ * declaration ("hr-service has no TypeORM migration runner").
+ *
+ * First pending migration: 1786000400000-MoveEmployeesToHr (moves
+ * public.employees → hr.employees). Existing three migration files
+ * in src/database/migrations/ (CreateHRModuleSchema,
+ * CreateSchedulingTables, HRMediumFixes) will also execute if not
+ * already recorded in the migrations meta table — their idempotency
+ * guards handle re-applications on DBs where they were previously
+ * applied via SourceSchemaBootstrap synchronize.
+ */
+const HrMigrationRunnerService = createMigrationRunnerService('hr');
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
 import { HRModule } from './hr/hr.module';
@@ -153,6 +170,14 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
           EmployeeKPI,
         ],
         synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+        // Migrations executed by HrMigrationRunnerService at
+        // OnApplicationBootstrap (replaces the gap called out in
+        // app.module.ts:300 — "hr-service has no TypeORM migration
+        // runner"). Search_path pinning + per-migration transaction
+        // isolation + production hard-fail semantics apply.
+        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        migrationsRun: false,
+        migrationsTableName: 'migrations',
         logging: configService.get('NODE_ENV') === 'development',
         // SECURITY: SSL configuration with proper certificate validation
         ssl: (() => {
@@ -310,6 +335,8 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
     AuditColumnsModule.forRoot({ serviceName: 'hr' }),
   ],
   providers: [
+    // Migration runner — see const declaration near top of file.
+    HrMigrationRunnerService,
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
     // Must be FIRST guard (before tenant/roles) to verify request origin
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

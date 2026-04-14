@@ -12,7 +12,7 @@ import {
 import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 
 @ObjectType()
-@Entity('weather_settings')
+@Entity('weather_settings', { schema: 'farm' })
 export class WeatherSettings {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

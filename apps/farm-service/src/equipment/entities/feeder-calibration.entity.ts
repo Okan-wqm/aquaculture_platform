@@ -13,7 +13,7 @@ import {
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common';
 
-@Entity('feeder_calibrations')
+@Entity('feeder_calibrations', { schema: 'farm' })
 @Index(['tenantId', 'equipmentId', 'feedSizeMm'], { unique: true })
 export class FeederCalibration {
   @PrimaryGeneratedColumn('uuid')

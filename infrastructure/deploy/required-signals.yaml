@@ -1,0 +1,150 @@
+# Required Boot Signals Manifest (WS7 / ADR-016 Phase F)
+#
+# Declares the log signals each service MUST emit during boot. The
+# deploy gate scrapes `docker compose logs <service>` after the
+# criticality health check passes and fails the deploy if any
+# required signal is missing within the window.
+#
+# Why this exists:
+#   "Container healthy" is a necessary but not sufficient deploy
+#   success signal. A service can be `healthy` (DB reachable) yet
+#   silently fail to wire NATS, forget to run migrations, or skip
+#   the schema-drift validator. The 2026-04-14 cascade exposed two
+#   concrete cases where /health/live returned 200 but the service
+#   was running with an orphan config.
+#
+# Tier-1 Make-Impossible: missing signal = failed deploy = rollback.
+# Deploy success now requires both HEALTH and SIGNAL contracts.
+#
+# Signal-matching semantics:
+#   patterns are plain substring matches (not regex) so a developer
+#   adding a new signal only has to emit a canonical string, not
+#   escape regex metachars. The actual log strings are pinned to
+#   code paths — see `signalSource` in each signal block below.
+#
+# Window:
+#   Each signal has a `window_seconds` — how long after container
+#   start-up the signal must appear. Defaults to 60s. A service
+#   with a heavy cold-boot (migrations + drift scan) may need more.
+
+schema_version: 1
+
+defaults:
+  window_seconds: 120   # 2 minutes — covers typical migration +
+                        # schema-drift scan window on cold start.
+
+# ---------------------------------------------------------------------------
+# Signal library — the canonical substrings to grep for.
+# signalSource points to the code path that emits the string, so a
+# future rename gets caught by the same breaking-change discipline
+# that applies to event contracts.
+# ---------------------------------------------------------------------------
+signal_library:
+  nats_auth_mode_mtls:
+    pattern: "NATS auth mode: mtls-cert"
+    description: "NATS client connected with mtls-cert auth (ADR-014/015)"
+    signalSource: "platform/libs/event-bus/src/nats/nats-event-bus.ts"
+
+  schema_drift_clean:
+    pattern: "Schema drift scan clean"
+    description: "SchemaDriftValidator found zero violations (ADR-012)"
+    signalSource: "libs/backend-common/src/database/schema-drift-validator.service.ts"
+
+  migration_runner_applied:
+    pattern: "migration(s)"   # matches "Applied N migration(s): ..."
+    description: "Migration runner finished (could be zero applied — ok on warm start)"
+    signalSource: "libs/backend-common/src/database/migration-runner/migration-runner.service.ts"
+
+# ---------------------------------------------------------------------------
+# Per-service signal requirements. A service listed here MUST emit
+# every referenced signal within its window_seconds; otherwise the
+# deploy fails. Services not listed are not asserted.
+#
+# Scope choices:
+#   - All NATS-using services assert nats_auth_mode_mtls — cert auth
+#     is the ADR-015 invariant and a silent fallback to user-pass
+#     (which the server ignores) would look healthy but be broken.
+#   - All services with SchemaDriftModule.forRoot assert schema_drift_clean.
+#   - Services with a migration runner assert migration_runner_applied.
+# ---------------------------------------------------------------------------
+services:
+  - name: auth-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: farm-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: sensor-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+    window_seconds: 180   # sensor cold-boot installs TimescaleDB
+                          # continuous aggregates — heavier than most
+
+  - name: hr-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: messaging-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+    window_seconds: 180   # messaging sync + RLS per-tenant sweep
+
+  - name: hydroponics-service
+    signals:
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: alert-engine
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+
+  # ai-service omitted: not yet in docker-compose.droplet.yml. The
+  # NestJS module exists but no compose entry has landed, so there is
+  # no runtime container for the signal gate to scrape. Add an entry
+  # here in the same commit that introduces the compose service.
+
+  - name: billing-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: notification-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: admin-api-service
+    signals:
+      - nats_auth_mode_mtls
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: config-service
+    signals:
+      - schema_drift_clean
+      - migration_runner_applied
+
+  - name: observability-service
+    signals:
+      - schema_drift_clean
+
+  # gateway-api deliberately omitted: no DataSource, no migrations,
+  # no schema drift scanner (post-WS4 RlsModule cleanup). Its boot
+  # success signal is the /health/live gate already in the criticality
+  # manifest.

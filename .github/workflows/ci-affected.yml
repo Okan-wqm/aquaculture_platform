@@ -342,6 +342,12 @@ jobs:
       - name: Service criticality manifest coverage (WS6)
         run: node scripts/ci/validate-criticality-manifest.ts
 
+      # WS7 — required-signals manifest ↔ compose + signal_library
+      # internal consistency. Undefined signal references, drift from
+      # compose, or malformed window values fail the PR build.
+      - name: Required boot signals manifest (WS7)
+        run: node scripts/ci/validate-signals-manifest.ts
+
   # M-FE-03: npm audit on every PR — catches vulnerable dependencies before merge.
   # Only runs on PRs (not push to main) to avoid blocking deploys.
   security-audit:

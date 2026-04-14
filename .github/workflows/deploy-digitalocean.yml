@@ -1171,6 +1171,30 @@ jobs:
               exit 1
             fi
 
+            # ADR-016 Phase F / WS7 — boot-signal assertion. "Healthy"
+            # is necessary but not sufficient for deploy success — a
+            # service can be healthy while silently skipping NATS mTLS,
+            # schema-drift scan, or migration runner. This step greps
+            # `docker compose logs` for canonical signal strings
+            # declared in required-signals.yaml. Missing signal =
+            # failed deploy = rollback.
+            echo "=== Asserting boot signals ==="
+            if ! COMPOSE_FILE=docker-compose.droplet.yml \
+                 MANIFEST=infrastructure/deploy/required-signals.yaml \
+                 POLL_INTERVAL=10 \
+                 node scripts/deploy/assert-service-signals.ts; then
+              echo "::error::Boot signal assertion failed. Initiating rollback."
+              if [ -n "$PREV_GATEWAY" ]; then
+                echo "Rolling back to previous gateway image: ${PREV_GATEWAY}"
+                docker tag "${PREV_GATEWAY}" $(docker compose -f docker-compose.droplet.yml config | grep 'image:.*gateway-api' | awk '{print $2}' | head -1) 2>/dev/null || true
+                docker compose -f docker-compose.droplet.yml up -d --no-build --remove-orphans
+                echo "Rollback complete. Investigate why required signals did not fire."
+              else
+                echo "No previous image digest available; manual intervention required."
+              fi
+              exit 1
+            fi
+
             echo "=== Cleanup old images ==="
             docker image prune -f --filter "dangling=true"
             docker image prune -f --filter "until=24h" --filter "label!=deployed=current"

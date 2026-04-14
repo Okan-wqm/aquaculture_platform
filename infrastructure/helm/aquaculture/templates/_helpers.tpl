@@ -128,32 +128,40 @@ meaning any compromised service could forge tokens platform-wide.
 {{- end }}
 
 {{/*
-Per-service NATS credentials. Each service authenticates to NATS with its own
-account; subject-level ACLs in nats.conf enforce what that account may
-publish/subscribe. This helper sets the client-facing env vars NATS_AUTH_USER
-and NATS_AUTH_PASS from the per-service secret keys.
+Per-service NATS client cert mount (ADR-015: cert-is-identity).
+
+Each service authenticates to NATS via mTLS. Server runs `verify_and_map: true`
+(nats-tls-enabled.conf), mapping the client cert's CN directly to the NATS
+user — no username / password are sent in the CONNECT frame. This helper
+emits the cert + key + CA volume mounts and the NATS_TLS_* env vars that
+point at them.
 
 Usage:
-  {{- include "aquaculture.natsServiceEnv" (list . "Farm") | nindent 12 }}
+  {{- include "aquaculture.natsServiceEnv" (list . "farm_service") | nindent 12 }}
 
-The second argument is the PascalCase service name; it maps to secret keys
-`nats<Name>User` / `nats<Name>Pass` defined in templates/secrets.yaml.
-Valid values: Auth, Farm, Sensor, Gateway, Notification, Billing, Alert, Hr,
-Messaging, Hydroponics.
+The second argument is the lowercase snake_case service name from
+infrastructure/nats/services.yaml — it must match the cert CN baked in by
+generate-internal-certs.sh. Valid values:
+  auth_service, farm_service, sensor_service, gateway_service,
+  notification_service, billing_service, alert_engine, hr_service,
+  messaging_service, hydroponics_service.
+
+Historical: prior to ADR-015 this helper injected NATS_AUTH_USER /
+NATS_AUTH_PASS from a per-service Secret. Those env vars are removed;
+the server ignored them under verify_and_map anyway, and keeping them
+wired was the drift surface that caused the 2026-04-14 outage.
 */}}
 {{- define "aquaculture.natsServiceEnv" -}}
 {{- $root := index . 0 -}}
-{{- $prefix := index . 1 -}}
-- name: NATS_AUTH_USER
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "aquaculture.fullname" $root }}-secrets
-      key: nats{{ $prefix }}User
-- name: NATS_AUTH_PASS
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "aquaculture.fullname" $root }}-secrets
-      key: nats{{ $prefix }}Pass
+{{- $svcName := index . 1 -}}
+- name: NATS_TLS_ENABLED
+  value: "true"
+- name: NATS_TLS_CA
+  value: /etc/ssl/nats-ca.pem
+- name: NATS_TLS_CERT
+  value: /etc/ssl/nats-clients/{{ $svcName }}-cert.pem
+- name: NATS_TLS_KEY
+  value: /etc/ssl/nats-clients/{{ $svcName }}-key.pem
 {{- end }}
 
 {{/*

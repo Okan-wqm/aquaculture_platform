@@ -41,7 +41,7 @@ spec:
               protocol: TCP
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
-            {{- include "aquaculture.natsServiceEnv" (list . "Gateway") | nindent 12 }}
+            {{- include "aquaculture.natsServiceEnv" (list . "gateway_service") | nindent 12 }}
             - name: PORT
               value: {{ .Values.gatewayApi.service.targetPort | quote }}
           resources:

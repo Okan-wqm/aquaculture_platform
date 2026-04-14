@@ -432,35 +432,24 @@ secrets:
   # REQUIRED: HMAC pepper applied to user passwords before bcrypt (auth-service only).
   # Generate with: openssl rand -base64 48
   passwordPepper: ""
-  # REQUIRED: NATS connection URL (no credentials — each service authenticates with its per-service account below).
+  # REQUIRED: NATS connection URL. Must start with tls:// in production
+  # (mTLS is enforced by nats-tls-enabled.conf `verify: true`).
   # e.g. tls://nats:4222
   natsUrl: ""
-  # SECURITY (HIGH-001): per-service NATS credentials. Each service has its own
-  # account with subject-level ACLs in nats.conf. Injected into each backend
-  # deployment as NATS_AUTH_USER / NATS_AUTH_PASS (client side) and into the
-  # nats container as $NATS_<SERVICE>_USER / $NATS_<SERVICE>_PASS (server side).
-  # Generate passwords with: openssl rand -base64 32
-  natsAuth:
-    authUser: auth_service
-    authPass: ""
-    farmUser: farm_service
-    farmPass: ""
-    sensorUser: sensor_service
-    sensorPass: ""
-    gatewayUser: gateway_service
-    gatewayPass: ""
-    notificationUser: notification_service
-    notificationPass: ""
-    billingUser: billing_service
-    billingPass: ""
-    alertUser: alert_engine
-    alertPass: ""
-    hrUser: hr_service
-    hrPass: ""
-    messagingUser: messaging_service
-    messagingPass: ""
-    hydroponicsUser: hydroponics_service
-    hydroponicsPass: ""
+  # ADR-015 (cert-is-identity): per-service NATS identity comes from the
+  # mTLS client cert CN via `verify_and_map: true`. No user/password auth
+  # is configured — the CONNECT-frame user/pass fields are IGNORED by the
+  # server. Per-service cert material is distributed via the
+  # `nats-client-certs` secret (see templates/secrets.yaml) and mounted
+  # at /etc/ssl/nats-clients/<service_name>-{cert,key}.pem in each
+  # backend deployment. Rotation = `generate-internal-certs.sh` rerun;
+  # the single source of truth for service names is
+  # infrastructure/nats/services.yaml.
+  #
+  # The previous natsAuth.*User / .*Pass block was removed in the NATS
+  # SSoT refactor — keeping empty string passwords and redundant usernames
+  # would have preserved a drift surface (values.yaml ↔ nats.conf ↔ cert
+  # CN list) that ADR-015's single-source-of-truth explicitly eliminates.
   # REQUIRED: Stripe webhook signing key for billing-service's
   # stripe-webhook.controller.ts — verifies HMAC on every inbound Stripe
   # event. Obtain from Stripe Dashboard → Developers → Webhooks → your

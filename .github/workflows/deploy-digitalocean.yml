@@ -87,7 +87,12 @@ jobs:
           set -euo pipefail
 
           # ── Service definitions ──
-          ALL_BACKEND=(gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service)
+          # WS10: db-migrate is a one-shot tooling container that bundles
+          # every service's migrations; it ships as a backend image but is
+          # NOT a subgraph (gateway federation / CORS unaffected). Listed
+          # first so the deploy workflow's selective-deploy logic pulls
+          # the latest migration image before restarting service containers.
+          ALL_BACKEND=(db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service)
           ALL_FRONTEND=(shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil)
           NX_FRONTEND=(shell dashboard farm-module admin-panel tenant-admin)
           NON_NX_FRONTEND=(sensor-module hr-module hydroponics-module)
@@ -154,6 +159,20 @@ jobs:
                       AFFECTED_BACKEND+=("$svc")
                     fi
                   done
+
+                  # WS10: db-migrate bundles every service's migration files
+                  # (per apps/db-migrate/tsconfig.build.json). A migration
+                  # change in any service MUST also rebuild db-migrate so
+                  # the one-shot container ships with the latest migration
+                  # class set. apps/db-migrate/ itself is already covered by
+                  # the ALL_BACKEND loop above; this rule catches migration
+                  # changes under other services' trees.
+                  if echo "$CHANGED" | grep -qE "^apps/[^/]+/src/(database/)?migrations/"; then
+                    case " ${AFFECTED_BACKEND[*]} " in
+                      *" db-migrate "*) ;;  # already flagged
+                      *) AFFECTED_BACKEND+=("db-migrate") ;;
+                    esac
+                  fi
 
                   # Detect individual frontend modules
                   SHARED_UI_CHANGED=false
@@ -615,12 +634,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # WS10: pick the right Dockerfile per service. db-migrate uses its
+      # own Dockerfile (no HEALTHCHECK, one-shot CMD) while every other
+      # backend shares the Dockerfile.backend.simple posture.
+      - name: Select Dockerfile
+        id: dockerfile
+        run: |
+          if [ "${{ matrix.service }}" = "db-migrate" ]; then
+            echo "file=infrastructure/docker/Dockerfile.db-migrate" >> $GITHUB_OUTPUT
+          else
+            echo "file=infrastructure/docker/Dockerfile.backend.simple" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push ${{ matrix.service }}
         # SEC-CI-002: pinned to SHA
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
-          file: infrastructure/docker/Dockerfile.backend.simple
+          file: ${{ steps.dockerfile.outputs.file }}
           push: true
           tags: |
             ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ env.TAG }}
@@ -1023,6 +1054,41 @@ jobs:
               docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
                 docker exec aqua-postgres psql -U "${POSTGRES_USER:-aquaculture}" -c "CREATE DATABASE aquaculture_observability" 2>&1 || true
 
+              # ─────────────────────────────────────────────────────────────
+              # WS10 / ADR-016 Phase E — one-shot schema migration container.
+              #
+              # Run aqua-db-migrate BEFORE service containers so schema state
+              # is at the known-good version when gateway-api / auth-service
+              # / every other backend boots.
+              #
+              # --exit-code-from aqua-db-migrate: compose blocks until the
+              # container exits and surfaces its exit code to the script.
+              # Exit 0 → proceed. Non-zero → abort deploy BEFORE service
+              # containers ever start (services' depends_on
+              # service_completed_successfully would enforce this at
+              # compose level too, but the explicit early exit here gives
+              # the operator a clear failure signal without compose's
+              # more verbose error output).
+              #
+              # Phase 1 backward-compat: if the migration container fails
+              # (exit code != 0), the deploy aborts. Services' own
+              # createMigrationRunnerService is still in place as a
+              # safety-net, but operators MUST fix the upstream issue
+              # rather than relying on the fallback.
+              # ─────────────────────────────────────────────────────────────
+              echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
+              # Pull the migration image separately so its failure doesn't
+              # cascade into the service-container pull logic below.
+              docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
+              if ! docker compose -f docker-compose.droplet.yml \
+                    up --no-build --abort-on-container-exit \
+                    --exit-code-from db-migrate db-migrate; then
+                echo "::error::aqua-db-migrate failed — schema migration aborted BEFORE service containers started."
+                echo "Inspect logs: docker logs aqua-db-migrate"
+                exit 1
+              fi
+              echo "  aqua-db-migrate completed successfully"
+
               echo "=== Starting all services ==="
               docker compose -f docker-compose.droplet.yml up -d --no-build 2>&1 || true
 
@@ -1099,6 +1165,30 @@ jobs:
               echo "=== Ensuring infrastructure is running ==="
               docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis nats mosquitto minio nginx 2>&1 || true
               sleep 5
+
+              # ─────────────────────────────────────────────────────────────
+              # WS10 / ADR-016 Phase E — one-shot schema migration container.
+              #
+              # Even on a selective deploy, run aqua-db-migrate before the
+              # affected services restart. Pending migrations only land on
+              # services that were changed, but the migration SET typically
+              # spans schemas a service change did not touch (e.g. a shared
+              # auth-schema tenant_id column rename lands in auth-service's
+              # own migration but other services' RLS policies depend on
+              # the new column name). Running the full migration pass keeps
+              # schema state coherent regardless of which services this
+              # deploy restarts.
+              # ─────────────────────────────────────────────────────────────
+              echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
+              docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
+              if ! docker compose -f docker-compose.droplet.yml \
+                    up --no-build --abort-on-container-exit \
+                    --exit-code-from db-migrate db-migrate; then
+                echo "::error::aqua-db-migrate failed — selective deploy aborted BEFORE restarting services."
+                echo "Inspect logs: docker logs aqua-db-migrate"
+                exit 1
+              fi
+              echo "  aqua-db-migrate completed successfully"
 
               echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
               for svc in ${DEPLOY_SERVICES}; do

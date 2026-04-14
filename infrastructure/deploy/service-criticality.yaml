@@ -162,6 +162,16 @@ services:
     level: ignored
     reason: one-shot container that exits 0 when init finishes
 
+  - name: db-migrate
+    level: ignored
+    reason: >-
+      WS10 / ADR-016 Phase E Phase 1 — one-shot schema migration runner.
+      Compose service `db-migrate` (container_name `aqua-db-migrate`).
+      Exits 0 after applying pending migrations; deploy workflow gates on
+      the container's exit code directly (service_completed_successfully
+      in backend services' depends_on). Like db-init, there is no runtime
+      healthcheck to poll — the SUCCESS signal is the exit code.
+
   - name: mosquitto
     level: ignored
     reason: MQTT broker; sensor-service probes it as a ready-check

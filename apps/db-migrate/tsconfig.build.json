@@ -1,0 +1,52 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../dist/apps/db-migrate",
+    "rootDir": "../..",
+    "module": "commonjs",
+    "target": "ES2021",
+    "types": [
+      "node"
+    ],
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "removeComments": true,
+    "strictPropertyInitialization": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../libs/backend-common/src/**/*.ts",
+    "../auth-service/src/migrations/**/*.ts",
+    "../farm-service/src/database/migrations/**/*.ts",
+    "../sensor-service/src/database/migrations/**/*.ts",
+    "../hr-service/src/database/migrations/**/*.ts",
+    "../messaging-service/src/migrations/**/*.ts",
+    "../messaging-service/src/database/migrations/**/*.ts",
+    "../hydroponics-service/src/database/migrations/**/*.ts",
+    "../alert-engine/src/database/migrations/**/*.ts",
+    "../billing-service/src/database/migrations/**/*.ts",
+    "../notification-service/src/database/migrations/**/*.ts",
+    "../ai-service/src/database/migrations/**/*.ts",
+    "../admin-api-service/src/migrations/**/*.ts",
+    "../config-service/src/database/migrations/**/*.ts",
+    "../observability-service/src/database/migrations/**/*.ts",
+    "../event-store-service/src/migrations/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.e2e-spec.ts",
+    "jest.config.ts",
+    "../../libs/testing/**",
+    "../../libs/backend-common/src/**/*.spec.ts",
+    "../../libs/backend-common/src/**/*.test.ts",
+    "../../libs/backend-common/src/**/__tests__/**",
+    "src/**/__tests__/**",
+    "src/**/test-utils/**",
+    "src/**/test-helpers/**",
+    "src/**/*.e2e-spec.ts"
+  ]
+}

@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1.4
+# =============================================================================
+# aqua-db-migrate — one-shot schema migration runner.
+# WS10 / ADR-016 Phase E — Phase 1 (backward-compatible).
+#
+# Usage:
+#   docker compose -f docker-compose.droplet.yml up --exit-code-from aqua-db-migrate
+#
+# This image exists to isolate schema-level migrations from per-service
+# bootstrap. With 14 services restarting in parallel on
+# OnApplicationBootstrap, race conditions on shared resources (shared-
+# schema RLS install, source-schema DDL feeding tenant-clone, TimescaleDB
+# hypertable continuous-aggregate creation) become real. A dedicated
+# one-shot container owns that contention window.
+#
+# Phase 1 boundary: this container runs ALONGSIDE every service's own
+# createMigrationRunnerService. If this container fails, services still
+# boot (their own runners re-apply the same migrations, idempotently).
+# Phase 2 removes per-service runners — requires staging-first
+# validation (WS9 / TRACKED-DEPLOY-003).
+#
+# Same base + hardening posture as Dockerfile.backend.simple so the
+# image is reviewable under the same security rules.
+# =============================================================================
+FROM node:22.12.0-bookworm-slim AS base
+
+# dumb-init as PID 1 for correct SIGTERM delivery when compose tears down
+# the one-shot container. curl is kept only for pre-start connectivity
+# checks operators may want to run via `docker exec`.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl dumb-init && \
+    rm -rf /var/lib/apt/lists/*
+
+# Non-root user identical to the per-service images so the container's
+# filesystem ownership matches if someone shells in for debugging.
+RUN groupadd --gid 1001 nodejs && \
+    useradd --uid 1001 --gid nodejs --no-create-home --shell /bin/sh nestjs
+
+WORKDIR /app
+
+# Production-only dependency install — typeorm + pg + reflect-metadata
+# are in the root package.json so installing production deps here
+# pulls everything this container needs.
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm,sharing=shared \
+    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit && \
+    chown -R nestjs:nodejs /app/node_modules
+
+# Bundle layout: host-built dist/apps/db-migrate/* mirrors the same
+# "main.js is a shim pointing at apps/db-migrate/src/main.js" convention
+# that every service uses — see tools/build/build-service.sh.
+COPY --chown=nestjs:nodejs dist/apps/db-migrate ./dist
+
+ENV NODE_ENV=production
+
+# No HEALTHCHECK — this is a one-shot container. The deploy workflow
+# gates on `service_completed_successfully` via compose depends_on,
+# not on a healthcheck poll.
+
+USER nestjs
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/main.js"]

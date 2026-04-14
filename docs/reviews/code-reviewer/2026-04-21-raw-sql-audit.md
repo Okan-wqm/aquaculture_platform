@@ -112,6 +112,21 @@ All hits in this bucket use raw SQL because no Repository-pattern equivalent exi
 - **Contradictory reference:** `apps/admin-api-service/src/auth/password-reset.controller.ts:251` uses `SET password = $1` (correct). So admin-api has TWO inconsistent code paths writing the same field, proving this is drift, not an intentional column rename.
 - **Recommended fix:** Inject `Repository<User>`, use `repo.create({ email, firstName, lastName, password: hashedPassword, role, tenantId, isActive: true })` + `repo.save()`. Delete raw SQL. Same for resetPassword → `repo.update(id, { password: hashedPassword })`.
 
+#### 1b. `apps/admin-api-service/src/users/users.service.ts:548,655,629` — CRITICAL-002
+
+Sibling finding opened during the CRITICAL-001 fix. The password-writing paths (INSERT, UPDATE password) are the ONLY ones CRITICAL-001 strictly covers — rename drift there crashes at runtime, which is why it was SEVERITY-CRITICAL. But the same file has THREE more raw-SQL writes against `auth.*` that do NOT crash today (columns match the entity) yet carry the same service-ownership violation:
+
+- **Line 548** — `UPDATE auth.users SET "firstName"=$N, "lastName"=$N, role=$N, "tenantId"=$N, "isActive"=$N` (updateUser). All columns currently match the User entity. Drift-prone: next time the entity renames a column (e.g., `isActive` → `active`), this path silently drifts.
+- **Line 655** — `UPDATE auth.users SET "isActive"=false WHERE id=$1` (deleteUser soft-delete). Same class.
+- **Line 629** — `DELETE FROM auth.refresh_tokens WHERE "userId"=$1` (forceLogout). Cross-schema write to `auth.refresh_tokens` without going through auth-service.
+
+- **Severity:** CRITICAL (service-boundary violation; latent column drift). Not runtime-crashing today, so escalated to CRITICAL-002 rather than included inside CRITICAL-001's ship-blocker scope.
+- **Tracked:** `CRITICAL-002` — owner: auth-security-expert. Deadline: 2026-04-28 (end of WS5 Week 2 per `docs/plans/polished-brewing-knuth.md`). Blocks: closing WS5 Bucket B for admin-api-service.
+- **Recommended fix:** Extend `AuthAdminNatsHandler` with `UPDATE_USER`, `DEACTIVATE_USER`, `FORCE_LOGOUT_USER` message patterns; add matching methods on `UserLifecycleService`; migrate the three `UsersService` methods to `sendAuthCommand()`. Same pattern as CRITICAL-001 fix.
+- **Why split from CRITICAL-001:** CRITICAL-001 scope was column drift on the password column (ship-blocker). The remaining three paths are structurally identical service-boundary violations but non-blocking. Separating them keeps the ship-blocker commit focused and auditable; silently extending scope inside a CRITICAL-001 commit would violate the "one architectural finding = one traceable commit" rule.
+
+---
+
 #### 2. `apps/admin-api-service/src/modules/modules.service.ts` (22 hits)
 - **SQL (line 117):** `COALESCE(m.is_core, false) = $${paramIndex++}`
 - **SQL (line 140):** `COALESCE(m.is_core, false) as "isCore"`
@@ -593,6 +608,7 @@ This audit produces no code changes. It produces the findings catalog that Week 
 Finding ID anchors (for `Closes:` references):
 
 - `CRITICAL-001` → finding #1 (admin-api users.service.ts passwordHash drift)
+- `CRITICAL-002` → finding #1b (admin-api users.service.ts remaining auth.* raw writes — updateUser/deleteUser/forceLogout; service-boundary violation with latent column drift)
 - `HIGH-001` through `HIGH-044` → findings #2 through #45 in Bucket B
 - `ARCH-HIGH-001` through `ARCH-HIGH-006` → architectural out-of-scope findings
 - `ARCH-MEDIUM-001` → runtime DDL cleanup

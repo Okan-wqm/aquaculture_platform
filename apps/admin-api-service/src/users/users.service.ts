@@ -1,7 +1,33 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 import { InjectDataSource } from '@nestjs/typeorm';
-import * as bcryptjs from 'bcryptjs';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminCreateUserCommand,
+  type AdminCreateUserResult,
+  type AdminResetUserPasswordCommand,
+  type AdminResetUserPasswordResult,
+} from '@platform/event-contracts';
+import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
+
+/**
+ * Default NATS request timeout when AUTH_NATS_TIMEOUT_MS is not configured.
+ * 15 s matches the messaging-admin NATS client and leaves headroom for
+ * bcrypt cost rounds 12+ on the auth-service worker.
+ */
+const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
 export interface UserFilter {
   tenantId?: string;
@@ -67,10 +93,19 @@ export interface UserSession {
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
+  private readonly authNatsTimeoutMs: number;
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-  ) {}
+    @Inject('AUTH_NATS_CLIENT')
+    private readonly authNatsClient: ClientProxy,
+  ) {
+    const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
+    this.authNatsTimeoutMs = Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+  }
 
   /**
    * List all users with filtering and pagination
@@ -394,7 +429,19 @@ export class UsersService {
   }
 
   /**
-   * Create new user
+   * Create a new user.
+   *
+   * Delegates to auth-service over NATS (see AuthAdminNatsHandler). The
+   * raw-SQL INSERT against `auth.users` was deleted here because
+   * admin-api-service is NOT the owner of the auth schema — auth-service
+   * is, via the `User` TypeORM entity. Writing through that entity is the
+   * only way to guarantee the `password` column name and the
+   * HMAC-peppered bcrypt hook stay in lock-step with the rest of the
+   * authentication system. CRITICAL-001 in
+   * `docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md` documents the
+   * column-drift bug (`passwordHash` vs `password`) that previously lived
+   * in this method; routing through NATS makes that class of bug
+   * structurally impossible.
    */
   async createUser(dto: {
     email: string;
@@ -404,32 +451,49 @@ export class UsersService {
     role: string;
     tenantId?: string;
   }): Promise<UserDto> {
-    try {
-      const hashedPassword = await bcryptjs.hash(dto.password, 12);
+    const command: AdminCreateUserCommand = {
+      email: dto.email,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      password: dto.password,
+      role: dto.role,
+      tenantId: dto.tenantId ?? null,
+    };
 
-      const result = await this.dataSource.query(
-        `
-        INSERT INTO auth.users (email, "firstName", "lastName", "passwordHash", role, "tenantId", "isActive")
-        VALUES ($1, $2, $3, $4, $5, $6, true)
-        RETURNING id, email, "firstName", "lastName", role,
-                  "tenantId", "isActive", "createdAt"
-      `,
-        [
-          dto.email.toLowerCase(),
-          dto.firstName,
-          dto.lastName,
-          hashedPassword,
-          dto.role,
-          dto.tenantId || null,
-        ],
-      );
+    const result = await this.sendAuthCommand<AdminCreateUserCommand, AdminCreateUserResult>(
+      AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_USER,
+      command,
+    );
 
-      this.logger.log(`Created user: ${dto.email}`);
-      return result[0];
-    } catch (error) {
-      this.logger.error(`Failed to create user: ${(error as Error).message}`);
-      throw error;
+    if (!result.success || !result.user) {
+      throw this.mapCreateError(result);
     }
+
+    // Enrich with tenantName (read-only join kept local — NOT a write path).
+    let tenantName: string | null = null;
+    if (result.user.tenantId) {
+      tenantName = await this.getTenantName(result.user.tenantId);
+    }
+
+    // SECURITY: log user ID, not email (PII).
+    this.logger.log(`Created user userId=${result.user.id}`);
+
+    // Shape back into the REST DTO the controller exposes. updatedAt is
+    // not returned by the create handler; mirror createdAt (the rows are
+    // set equal at insert time).
+    return {
+      id: result.user.id,
+      email: result.user.email,
+      firstName: result.user.firstName ?? '',
+      lastName: result.user.lastName ?? '',
+      role: result.user.role,
+      tenantId: result.user.tenantId,
+      tenantName,
+      isActive: result.user.isActive,
+      lastLoginAt: null,
+      createdAt: new Date(result.user.createdAt),
+      updatedAt: new Date(result.user.createdAt),
+    };
   }
 
   /**
@@ -511,36 +575,47 @@ export class UsersService {
   }
 
   /**
-   * Reset user password
+   * Reset a user's password (SUPER_ADMIN out-of-band flow).
+   *
+   * Delegates to auth-service over NATS (see AuthAdminNatsHandler). Same
+   * ownership rationale as `createUser`: auth-service owns the schema,
+   * and the `User` entity's `@BeforeUpdate` hook is the only correct place
+   * to apply HMAC-peppered bcrypt. The previous raw SQL targeted a
+   * non-existent `passwordHash` column (CRITICAL-001) — that bug class is
+   * now structurally impossible because admin-api no longer names columns.
+   *
+   * Side-effect on auth-service: ALL refresh tokens for the user are
+   * revoked. The returned `success` flag does not surface that count
+   * because the existing REST contract with the admin-panel is
+   * `{ success: boolean }` only.
    */
   async resetPassword(
     id: string,
     newPassword: string,
+    performedBy?: string,
   ): Promise<{ success: boolean }> {
-    try {
-      const hashedPassword = await bcryptjs.hash(newPassword, 12);
+    const command: AdminResetUserPasswordCommand = {
+      userId: id,
+      newPassword,
+      // When invoked without an explicit actor, record the admin-api
+      // service itself as the actor. A follow-up will plumb @CurrentUser
+      // through the controller so this is always populated.
+      performedBy: performedBy ?? 'admin-api-service',
+    };
 
-      const result = await this.dataSource.query(
-        `
-        UPDATE auth.users
-        SET "passwordHash" = $1, "updatedAt" = NOW()
-        WHERE id = $2
-        RETURNING id
-      `,
-        [hashedPassword, id],
-      );
+    const result = await this.sendAuthCommand<
+      AdminResetUserPasswordCommand,
+      AdminResetUserPasswordResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.RESET_USER_PASSWORD, command);
 
-      if (!result[0]) {
-        throw new NotFoundException(`User with ID ${id} not found`);
-      }
-
-      this.logger.log(`Password reset for user: ${id}`);
-      return { success: true };
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      this.logger.error(`Failed to reset password: ${(error as Error).message}`);
-      throw error;
+    if (!result.success) {
+      throw this.mapResetError(result);
     }
+
+    this.logger.log(
+      `Password reset for userId=${id}, refreshTokensRevoked=${result.refreshTokensRevoked ?? 0}`,
+    );
+    return { success: true };
   }
 
   /**
@@ -611,4 +686,92 @@ export class UsersService {
     }
   }
 
+  // ==========================================================================
+  // NATS delegation helpers
+  // ==========================================================================
+
+  /**
+   * Send a request-reply to auth-service via the shared NATS client.
+   *
+   * Mirrors the error-translation pattern in
+   * `MessagingAdminController.sendNatsRequest` — timeouts map to 504,
+   * connection issues to 503, and domain exceptions flow through as HTTP
+   * exceptions so the REST layer surfaces them unchanged.
+   */
+  private async sendAuthCommand<TCommand, TResult>(
+    subject: string,
+    command: TCommand,
+  ): Promise<TResult> {
+    try {
+      return await firstValueFrom(
+        this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
+          timeout(this.authNatsTimeoutMs),
+          catchError((err: Error) => {
+            // SECURITY: log only the subject + error message, never the
+            // command payload (it contains plaintext passwords).
+            this.logger.error(
+              `NATS request failed: subject=${subject}, error=${err.message}`,
+            );
+            return throwError(() => err);
+          }),
+        ),
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+
+      if (message.includes('Timeout')) {
+        throw new HttpException(
+          `Auth service did not respond within ${this.authNatsTimeoutMs}ms`,
+          HttpStatus.GATEWAY_TIMEOUT,
+        );
+      }
+
+      if (message.includes('not connected') || message.includes('CONN_CLOSED')) {
+        throw new ServiceUnavailableException(
+          'Auth service is currently unavailable',
+        );
+      }
+
+      if (err instanceof HttpException) throw err;
+      throw new HttpException(
+        `Auth service error: ${message}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
+
+  /**
+   * Translate an `AdminCreateUserResult` failure code into the REST
+   * exception the controller layer expects. Using a fixed vocabulary
+   * keeps the NATS contract stable across future refactors on either
+   * side of the boundary.
+   */
+  private mapCreateError(result: AdminCreateUserResult): HttpException {
+    const msg = result.error ?? 'Failed to create user';
+    switch (result.errorCode) {
+      case 'DUPLICATE_EMAIL':
+        return new ConflictException(msg);
+      case 'TENANT_NOT_FOUND':
+        return new NotFoundException(msg);
+      case 'INVALID_ROLE':
+      case 'VALIDATION_ERROR':
+        return new BadRequestException(msg);
+      case 'INTERNAL_ERROR':
+      default:
+        return new InternalServerErrorException(msg);
+    }
+  }
+
+  private mapResetError(result: AdminResetUserPasswordResult): HttpException {
+    const msg = result.error ?? 'Failed to reset password';
+    switch (result.errorCode) {
+      case 'USER_NOT_FOUND':
+        return new NotFoundException(msg);
+      case 'VALIDATION_ERROR':
+        return new BadRequestException(msg);
+      case 'INTERNAL_ERROR':
+      default:
+        return new InternalServerErrorException(msg);
+    }
+  }
 }

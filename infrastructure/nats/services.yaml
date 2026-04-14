@@ -81,6 +81,12 @@ services:
       - "_INBOX.>"
     subscribe:
       - "AQUACULTURE_EVENTS.>"
+      # NestJS microservice transport — admin-api → auth-service RPC.
+      # AuthAdminNatsHandler handles `request.auth.admin.createUser` and
+      # `request.auth.admin.resetUserPassword`. This replaces the
+      # admin-api raw-SQL writes against `auth.users` that CRITICAL-001
+      # flagged (docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md).
+      - "request.auth.>"
       - "$JS.API.>"
       - "_INBOX.>"
 

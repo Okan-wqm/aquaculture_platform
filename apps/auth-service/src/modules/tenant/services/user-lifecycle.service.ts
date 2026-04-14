@@ -326,6 +326,136 @@ export class UserLifecycleService {
   }
 
   // ==========================================================================
+  // Admin (SUPER_ADMIN) user lifecycle — NATS-RPC targets
+  // ==========================================================================
+
+  /**
+   * Admin-initiated user creation.
+   *
+   * Used by the SUPER_ADMIN flow on admin-api-service — a platform operator
+   * creates a user record at an arbitrary role (including SUPER_ADMIN) for
+   * any tenant (or for no tenant at all, in the case of platform-level
+   * SUPER_ADMIN accounts).
+   *
+   * This method writes through the TypeORM User repository only. The
+   * `password` column name is sourced from the `User` entity definition
+   * once; any raw-SQL alternative risks column drift, which is exactly the
+   * bug this method was created to eliminate (CRITICAL-001 in
+   * `docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md`). The entity's
+   * `@BeforeInsert` hook applies the platform's HMAC-peppered bcrypt, so the
+   * caller MUST NOT pre-hash.
+   *
+   * Differs from `createUser()` in that:
+   *  - No tenant-role (`user_role_assignments`) is created. Admin-created
+   *    users are bound to the global `role` column only; any tenant-role
+   *    assignment is a subsequent step by a tenant admin.
+   *  - Tenant is optional (NULL for SUPER_ADMIN platform accounts).
+   *  - No invitation token is issued; the admin already set the password.
+   *
+   * @throws ConflictException on duplicate email (case-insensitive)
+   * @throws NotFoundException when a non-null `tenantId` does not resolve
+   * @throws BadRequestException on unknown role
+   */
+  async adminCreateUser(input: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+    role: string;
+    tenantId?: string | null;
+  }): Promise<User> {
+    const normalisedEmail = input.email.toLowerCase();
+
+    // Duplicate-email guard — expression index `LOWER(email)` enforces this
+    // at the DB level too, but catching it in-service gives a clean typed
+    // error surface for the NATS handler.
+    const existing = await this.userRepository.findOne({ where: { email: normalisedEmail } });
+    if (existing) {
+      throw new ConflictException(`User with email "${input.email}" already exists`);
+    }
+
+    // Role validation — only known role values are accepted. Rejecting
+    // unknown strings prevents an admin from typoing a role into existence
+    // (the column is `varchar`, so TypeORM would accept any string).
+    if (!(Object.values(Role) as string[]).includes(input.role)) {
+      throw new BadRequestException(`Unknown role "${input.role}"`);
+    }
+    const role = input.role as Role;
+
+    // Tenant validation — when a tenantId is provided it MUST resolve to
+    // an active tenant. SUPER_ADMIN accounts legitimately pass null.
+    if (input.tenantId) {
+      const tenant = await this.tenantRepository.findOne({ where: { id: input.tenantId } });
+      if (!tenant) {
+        throw new NotFoundException(`Tenant with ID "${input.tenantId}" not found`);
+      }
+    }
+
+    // Write via TypeORM entity — @BeforeInsert hashes the password.
+    const newUser = this.userRepository.create({
+      email: normalisedEmail,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      password: input.password,
+      role,
+      tenantId: input.tenantId ?? null,
+      isActive: true,
+      isEmailVerified: false,
+    });
+
+    const saved = await this.userRepository.save(newUser);
+    // SECURITY: Log user ID only; email is PII (H-14).
+    this.logger.log(`Admin-created user userId=${saved.id} role=${saved.role}`);
+    return saved;
+  }
+
+  /**
+   * Admin-initiated password reset (out-of-band, not via reset-token flow).
+   *
+   * Writes the new password through the TypeORM User repository — the
+   * entity's `@BeforeUpdate` hook applies HMAC-peppered bcrypt. Caller MUST
+   * NOT pre-hash.
+   *
+   * SECURITY side-effects (mirrors the self-service reset flow):
+   *  - Clears any outstanding password-reset token (single-use invariant).
+   *  - Resets failed-login counters and lockout window.
+   *  - Revokes ALL refresh tokens for the user — the admin reset forces
+   *    full re-authentication on every device. Access tokens remain valid
+   *    until they expire (≤ 15m by platform default).
+   *
+   * @throws NotFoundException when the userId does not resolve
+   */
+  async adminResetPassword(
+    userId: string,
+    newPassword: string,
+  ): Promise<{ userId: string; refreshTokensRevoked: number }> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    user.password = newPassword;
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+    await this.userRepository.save(user);
+
+    // Revoke ALL refresh tokens. `update()` returns UpdateResult; affected
+    // is populated by Postgres driver. Default to 0 when driver omits it.
+    const revokeResult = await this.refreshTokenRepository.update(
+      { userId, isRevoked: false },
+      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Admin password reset' },
+    );
+    const refreshTokensRevoked = revokeResult.affected ?? 0;
+
+    this.logger.log(
+      `Admin password reset for userId=${user.id}, refreshTokensRevoked=${refreshTokensRevoked}`,
+    );
+    return { userId: user.id, refreshTokensRevoked };
+  }
+
+  // ==========================================================================
   // Private helpers
   // ==========================================================================
 

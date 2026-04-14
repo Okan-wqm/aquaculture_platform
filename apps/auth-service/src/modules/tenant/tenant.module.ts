@@ -11,6 +11,7 @@ import { Module as SystemModule } from '../system-module/entities/module.entity'
 import { MobileUserSettings } from './entities/mobile-user-settings.entity';
 import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
 import { Tenant } from './entities/tenant.entity';
+import { AuthAdminNatsHandler } from './handlers/auth-admin-nats.handler';
 import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
 import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
 import { TenantRoleResolver } from './resolvers/tenant-role.resolver';
@@ -35,6 +36,11 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     ]),
     EventBusModule,
   ],
+  // AuthAdminNatsHandler is declared in `controllers` (not `providers`) —
+  // NestJS microservice transport discovers @MessagePattern subscribers by
+  // scanning `controllers`. Declaring it as a provider would make the DI
+  // container happy but the NATS subscriber would never register.
+  controllers: [AuthAdminNatsHandler],
   providers: [
     TenantService,
     TenantAdminService,

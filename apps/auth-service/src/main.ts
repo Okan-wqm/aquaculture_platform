@@ -14,4 +14,9 @@ bootstrapService(AppModule, {
   // CSP is handled by the edge nginx — auth-service sits behind gateway behind nginx
   helmetOptions: { contentSecurityPolicy: false },
   prefixExclusions: ['health', 'health/live', 'health/ready', 'metrics'],
+  // NATS microservice transport — exposes `request.auth.admin.*` message
+  // patterns (see AuthAdminNatsHandler). This replaces the previous
+  // admin-api-service → raw SQL INSERT/UPDATE path against `auth.users`
+  // (CRITICAL-001), making column drift structurally impossible.
+  natsTransport: { queue: 'auth-service' },
 });

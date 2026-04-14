@@ -141,6 +141,123 @@ export interface RollbackTenantProvisioningCommand {
   correlationId?: string;
 }
 
+// ==================== Admin User Lifecycle (SUPER_ADMIN ops) ====================
+
+/**
+ * NATS subject constants for admin-api → auth-service user lifecycle
+ * commands. Consumed by AuthAdminNatsHandler on auth-service.
+ *
+ * Architectural rule enforced by these contracts:
+ *   admin-api-service MUST NOT write to auth.* tables directly.
+ *   All writes are delegated to auth-service which owns the schema.
+ *   The request/response shapes flow through the TypeORM User entity
+ *   on auth-service, so schema drift between the JSON payload and the
+ *   actual column names is structurally impossible — the entity is the
+ *   single writer and the column name is defined once on the entity.
+ */
+export const AUTH_ADMIN_COMMAND_SUBJECTS = {
+  CREATE_USER: 'request.auth.admin.createUser',
+  RESET_USER_PASSWORD: 'request.auth.admin.resetUserPassword',
+} as const;
+
+/**
+ * Command to create a user by a SUPER_ADMIN operator.
+ *
+ * Sent via NATS request-reply to the auth-service which owns auth.users.
+ * The auth-service writes through the User TypeORM entity — the entity's
+ * @BeforeInsert hook applies HMAC-peppered bcrypt to the password, so the
+ * caller MUST NOT pre-hash.
+ *
+ * Unlike the tenant-scoped CreateTenantAdminCommand (first-admin bootstrap
+ * flow), this command is used by platform operators to create users at
+ * arbitrary roles, for any tenant, without sending an invitation.
+ */
+export interface AdminCreateUserCommand {
+  /** User email — unique, lowercased by handler */
+  email: string;
+  /** Given name */
+  firstName: string;
+  /** Family name */
+  lastName: string;
+  /**
+   * Plaintext password — the auth-service User entity's @BeforeInsert
+   * hook applies the platform's HMAC-peppered bcrypt. The admin MUST NOT
+   * pre-hash. Plaintext never touches a log line (SENSITIVE_FIELDS mask).
+   */
+  password: string;
+  /** Platform role (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER) */
+  role: string;
+  /** Tenant UUID — NULL for SUPER_ADMIN users */
+  tenantId?: string | null;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+/**
+ * Result returned by the auth-service after processing AdminCreateUserCommand.
+ * Shape mirrors the fields admin-api surfaces via its REST UserDto — no
+ * sensitive fields (password hash, reset tokens, MFA secrets) are returned.
+ */
+export interface AdminCreateUserResult {
+  success: boolean;
+  user?: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    role: string;
+    tenantId: string | null;
+    isActive: boolean;
+    createdAt: string;
+  };
+  /** Error code from a fixed vocabulary so callers can map to HTTP status */
+  errorCode?:
+    | 'DUPLICATE_EMAIL'
+    | 'TENANT_NOT_FOUND'
+    | 'INVALID_ROLE'
+    | 'VALIDATION_ERROR'
+    | 'INTERNAL_ERROR';
+  /** Human-readable error detail (safe for logs — no PII) */
+  error?: string;
+}
+
+/**
+ * Command to reset a user's password by SUPER_ADMIN operator (out-of-band).
+ *
+ * Sent via NATS request-reply to the auth-service. The entity's
+ * @BeforeUpdate hook applies the platform's HMAC-peppered bcrypt; caller
+ * MUST NOT pre-hash. On successful reset, auth-service revokes ALL refresh
+ * tokens for the user — the admin's reset is a security event that forces
+ * full re-authentication on every device.
+ */
+export interface AdminResetUserPasswordCommand {
+  /** Target user UUID */
+  userId: string;
+  /**
+   * Plaintext new password — auth-service applies the password hash. The
+   * admin MUST NOT pre-hash. Plaintext never touches a log line.
+   */
+  newPassword: string;
+  /** UUID of the SUPER_ADMIN performing the reset (for audit) */
+  performedBy: string;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+/**
+ * Result returned by the auth-service after processing
+ * AdminResetUserPasswordCommand.
+ */
+export interface AdminResetUserPasswordResult {
+  success: boolean;
+  /** Echoed user id for confirmation */
+  userId?: string;
+  /** Number of refresh tokens revoked as a side-effect of the reset */
+  refreshTokensRevoked?: number;
+  errorCode?: 'USER_NOT_FOUND' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
 // ==================== Type Union ====================
 
 /**
@@ -151,3 +268,10 @@ export type TenantProvisioningCommand =
   | SetupTenantRolesCommand
   | AssignTenantModulesCommand
   | RollbackTenantProvisioningCommand;
+
+/**
+ * Union type for all admin-api → auth-service user lifecycle commands.
+ */
+export type AuthAdminCommand =
+  | AdminCreateUserCommand
+  | AdminResetUserPasswordCommand;

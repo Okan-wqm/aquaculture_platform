@@ -11,7 +11,7 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule } from '@aquaculture/backend-common';
 
 /**
  * BillingMigrationRunnerService — runs pending TypeORM migrations in the
@@ -200,6 +200,14 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
      * sensitive and must not drift across DST).
      */
     AuditColumnsModule.forRoot({ serviceName: 'billing' }),
+    /**
+     * P11 of 2026-04-14 teardown — runtime schema-drift validator.
+     * Compares entity metadata to information_schema at every cold start;
+     * fires `schema.drift.detected` on uuid/text/schema-location/nullability
+     * mismatches. Fatal mode opt-in via SCHEMA_DRIFT_FATAL=true env var.
+     * See ADR-012 + docs/runbooks/schema-drift-response.md.
+     */
+    SchemaDriftModule.forRoot({ serviceName: 'billing' }),
   ],
   providers: [
     // Migration runner — runs pending TypeORM migrations on the billing

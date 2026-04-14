@@ -1,4 +1,4 @@
-import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor } from '@aquaculture/backend-common';
+import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule } from '@aquaculture/backend-common';
 import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -241,6 +241,11 @@ import { UsersModule } from './users/users.module';
       serviceName: 'admin-api',
       autoApply: false,
     }),
+    /**
+     * P11 of 2026-04-14 teardown — runtime schema-drift validator.
+     * See ADR-012 + docs/runbooks/schema-drift-response.md.
+     */
+    SchemaDriftModule.forRoot({ serviceName: 'admin-api' }),
   ],
   providers: [
     {

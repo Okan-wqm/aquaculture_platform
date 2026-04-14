@@ -47,6 +47,7 @@ import {
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   RlsModule,
+  SchemaDriftModule,
 } from '@aquaculture/backend-common';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
@@ -344,6 +345,8 @@ const complexityCache = new Map<string, number>();
       syncTenantSchemas: true,
       excludeTables: ['messaging_outbox', 'outbox'],
     }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'messaging' }),
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

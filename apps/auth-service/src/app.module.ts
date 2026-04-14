@@ -9,7 +9,7 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist, RlsModule } from '@aquaculture/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist, RlsModule, SchemaDriftModule } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
@@ -274,6 +274,8 @@ import { TenantModule } from './modules/tenant/tenant.module';
       autoApply: true,
       excludeTables: ['auth_outbox', 'audit_log', 'audit_logs'],
     }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'auth' }),
   ],
   providers: [
     // WHY: All guards use useFactory to bypass reflect-metadata resolution which fails

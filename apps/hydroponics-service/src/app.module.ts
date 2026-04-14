@@ -33,6 +33,7 @@ import {
   AuditLogModule,
   AuditLogInterceptor,
   RlsModule,
+  SchemaDriftModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
@@ -193,6 +194,8 @@ const complexityCache = new Map<string, number>();
       syncTenantSchemas: true,
       excludeTables: ['hydroponics_outbox'],
     }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'hydroponics' }),
   ],
   providers: [
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers

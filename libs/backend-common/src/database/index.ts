@@ -49,9 +49,13 @@ export * from './migration-runner';
 // compares entity metadata against information_schema on every boot and
 // fails fast on divergence (uuid→text drift, wrong schema, nullability
 // mismatch). Would have caught the 2026-04-14 audit_logs.tenantId drift
-// weeks before it broke RLS in production. Called with a serviceName
-// label for log prefix readability.
+// weeks before it broke RLS in production. Wire via SchemaDriftModule.forRoot()
+// in each service's AppModule (consistent with RlsModule.forRoot() pattern).
+// The bare factory is exported for advanced wiring (e.g. tests with mocked
+// DataSource) but services should prefer the module API.
 export { createSchemaDriftValidator } from './schema-drift-validator.service';
+export { SchemaDriftModule } from './schema-drift/schema-drift.module';
+export type { SchemaDriftModuleOptions } from './schema-drift/schema-drift.module';
 
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`

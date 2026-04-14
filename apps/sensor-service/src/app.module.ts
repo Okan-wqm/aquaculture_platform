@@ -54,7 +54,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService } from '@aquaculture/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, SchemaDriftModule } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 import { Process } from './process/entities/process.entity';
@@ -418,6 +418,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Real-time stream processing (anomaly detection, rate-of-change, Kafka)
     StreamProcessingModule,
+
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'sensor' }),
   ],
   providers: [
     // Global exception filter

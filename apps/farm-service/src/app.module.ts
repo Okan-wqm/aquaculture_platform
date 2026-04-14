@@ -32,7 +32,7 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule } from '@aquaculture/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
@@ -435,6 +435,8 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
       syncTenantSchemas: true,
       excludeTables: ['farm_outbox', 'audit_logs', 'audit_log'],
     }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'farm' }),
   ],
   providers: [
     // Global exception filter

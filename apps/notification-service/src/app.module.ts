@@ -23,6 +23,7 @@ import {
   RlsModule,
   AuditColumnsModule,
   createMigrationRunnerService,
+  SchemaDriftModule,
 } from '@aquaculture/backend-common';
 
 /**
@@ -217,6 +218,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * no-ops at the discovery layer.
      */
     AuditColumnsModule.forRoot({ serviceName: 'notification' }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'notification' }),
   ],
   providers: [
     // Migration runner — see const declaration near top of file.

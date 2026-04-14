@@ -34,6 +34,7 @@ import {
   AuditLogInterceptor,
   AuditColumnsModule,
   createMigrationRunnerService,
+  SchemaDriftModule,
 } from '@aquaculture/backend-common';
 
 /**
@@ -333,6 +334,8 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
      * No excludeTables — every hr-service table should use TIMESTAMPTZ.
      */
     AuditColumnsModule.forRoot({ serviceName: 'hr' }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'hr' }),
   ],
   providers: [
     // Migration runner — see const declaration near top of file.

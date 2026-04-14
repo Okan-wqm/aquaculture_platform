@@ -28,6 +28,7 @@ import {
   AuditLogInterceptor,
   RlsModule,
   createMigrationRunnerService,
+  SchemaDriftModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
@@ -186,6 +187,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       syncTenantSchemas: true,
       excludeTables: ['alert_outbox'],
     }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'alert' }),
   ],
   providers: [
     // Migration runner — see const declaration near top of file.

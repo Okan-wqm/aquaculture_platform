@@ -34,6 +34,7 @@ import {
   AuditColumnsModule,
   RlsModule,
   createMigrationRunnerService,
+  SchemaDriftModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
@@ -269,6 +270,8 @@ const complexityCache = new Map<string, number>();
      * lifecycle and is idempotent.
      */
     AuditColumnsModule.forRoot({ serviceName: 'ai' }),
+    /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
+    SchemaDriftModule.forRoot({ serviceName: 'ai' }),
   ],
   providers: [
     // Migration runner — see const declaration near top of file.

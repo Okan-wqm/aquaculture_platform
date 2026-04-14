@@ -80,7 +80,9 @@ Her package `NN-{slug}.md` dosyası `Closing-Findings: [list]` field'ı içermel
 - Event objeleri `@platform/event-contracts` interface'lerine tam uyumlu olmalı
 - Entity değişikliği gerekiyorsa entity'ye `@Column` ekle, cast yapma
 
-## Architectural Approach (Root-Cause Only)
+## Architectural Approach (Root-Cause Only — ZAMAN MAZERET DEĞİLDİR)
+
+**MUTLAK KURAL (2026-04-14 tarafından pekiştirildi):** Her fix, her zaman MIMARI çözüm olmalı. Yama YASAK. Basite kaçma YASAK. Arkadan dolanma YASAK. Görmezden gelme YASAK. **Mimari çözüm ne kadar uzun sürse, o kadar uzun sürer — yine de mimari çözüm yapılacak.**
 
 Her hata için test: "Upstream doğru olsaydı bu koda gerek olur muydu?"
 
@@ -90,6 +92,32 @@ Her hata için test: "Upstream doğru olsaydı bu koda gerek olur muydu?"
 - ASLA: defensif `?.` ile crash'i gizleme
 - ASLA: JSON column'a kaçarak tip sistemini bypass etme
 - ASLA: compat shim / adapter layer ekleme (tek seferlik workaround)
+
+**Mimari çözüm hiyerarşisi (her zaman en yükseği seç):**
+
+1. **Imkânsız kıl** (en iyi): Tip sistemi / compiler / runtime yanlış davranışı yapısal olarak engeller
+2. **Otomatik kıl** (harika): Doğru davranış sıfır geliştirici eforuyla varsayılan olur
+3. **Tespit edilebilir kıl** (iyi): Yanlış davranış build/test zamanında yakalanır
+4. **Belgelenmiş kıl** (son çare): Sadece 1-3 imkânsızsa
+
+**Mazeret olarak KULLANILMAYACAK gating ifadeler:**
+
+- "şimdilik" / "geçici çözüm" / "interim"
+- "pragmatik" / "daha basit yaklaşım"
+- "momentum için" / "bu commit için"
+- "follow-up commit ele alır" — follow-up AYNI PR'da veya tracked plan phase olmalı, vague gelecek olmaz
+- "deferred" — explicit owner + deadline + tracked finding ID olmadan deferred yasak
+- "out of scope" — eğer ilgili bir endişe ortaya çıkarsa, scope'u genişlet veya işi reddet; sessizce ertelemek YASAK
+- "good enough" / "şimdilik yeterli"
+
+**Eğer mimari çözüm gerçekten bu session'da landing edemiyorsa:**
+
+- CRITICAL/HIGH severity tracked finding aç
+- ADR veya plan'ı güncelle: explicit owner + deadline + finding ID
+- Partial fix'i tamammış gibi shipe etme — commit message'da NE YAPILMADIĞI ve NEDEN explicit yazılmalı
+- PR description'da unresolved architectural debt açıkça listele
+
+Hızlı düzeltmenin maliyeti sonsuza kadar ödenir; doğru düzeltmenin maliyeti bir kez ödenir.
 
 ## Code Documentation
 

@@ -158,6 +158,9 @@ export interface RollbackTenantProvisioningCommand {
 export const AUTH_ADMIN_COMMAND_SUBJECTS = {
   CREATE_USER: 'request.auth.admin.createUser',
   RESET_USER_PASSWORD: 'request.auth.admin.resetUserPassword',
+  UPDATE_USER: 'request.auth.admin.updateUser',
+  DEACTIVATE_USER: 'request.auth.admin.deactivateUser',
+  FORCE_LOGOUT_USER: 'request.auth.admin.forceLogoutUser',
 } as const;
 
 /**
@@ -270,8 +273,139 @@ export type TenantProvisioningCommand =
   | RollbackTenantProvisioningCommand;
 
 /**
+ * Command to update mutable fields of a user by a SUPER_ADMIN operator.
+ *
+ * Sent via NATS request-reply to the auth-service. Written through the
+ * TypeORM `User` entity — the `password` column is explicitly NOT patchable
+ * via this command (password changes use `AdminResetUserPasswordCommand`
+ * which applies bcrypt via @BeforeUpdate). All fields are optional; only
+ * fields present in the payload are modified. `null` for `tenantId` is
+ * meaningful (promotes the user to a platform-level SUPER_ADMIN) and is
+ * distinct from omitting the field.
+ *
+ * CRITICAL-002 in `docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md`:
+ * this contract replaces admin-api's raw SQL `UPDATE auth.users SET ...`
+ * which would silently drift the next time a column renamed on the entity.
+ */
+export interface AdminUpdateUserCommand {
+  /** Target user UUID */
+  userId: string;
+  /** Given name — set to patch, undefined to leave unchanged */
+  firstName?: string;
+  /** Family name — set to patch, undefined to leave unchanged */
+  lastName?: string;
+  /** Platform role (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER) */
+  role?: string;
+  /**
+   * Tenant UUID or null. `undefined` leaves the current value; `null`
+   * is an explicit assignment (user becomes tenantless, typical for
+   * promoting to SUPER_ADMIN).
+   */
+  tenantId?: string | null;
+  /** Active flag */
+  isActive?: boolean;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+/**
+ * Result of `AdminUpdateUserCommand`.
+ *
+ * Returns the full user shape so admin-api's REST DTO (`UserDto`) can be
+ * assembled without a follow-up read. The `tenantName` join is performed
+ * READ-SIDE on admin-api (it's a local read, not a cross-service write).
+ */
+export interface AdminUpdateUserResult {
+  success: boolean;
+  user?: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    role: string;
+    tenantId: string | null;
+    isActive: boolean;
+    lastLoginAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  errorCode?:
+    | 'USER_NOT_FOUND'
+    | 'TENANT_NOT_FOUND'
+    | 'INVALID_ROLE'
+    | 'VALIDATION_ERROR'
+    | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/**
+ * Command to deactivate (soft-delete) a user by a SUPER_ADMIN operator.
+ *
+ * Sent via NATS request-reply. Semantics:
+ *  - Sets `isActive = false` on the User record.
+ *  - Deletes ALL refresh tokens for the user (hard delete — matches the
+ *    pre-existing admin-api DELETE semantics; prevents any session from
+ *    continuing). Refresh-token records are not retained for audit on
+ *    this path because the audit log captures the deactivation event
+ *    separately.
+ *
+ * This command is platform-scoped (no tenant required, valid for
+ * SUPER_ADMIN users too). The tenant-scoped
+ * `UserLifecycleService.deleteUser(tenantId, userId, deletedBy)` remains
+ * the path for tenant-admin deletions and applies stricter guards
+ * (prevents deleting another TENANT_ADMIN, prevents self-deletion).
+ */
+export interface AdminDeactivateUserCommand {
+  /** Target user UUID */
+  userId: string;
+  /** UUID of the SUPER_ADMIN performing the deactivation (for audit) */
+  performedBy?: string;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+export interface AdminDeactivateUserResult {
+  success: boolean;
+  /** Echoed user id */
+  userId?: string;
+  /** Number of refresh tokens removed as a side-effect */
+  refreshTokensRemoved?: number;
+  errorCode?: 'USER_NOT_FOUND' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/**
+ * Command to forcibly log a user out of every session without otherwise
+ * altering their account. Equivalent to deleting every outstanding
+ * refresh token for the user. The user remains `isActive = true` and
+ * can re-authenticate immediately.
+ *
+ * Used by the admin-panel "Force Logout" action, typically after a
+ * suspected credential leak where the operator wants to invalidate
+ * sessions but keep the account usable.
+ */
+export interface AdminForceLogoutUserCommand {
+  /** Target user UUID */
+  userId: string;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+export interface AdminForceLogoutUserResult {
+  success: boolean;
+  userId?: string;
+  /** Number of sessions invalidated */
+  sessionsInvalidated?: number;
+  errorCode?: 'USER_NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/**
  * Union type for all admin-api → auth-service user lifecycle commands.
  */
 export type AuthAdminCommand =
   | AdminCreateUserCommand
-  | AdminResetUserPasswordCommand;
+  | AdminResetUserPasswordCommand
+  | AdminUpdateUserCommand
+  | AdminDeactivateUserCommand
+  | AdminForceLogoutUserCommand;

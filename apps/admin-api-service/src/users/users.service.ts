@@ -16,8 +16,14 @@ import {
   AUTH_ADMIN_COMMAND_SUBJECTS,
   type AdminCreateUserCommand,
   type AdminCreateUserResult,
+  type AdminDeactivateUserCommand,
+  type AdminDeactivateUserResult,
+  type AdminForceLogoutUserCommand,
+  type AdminForceLogoutUserResult,
   type AdminResetUserPasswordCommand,
   type AdminResetUserPasswordResult,
+  type AdminUpdateUserCommand,
+  type AdminUpdateUserResult,
 } from '@platform/event-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
@@ -497,7 +503,15 @@ export class UsersService {
   }
 
   /**
-   * Update user
+   * Update user.
+   *
+   * Delegates to auth-service over NATS (see AuthAdminNatsHandler). The
+   * raw-SQL UPDATE against `auth.users` was deleted for the same reason
+   * as `createUser`: admin-api is NOT the owner of auth.users, and
+   * writing column names in raw SQL is exactly the drift surface that
+   * CRITICAL-001 (passwordHash) already proved dangerous. CRITICAL-002
+   * (`docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md#CRITICAL-002`)
+   * closes the remaining three raw-write sites in this file.
    */
   async updateUser(
     id: string,
@@ -509,62 +523,56 @@ export class UsersService {
       isActive?: boolean;
     },
   ): Promise<UserDto> {
-    const updates: string[] = [];
-    const params: (string | boolean)[] = [];
-    let paramIndex = 1;
-
-    if (dto.firstName !== undefined) {
-      updates.push(`"firstName" = $${paramIndex++}`);
-      params.push(dto.firstName);
-    }
-    if (dto.lastName !== undefined) {
-      updates.push(`"lastName" = $${paramIndex++}`);
-      params.push(dto.lastName);
-    }
-    if (dto.role !== undefined) {
-      updates.push(`role = $${paramIndex++}`);
-      params.push(dto.role);
-    }
-    if (dto.tenantId !== undefined) {
-      updates.push(`"tenantId" = $${paramIndex++}`);
-      params.push(dto.tenantId);
-    }
-    if (dto.isActive !== undefined) {
-      updates.push(`"isActive" = $${paramIndex++}`);
-      params.push(dto.isActive);
-    }
-
-    if (updates.length === 0) {
+    // No-op patch — short-circuit with a local read to preserve the
+    // pre-existing behaviour of `updateUser(id, {})` returning the
+    // current user unchanged (admin-panel relies on this).
+    const patchKeys = Object.keys(dto).filter(
+      (k) => (dto as Record<string, unknown>)[k] !== undefined,
+    );
+    if (patchKeys.length === 0) {
       return this.getUserById(id);
     }
 
-    updates.push(`"updatedAt" = NOW()`);
-    params.push(id);
+    const command: AdminUpdateUserCommand = {
+      userId: id,
+      ...(dto.firstName !== undefined && { firstName: dto.firstName }),
+      ...(dto.lastName !== undefined && { lastName: dto.lastName }),
+      ...(dto.role !== undefined && { role: dto.role }),
+      ...(dto.tenantId !== undefined && { tenantId: dto.tenantId }),
+      ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+    };
 
-    try {
-      const result = await this.dataSource.query(
-        `
-        UPDATE auth.users
-        SET ${updates.join(', ')}
-        WHERE id = $${paramIndex}
-        RETURNING id, email, "firstName", "lastName", role,
-                  "tenantId", "isActive",
-                  "createdAt", "updatedAt"
-      `,
-        params,
-      );
+    const result = await this.sendAuthCommand<
+      AdminUpdateUserCommand,
+      AdminUpdateUserResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER, command);
 
-      if (!result[0]) {
-        throw new NotFoundException(`User with ID ${id} not found`);
-      }
-
-      this.logger.log(`Updated user: ${id}`);
-      return result[0];
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      this.logger.error(`Failed to update user: ${(error as Error).message}`);
-      throw error;
+    if (!result.success || !result.user) {
+      throw this.mapUpdateError(result);
     }
+
+    // Tenant name is a local read (NOT a write path) — the
+    // service-ownership rule only bans cross-service writes.
+    let tenantName: string | null = null;
+    if (result.user.tenantId) {
+      tenantName = await this.getTenantName(result.user.tenantId);
+    }
+
+    this.logger.log(`Updated userId=${result.user.id}`);
+
+    return {
+      id: result.user.id,
+      email: result.user.email,
+      firstName: result.user.firstName ?? '',
+      lastName: result.user.lastName ?? '',
+      role: result.user.role,
+      tenantId: result.user.tenantId,
+      tenantName,
+      isActive: result.user.isActive,
+      lastLoginAt: result.user.lastLoginAt ? new Date(result.user.lastLoginAt) : null,
+      createdAt: new Date(result.user.createdAt),
+      updatedAt: new Date(result.user.updatedAt),
+    };
   }
 
   /**
@@ -619,55 +627,60 @@ export class UsersService {
   }
 
   /**
-   * Force logout user (invalidate all refresh tokens)
+   * Force logout user (invalidate all refresh tokens).
+   *
+   * Delegates to auth-service over NATS. admin-api must not delete rows
+   * from `auth.refresh_tokens` directly — that table is owned by
+   * auth-service and its columns / indexes are managed through the
+   * RefreshToken TypeORM entity. CRITICAL-002 replaces the raw-SQL
+   * DELETE with an `AdminForceLogoutUserCommand`.
    */
   async forceLogout(id: string): Promise<{ success: boolean; count: number }> {
-    try {
-      // BUG-013 fix: use RETURNING to count deleted rows reliably across driver versions.
-      // result[1] (rowCount) is undefined when no RETURNING clause is used.
-      const result = await this.dataSource.query(
-        `DELETE FROM auth.refresh_tokens WHERE "userId" = $1 RETURNING id`,
-        [id],
-      );
+    const command: AdminForceLogoutUserCommand = { userId: id };
+    const result = await this.sendAuthCommand<
+      AdminForceLogoutUserCommand,
+      AdminForceLogoutUserResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.FORCE_LOGOUT_USER, command);
 
-      const count = Array.isArray(result) ? result.length : 0;
-      this.logger.log(`Force logged out user: ${id}, invalidated ${count} sessions`);
-      return { success: true, count };
-    } catch (error) {
-      this.logger.error(`Failed to force logout: ${(error as Error).message}`);
-      throw error;
+    if (!result.success) {
+      throw this.mapForceLogoutError(result);
     }
+
+    const count = result.sessionsInvalidated ?? 0;
+    this.logger.log(`Force logged out userId=${id}, invalidated ${count} sessions`);
+    return { success: true, count };
   }
 
   /**
-   * Delete user (soft delete - deactivate)
+   * Delete user (platform-scoped soft delete — sets isActive=false and
+   * invalidates all sessions).
+   *
+   * Delegates to auth-service over NATS. The previous raw-SQL path did
+   * two writes (DELETE refresh_tokens + UPDATE users); the NATS command
+   * fuses both into a single auth-service transaction so the state stays
+   * consistent if one half fails (admin-api used to leak "sessions
+   * invalidated but user still active" when the UPDATE raced a concurrent
+   * login). CRITICAL-002 fixes that too.
    */
   async deleteUser(id: string): Promise<void> {
-    try {
-      // First invalidate all sessions
-      await this.forceLogout(id);
+    const command: AdminDeactivateUserCommand = {
+      userId: id,
+      // When the controller doesn't plumb the actor through, record the
+      // service itself; audit log on auth-service captures the event.
+      performedBy: 'admin-api-service',
+    };
+    const result = await this.sendAuthCommand<
+      AdminDeactivateUserCommand,
+      AdminDeactivateUserResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.DEACTIVATE_USER, command);
 
-      // Soft delete by deactivating
-      const result = await this.dataSource.query(
-        `
-        UPDATE auth.users
-        SET "isActive" = false, "updatedAt" = NOW()
-        WHERE id = $1
-        RETURNING id
-      `,
-        [id],
-      );
-
-      if (!result[0]) {
-        throw new NotFoundException(`User with ID ${id} not found`);
-      }
-
-      this.logger.log(`Deleted (deactivated) user: ${id}`);
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      this.logger.error(`Failed to delete user: ${(error as Error).message}`);
-      throw error;
+    if (!result.success) {
+      throw this.mapDeactivateError(result);
     }
+
+    this.logger.log(
+      `Deleted (deactivated) userId=${id}, refreshTokensRemoved=${result.refreshTokensRemoved ?? 0}`,
+    );
   }
 
   /**
@@ -769,6 +782,45 @@ export class UsersService {
         return new NotFoundException(msg);
       case 'VALIDATION_ERROR':
         return new BadRequestException(msg);
+      case 'INTERNAL_ERROR':
+      default:
+        return new InternalServerErrorException(msg);
+    }
+  }
+
+  private mapUpdateError(result: AdminUpdateUserResult): HttpException {
+    const msg = result.error ?? 'Failed to update user';
+    switch (result.errorCode) {
+      case 'USER_NOT_FOUND':
+      case 'TENANT_NOT_FOUND':
+        return new NotFoundException(msg);
+      case 'INVALID_ROLE':
+      case 'VALIDATION_ERROR':
+        return new BadRequestException(msg);
+      case 'INTERNAL_ERROR':
+      default:
+        return new InternalServerErrorException(msg);
+    }
+  }
+
+  private mapDeactivateError(result: AdminDeactivateUserResult): HttpException {
+    const msg = result.error ?? 'Failed to deactivate user';
+    switch (result.errorCode) {
+      case 'USER_NOT_FOUND':
+        return new NotFoundException(msg);
+      case 'VALIDATION_ERROR':
+        return new BadRequestException(msg);
+      case 'INTERNAL_ERROR':
+      default:
+        return new InternalServerErrorException(msg);
+    }
+  }
+
+  private mapForceLogoutError(result: AdminForceLogoutUserResult): HttpException {
+    const msg = result.error ?? 'Failed to force logout';
+    switch (result.errorCode) {
+      case 'USER_NOT_FOUND':
+        return new NotFoundException(msg);
       case 'INTERNAL_ERROR':
       default:
         return new InternalServerErrorException(msg);

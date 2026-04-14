@@ -455,6 +455,123 @@ export class UserLifecycleService {
     return { userId: user.id, refreshTokensRevoked };
   }
 
+  /**
+   * Admin-initiated user update (patch).
+   *
+   * Writes every mutable field via the TypeORM `User` entity. Fields not
+   * present in the patch are left untouched; a `null` tenantId is an
+   * explicit assignment (SUPER_ADMIN promotion) distinct from `undefined`.
+   *
+   * CRITICAL-002: replaces admin-api's dynamic raw-SQL UPDATE against
+   * `auth.users`. Naming a column in admin-api code is now structurally
+   * impossible — the entity is the single writer.
+   *
+   * @throws NotFoundException when the userId does not resolve
+   * @throws NotFoundException when a non-null tenantId does not resolve
+   * @throws BadRequestException on unknown role value
+   */
+  async adminUpdateUser(
+    userId: string,
+    patch: {
+      firstName?: string;
+      lastName?: string;
+      role?: string;
+      tenantId?: string | null;
+      isActive?: boolean;
+    },
+  ): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    if (patch.role !== undefined &&
+        !(Object.values(Role) as string[]).includes(patch.role)) {
+      throw new BadRequestException(`Unknown role "${patch.role}"`);
+    }
+
+    // `null` tenantId is meaningful (promotion to SUPER_ADMIN with no
+    // tenant). Only validate existence when a non-null value is provided.
+    if (patch.tenantId !== undefined && patch.tenantId !== null) {
+      const tenant = await this.tenantRepository.findOne({
+        where: { id: patch.tenantId },
+      });
+      if (!tenant) {
+        throw new NotFoundException(`Tenant with ID "${patch.tenantId}" not found`);
+      }
+    }
+
+    if (patch.firstName !== undefined) user.firstName = patch.firstName;
+    if (patch.lastName !== undefined) user.lastName = patch.lastName;
+    if (patch.role !== undefined) user.role = patch.role as Role;
+    if (patch.tenantId !== undefined) user.tenantId = patch.tenantId;
+    if (patch.isActive !== undefined) user.isActive = patch.isActive;
+
+    const saved = await this.userRepository.save(user);
+    this.logger.log(`Admin updated userId=${saved.id}`);
+    return saved;
+  }
+
+  /**
+   * Admin-initiated user deactivation (platform-scoped soft-delete).
+   *
+   * Unlike the tenant-scoped `deleteUser(tenantId, userId, deletedBy)`
+   * above, this path:
+   *  - Does NOT require a tenantId (valid for SUPER_ADMIN platform users).
+   *  - Does NOT enforce the "cannot delete another TENANT_ADMIN" guard
+   *    (admin-panel RBAC controls who reaches this endpoint).
+   *  - Does NOT revoke tenant-schema role assignments (admin-api's
+   *    platform-deactivation flow does not tear those down).
+   *  - DELETES refresh tokens rather than soft-revoking them — matches
+   *    the pre-existing admin-api semantics and the "force logout on
+   *    deactivate" UX expectation.
+   *
+   * @throws NotFoundException when the userId does not resolve
+   */
+  async adminDeactivateUser(
+    userId: string,
+  ): Promise<{ userId: string; refreshTokensRemoved: number }> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    user.isActive = false;
+    await this.userRepository.save(user);
+
+    const deleteResult = await this.refreshTokenRepository.delete({ userId });
+    const refreshTokensRemoved = deleteResult.affected ?? 0;
+
+    this.logger.log(
+      `Admin deactivated userId=${user.id}, refreshTokensRemoved=${refreshTokensRemoved}`,
+    );
+    return { userId: user.id, refreshTokensRemoved };
+  }
+
+  /**
+   * Admin-initiated force-logout. Hard-deletes all refresh tokens for a
+   * user without touching the user record itself — the account remains
+   * active and the user can re-authenticate immediately. Typical use:
+   * suspected credential leak, operator wants to invalidate sessions
+   * without locking the account.
+   */
+  async adminForceLogout(
+    userId: string,
+  ): Promise<{ userId: string; sessionsInvalidated: number }> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    const deleteResult = await this.refreshTokenRepository.delete({ userId });
+    const sessionsInvalidated = deleteResult.affected ?? 0;
+
+    this.logger.log(
+      `Admin force-logout userId=${user.id}, sessionsInvalidated=${sessionsInvalidated}`,
+    );
+    return { userId: user.id, sessionsInvalidated };
+  }
+
   // ==========================================================================
   // Private helpers
   // ==========================================================================

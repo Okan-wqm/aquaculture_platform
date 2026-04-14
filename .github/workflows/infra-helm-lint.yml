@@ -1,0 +1,144 @@
+name: Infrastructure - Helm Lint
+
+# SEC-CI-002: All third-party actions pinned to full commit SHAs.
+# INFRA-CI-001: Validation-only workflow — renders every values overlay and
+# schema-checks the output. Gate for Track B shelf-ready manifest work so
+# drift lands in the PR that introduces it, not months later when a cluster
+# finally exists.
+
+on:
+  pull_request:
+    paths:
+      - 'infrastructure/helm/**'
+      - 'infrastructure/kubernetes/**'
+      - 'infra/argocd/**'
+      - '.github/workflows/infra-helm-lint.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'infrastructure/helm/**'
+      - 'infrastructure/kubernetes/**'
+      - 'infra/argocd/**'
+
+# Cancel in-flight runs on the same branch when a new commit lands.
+concurrency:
+  group: infra-helm-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HELM_VERSION: v3.16.2
+  KUBECONFORM_VERSION: v0.6.7
+  CHART_DIR: infrastructure/helm/aquaculture
+
+jobs:
+  helm-lint:
+    name: Helm lint + kubeconform (${{ matrix.values }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        values: [values.yaml, values-staging.yaml, values-production.yaml]
+
+    permissions:
+      contents: read
+
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # SEC-CI-002: pinned to SHA
+      - name: Setup Helm
+        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          curl -sSL -o "${TMP}/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf "${TMP}/kubeconform.tar.gz" -C "${TMP}"
+          sudo install -m 0755 "${TMP}/kubeconform" /usr/local/bin/kubeconform
+          kubeconform -v
+
+      # The NATS subchart dependency is declared in Chart.yaml. Pull it so
+      # `helm lint` and `helm template` resolve the dependency graph.
+      - name: Helm dependency update
+        working-directory: ${{ env.CHART_DIR }}
+        run: helm dependency update
+
+      - name: Helm lint (${{ matrix.values }})
+        working-directory: ${{ env.CHART_DIR }}
+        run: helm lint . --strict --values ${{ matrix.values }}
+
+      # Render the chart and schema-validate every resource. -ignore-missing-schemas
+      # lets us pass for CRDs we don't vendor locally (ExternalSecret, ClusterSecretStore,
+      # ServiceMonitor, etc.). -strict catches typos in core API fields.
+      - name: Helm template | kubeconform (${{ matrix.values }})
+        working-directory: ${{ env.CHART_DIR }}
+        run: |
+          set -euo pipefail
+          helm template aquaculture . \
+            --values ${{ matrix.values }} \
+            --namespace aquaculture \
+          | kubeconform \
+              -strict \
+              -ignore-missing-schemas \
+              -kubernetes-version 1.29.0 \
+              -summary
+
+  raw-manifests:
+    name: Raw K8s + ArgoCD manifest kubeconform
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          curl -sSL -o "${TMP}/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf "${TMP}/kubeconform.tar.gz" -C "${TMP}"
+          sudo install -m 0755 "${TMP}/kubeconform" /usr/local/bin/kubeconform
+
+      # Standalone Kubernetes manifests (RBAC, NetworkPolicy, ClusterSecretStore, …)
+      # that are not templated by Helm.
+      - name: Kubeconform — infrastructure/kubernetes/**
+        run: |
+          set -euo pipefail
+          if [ -d infrastructure/kubernetes ]; then
+            find infrastructure/kubernetes -type f \( -name '*.yaml' -o -name '*.yml' \) -print0 \
+              | xargs -0 --no-run-if-empty kubeconform \
+                  -strict \
+                  -ignore-missing-schemas \
+                  -kubernetes-version 1.29.0 \
+                  -summary
+          else
+            echo "infrastructure/kubernetes/ not present — skipping"
+          fi
+
+      # ArgoCD Application / AppProject manifests use CRDs we don't vendor —
+      # kubeconform with -ignore-missing-schemas is enough to catch YAML-level
+      # errors (indentation, unknown top-level fields) without full CRD schemas.
+      - name: Kubeconform — infra/argocd/**
+        run: |
+          set -euo pipefail
+          if [ -d infra/argocd ]; then
+            find infra/argocd -type f \( -name '*.yaml' -o -name '*.yml' \) -size +0c -print0 \
+              | xargs -0 --no-run-if-empty kubeconform \
+                  -strict \
+                  -ignore-missing-schemas \
+                  -kubernetes-version 1.29.0 \
+                  -summary
+          else
+            echo "infra/argocd/ not present — skipping"
+          fi

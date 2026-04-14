@@ -65,19 +65,26 @@ export class InternalApiKeyGuard implements CanActivate {
     const signature = request.headers['x-service-signature'] as string | undefined;
 
     if (serviceName && timestamp && signature) {
-      const valid = this.verifyServiceIdentity(serviceName, timestamp, signature, secret);
+      // SECURITY (HIGH-003): bind X-Tenant-ID into HMAC verification. A
+      // compromised caller cannot forward a valid signature with a spoofed
+      // tenant header because the signature was computed over the original
+      // tenantId. Absent header verifies with empty string (non-tenant path).
+      const tenantHeader = (request.headers['x-tenant-id'] as string | undefined) ?? '';
+      const valid = this.verifyServiceIdentity(serviceName, timestamp, signature, secret, tenantHeader);
       if (!valid) {
         this.logger.warn(
-          `Rejected request: invalid service identity signature from "${serviceName}"`,
+          `Rejected request: invalid service identity signature from "${serviceName}"` +
+            (tenantHeader ? ` (tenant=${tenantHeader})` : ''),
         );
-        throw new UnauthorizedException('Invalid service identity signature');
+        throw new UnauthorizedException(
+          'Invalid service identity signature. Request may be forged, expired, or the tenant header was tampered with.',
+        );
       }
 
       // SECURITY: Audit log for tenant access via service identity
-      const tenantId = request.headers['x-tenant-id'] as string | undefined;
-      if (tenantId) {
+      if (tenantHeader) {
         this.logger.log(
-          `Service "${serviceName}" accessing tenant "${tenantId}" via ${request.method} ${request.path}`,
+          `Service "${serviceName}" accessing tenant "${tenantHeader}" via ${request.method} ${request.path}`,
         );
       }
 
@@ -112,13 +119,18 @@ export class InternalApiKeyGuard implements CanActivate {
 
   /**
    * Verify HMAC-signed service identity.
-   * Signature = HMAC-SHA256(timestamp:serviceName, secret)
+   * Signature = HMAC-SHA256(timestamp:serviceName:tenantId, secret)
+   *
+   * SECURITY (HIGH-003): tenantId is bound into the signature so a
+   * compromised caller cannot forward a valid signature with a spoofed
+   * X-Tenant-ID header. tenantId is '' when no tenant context applies.
    */
   private verifyServiceIdentity(
     serviceName: string,
     timestamp: string,
     signature: string,
     secret: string,
+    tenantId: string,
   ): boolean {
     const ts = parseInt(timestamp, 10);
     if (isNaN(ts)) {
@@ -130,7 +142,7 @@ export class InternalApiKeyGuard implements CanActivate {
     }
 
     const expected = createHmac('sha256', secret)
-      .update(`${timestamp}:${serviceName}`)
+      .update(`${timestamp}:${serviceName}:${tenantId}`)
       .digest('hex');
 
     if (expected.length !== signature.length) {

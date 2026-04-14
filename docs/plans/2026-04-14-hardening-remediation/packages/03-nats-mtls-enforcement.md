@@ -1,7 +1,7 @@
 # Package 03: nats-mtls-enforcement
 
 ## Metadata
-Status: IN_PROGRESS
+Status: DONE (commit a265eeef)
 Estimated Tokens: 10K
 Priority: HIGH
 Security-Sensitive: yes

@@ -18,6 +18,9 @@ export * from './guards/token-revocation.service';
 // Utils - Inter-service authentication
 export * from './utils/service-identity.util';
 
+// HTTP - Signed internal HTTP client (HMAC-signed + tenant-bound headers)
+export * from './http/signed-http-client';
+
 // Auth - Centralised JWT verification options + strict token type enforcement
 // All guards MUST use getJwtVerifyOptions() and enforceAccessTokenType().
 export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verification.utils';

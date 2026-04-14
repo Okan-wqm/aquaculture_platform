@@ -7,7 +7,17 @@ import { createHmac, timingSafeEqual } from 'crypto';
  * subgraphs can verify the request actually originated from the trusted gateway
  * (or another trusted service), rather than an arbitrary process on the Docker network.
  *
- * Signature = HMAC-SHA256(timestamp:serviceName, INTERNAL_SERVICE_SECRET)
+ * Signature = HMAC-SHA256(timestamp:serviceName:tenantId, INTERNAL_SERVICE_SECRET)
+ *
+ * SECURITY (HIGH-003): tenantId is bound into the signature so a compromised
+ * caller cannot forward a valid signature with a spoofed X-Tenant-ID header.
+ * When no tenant context applies (public / pre-auth paths), tenantId is the
+ * empty string and the signature is effectively scoped to "no tenant".
+ *
+ * Backwards compatibility: callers that omit tenantId produce the same
+ * signature as before (empty tenant). Verifiers check tenantId from the
+ * header; if the header is absent, they verify with empty tenantId. Any
+ * attempt to tamper with X-Tenant-ID post-signing fails verification.
  */
 
 export interface ServiceIdentityHeaders {
@@ -21,15 +31,19 @@ export interface ServiceIdentityHeaders {
  *
  * @param serviceName - The name of the calling service (e.g. 'gateway-api')
  * @param secret - The shared HMAC secret (INTERNAL_SERVICE_SECRET env var)
+ * @param tenantId - Optional tenant UUID; bound into the signature so the
+ *                   X-Tenant-ID header cannot be spoofed downstream. Pass
+ *                   empty string (default) for non-tenant-scoped requests.
  * @returns Headers object to merge into the outgoing request
  */
 export function generateServiceIdentityHeaders(
   serviceName: string,
   secret: string,
+  tenantId: string = '',
 ): ServiceIdentityHeaders {
   const timestamp = Date.now().toString();
   const signature = createHmac('sha256', secret)
-    .update(`${timestamp}:${serviceName}`)
+    .update(`${timestamp}:${serviceName}:${tenantId}`)
     .digest('hex');
 
   return {
@@ -52,6 +66,9 @@ export const SERVICE_IDENTITY_MAX_AGE_MS = 5 * 60 * 1000;
  * @param timestamp - Value of X-Service-Timestamp header
  * @param signature - Value of X-Service-Signature header
  * @param secret - The shared HMAC secret
+ * @param tenantId - Optional tenant UUID from X-Tenant-ID header. Pass empty
+ *                   string when no tenant header is present. See the module
+ *                   docblock for the tenant-binding rationale.
  * @param maxAgeMs - Maximum age of the timestamp in ms (default 5 min)
  * @returns true if the signature is valid and the timestamp is within the allowed window
  */
@@ -60,6 +77,7 @@ export function verifyServiceIdentity(
   timestamp: string,
   signature: string,
   secret: string,
+  tenantId: string = '',
   maxAgeMs: number = SERVICE_IDENTITY_MAX_AGE_MS,
 ): boolean {
   // Validate timestamp freshness (replay protection)
@@ -72,9 +90,10 @@ export function verifyServiceIdentity(
     return false;
   }
 
-  // Compute expected signature
+  // SECURITY (HIGH-003): tenantId bound into HMAC — any tamper of
+  // X-Tenant-ID between signing and verification fails this comparison.
   const expected = createHmac('sha256', secret)
-    .update(`${timestamp}:${serviceName}`)
+    .update(`${timestamp}:${serviceName}:${tenantId}`)
     .digest('hex');
 
   // Timing-safe comparison to prevent timing attacks

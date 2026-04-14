@@ -202,9 +202,19 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       httpRequest.headers.set('x-user-payload', JSON.stringify(user));
     }
 
-    // Sign request for subgraph identity verification
+    // SECURITY (HIGH-003): sign request for subgraph identity verification AND
+    // bind the resolved tenant into the HMAC so a compromised caller cannot
+    // forward a valid signature with a spoofed x-tenant-id header. If no
+    // tenant applies (public / pre-auth paths), tenantId is empty string.
     if (this.secret) {
-      const identityHeaders = generateServiceIdentityHeaders('gateway-api', this.secret);
+      const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
+        ? (resolvedTenantId as string)
+        : '';
+      const identityHeaders = generateServiceIdentityHeaders(
+        'gateway-api',
+        this.secret,
+        signedTenantId,
+      );
       for (const [key, value] of Object.entries(identityHeaders)) {
         httpRequest.headers.set(key, value);
       }

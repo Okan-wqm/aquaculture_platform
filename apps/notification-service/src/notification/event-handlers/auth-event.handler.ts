@@ -120,10 +120,11 @@ export class AuthEventHandler
   private async resolveUserPII(userId: string, tenantId: string): Promise<ResolvedUserPII | null> {
     try {
       const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
+      // SECURITY (HIGH-003): tenantId bound into HMAC signature.
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'x-tenant-id': tenantId,
-        ...generateServiceIdentityHeaders('notification-service', this.internalSecret),
+        ...generateServiceIdentityHeaders('notification-service', this.internalSecret, tenantId),
       };
       const response = await fetch(
         `${this.authServiceUrl}/internal/users/${userId}/pii`,
@@ -146,10 +147,11 @@ export class AuthEventHandler
   private async resolveTenantInfo(tenantId: string): Promise<ResolvedTenantInfo | null> {
     try {
       const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
+      // SECURITY (HIGH-003): tenantId bound into HMAC signature.
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'x-tenant-id': tenantId,
-        ...generateServiceIdentityHeaders('notification-service', this.internalSecret),
+        ...generateServiceIdentityHeaders('notification-service', this.internalSecret, tenantId),
       };
       const response = await fetch(
         `${this.authServiceUrl}/internal/tenants/${tenantId}/info`,
@@ -175,10 +177,11 @@ export class AuthEventHandler
   private async resolveActionUrl(actionTokenId: string, tenantId: string): Promise<ResolvedActionInfo | null> {
     try {
       const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
+      // SECURITY (HIGH-003): tenantId bound into HMAC signature.
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'x-tenant-id': tenantId,
-        ...generateServiceIdentityHeaders('notification-service', this.internalSecret),
+        ...generateServiceIdentityHeaders('notification-service', this.internalSecret, tenantId),
       };
       const response = await fetch(
         `${this.authServiceUrl}/internal/action-tokens/${actionTokenId}/url`,

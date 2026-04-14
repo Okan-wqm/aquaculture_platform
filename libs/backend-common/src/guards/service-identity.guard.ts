@@ -93,6 +93,10 @@ export class ServiceIdentityGuard implements CanActivate {
     const serviceName = req.headers['x-service-identity'] as string | undefined;
     const timestamp = req.headers['x-service-timestamp'] as string | undefined;
     const signature = req.headers['x-service-signature'] as string | undefined;
+    // SECURITY (HIGH-003): bind X-Tenant-ID into signature verification so
+    // a compromised caller cannot forward a valid signature with a spoofed
+    // tenant header. Absent header verifies with empty string (non-tenant path).
+    const tenantHeader = (req.headers['x-tenant-id'] as string | undefined) ?? '';
 
     if (!serviceName || !timestamp || !signature) {
       this.logger.warn(
@@ -108,17 +112,18 @@ export class ServiceIdentityGuard implements CanActivate {
       );
     }
 
-    const valid = verifyServiceIdentity(serviceName, timestamp, signature, this.secret);
+    const valid = verifyServiceIdentity(serviceName, timestamp, signature, this.secret, tenantHeader);
     if (!valid) {
       this.logger.warn(
-        `Rejected request: invalid service identity signature from "${serviceName}"`,
+        `Rejected request: invalid service identity signature from "${serviceName}"` +
+          (tenantHeader ? ` (tenant=${tenantHeader})` : ''),
       );
       this.securityEventService?.publishServiceIdentityRejected({
         serviceName,
         reason: 'Invalid service identity signature',
       }).catch(() => { /* best-effort */ });
       throw new ForbiddenException(
-        'Invalid service identity signature. Request may be forged or expired.',
+        'Invalid service identity signature. Request may be forged, expired, or the tenant header was tampered with.',
       );
     }
 

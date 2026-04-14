@@ -1,0 +1,356 @@
+# =============================================================================
+# Aquaculture Platform — Staging Override (WS9 / ADR-016 Phase D)
+#
+# Staging droplet compose OVERLAY for docker-compose.droplet.yml.
+#
+# USAGE:
+#   docker compose -f docker-compose.droplet.yml -f docker-compose.staging.yml pull
+#   docker compose -f docker-compose.droplet.yml -f docker-compose.staging.yml up -d
+#
+# ARCHITECTURE (Tier-1 Make-Impossible):
+#   Staging MUST have the same service shape as production. If prod adds a new
+#   service, staging automatically picks it up through the base compose file.
+#   This override REPLACES ONLY the per-environment knobs — image tag, resource
+#   limits, CORS origins, WebAuthn RP, Stripe sandbox, MinIO bucket — NEVER the
+#   topology, networks, dependencies, volumes, or healthchecks. Drift between
+#   staging shape and prod shape is therefore structurally impossible.
+#
+# RATIONALE:
+#   A separate full copy of docker-compose.droplet.yml would diverge within the
+#   first sprint. Compose's multi-file merge with IMAGE_TAG env substitution is
+#   the idiomatic way to parameterize the SAME stack across environments.
+#
+# WHAT STAGING DIFFERS IN:
+#   1. Image tag: ${IMAGE_TAG:-staging} (production uses ${TAG:-latest}).
+#      The deploy-staging workflow sets IMAGE_TAG=staging-<sha>.
+#   2. Resource limits: ~40% smaller memory budget (total ~4GB vs prod 7GB).
+#   3. CORS/FRONTEND_URL/WEBAUTHN_RP_ID: point at staging.<domain>.
+#   4. Stripe: sandbox keys (STRIPE_*_SANDBOX env vars).
+#   5. MinIO bucket: aquaculture-staging (isolated from prod artifacts).
+#   6. Container names suffixed with -staging (avoids collision if operator
+#      ever co-locates, and makes `docker ps` on the droplet unambiguous).
+#   7. Observability metrics namespace: staging (keeps prod dashboards clean).
+#
+# WHAT STAGING DOES NOT OVERRIDE:
+#   - Network topology (aqua-network + aqua-internal)
+#   - Volume mounts / cert paths
+#   - depends_on / healthcheck / restart policies
+#   - The set of services — if prod has it, staging has it.
+#
+# SECRETS:
+#   Staging secrets live in /var/aqua-saas/.env on the staging droplet (seeded
+#   per docs/runbooks/staging-environment.md#first-run-secret-seeding). They
+#   MUST be distinct from production values. The required-secrets.yaml manifest
+#   (WS8) is the SSoT for what to seed.
+# =============================================================================
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Infrastructure — smaller resource footprint. Postgres/Redis/NATS/MinIO
+  # all keep the same image pins as prod because storage format + wire
+  # protocol are what we want staging to reproduce.
+  # ─────────────────────────────────────────────────────────────────────────
+  postgres:
+    container_name: aqua-postgres-staging
+    # Staging is single-tenant-per-operator; shared_buffers / work_mem scale
+    # down accordingly. Do NOT drop below 256MB — TimescaleDB bgworkers need
+    # headroom for continuous aggregate compression.
+    environment:
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 768MB
+      POSTGRES_WORK_MEM: 8MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 64MB
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.5'
+
+  db-init:
+    container_name: aqua-db-init-staging
+
+  redis:
+    container_name: aqua-redis-staging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.15'
+
+  nats:
+    container_name: aqua-nats-staging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+
+  mosquitto:
+    container_name: aqua-mosquitto-staging
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.1'
+
+  minio:
+    container_name: aqua-minio-staging
+    environment:
+      # Staging uses a distinct bucket so smoke tests cannot collide with
+      # production object storage. The deploy workflow pre-creates this
+      # bucket via mc on first deploy.
+      MINIO_BUCKET: aquaculture-staging
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Backend services — override image tag + CORS origins + resource limits.
+  # Image tag uses IMAGE_TAG env var (matches deploy-staging.yml output);
+  # falls back to :staging floating tag for operator-initiated local runs.
+  # ─────────────────────────────────────────────────────────────────────────
+  gateway-api:
+    image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:${IMAGE_TAG:-staging}
+    container_name: aqua-gateway-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=256'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      # Staging throttles are lower than prod — keeps staging cheap under
+      # smoke-test burst traffic without hiding throttle-related bugs that
+      # would surface at production scale. Tune up if staging volume grows.
+      THROTTLE_DEFAULT_LIMIT: 200
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.4'
+
+  auth-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:${IMAGE_TAG:-staging}
+    container_name: aqua-auth-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=256'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-staging.suderra.com}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform (Staging)}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.4'
+
+  farm-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:${IMAGE_TAG:-staging}
+    container_name: aqua-farm-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.4'
+
+  sensor-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:${IMAGE_TAG:-staging}
+    container_name: aqua-sensor-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      # Staging uses its own MQTT broker endpoint — sensor-service calls
+      # external (staging-app) host, not production. Keeps edge-device
+      # staging traffic isolated from prod MQTT topic namespace.
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-staging.suderra.com}
+      # Provisioning base URL is used by device-enrolment flows — must
+      # point at staging so enrolled devices hit the staging API.
+      PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://staging.suderra.com}
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.4'
+
+  admin-api-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${IMAGE_TAG:-staging}
+    container_name: aqua-admin-api-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      FRONTEND_URL: ${FRONTEND_URL:-https://staging.suderra.com}
+      THROTTLE_DEFAULT_LIMIT: 200
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+
+  alert-engine:
+    image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:${IMAGE_TAG:-staging}
+    container_name: aqua-alert-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  billing-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/billing-service:${IMAGE_TAG:-staging}
+    container_name: aqua-billing-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      # Staging MUST use Stripe sandbox keys — never production. The
+      # ${STRIPE_*_SANDBOX:-} fallback lets the service boot before Stripe
+      # is connected (Stripe onboarding happens out-of-band per the
+      # runbook). Once Stripe is wired, populate STRIPE_WEBHOOK_SECRET_SANDBOX
+      # and STRIPE_API_KEY_SANDBOX in the staging droplet's .env.
+      #
+      # Any attempt to populate these with prod Stripe keys is caught by
+      # Stripe itself — a live webhook signature would fail against a
+      # sandbox signing secret. Belt-and-suspenders: the staging runbook
+      # calls out "sandbox keys start sk_test_ / whsec_test_" as a guard.
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET_SANDBOX:-}
+      STRIPE_API_KEY: ${STRIPE_API_KEY_SANDBOX:-}
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  hr-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:${IMAGE_TAG:-staging}
+    container_name: aqua-hr-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  hydroponics-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-service:${IMAGE_TAG:-staging}
+    container_name: aqua-hydroponics-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  notification-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:${IMAGE_TAG:-staging}
+    container_name: aqua-notification-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      # Staging SMTP should point at a catch-all sink (MailHog / Ethereal /
+      # Postmark sandbox) so smoke-test emails never reach real inboxes.
+      # SMTP_HOST is unset by default — notification-service degrades to
+      # "logged but not delivered" mode, which is the safest staging default.
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  observability-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/observability-service:${IMAGE_TAG:-staging}
+    container_name: aqua-observability-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      # Metric namespace flag keeps staging timeseries in a distinct label
+      # namespace so Grafana dashboards don't aggregate staging noise into
+      # production RED/USE panels. Consumed by the Prometheus exporter —
+      # if the service doesn't currently read this, leaving it here is
+      # harmless and documents the intent for when it does.
+      METRICS_NAMESPACE: ${METRICS_NAMESPACE:-staging}
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  config-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/config-service:${IMAGE_TAG:-staging}
+    container_name: aqua-config-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=192'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.2'
+
+  messaging-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/messaging-service:${IMAGE_TAG:-staging}
+    container_name: aqua-messaging-staging
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=256'
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+          cpus: '0.3'
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Frontend microfrontends — tag override only; resource limits already
+  # small in base compose (64M each).
+  # ─────────────────────────────────────────────────────────────────────────
+  shell:
+    image: ghcr.io/okan-wqm/aquaculture_platform/shell:${IMAGE_TAG:-staging}
+    container_name: aqua-shell-staging
+
+  dashboard:
+    image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:${IMAGE_TAG:-staging}
+    container_name: aqua-dashboard-staging
+
+  farm-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:${IMAGE_TAG:-staging}
+    container_name: aqua-farm-module-staging
+
+  sensor-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:${IMAGE_TAG:-staging}
+    container_name: aqua-sensor-module-staging
+
+  admin-panel:
+    image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:${IMAGE_TAG:-staging}
+    container_name: aqua-admin-panel-staging
+
+  tenant-admin:
+    image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:${IMAGE_TAG:-staging}
+    container_name: aqua-tenant-admin-staging
+
+  hr-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:${IMAGE_TAG:-staging}
+    container_name: aqua-hr-module-staging
+
+  hydroponics-module:
+    image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:${IMAGE_TAG:-staging}
+    container_name: aqua-hydroponics-module-staging
+
+  aquamobil:
+    image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:${IMAGE_TAG:-staging}
+    container_name: aqua-mobile-staging
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Reverse proxy — container-name override only. The nginx config itself
+  # (infrastructure/nginx/droplet.conf) is reused. Staging's Let's Encrypt
+  # cert covers staging.<domain> and is issued during the droplet provision
+  # step documented in the runbook. Nginx reads /etc/letsencrypt/... just
+  # like prod — the cert files differ, the config does not.
+  # ─────────────────────────────────────────────────────────────────────────
+  nginx:
+    container_name: aqua-nginx-staging

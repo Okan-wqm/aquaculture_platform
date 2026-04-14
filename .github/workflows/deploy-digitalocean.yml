@@ -35,6 +35,20 @@ on:
         description: 'Services to deploy (comma-separated, or "all")'
         required: false
         default: 'all'
+      # WS9 / ADR-016 Phase D — staging gate bypass.
+      # Normal flow: staging deploy must succeed first (tag `deployed/staging-<sha>`).
+      # Set this to 'true' ONLY for genuine emergency hotfixes when staging is
+      # broken and a prod fix cannot wait. The bypass is logged and the deploy
+      # banner warns loudly — this is not a business-as-usual switch.
+      bypass_staging_gate:
+        description: 'EMERGENCY ONLY — bypass the staging-success gate. Document the reason below.'
+        required: false
+        type: boolean
+        default: false
+      bypass_reason:
+        description: 'Required when bypass_staging_gate=true. Why is staging being skipped? (e.g. "staging droplet offline; CVE-XXXX-YYYY fix")'
+        required: false
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -49,9 +63,109 @@ concurrency:
 
 jobs:
   # ===========================================================================
+  # Staging Gate (WS9 / ADR-016 Phase D)
+  #
+  # Asserts that this SHA has already succeeded on staging, i.e. that the
+  # `deployed/staging-<sha>` tag exists in origin. This is the architectural
+  # guarantee that "CI green + staging green" is the floor for any prod
+  # deploy — the 2026-04-14 cascade would have been caught here.
+  #
+  # The gate waits up to STAGING_GATE_TIMEOUT for the tag to appear (staging
+  # deploy runs in parallel on push-to-main and typically finishes before
+  # prod's own CI-gate). If the tag never arrives, the job fails fast and
+  # prod deploy is blocked.
+  #
+  # Emergency bypass (workflow_dispatch only):
+  #   Set `bypass_staging_gate: true` + a documented reason. The gate job
+  #   will log the bypass loudly and continue. Use for CVE hotfixes or
+  #   when staging itself is down.
+  # ===========================================================================
+  staging-gate:
+    # Same CI-success precondition as prepare — prod only runs when CI passed.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60   # staging deploy typically lands in ~30 min
+    steps:
+      - name: Check bypass / capture reason
+        id: bypass
+        run: |
+          set -euo pipefail
+          BYPASS='${{ github.event.inputs.bypass_staging_gate }}'
+          REASON='${{ github.event.inputs.bypass_reason }}'
+
+          if [ "${BYPASS}" = "true" ]; then
+            if [ -z "${REASON}" ]; then
+              echo "::error::bypass_staging_gate=true REQUIRES a non-empty bypass_reason."
+              echo "  Staging bypass is for emergencies only. Document the incident before skipping."
+              exit 1
+            fi
+            echo "::warning::STAGING GATE BYPASSED — reason: ${REASON}"
+            echo "::warning::Logged bypass initiated by ${{ github.actor }} at $(date -u +%FT%TZ)"
+            echo "bypass=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bypass=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Assert deployed/staging-<sha> tag
+        if: steps.bypass.outputs.bypass != 'true'
+        run: |
+          set -euo pipefail
+
+          TAG_NAME="deployed/staging-${{ github.sha }}"
+          REPO="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
+          # Poll for up to STAGING_GATE_TIMEOUT seconds, checking every
+          # STAGING_GATE_POLL_INTERVAL. Staging workflow typically completes
+          # in 25-35 minutes for a full build.
+          STAGING_GATE_TIMEOUT=${STAGING_GATE_TIMEOUT:-3300}   # 55 min
+          STAGING_GATE_POLL_INTERVAL=${STAGING_GATE_POLL_INTERVAL:-30}
+
+          DEADLINE=$(( $(date +%s) + STAGING_GATE_TIMEOUT ))
+          ATTEMPT=0
+
+          echo "Waiting for staging tag: ${TAG_NAME}"
+          echo "  Timeout: ${STAGING_GATE_TIMEOUT}s"
+          echo "  Poll:    ${STAGING_GATE_POLL_INTERVAL}s"
+
+          while [ "$(date +%s)" -lt "${DEADLINE}" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if git ls-remote --tags "${REPO}" "refs/tags/${TAG_NAME}" 2>/dev/null | grep -q "${TAG_NAME}"; then
+              echo "  attempt=${ATTEMPT}: TAG FOUND — staging deploy succeeded for this SHA."
+              exit 0
+            fi
+            REMAINING=$(( DEADLINE - $(date +%s) ))
+            echo "  attempt=${ATTEMPT}: tag not yet present (remaining=${REMAINING}s); sleeping ${STAGING_GATE_POLL_INTERVAL}s..."
+            sleep "${STAGING_GATE_POLL_INTERVAL}"
+          done
+
+          echo "::error::staging gate TIMED OUT after ${STAGING_GATE_TIMEOUT}s."
+          echo "  Tag ${TAG_NAME} was never pushed by deploy-staging.yml."
+          echo "  Either staging deploy failed, staging droplet is offline,"
+          echo "  or CI is behind and staging did not trigger."
+          echo ""
+          echo "  To diagnose: open the 'Deploy to DigitalOcean (Staging)' workflow"
+          echo "  for commit ${{ github.sha }} in the Actions tab."
+          echo ""
+          echo "  To bypass (EMERGENCY ONLY): re-run this workflow via"
+          echo "  workflow_dispatch with bypass_staging_gate=true and a"
+          echo "  bypass_reason describing the incident."
+          exit 1
+
+      - name: Gate summary
+        run: |
+          if [ "${{ steps.bypass.outputs.bypass }}" = "true" ]; then
+            echo "Staging gate: BYPASSED (emergency — see earlier warning)."
+          else
+            echo "Staging gate: PASSED — deployed/staging-${{ github.sha }} exists."
+          fi
+
+  # ===========================================================================
   # Prepare - Detect affected services & build dynamic matrices
   # ===========================================================================
   prepare:
+    needs: [staging-gate]
     # Only deploy if CI workflow succeeded (skip if it failed or was cancelled)
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -1079,10 +1193,17 @@ jobs:
               echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
               # Pull the migration image separately so its failure doesn't
               # cascade into the service-container pull logic below.
+<<<<<<< HEAD
               docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
               if ! docker compose -f docker-compose.droplet.yml \
                     up --no-build --abort-on-container-exit \
                     --exit-code-from db-migrate db-migrate; then
+=======
+              docker compose -f docker-compose.droplet.yml pull aqua-db-migrate 2>&1 || true
+              if ! docker compose -f docker-compose.droplet.yml \
+                    up --no-build --abort-on-container-exit \
+                    --exit-code-from aqua-db-migrate aqua-db-migrate; then
+>>>>>>> 9a533f89 (feat(deploy): staging environment shelf-ready (WS9 / ADR-016 Phase D))
                 echo "::error::aqua-db-migrate failed — schema migration aborted BEFORE service containers started."
                 echo "Inspect logs: docker logs aqua-db-migrate"
                 exit 1
@@ -1169,12 +1290,17 @@ jobs:
               # ─────────────────────────────────────────────────────────────
               # WS10 / ADR-016 Phase E — one-shot schema migration container.
               #
+<<<<<<< HEAD
               # Even on a selective deploy, run aqua-db-migrate before the
+=======
+              # Even on a selective deploy, we run aqua-db-migrate before the
+>>>>>>> 9a533f89 (feat(deploy): staging environment shelf-ready (WS9 / ADR-016 Phase D))
               # affected services restart. Pending migrations only land on
               # services that were changed, but the migration SET typically
               # spans schemas a service change did not touch (e.g. a shared
               # auth-schema tenant_id column rename lands in auth-service's
               # own migration but other services' RLS policies depend on
+<<<<<<< HEAD
               # the new column name). Running the full migration pass keeps
               # schema state coherent regardless of which services this
               # deploy restarts.
@@ -1184,6 +1310,17 @@ jobs:
               if ! docker compose -f docker-compose.droplet.yml \
                     up --no-build --abort-on-container-exit \
                     --exit-code-from db-migrate db-migrate; then
+=======
+              # the new column name). Running the full migration pass
+              # keeps schema state coherent regardless of which services
+              # this deploy restarts.
+              # ─────────────────────────────────────────────────────────────
+              echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
+              docker compose -f docker-compose.droplet.yml pull aqua-db-migrate 2>&1 || true
+              if ! docker compose -f docker-compose.droplet.yml \
+                    up --no-build --abort-on-container-exit \
+                    --exit-code-from aqua-db-migrate aqua-db-migrate; then
+>>>>>>> 9a533f89 (feat(deploy): staging environment shelf-ready (WS9 / ADR-016 Phase D))
                 echo "::error::aqua-db-migrate failed — selective deploy aborted BEFORE restarting services."
                 echo "Inspect logs: docker logs aqua-db-migrate"
                 exit 1

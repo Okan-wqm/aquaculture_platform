@@ -1,0 +1,587 @@
+# =============================================================================
+# Deploy to DigitalOcean — Staging (WS9 / ADR-016 Phase D)
+#
+# Parallel to deploy-digitalocean.yml but targets the STAGING droplet.
+#
+# Architecture (matches ADR-016 Phase D):
+#   1. Triggers on push to main BEFORE deploy-digitalocean.yml (same CI gate,
+#      different environment + deploy target).
+#   2. Builds images tagged `staging-<sha>` (+ rolling `staging`).
+#   3. SSHs into the staging droplet, runs the SAME pre-flight validation,
+#      WS6 criticality gate, and WS7 boot-signal gate as prod — using merged
+#      compose `docker-compose.droplet.yml + docker-compose.staging.yml`.
+#   4. On success: tags the commit as `deployed/staging-<sha>`.
+#   5. NO auto-promote to prod — the operator manually triggers
+#      deploy-digitalocean.yml after reviewing staging.
+#
+# Gate for promotion to prod: deploy-digitalocean.yml asserts the
+# `deployed/staging-<sha>` tag exists (bypassable with the workflow_dispatch
+# input `bypass_staging_gate: true` for emergency hotfixes — see the prod
+# workflow for details).
+#
+# SECRETS this workflow expects (GitHub repo → Settings → Environments →
+# staging):
+#   STAGING_DROPLET_HOST    — staging.<domain> or the Reserved IP
+#   STAGING_DROPLET_USER    — SSH user (typically 'root' or 'deploy')
+#   STAGING_DROPLET_SSH_KEY — private SSH key matching the key registered
+#                             in DO (per the Terraform module input).
+# =============================================================================
+
+name: Deploy to DigitalOcean (Staging)
+
+on:
+  # Runs on push to main, BEFORE deploy-digitalocean.yml. The prod workflow
+  # gates on the `deployed/staging-<sha>` tag this workflow emits.
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag_override:
+        description: 'Optional image tag to deploy (defaults to staging-<sha>)'
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: write  # needed to tag `deployed/staging-<sha>` after successful deploy
+  packages: write  # GHCR push
+
+concurrency:
+  group: deploy-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # Prepare — compute image tag, detect affected services (same logic as prod)
+  # ===========================================================================
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image_prefix: ${{ steps.vars.outputs.image_prefix }}
+      image_tag:    ${{ steps.vars.outputs.image_tag }}
+      sha_short:    ${{ steps.vars.outputs.sha_short }}
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: true  # needed to push the deployed/staging-<sha> tag later
+
+      - name: Compute deploy variables
+        id: vars
+        run: |
+          set -euo pipefail
+          # GHCR requires lowercase image paths
+          REPO="${{ github.repository }}"
+          echo "image_prefix=ghcr.io/${REPO,,}" >> $GITHUB_OUTPUT
+
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+          # Image tag resolution:
+          #   workflow_dispatch: use override if given, else staging-<sha>
+          #   push/main:         staging-<sha>
+          if [ -n "${{ github.event.inputs.image_tag_override }}" ]; then
+            IMAGE_TAG="${{ github.event.inputs.image_tag_override }}"
+          else
+            IMAGE_TAG="staging-${{ github.sha }}"
+          fi
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Image tag for this run: ${IMAGE_TAG}"
+
+  # ===========================================================================
+  # Build backend artifacts — full build for all services (staging is
+  # always fresh; selective-deploy logic is prod-only complexity). Keeps
+  # staging Docker images lockstep with the commit being promoted.
+  # ===========================================================================
+  build-backend:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache Nx
+        # SEC-CI-002: pinned to SHA
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-staging-${{ runner.os }}-${{ hashFiles('**/package-lock.json', 'tools/build/**', 'apps/*/tsconfig.build.json') }}
+          restore-keys: |
+            nx-staging-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Install Linux platform binaries
+        timeout-minutes: 3
+        run: |
+          # Same cross-platform binary install as deploy-digitalocean.yml.
+          # Kept inline rather than abstracted to keep the two workflows
+          # legible as parallel copies — easier for operators to spot drift.
+          install_pkg() {
+            local name=$1 ver=$2 dest=${3:-"node_modules/${name}"}
+            local tmpfile
+            tmpfile=$(mktemp /tmp/npm-pkg-XXXXXX.tgz)
+            mkdir -p "${dest}"
+            curl -sfL --max-time 30 "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" -o "${tmpfile}"
+            tar xz -C "${dest}" --strip-components=1 < "${tmpfile}"
+            rm -f "${tmpfile}"
+          }
+          install_pkg "@swc/core-linux-x64-gnu"        "$(node -p "require('./node_modules/@swc/core/package.json').version")"
+          install_pkg "@nx/nx-linux-x64-gnu"           "$(node -p "require('./node_modules/nx/package.json').version")"
+          install_pkg "@rollup/rollup-linux-x64-gnu"   "$(node -p "require('./node_modules/rollup/package.json').version")"
+          for esbuild_pkg in $(find node_modules -name "package.json" -path "*/esbuild/package.json" -not -path "*/@esbuild/*" 2>/dev/null); do
+            esbuild_dir=$(dirname "$esbuild_pkg")
+            esbuild_ver=$(node -p "require('./${esbuild_pkg}').version")
+            parent_dir=$(dirname "$esbuild_dir")
+            target="${parent_dir}/@esbuild/linux-x64"
+            if [ ! -d "$target" ]; then
+              install_pkg "@esbuild/linux-x64" "$esbuild_ver" "$target"
+            fi
+          done
+          timeout 30 node node_modules/nx/bin/post-install || true
+          node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing"; exit 1; }
+
+      - name: Build all backend services
+        run: |
+          # Staging always builds every backend service from the current sha.
+          # Mirrors the FULL_DEPLOY=true path of prod so staging == prod compiler
+          # output for the commit being promoted.
+          npx nx run-many -t build \
+            --projects=gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,observability-service,config-service,messaging-service \
+            --parallel=3
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+
+      - name: Upload backend artifacts
+        # SEC-CI-002: pinned to SHA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        with:
+          name: backend-dist-staging
+          path: dist/
+          retention-days: 1
+
+  # ===========================================================================
+  # Build frontend artifacts — same strategy as backend.
+  # ===========================================================================
+  build-frontend:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache Nx
+        # SEC-CI-002: pinned to SHA
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .nx/cache
+          key: nx-staging-fe-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            nx-staging-fe-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Install Linux platform binaries
+        timeout-minutes: 3
+        run: |
+          install_pkg() {
+            local name=$1 ver=$2 dest=${3:-"node_modules/${name}"}
+            local tmpfile
+            tmpfile=$(mktemp /tmp/npm-pkg-XXXXXX.tgz)
+            mkdir -p "${dest}"
+            curl -sfL --max-time 30 "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" -o "${tmpfile}"
+            tar xz -C "${dest}" --strip-components=1 < "${tmpfile}"
+            rm -f "${tmpfile}"
+          }
+          for esbuild_pkg in $(find node_modules -name "package.json" -path "*/esbuild/package.json" -not -path "*/@esbuild/*" 2>/dev/null); do
+            esbuild_dir=$(dirname "$esbuild_pkg")
+            esbuild_ver=$(node -p "require('./${esbuild_pkg}').version")
+            parent_dir=$(dirname "$esbuild_dir")
+            target="${parent_dir}/@esbuild/linux-x64"
+            if [ ! -d "$target" ]; then
+              install_pkg "@esbuild/linux-x64" "$esbuild_ver" "$target"
+            fi
+          done
+          install_pkg "@rollup/rollup-linux-x64-gnu" "$(node -p "require('./node_modules/rollup/package.json').version")"
+          install_pkg "@nx/nx-linux-x64-gnu"         "$(node -p "require('./node_modules/nx/package.json').version")"
+          timeout 30 node node_modules/nx/bin/post-install || true
+          node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing"; exit 1; }
+
+      - name: Build all frontend modules
+        run: |
+          # NX-managed
+          npx nx run-many -t build \
+            --projects=shell,dashboard,farm-module,admin-panel,tenant-admin \
+            --parallel=3
+          # Non-NX workspace modules — depend on shared-ui dist, build that first
+          npm run build --workspace="web/shared-ui"
+          for mod in sensor-module hr-module hydroponics-module; do
+            npm run build --workspace="web/modules/${mod}"
+          done
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+
+      - name: Ensure frontend-dist artifact is always producible
+        run: mkdir -p web/.artifact-marker && echo "placeholder" > web/.artifact-marker/.gitkeep
+
+      - name: Upload frontend artifacts
+        # SEC-CI-002: pinned to SHA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        with:
+          name: frontend-dist-staging
+          path: |
+            web/shell/dist/
+            web/modules/*/dist/
+            web/.artifact-marker/
+          if-no-files-found: warn
+          retention-days: 1
+
+  # ===========================================================================
+  # Build backend Docker images, tag `staging-<sha>` + rolling `staging`.
+  # ===========================================================================
+  build-backend-images:
+    needs: [prepare, build-backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        service:
+          - gateway-api
+          - auth-service
+          - farm-service
+          - sensor-service
+          - admin-api-service
+          - alert-engine
+          - billing-service
+          - hr-service
+          - hydroponics-service
+          - notification-service
+          - observability-service
+          - config-service
+          - messaging-service
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download backend artifacts
+        # SEC-CI-002: pinned to SHA
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: backend-dist-staging
+          path: dist/
+
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }}
+        # SEC-CI-002: pinned to SHA
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: infrastructure/docker/Dockerfile.backend.simple
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:${{ needs.prepare.outputs.image_tag }}
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:staging
+          build-args: |
+            SERVICE_NAME=${{ matrix.service }}
+          # ARCH-CI-002: staging-namespaced buildcache, distinct from prod cache.
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-staging-v2
+          cache-to:   type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-staging-v2,mode=max
+
+  # ===========================================================================
+  # Build frontend Docker images, tag `staging-<sha>` + rolling `staging`.
+  # ===========================================================================
+  build-frontend-images:
+    needs: [prepare, build-frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - module: shell
+            dockerfile: infrastructure/docker/Dockerfile.shell
+            module_path: web/shell
+          - module: dashboard
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/dashboard
+          - module: farm-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/farm-module
+          - module: sensor-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/sensor-module
+          - module: admin-panel
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/admin-panel
+          - module: tenant-admin
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/tenant-admin
+          - module: hr-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/hr-module
+          - module: hydroponics-module
+            dockerfile: infrastructure/docker/Dockerfile.microfrontend.simple
+            module_path: web/modules/hydroponics-module
+          - module: aquamobil
+            dockerfile: infrastructure/docker/Dockerfile.aquamobil
+            module_path: web/apps/aquamobil
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download frontend artifacts
+        # SEC-CI-002: pinned to SHA
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: frontend-dist-staging
+          path: web
+
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      # SEC-CI-002: pinned to SHA
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.module }}
+        # SEC-CI-002: pinned to SHA
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:${{ needs.prepare.outputs.image_tag }}
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:staging
+          build-args: |
+            MODULE_PATH=${{ matrix.module_path }}
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-staging-v2
+          cache-to:   type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-staging-v2,mode=max
+
+  # ===========================================================================
+  # Deploy to Staging Droplet — full pre-flight + WS6 + WS7 health gate +
+  # boot-signal assertion (same as prod). On success, tag the commit as
+  # `deployed/staging-<sha>` to authorise prod promotion.
+  # ===========================================================================
+  deploy:
+    needs: [prepare, build-backend-images, build-frontend-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging   # GitHub Environment protection (reviewers, secrets)
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          persist-credentials: true  # for tag push at the end
+
+      - name: Deploy to Staging Droplet
+        # SEC-CI-002: pinned to SHA
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.0.3
+        with:
+          host:     ${{ secrets.STAGING_DROPLET_HOST }}
+          username: ${{ secrets.STAGING_DROPLET_USER }}
+          key:      ${{ secrets.STAGING_DROPLET_SSH_KEY }}
+          command_timeout: 50m
+          envs: IMAGE_TAG
+          script: |
+            set -e
+            cd /var/aqua-saas
+
+            export IMAGE_TAG='${{ needs.prepare.outputs.image_tag }}'
+            echo "=== Staging deploy — image tag: ${IMAGE_TAG} ==="
+
+            # SEC-CI-012: Checkout to the specific SHA (not git pull)
+            echo "=== Checking out deploy SHA ==="
+            git fetch --force --prune origin
+            git checkout -f ${{ github.sha }}
+
+            # Certs — same always-run idempotent policy as prod (ADR-016 Phase A1).
+            echo "=== TLS certificate generation (always-run; idempotent) ==="
+            bash infrastructure/docker/scripts/generate-internal-certs.sh
+
+            # ──────────────────────────────────────────────────────────────
+            # Compose merge: base droplet config + staging overrides.
+            # Materialising the merged file lets the WS6 / WS7 scripts
+            # (which accept ONE COMPOSE_FILE path) see the merged view
+            # without script changes.
+            # ──────────────────────────────────────────────────────────────
+            COMPOSE_ARGS="-f docker-compose.droplet.yml -f docker-compose.staging.yml"
+            MERGED_COMPOSE="/tmp/compose-staging-merged.yml"
+            echo "=== Pre-flight: materialise merged compose ==="
+            if ! docker compose $COMPOSE_ARGS config > "$MERGED_COMPOSE"; then
+              echo "::error::staging compose merge failed — check docker-compose.staging.yml"
+              exit 1
+            fi
+            echo "  OK: merged compose written to ${MERGED_COMPOSE} ($(wc -l < $MERGED_COMPOSE) lines)"
+
+            # Phase A2 — interpolation sanity (quiet run against merged file).
+            echo "=== Pre-flight: compose interpolation ==="
+            if ! docker compose -f "$MERGED_COMPOSE" config --quiet; then
+              echo "::error::merged compose interpolation failed — missing :? env var"
+              exit 1
+            fi
+
+            # Phase A3 — NATS SSoT drift check (same as prod).
+            echo "=== Pre-flight: NATS SSoT drift check ==="
+            if [ -f scripts/nats/generate-nats-conf.py ]; then
+              python3 scripts/nats/generate-nats-conf.py
+              if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
+                echo "::error::nats.conf drifted from services.yaml"
+                git diff infrastructure/docker/nats/nats.conf | head -50
+                exit 1
+              fi
+            fi
+
+            # Phase A4 — required-secret presence (staging .env must carry
+            # the same bootstrap secret set as prod). Uses the same manifest
+            # (infrastructure/deploy/required-secrets.yaml) because the
+            # secret SHAPE is identical; values differ but keys don't.
+            echo "=== Pre-flight: required secrets presence ==="
+            REQUIRED_SECRETS=(
+              POSTGRES_PASSWORD
+              REDIS_PASSWORD
+              INTERNAL_SERVICE_SECRET
+              PASSWORD_PEPPER
+            )
+            MISSING=()
+            for SECRET in "${REQUIRED_SECRETS[@]}"; do
+              if ! grep -q "^${SECRET}=" /var/aqua-saas/.env 2>/dev/null; then
+                MISSING+=("$SECRET")
+              fi
+            done
+            if [ ${#MISSING[@]} -gt 0 ]; then
+              echo "::error::staging .env missing required secrets: ${MISSING[*]}"
+              echo "  Seed per docs/runbooks/staging-environment.md#first-run-secret-seeding"
+              exit 1
+            fi
+
+            # GHCR login (runtime-scoped, auto-masked)
+            echo "=== Logging into GHCR ==="
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            # Capture previous digest for rollback
+            PREV_GATEWAY=$(docker inspect --format='{{.Image}}' aqua-gateway-staging 2>/dev/null || echo "")
+
+            # Pull new images using merged compose
+            echo "=== Pulling staging images ==="
+            docker compose $COMPOSE_ARGS pull || true
+
+            # Up with no rebuild (images pulled from GHCR)
+            echo "=== Starting staging stack ==="
+            docker compose $COMPOSE_ARGS up -d --no-build --remove-orphans
+
+            echo "=== Waiting 60s for bootstrap ==="
+            sleep 60
+
+            # WS6 criticality gate — point at merged compose. Uses the
+            # same manifest path as prod because service shape is identical.
+            echo "=== WS6 criticality gate ==="
+            if ! COMPOSE_FILE="$MERGED_COMPOSE" \
+                 MANIFEST=infrastructure/deploy/service-criticality.yaml \
+                 POLL_INTERVAL=10 \
+                 node scripts/deploy/check-service-health.ts; then
+              echo "::error::Staging critical-service health check failed."
+              if [ -n "$PREV_GATEWAY" ]; then
+                echo "Rolling back gateway image to ${PREV_GATEWAY}"
+                docker compose $COMPOSE_ARGS up -d --no-build --remove-orphans
+              fi
+              exit 1
+            fi
+
+            # WS7 boot-signal assertion
+            echo "=== WS7 boot-signal gate ==="
+            if ! COMPOSE_FILE="$MERGED_COMPOSE" \
+                 MANIFEST=infrastructure/deploy/required-signals.yaml \
+                 POLL_INTERVAL=10 \
+                 node scripts/deploy/assert-service-signals.ts; then
+              echo "::error::Staging boot-signal assertion failed."
+              if [ -n "$PREV_GATEWAY" ]; then
+                docker compose $COMPOSE_ARGS up -d --no-build --remove-orphans
+              fi
+              exit 1
+            fi
+
+            echo "=== Staging deploy completed at $(date) ==="
+
+      # Promotion token: tag the commit as successfully staged. The prod
+      # workflow (deploy-digitalocean.yml) gates on this tag to prevent
+      # promoting an unstaged commit.
+      - name: Tag commit as staged
+        run: |
+          set -euo pipefail
+          TAG="deployed/staging-${{ github.sha }}"
+          echo "Tagging ${TAG}"
+          git tag -f "${TAG}" ${{ github.sha }}
+          git push -f origin "refs/tags/${TAG}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "Staging deploy success:"
+          echo "  SHA:    ${{ github.sha }}"
+          echo "  Tag:    ${{ needs.prepare.outputs.image_tag }}"
+          echo "  Promo:  deployed/staging-${{ github.sha }}"
+          echo ""
+          echo "To promote this commit to production, manually trigger"
+          echo "the 'Deploy to DigitalOcean' workflow. The staging-gate"
+          echo "step will find this tag and allow the promotion."

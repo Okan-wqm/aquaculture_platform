@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aquaculture.dev/schemas/nats-services.json",
+  "title": "NATS Per-Service Identity + ACL Registry",
+  "description": "Single source of truth for NATS per-service authentication. Validates infrastructure/nats/services.yaml. Consumed by the CI invariant test nats-invariants.spec.ts.",
+  "type": "object",
+  "required": ["version", "services"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Bump only on breaking shape changes; add migration notes in ADR-015."
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/service" },
+      "description": "Ordered list of NATS services. Order is preserved by the nats.conf generator for auditable diffs."
+    }
+  },
+  "definitions": {
+    "service": {
+      "type": "object",
+      "required": ["name", "description", "publish", "subscribe"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+          "minLength": 3,
+          "maxLength": 40,
+          "description": "NATS user identifier. MUST exactly match the mTLS client cert CN for this service (verify_and_map maps CN → user). Lowercase snake_case."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 10,
+          "description": "One-line summary of what this service publishes/consumes. Appears in ADR and runbook generation."
+        },
+        "publish": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "$ref": "#/definitions/subject" },
+          "description": "Subjects this service is permitted to publish to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+        },
+        "subscribe": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/definitions/subject" },
+          "description": "Subjects this service is permitted to subscribe to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+        }
+      }
+    },
+    "subject": {
+      "type": "string",
+      "pattern": "^(AQUACULTURE_EVENTS\\.|events\\.|request\\.|st\\.language\\.|\\$JS\\.API\\.|_INBOX\\.)[A-Za-z0-9_.*>]+$",
+      "minLength": 3,
+      "maxLength": 120,
+      "description": "NATS subject pattern. Must begin with one of: AQUACULTURE_EVENTS., events., request., st.language., $JS.API., _INBOX. — platform subject-space conventions enforced by SSoT."
+    }
+  }
+}

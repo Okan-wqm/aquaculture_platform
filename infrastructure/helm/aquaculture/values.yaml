@@ -375,6 +375,21 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault
 
+# SECURITY (MEDIUM-006): Kubernetes Pod Security Standards (PSS).
+# Namespace-level admission controller labels — see templates/namespace.yaml.
+# The restricted profile enforces runAsNonRoot, capabilities drop ALL,
+# readOnlyRootFilesystem, seccompProfile=RuntimeDefault — all of which the
+# platform's securityContext helper already satisfies, so no workload needs
+# changes. If a specific deployment requires relaxed policy (e.g. a legacy
+# sidecar), override to `baseline` here and restrict with a NetworkPolicy.
+podSecurityStandards:
+  enforce: "restricted"
+  enforceVersion: "latest"
+  audit: "restricted"
+  auditVersion: "latest"
+  warn: "restricted"
+  warnVersion: "latest"
+
 networkPolicy:
   enabled: true
 

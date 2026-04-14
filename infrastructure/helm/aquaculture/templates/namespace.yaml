@@ -18,3 +18,25 @@ metadata:
   name: {{ .Values.namespace }}
   labels:
     {{- include "aquaculture.labels" . | nindent 4 }}
+    # SECURITY (MEDIUM-006): Kubernetes Pod Security Standards enforcement.
+    # Built-in admission controller rejects any pod that violates the
+    # profile — no add-on, no custom webhook, no manual PSP migration.
+    # https://kubernetes.io/docs/concepts/security/pod-security-standards/
+    #
+    # `enforce`  = reject non-compliant pods at admission (hard block).
+    # `audit`    = log violations for operator review without blocking.
+    # `warn`     = return warnings to `kubectl apply` for the submitter.
+    #
+    # Profile sequencing (pss-enforce):
+    #   restricted (default) — most locked down; runAsNonRoot, drop ALL caps,
+    #                          readOnlyRootFilesystem, seccomp=RuntimeDefault.
+    #                          All backend services already satisfy this via
+    #                          aquaculture.securityContext.
+    #   baseline             — escape hatch for workloads that cannot run
+    #                          restricted (rare — override via values.yaml).
+    pod-security.kubernetes.io/enforce: {{ .Values.podSecurityStandards.enforce | default "restricted" | quote }}
+    pod-security.kubernetes.io/enforce-version: {{ .Values.podSecurityStandards.enforceVersion | default "latest" | quote }}
+    pod-security.kubernetes.io/audit: {{ .Values.podSecurityStandards.audit | default "restricted" | quote }}
+    pod-security.kubernetes.io/audit-version: {{ .Values.podSecurityStandards.auditVersion | default "latest" | quote }}
+    pod-security.kubernetes.io/warn: {{ .Values.podSecurityStandards.warn | default "restricted" | quote }}
+    pod-security.kubernetes.io/warn-version: {{ .Values.podSecurityStandards.warnVersion | default "latest" | quote }}

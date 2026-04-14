@@ -1,0 +1,63 @@
+# =============================================================================
+# ArgoCD Application — aquaculture (staging)
+# =============================================================================
+#
+# INFRA-ARGOCD-001: shelf-ready. Mirrors production/aquaculture.yaml with
+# staging values and a less-aggressive sync policy (no self-heal — staging
+# is where operators experiment, and self-heal would fight them).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aquaculture-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: aquaculture-platform
+    environment: staging
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: aquaculture-platform
+
+  source:
+    repoURL: https://github.com/Okan-wqm/aquaculture_platform.git
+    targetRevision: main
+    path: infrastructure/helm/aquaculture
+    helm:
+      releaseName: aquaculture
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+      parameters: []
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: aquaculture-staging
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: false   # operators may hand-edit in staging
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 2m
+
+  revisionHistoryLimit: 5
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data

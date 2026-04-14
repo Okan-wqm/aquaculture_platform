@@ -1,0 +1,75 @@
+# =============================================================================
+# ArgoCD AppProject — aquaculture-platform
+# =============================================================================
+#
+# INFRA-ARGOCD-001: shelf-ready declaration. Has no effect today (no ArgoCD
+# install exists — gated on Track C / INFRA-C4). Once ArgoCD is bootstrapped
+# onto the EKS cluster, `kubectl apply -f infra/argocd/projects/ -n argocd`
+# creates this project; `Application` manifests under infra/argocd/applications/
+# bind to it via `.spec.project: aquaculture-platform`.
+#
+# Hardening choices:
+# - `sourceRepos` is an allow-list, not `*`. An Application pointing at a
+#   different Git repo is rejected.
+# - `destinations` is scoped to this cluster + a small set of namespaces;
+#   an Application cannot accidentally reconcile into kube-system.
+# - `clusterResourceWhitelist` restricts the kinds this project can manage
+#   at cluster scope — CRDs / ClusterRole / Namespace only (everything else
+#   is namespace-scoped by default in our chart).
+# - `orphanedResources.warn: true` surfaces resources in the namespace that
+#   ArgoCD is NOT tracking, catching drift from out-of-band `kubectl apply`.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: aquaculture-platform
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: aquaculture-platform
+spec:
+  description: Aquaculture platform workloads — backend services, frontend microfrontends, supporting infra (NATS, External Secrets Operator, cert-manager).
+
+  sourceRepos:
+    - https://github.com/Okan-wqm/aquaculture_platform.git
+    - https://github.com/Okan-wqm/aquaculture_platform
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: aquaculture
+    - server: https://kubernetes.default.svc
+      namespace: aquaculture-system
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+    - server: https://kubernetes.default.svc
+      namespace: external-secrets
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager
+    - server: https://kubernetes.default.svc
+      namespace: nats
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: external-secrets.io
+      kind: ClusterSecretStore
+    - group: networking.k8s.io
+      kind: IngressClass
+
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  orphanedResources:
+    warn: true
+
+  roles:
+    - name: read-only
+      description: View-only access for non-on-call engineers.
+      policies:
+        - p, proj:aquaculture-platform:read-only, applications, get, aquaculture-platform/*, allow
+      groups: []

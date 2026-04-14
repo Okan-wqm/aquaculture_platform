@@ -1,0 +1,87 @@
+# =============================================================================
+# ArgoCD Application — aquaculture (production)
+# =============================================================================
+#
+# INFRA-ARGOCD-001: shelf-ready. Has no effect until ArgoCD is installed
+# (INFRA-C4). When it is, the controller reads this manifest and begins
+# reconciling infrastructure/helm/aquaculture/ into the `aquaculture`
+# namespace of the in-cluster destination.
+#
+# Sync policy is automated + self-healing:
+#   - prune: true      — resources removed from Git are deleted in-cluster
+#   - selfHeal: true   — manual `kubectl edit` drift is reverted
+#   - allowEmpty: false — an empty Helm render cannot wipe the namespace
+#
+# Sync waves (argocd.argoproj.io/sync-wave annotations) are inherited from
+# the templated resources themselves; nothing in this Application body
+# overrides them. The Helm chart applies: ServiceAccount/RBAC (wave 0),
+# CRDs + ClusterSecretStore (wave 1), Deployments + Services (wave 2),
+# Ingress + ServiceMonitors (wave 3). Adjust wave labels in the chart,
+# not here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aquaculture-production
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: aquaculture-platform
+    environment: production
+  finalizers:
+    # Without this finalizer, deleting the Application from ArgoCD leaves
+    # the underlying workloads running orphaned in the cluster.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: aquaculture-platform
+
+  source:
+    repoURL: https://github.com/Okan-wqm/aquaculture_platform.git
+    targetRevision: main
+    path: infrastructure/helm/aquaculture
+    helm:
+      releaseName: aquaculture
+      valueFiles:
+        - values.yaml
+        - values-production.yaml
+      # Parameters injected at sync time by ArgoCD (e.g. image tags)
+      # belong in parameters[] below, NOT in Git. Leave empty at rest.
+      parameters: []
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: aquaculture
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+
+  revisionHistoryLimit: 10
+
+  # Suppress noisy diffs on fields controllers legitimately manage.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas  # HPA owns replica count
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /status
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data  # External Secrets Operator populates these

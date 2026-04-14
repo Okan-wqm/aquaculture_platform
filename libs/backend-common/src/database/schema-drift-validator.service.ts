@@ -128,14 +128,32 @@ export function createSchemaDriftValidator(
       const tableName = entity.tableName;
 
       // Existence + schema check.
+      //
+      // Filter out per-tenant schemas (`tenant_<uuid>`) — those are
+      // CREATE TABLE LIKE replicas of source tables and would produce
+      // false positives if `LIMIT 1` happened to land on one. Quoting
+      // ADR-012: "schema-per-tenant services declare NO `schema:` option
+      // on tenant entities; the validator queries the source schema, which
+      // has the canonical table." A query against pg_tables without this
+      // filter would arbitrarily return ANY schema's match.
+      //
+      // Replaced LIMIT 1 with explicit schema filtering: the entity's
+      // declared schema is the only candidate we consider.
       const tableRows: Array<{ schemaname: string }> = await this.dataSource
         .query(
-          `SELECT schemaname FROM pg_tables WHERE tablename = $1 LIMIT 1`,
-          [tableName],
+          `SELECT schemaname FROM pg_tables
+           WHERE tablename = $1
+             AND schemaname NOT LIKE 'tenant\\_%' ESCAPE '\\'
+             AND schemaname NOT IN ('pg_catalog', 'information_schema')
+           ORDER BY (schemaname = $2) DESC, schemaname
+           LIMIT 1`,
+          [tableName, schema],
         );
       if (tableRows.length === 0) {
-        // Table doesn't exist at all — NOT a drift from this validator's
-        // perspective (could be a synchronize-yet-to-run state). Skip.
+        // Table doesn't exist in any non-tenant schema — NOT a drift from
+        // this validator's perspective (could be a synchronize-yet-to-run
+        // state, or a source table that's only replicated to tenant_*
+        // schemas at provision time). Skip.
         return;
       }
       if (tableRows[0].schemaname !== schema) {

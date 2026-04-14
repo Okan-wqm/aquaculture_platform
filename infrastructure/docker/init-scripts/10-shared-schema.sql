@@ -158,7 +158,8 @@ BEGIN
       "processedBy" UUID,
       "errorMessage" TEXT,
       "recordsAffected" INT NOT NULL DEFAULT 0,
-      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX "IDX_data_request_user" ON shared.gdpr_data_requests ("userId");
     CREATE INDEX "IDX_data_request_tenant" ON shared.gdpr_data_requests ("tenantId");

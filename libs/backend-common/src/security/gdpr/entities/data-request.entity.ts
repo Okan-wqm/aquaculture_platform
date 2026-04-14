@@ -81,10 +81,10 @@ export class GdprDataRequest {
   @Column({ type: 'varchar', length: 500, nullable: true })
   downloadUrl?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   downloadExpiresAt?: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   processedAt?: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
@@ -96,10 +96,10 @@ export class GdprDataRequest {
   @Column({ type: 'int', default: 0 })
   recordsAffected!: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   /**

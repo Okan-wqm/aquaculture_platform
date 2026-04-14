@@ -47,7 +47,7 @@ export class UserConsent {
   @Column({ type: 'varchar', length: 500, nullable: true })
   userAgent?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   expiresAt?: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -56,7 +56,7 @@ export class UserConsent {
   @Column({ type: 'text', nullable: true })
   withdrawalReason?: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   isActive(): boolean {

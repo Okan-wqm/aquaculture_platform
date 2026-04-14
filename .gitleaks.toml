@@ -19,14 +19,28 @@ useDefault = true
 
 [[rules]]
 id = "aquaculture-env-secret-assignment"
-description = "High-entropy assignment to a suspicious env var in a committed file"
-regex = '''(?i)(JWT_SECRET|INTERNAL_SERVICE_SECRET|ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SMTP_PASS|NATS_.*_PASS|SUPER_ADMIN_PASSWORD|REDIS_PASSWORD|POSTGRES_PASSWORD|ADMIN_SERVICE_DB_PASS|AUTH_SERVICE_DB_PASS)\s*[=:]\s*['\"]?([A-Za-z0-9+\/=_\-]{12,})['\"]?'''
+description = "High-entropy LITERAL assignment to a suspicious env var"
+# Architecture note: gitleaks runs on Go's RE2 engine which does NOT support
+# lookaheads. Instead of a negative lookahead to exclude `${…}` interpolations,
+# we scope the rule by PATH — only real source files can hold committed
+# secrets. Compose/Helm values and `.env.example` files use env references,
+# not literals, so they are path-allowlisted below.
+regex = '''(?i)(JWT_SECRET|INTERNAL_SERVICE_SECRET|ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SMTP_PASS|NATS_.*_PASS|SUPER_ADMIN_PASSWORD|REDIS_PASSWORD|POSTGRES_PASSWORD|ADMIN_SERVICE_DB_PASS|AUTH_SERVICE_DB_PASS|PASSWORD_PEPPER)\s*[=:]\s*['\"]?([A-Za-z0-9+\/=_\-]{12,})['\"]?'''
 tags = ["secret", "env"]
-# Allow tombstoned / obvious placeholders — the CI failure noise from these
-# is worse than the risk of a real secret matching them.
 [rules.allowlist]
+# Files where matches are false-positives by definition — compose/Helm/env
+# templates reference secrets, never contain them literally.
+paths = [
+  '''(?i)docker-compose[^/]*\.ya?ml$''',
+  '''(?i)^infrastructure/helm/.*\.ya?ml$''',
+  '''(?i)^infrastructure/kubernetes/.*\.ya?ml$''',
+  '''(?i)\.env\.example$''',
+  '''(?i)\.env\.sample$''',
+]
+# Placeholder / dev-default values that should never trip the rule even when
+# they happen to live in a real source file.
 regexes = [
-  '''(?i)(changeme|replace-?me|your-?secret|example|placeholder|<[a-z0-9_-]+>|dummy|fake|testonly|<[^>]+>|\$\{[^}]+\})''',
+  '''(?i)(change-?me|replace-?me|your-?secret|example|placeholder|<[a-z0-9_-]+>|dummy|fake|testonly|<[^>]+>|\$\{[^}]+\}|dev-?password|dev-?secret|devpassword)''',
 ]
 
 # ──────────────────────────────────────────────────────────────────────

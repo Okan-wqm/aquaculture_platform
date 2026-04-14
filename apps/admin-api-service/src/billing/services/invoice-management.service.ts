@@ -420,7 +420,7 @@ export class InvoiceManagementService {
     // Log the void action
     await this.dataSource.query(
       `
-      INSERT INTO public.audit_logs (
+      INSERT INTO shared.audit_logs (
         id, action, "entityType", "entityId", "tenantId",
         "performedBy", details, "createdAt"
       ) VALUES (

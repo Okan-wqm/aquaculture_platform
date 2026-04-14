@@ -14,7 +14,7 @@ import { ConsentType } from '../../interfaces';
  * Stores user consent records for GDPR/CCPA compliance.
  * Each consent is versioned to track changes over time.
  */
-@Entity('user_consents')
+@Entity('user_consents', { schema: 'shared' })
 @Index('IDX_consent_user', ['userId'])
 @Index('IDX_consent_tenant', ['tenantId'])
 @Index('IDX_consent_type', ['consentType'])

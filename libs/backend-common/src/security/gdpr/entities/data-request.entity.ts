@@ -35,7 +35,7 @@ export enum DataRequestStatus {
  * Tracks user requests for data access, deletion, etc.
  * Required for GDPR compliance to prove request handling.
  */
-@Entity('gdpr_data_requests')
+@Entity('gdpr_data_requests', { schema: 'shared' })
 @Index('IDX_data_request_user', ['userId'])
 @Index('IDX_data_request_tenant', ['tenantId'])
 @Index('IDX_data_request_type', ['requestType'])

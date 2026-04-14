@@ -25,7 +25,7 @@ export enum AuditSeverity {
  *
  * NO soft delete - audit logs are immutable by design.
  */
-@Entity('audit_logs')
+@Entity('audit_logs', { schema: 'shared' })
 @Index('IDX_audit_log_tenant_created', ['tenantId', 'createdAt'])
 @Index('IDX_audit_log_user_tenant', ['userId', 'tenantId'])
 @Index('IDX_audit_log_resource', ['resource', 'resourceId', 'tenantId'])

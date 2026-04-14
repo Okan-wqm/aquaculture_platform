@@ -464,6 +464,17 @@ secrets:
     messagingPass: ""
     hydroponicsUser: hydroponics_service
     hydroponicsPass: ""
+  # REQUIRED: Stripe webhook signing key for billing-service's
+  # stripe-webhook.controller.ts — verifies HMAC on every inbound Stripe
+  # event. Obtain from Stripe Dashboard → Developers → Webhooks → your
+  # endpoint → Signing secret. Format: `whsec_...`
+  # Rotation: docs/runbooks/secret-rotation.md
+  stripeWebhookSecret: ""
+  # REQUIRED: Stripe server-side API key for outbound API calls
+  # (checkout sessions, subscription state queries, refunds).
+  # Obtain from Stripe Dashboard → Developers → API keys.
+  # Use restricted keys in production (no customer-data read). Format: `sk_live_...` / `rk_live_...`
+  stripeApiKey: ""
 
 # External secrets (e.g., from AWS Secrets Manager, Vault)
 externalSecrets:

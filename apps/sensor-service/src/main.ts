@@ -32,6 +32,23 @@ bootstrapService(AppModule, {
   enableTelemetry: true,
   hasGraphQL: true,
   natsTransport: { queue: 'sensor-service' },
+  // MQTT auth endpoints are infrastructure — Mosquitto's mosquitto-go-auth
+  // plugin calls sensor-service over the Docker internal network to verify
+  // credentials / ACLs / superuser claims. The plugin config (mosquitto-
+  // production.conf + simulators/mosquitto-http-auth.conf) is locked to
+  // the broker runtime and cannot participate in the application's API
+  // versioning scheme. Excluding the mqtt/* routes from the api/v1 prefix
+  // keeps sensor-service's HTTP controller path (`@Controller('mqtt')`)
+  // and mosquitto's backend URIs (`/mqtt/auth`, `/mqtt/superuser`,
+  // `/mqtt/acl`) in lockstep — the same rationale that exempts health
+  // probes and metrics endpoints from the global prefix (see
+  // DEFAULT_PREFIX_EXCLUSIONS in create-service-app.ts).
+  //
+  // Without this exclusion, mosquitto posted to `/mqtt/auth` but the
+  // actual route was `/api/v1/mqtt/auth` — every MQTT auth attempt 404ed,
+  // and the sensor-service reconnect loop climbed toward the 20-attempt
+  // limit after every device reconnection (see 2026-04-14 log audit G9).
+  prefixExclusions: ['health', 'health/(.*)', 'metrics', 'mqtt/(.*)'],
   customValidationPipe: new ValidationPipe({
     whitelist: true,
     forbidNonWhitelisted: true,

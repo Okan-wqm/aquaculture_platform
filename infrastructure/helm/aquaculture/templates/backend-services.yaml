@@ -452,6 +452,24 @@ spec:
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
             {{- include "aquaculture.natsServiceEnv" (list . "Billing") | nindent 12 }}
+            # Stripe credentials — pulled from the aggregated secret (see
+            # templates/secrets.yaml). stripe-webhook.controller.ts reads
+            # STRIPE_WEBHOOK_SECRET to verify inbound Stripe signatures;
+            # STRIPE_API_KEY authenticates outbound calls to Stripe's API.
+            # Both are `required` in values schema — deploy fails fast if
+            # they're missing, which is the preferred failure mode vs. the
+            # previous runtime warn "webhook signature verification will
+            # reject all requests".
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aquaculture.fullname" . }}-secrets
+                  key: stripeWebhookSecret
+            - name: STRIPE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aquaculture.fullname" . }}-secrets
+                  key: stripeApiKey
             {{- range $key, $val := .Values.billingService.env }}
             - name: {{ $key }}
               value: {{ $val | quote }}

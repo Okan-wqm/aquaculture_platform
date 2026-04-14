@@ -879,6 +879,19 @@ services:
       <<: *nats-billing-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      # Stripe webhook HMAC signing key — obtained from Stripe Dashboard
+      # (Developers → Webhooks → your endpoint → Signing secret). Required
+      # in production; without it, stripe-webhook.controller.ts:77 warns
+      # "Webhook signature verification will reject all requests" and every
+      # Stripe event returns 400. Rotated via Stripe dashboard rolling keys
+      # (documented in docs/runbooks/secret-rotation.md, added in P5).
+      # The `:?` sentinel fails deploy if STRIPE_WEBHOOK_SECRET is missing
+      # from the environment (.env / Docker secrets) — opt-in strictness
+      # matching INTERNAL_SERVICE_SECRET, REDIS_PASSWORD, and other
+      # security-critical keys in this file.
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?STRIPE_WEBHOOK_SECRET required — obtain from Stripe Dashboard → Developers → Webhooks}
+      # Stripe API key (server-side) — required alongside webhook secret.
+      STRIPE_API_KEY: ${STRIPE_API_KEY:?STRIPE_API_KEY required — obtain from Stripe Dashboard → Developers → API keys}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1205,7 +1218,13 @@ services:
       # /health/ready checks DB+Redis+NATS and returns 503 on partial failure — too strict for
       # Docker liveness. The gateway only needs messaging's GraphQL endpoint reachable, which
       # /health/live confirms (NestJS HTTP listener is bound = supergraph introspection will work).
-      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
+      # Uses curl (shipped in the Dockerfile.backend base) — every other backend healthcheck
+      # in this file uses the same command. The previous `wget -q --spider` variant assumed
+      # busybox/wget was present, but the image base only includes curl. That mismatch made
+      # every healthcheck execution fail with
+      #   OCI runtime exec failed: exec: "wget": executable file not found in $PATH
+      # and marked the container `unhealthy` while the process itself was running fine.
+      test: ['CMD', 'curl', '-sf', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3

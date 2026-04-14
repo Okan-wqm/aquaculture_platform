@@ -35,7 +35,7 @@ CRITICAL: 1 | HIGH: 7 | MEDIUM: 5 | LOW: 1
 - [ ] 06-pii-log-masking-central — central masker lib + audit interceptor integration [HIGH] [security-sensitive]
 
 ### Phase 2 — Hygiene & secrets supply chain
-- [ ] 07-bootstrap-secrets-adoption — wire bootstrapSecrets() into every main.ts [MEDIUM] [security-sensitive] [blockedBy: 01]
+- [x] 07-bootstrap-secrets-adoption — wire bootstrapSecrets() into every main.ts [MEDIUM] [security-sensitive] [blockedBy: 01] (commit 3111e126)
 - [ ] 08-cert-manager-internal-issuer — cert-manager Issuer + Certificate CRDs [MEDIUM] [blockedBy: 03]
 - [ ] 09-dev-db-per-service-wiring — dev compose per-service roles [MEDIUM]
 - [ ] 10-password-pepper-bcrypt — PASSWORD_PEPPER HMAC layer [MEDIUM] [security-sensitive]
@@ -59,5 +59,5 @@ See: `docs/plans/2026-04-14-hardening-remediation/verification-log.md` (append-o
 - Redis / NATS tenant key-space isolation (requires architectural-arbiter ADR)
 
 ## Progress Summary
-Completed: 5 / 14 packages
+Completed: 7 / 14 packages
 Last Updated: 2026-04-14

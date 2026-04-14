@@ -70,7 +70,7 @@ export class MovePublicTablesToSensor1786000100000 implements MigrationInterface
             SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '${table}'
           ) THEN
             ALTER TABLE sensor.${table} SET SCHEMA public;
-            ALTER TABLE public.${table} OWNER TO shared_public_owner;
+            ALTER TABLE public.${table} OWNER TO shared_schema_owner;
           END IF;
         END $$;
       `);

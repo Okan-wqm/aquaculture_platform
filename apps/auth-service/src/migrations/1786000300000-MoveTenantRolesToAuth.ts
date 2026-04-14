@@ -66,7 +66,7 @@ export class MoveTenantRolesToAuth1786000300000 implements MigrationInterface {
           SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'tenant_roles'
         ) THEN
           ALTER TABLE auth.tenant_roles SET SCHEMA public;
-          ALTER TABLE public.tenant_roles OWNER TO shared_public_owner;
+          ALTER TABLE public.tenant_roles OWNER TO shared_schema_owner;
         END IF;
       END $$;
     `);

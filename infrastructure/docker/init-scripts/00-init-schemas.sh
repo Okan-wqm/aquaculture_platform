@@ -343,23 +343,21 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   -- ========================================================================
   -- Verification query
   -- ========================================================================
-  -- Schema evolution: add missing columns that entities define but
-  -- production DB was created before the column was added to the entity.
-  -- WHY: billing-service has no TypeORM migration runner. In dev,
-  -- synchronize: true handles this. In production, this idempotent
-  -- ALTER TABLE fills the gap until a proper migration runner is added.
-  -- ========================================================================
-
-  -- Subscription soft-delete columns (added to entity, missing from prod DB)
-  ALTER TABLE IF EXISTS billing.subscription
-    ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false;
-  ALTER TABLE IF EXISTS billing.subscription
-    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
-  ALTER TABLE IF EXISTS billing.subscription
-    ADD COLUMN IF NOT EXISTS deleted_by VARCHAR;
-  CREATE INDEX IF NOT EXISTS idx_subscription_is_deleted
-    ON billing.subscription (is_deleted) WHERE is_deleted = true;
-
+  --
+  -- Schema-evolution ALTER TABLE statements that USED to live here have
+  -- been removed. They targeted `billing.subscription` (singular) which
+  -- never matched the actual entity table name `billing.subscriptions`
+  -- (plural — see apps/billing-service/src/billing/entities/subscription.entity.ts:92).
+  -- The IF EXISTS guard made every one a silent no-op for as long as the
+  -- block existed (a reviewer-trap, flagged HIGH-005 in the 2026-04-14
+  -- review).
+  --
+  -- Schema evolution for billing now goes through the proper TypeORM
+  -- migration runner wired in P2b of the public-schema teardown:
+  --   apps/billing-service/src/database/migrations/
+  -- The first migration (1744400000000-AddPlanSoftDeleteColumns.ts) is
+  -- the architectural replacement — it targets the correct table name
+  -- and produces tracked migration ledger entries instead of silent ALTERs.
   -- ========================================================================
 
   SELECT nspname AS schema_name,

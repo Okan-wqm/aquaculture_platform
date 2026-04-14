@@ -70,7 +70,7 @@ export class MoveEmployeesToHr1786000400000 implements MigrationInterface {
           SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'employees'
         ) THEN
           ALTER TABLE hr.employees SET SCHEMA public;
-          ALTER TABLE public.employees OWNER TO shared_public_owner;
+          ALTER TABLE public.employees OWNER TO shared_schema_owner;
         END IF;
       END $$;
     `);

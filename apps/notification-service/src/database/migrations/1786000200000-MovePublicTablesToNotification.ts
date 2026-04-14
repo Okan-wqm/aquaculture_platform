@@ -72,7 +72,7 @@ export class MovePublicTablesToNotification1786000200000
             SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '${table}'
           ) THEN
             ALTER TABLE notification.${table} SET SCHEMA public;
-            ALTER TABLE public.${table} OWNER TO shared_public_owner;
+            ALTER TABLE public.${table} OWNER TO shared_schema_owner;
           END IF;
         END $$;
       `);

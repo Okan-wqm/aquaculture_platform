@@ -116,7 +116,7 @@ export class MovePublicTablesToFarm1786000000000 implements MigrationInterface {
             SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = '${table}'
           ) THEN
             ALTER TABLE farm.${table} SET SCHEMA public;
-            ALTER TABLE public.${table} OWNER TO shared_public_owner;
+            ALTER TABLE public.${table} OWNER TO shared_schema_owner;
           END IF;
         END $$;
       `);

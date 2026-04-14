@@ -217,9 +217,16 @@ export class NatsEventBus
         reconnectTimeWait: this.reconnectTimeWaitMs,
       };
 
+      // Each auth mode has a distinct operational meaning; log accurately
+      // so packet-capture / log-grep investigations aren't misled.
+      const authModeDescription: Record<typeof factoryOptions.authMode, string> = {
+        'mtls-cert': 'cert CN is identity; verify_and_map on server',
+        'token': 'service-account token (CONNECT frame)',
+        'user-pass': 'dev/legacy fallback (CONNECT frame user/password)',
+        'none': 'unauthenticated (dev/local only; production throws)',
+      };
       this.logger.log(
-        `NATS auth mode: ${factoryOptions.authMode} ` +
-          `(${factoryOptions.authMode === 'mtls-cert' ? 'cert CN is identity; verify_and_map on server' : factoryOptions.authMode === 'none' ? 'dev/local' : 'fallback'})`,
+        `NATS auth mode: ${factoryOptions.authMode} (${authModeDescription[factoryOptions.authMode]})`,
       );
 
       this.connection = await connect(connectionOptions);

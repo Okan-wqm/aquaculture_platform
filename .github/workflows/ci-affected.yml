@@ -302,6 +302,21 @@ jobs:
       - name: Validate pagination schema types
         run: node scripts/validate-pagination-schema.js
 
+      # ADR-015: SSoT invariant — services.yaml must stay in lockstep with
+      # the generated nats.conf block and the cert CN list. Running the
+      # generator and asserting no diff catches the most common drift
+      # pattern (operator edits services.yaml but forgets to regenerate).
+      - name: NATS SSoT drift check (services.yaml ↔ nats.conf)
+        run: |
+          python3 scripts/nats/generate-nats-conf.py
+          if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
+            echo "::error::nats.conf drifted from services.yaml SSoT."
+            echo "Run \`python3 scripts/nats/generate-nats-conf.py\` locally and commit the diff."
+            git diff infrastructure/docker/nats/nats.conf
+            exit 1
+          fi
+          echo "OK: nats.conf matches services.yaml"
+
   # M-FE-03: npm audit on every PR — catches vulnerable dependencies before merge.
   # Only runs on PRs (not push to main) to avoid blocking deploys.
   security-audit:

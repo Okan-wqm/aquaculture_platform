@@ -243,7 +243,7 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   //
   // Both layers must agree — mismatch throws immediately at startup so
   // the problem surfaces in the deploy log rather than in production traffic.
-  const usesTls = options.servers.some((s) => s.startsWith('tls://'));
+  // `usesTls` is already declared at line ~160 (auth-mode decision); reuse.
   const tlsEnabled = process.env['NATS_TLS_ENABLED'] === 'true';
 
   if (usesTls && !tlsEnabled) {
@@ -295,8 +295,7 @@ export function buildNatsConnectionOptions(serviceName?: string): {
       // default after IP-1 hardening). If only one of CERT/KEY is set, throw
       // — partial config would produce a confusing "handshake failed" at
       // runtime with no hint that a pair is needed.
-      const certPath = process.env['NATS_TLS_CERT'];
-      const keyPath = process.env['NATS_TLS_KEY'];
+      // certPath + keyPath already declared at line ~156 (auth-mode decision); reuse.
       if (certPath && !keyPath) {
         throw new Error(
           '[nats-connection.factory] NATS_TLS_CERT is set but NATS_TLS_KEY is not. ' +

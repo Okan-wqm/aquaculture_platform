@@ -88,35 +88,14 @@ services:
     # ARCH-010/ARCH-018: Use config file for explicit JetStream limits + http_port
     # The config file enables http_port 8222 (required for /healthz endpoint below)
     command: ["--config", "/etc/nats/nats.conf"]
-    environment:
-      # SECURITY (HIGH-001, SEC-006): NATS credentials substituted into
-      # nats.conf authorization{} block. Each service has its own user with
-      # subject-level pub/sub ACLs. Without per-service creds provisioned
-      # here, the ACL design in nats.conf has no runtime effect.
-      # Legacy shared account (migration bridge — to be removed post-rollout).
-      NATS_USER: ${NATS_USER:-nats_internal}
-      NATS_PASS: "${NATS_PASS:?NATS_PASS is required}"
-      # Per-service NATS accounts (mirror nats.conf $NATS_<SERVICE>_USER/PASS).
-      NATS_AUTH_USER: ${NATS_AUTH_USER:-auth_service}
-      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      NATS_FARM_USER: ${NATS_FARM_USER:-farm_service}
-      NATS_FARM_PASS: "${NATS_FARM_PASS:?NATS_FARM_PASS is required}"
-      NATS_SENSOR_USER: ${NATS_SENSOR_USER:-sensor_service}
-      NATS_SENSOR_PASS: "${NATS_SENSOR_PASS:?NATS_SENSOR_PASS is required}"
-      NATS_GATEWAY_USER: ${NATS_GATEWAY_USER:-gateway_service}
-      NATS_GATEWAY_PASS: "${NATS_GATEWAY_PASS:?NATS_GATEWAY_PASS is required}"
-      NATS_NOTIFICATION_USER: ${NATS_NOTIFICATION_USER:-notification_service}
-      NATS_NOTIFICATION_PASS: "${NATS_NOTIFICATION_PASS:?NATS_NOTIFICATION_PASS is required}"
-      NATS_BILLING_USER: ${NATS_BILLING_USER:-billing_service}
-      NATS_BILLING_PASS: "${NATS_BILLING_PASS:?NATS_BILLING_PASS is required}"
-      NATS_ALERT_USER: ${NATS_ALERT_USER:-alert_engine}
-      NATS_ALERT_PASS: "${NATS_ALERT_PASS:?NATS_ALERT_PASS is required}"
-      NATS_HR_USER: ${NATS_HR_USER:-hr_service}
-      NATS_HR_PASS: "${NATS_HR_PASS:?NATS_HR_PASS is required}"
-      NATS_MESSAGING_USER: ${NATS_MESSAGING_USER:-messaging_service}
-      NATS_MESSAGING_PASS: "${NATS_MESSAGING_PASS:?NATS_MESSAGING_PASS is required}"
-      NATS_HYDROPONICS_USER: ${NATS_HYDROPONICS_USER:-hydroponics_service}
-      NATS_HYDROPONICS_PASS: "${NATS_HYDROPONICS_PASS:?NATS_HYDROPONICS_PASS is required}"
+    # ADR-015: NATS container has NO per-service user/password env vars.
+    # The authorization{} block in nats.conf uses LITERAL user names
+    # (generated from infrastructure/nats/services.yaml) with no
+    # $-interpolation and no password fields. Identity comes from the
+    # client cert CN via verify_and_map: true in nats-tls-enabled.conf.
+    # This file kept in lockstep with docker-compose.droplet.yml — the
+    # authoritative production compose — to prevent drift between the
+    # two entry points (scripts/deploy-do.sh still references prod.yml).
     volumes:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
@@ -153,9 +132,7 @@ services:
       NATS_TLS_KEY: /etc/ssl/nats/clients/gateway_service-key.pem
       # SECURITY (HIGH-001): gateway-api authenticates to NATS with its own account.
       # Subject ACLs in nats.conf restrict what gateway can publish/subscribe.
-      NATS_AUTH_USER: ${NATS_GATEWAY_USER:?NATS_GATEWAY_USER is required}
-      NATS_AUTH_PASS: "${NATS_GATEWAY_PASS:?NATS_GATEWAY_PASS is required}"
-      # SECURITY (CRITICAL-001): consumer — verifies tokens with RS256 public key.
+              # SECURITY (CRITICAL-001): consumer — verifies tokens with RS256 public key.
       # JWT_SECRET removed; auth-service holds the private key exclusively.
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
@@ -207,9 +184,7 @@ services:
       NATS_TLS_CERT: /etc/ssl/nats/clients/auth_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/auth_service-key.pem
       # SECURITY (HIGH-001): auth-service NATS account — matches nats.conf $NATS_AUTH_USER block.
-      NATS_AUTH_USER: ${NATS_AUTH_USER:?NATS_AUTH_USER is required}
-      NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      # SECURITY (CRITICAL-001): auth-service is the sole token issuer.
+              # SECURITY (CRITICAL-001): auth-service is the sole token issuer.
       # Private key for signing; public key also loaded so it can verify its own tokens.
       # JWT_SECRET removed — RS256 asymmetric signing replaces the shared HS256 secret.
       JWT_PRIVATE_KEY_PATH: /var/run/jwt/private.pem
@@ -251,9 +226,7 @@ services:
       NATS_TLS_CERT: /etc/ssl/nats/clients/farm_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/farm_service-key.pem
       # SECURITY (HIGH-001): farm-service NATS account with farm-scoped subject ACLs.
-      NATS_AUTH_USER: ${NATS_FARM_USER:?NATS_FARM_USER is required}
-      NATS_AUTH_PASS: "${NATS_FARM_PASS:?NATS_FARM_PASS is required}"
-      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     volumes:
@@ -289,9 +262,7 @@ services:
       NATS_TLS_CERT: /etc/ssl/nats/clients/sensor_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/sensor_service-key.pem
       # SECURITY (HIGH-001): sensor-service NATS account with sensor-scoped subject ACLs.
-      NATS_AUTH_USER: ${NATS_SENSOR_USER:?NATS_SENSOR_USER is required}
-      NATS_AUTH_PASS: "${NATS_SENSOR_PASS:?NATS_SENSOR_PASS is required}"
-      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
@@ -326,9 +297,7 @@ services:
       NATS_TLS_CERT: /etc/ssl/nats/clients/hr_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/hr_service-key.pem
       # SECURITY (HIGH-001): hr-service NATS account with HR-scoped subject ACLs.
-      NATS_AUTH_USER: ${NATS_HR_USER:?NATS_HR_USER is required}
-      NATS_AUTH_PASS: "${NATS_HR_PASS:?NATS_HR_PASS is required}"
-      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
@@ -363,9 +332,7 @@ services:
       NATS_TLS_CERT: /etc/ssl/nats/clients/billing_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/billing_service-key.pem
       # SECURITY (HIGH-001): billing-service NATS account with billing-scoped subject ACLs.
-      NATS_AUTH_USER: ${NATS_BILLING_USER:?NATS_BILLING_USER is required}
-      NATS_AUTH_PASS: "${NATS_BILLING_PASS:?NATS_BILLING_PASS is required}"
-      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
@@ -402,9 +369,7 @@ services:
       NATS_TLS_CERT: /etc/ssl/nats/clients/alert_engine-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/alert_engine-key.pem
       # SECURITY (HIGH-001): alert-engine NATS account with alert-scoped subject ACLs.
-      NATS_AUTH_USER: ${NATS_ALERT_USER:?NATS_ALERT_USER is required}
-      NATS_AUTH_PASS: "${NATS_ALERT_PASS:?NATS_ALERT_PASS is required}"
-      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
@@ -442,9 +407,7 @@ services:
       NATS_TLS_CERT: /etc/ssl/nats/clients/notification_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/notification_service-key.pem
       # SECURITY (HIGH-001): notification-service NATS account with notification-scoped ACLs.
-      NATS_AUTH_USER: ${NATS_NOTIFICATION_USER:?NATS_NOTIFICATION_USER is required}
-      NATS_AUTH_PASS: "${NATS_NOTIFICATION_PASS:?NATS_NOTIFICATION_PASS is required}"
-      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       # Email config (optional)
       SMTP_HOST: ${SMTP_HOST:-}
@@ -493,9 +456,7 @@ services:
       # nats.conf comment — both publish tenant/admin lifecycle events on
       # AQUACULTURE_EVENTS.Tenant*/Admin*. Separate account would double the
       # ACL surface without adding isolation value.
-      NATS_AUTH_USER: ${NATS_GATEWAY_USER:?NATS_GATEWAY_USER is required}
-      NATS_AUTH_PASS: "${NATS_GATEWAY_PASS:?NATS_GATEWAY_PASS is required}"
-      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - backup_data:/backups

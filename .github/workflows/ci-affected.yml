@@ -317,6 +317,25 @@ jobs:
           fi
           echo "OK: nats.conf matches services.yaml"
 
+      # ADR-016 Phase A2/A4 — mirror deploy-time pre-flight into CI so
+      # drift is caught at PR-merge, not at deploy. Runs the same
+      # `docker compose config --quiet` the deploy workflow runs on the
+      # droplet (deploy-digitalocean.yml line 807), using a CI-generated
+      # dummy env derived from the compose file itself (no hand-
+      # maintained env needed — compose IS the SSoT for required vars).
+      # Tier-1 Make-Impossible: breaking compose at PR-time fails CI
+      # before the deploy pipeline runs.
+      #
+      # Helm chart rendering is covered by the dedicated
+      # `.github/workflows/infra-helm-lint.yml` workflow (helm lint +
+      # kubeconform on every values overlay). Duplicating it here would
+      # only add redundant CI cost.
+      - name: Compose interpolation pre-flight (droplet + prod)
+        run: |
+          python3 scripts/ci/preflight-validate.py \
+            docker-compose.droplet.yml \
+            docker-compose.prod.yml
+
   # M-FE-03: npm audit on every PR — catches vulnerable dependencies before merge.
   # Only runs on PRs (not push to main) to avoid blocking deploys.
   security-audit:

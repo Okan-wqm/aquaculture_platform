@@ -9,22 +9,6 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-export interface CreateFirstAdminDto {
-  tenantId: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  createdBy: string;
-}
-
-export interface CreateFirstAdminResult {
-  success: boolean;
-  userId?: string;
-  invitationToken?: string;
-  temporaryPassword?: string;
-  error?: string;
-}
-
 export interface UserLimitCheckResult {
   canCreate: boolean;
   currentCount: number;
@@ -61,114 +45,6 @@ export class UserProvisioningService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
-
-  /**
-   * Create first tenant admin user during tenant provisioning
-   * This creates a user with TENANT_ADMIN role and sends invitation
-   */
-  async createFirstTenantAdmin(
-    dto: CreateFirstAdminDto,
-  ): Promise<CreateFirstAdminResult> {
-    const { tenantId, email, firstName, lastName, createdBy } = dto;
-
-    try {
-      // Check if tenant already has users
-      const existingUserCount = await this.getTenantUserCount(tenantId);
-      if (existingUserCount > 0) {
-        return {
-          success: false,
-          error: 'Tenant already has users. Use invite endpoint instead.',
-        };
-      }
-
-      // Check if email already exists
-      const existingUser = await this.checkEmailExists(email);
-      if (existingUser) {
-        return {
-          success: false,
-          error: 'A user with this email already exists in the system.',
-        };
-      }
-
-      // Generate invitation token and temporary password
-      const invitationToken = this.generateSecureToken(64);
-      // MED-004 fix: store only the SHA-256 hash of the token in the DB;
-      // the raw token is returned to the caller and sent via email only.
-      const invitationTokenHash = crypto.createHash('sha256').update(invitationToken).digest('hex');
-      const temporaryPassword = this.generateTemporaryPassword();
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
-
-      // Create user and invitation in transaction
-      const result = await this.dataSource.transaction(async (manager) => {
-        // C-8 fix: qualify all table references with auth. schema
-        const userResult = await manager.query(
-          `
-          INSERT INTO auth.users (
-            id, email, first_name, last_name, role, "tenantId",
-            is_active, is_email_verified, invitation_token, invitation_expires_at,
-            invited_by, created_at, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, 'TENANT_ADMIN', $4,
-            true, false, $5, $6,
-            $7, NOW(), NOW()
-          )
-          RETURNING id
-        `,
-          // MED-004 fix: store hash, not raw token
-          [email, firstName, lastName, tenantId, invitationTokenHash, expiresAt, createdBy],
-        );
-
-        const userId = userResult[0].id;
-
-        // C-8 fix: qualify with auth. schema
-        await manager.query(
-          `
-          INSERT INTO auth.invitations (
-            id, token, email, first_name, last_name, role, "tenantId",
-            status, expires_at, invited_by, send_count, last_sent_at, created_at, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, 'TENANT_ADMIN', $5,
-            'PENDING', $6, $7, 1, NOW(), NOW(), NOW()
-          )
-          RETURNING id
-        `,
-          // MED-004 fix: store hash, not raw token
-          [invitationTokenHash, email, firstName, lastName, tenantId, expiresAt, createdBy],
-        );
-
-        // C-8 fix: qualify with auth. schema
-        await manager.query(
-          `UPDATE auth.tenants SET user_count = user_count + 1 WHERE id = $1`,
-          [tenantId],
-        );
-
-        // Return the raw token to the caller (for email delivery) — not the hash
-        return { userId, invitationToken };
-      });
-
-      this.logger.log(
-        `Created first tenant admin for tenant ${tenantId}: ${email}`,
-      );
-
-      return {
-        success: true,
-        userId: result.userId,
-        invitationToken: result.invitationToken,
-        temporaryPassword,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to create first tenant admin: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-
-      return {
-        success: false,
-        error: (error as Error).message,
-      };
-    }
-  }
 
   /**
    * Check if tenant can add more users based on plan limits
@@ -512,21 +388,4 @@ export class UserProvisioningService {
     return crypto.randomBytes(length).toString('hex');
   }
 
-  private generateTemporaryPassword(): string {
-    // Generate a secure temporary password: 16 chars with upper, lower, numbers, special
-    // LOW fix: Use rejection sampling to eliminate modulo bias
-    const chars =
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    const charsLen = chars.length;
-    // Largest multiple of charsLen that fits in a byte (256)
-    const maxUnbiased = Math.floor(256 / charsLen) * charsLen;
-    let password = '';
-    while (password.length < 16) {
-      const byte = crypto.randomBytes(1)[0];
-      if (byte !== undefined && byte < maxUnbiased) {
-        password += chars[byte % charsLen];
-      }
-    }
-    return password;
-  }
 }

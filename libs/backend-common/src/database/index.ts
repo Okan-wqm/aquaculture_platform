@@ -38,6 +38,13 @@ export { createTenantConnectionBootstrap } from './tenant-connection-bootstrap.s
 // Row-Level Security (RLS) for PostgreSQL tenant isolation
 export * from './rls';
 
+// Migration runner factory — produces an OnApplicationBootstrap provider
+// that runs pending TypeORM migrations with a runner-enforced search_path
+// invariant. Shared across every service that wires TypeORM migrations
+// (farm, hr, messaging, sensor, billing, config, notification, alert, ai,
+// event-store); each calls the factory with its own source schema name.
+export * from './migration-runner';
+
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`
 // are imported by per-service migrations in `auth`, `admin-api`, `farm`,

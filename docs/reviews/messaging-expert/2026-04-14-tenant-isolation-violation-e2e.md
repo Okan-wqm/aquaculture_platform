@@ -3,8 +3,9 @@
 **Date:** 2026-04-14
 **Severity:** CRITICAL
 **Finding ID:** CRITICAL-MSG-001
-**Status:** RESOLVED — fix shipped 2026-04-14 (architectural re-`run()` of context with schemaName)
-**Owner:** messaging-expert — closed in same session as opening
+**Status:** RE-OPENED — middleware fix (f4df00cb) was defense-in-depth but does NOT address actual root cause
+**Owner:** messaging-expert (next session) — DEADLINE 2026-04-21
+**Real root cause identified 2026-04-14T12:18Z:** Entity-Table schema drift
 **Surfaced by:** 2026-04-14 hardening plan V2 audit
 **Pre-existing:** YES — fail mode predates the 2026-04-14 hardening work
 
@@ -71,6 +72,48 @@ Affected suites (12 of 12 messaging-service e2e specs):
 4. **GraphQL middleware bypass.** Apollo Server's middleware integration may
    bypass NestJS's Express middleware chain for the `/graphql` endpoint in
    the test environment, meaning `TenantSchemaMiddleware` never runs.
+
+## REAL ROOT CAUSE (2026-04-14T12:18Z log analysis)
+
+`SchemaDriftValidator[messaging]` reports **15 violations** at app boot:
+
+```
+[channel_members] entity declares schema='public' but table lives in 'messaging'
+[channels]        entity declares schema='public' but table lives in 'messaging'
+[messages]        entity declares schema='public' but table lives in 'messaging'
+[compliance_audit_log] entity declares schema='public' but table lives in 'messaging'
+... (15 total tables)
+```
+
+Plus a `column "channel_lastmessageat" does not exist` error from TypeORM
+queries — confirming the entity ↔ table mismatch causes query generation
+to use stale/wrong identifiers.
+
+**Mechanism:** Every `@Entity('channels')` in apps/messaging-service is
+decorated WITHOUT a `schema:` option. ADR-011 (per CLAUDE.md "Schema
+Ownership ZORUNLU") requires `@Entity('channels', { schema: 'messaging' })`.
+TypeORM's metadata loader then introspects against `search_path =
+messaging,public`, finds the table in `messaging`, and either:
+  (a) caches that schema on the entity metadata at boot, OR
+  (b) generates unqualified SQL relying on search_path at query time.
+
+In either case, when the per-request middleware sets `search_path` to
+`tenant_<uuid>, messaging, public`, TypeORM either:
+  (a) uses its cached `messaging` qualifier (silently ignores tenant), OR
+  (b) generates unqualified `INSERT INTO channels` — but the tenant
+      table clone is missing some columns because `setupTenantSchemas`
+      uses `CREATE TABLE LIKE INCLUDING ALL` from the source schema
+      tables that TypeORM sync'd with WRONG column names (snake_case vs
+      camelCase) — so search_path resolution finds the tenant table but
+      the column doesn't exist there either, and TypeORM falls back to
+      `messaging.channels` write attempt which the trigger blocks.
+
+The `column "channel_lastmessageat" does not exist` error is the smoking
+gun: TypeORM is generating snake_case column names for an alias join
+pattern (`channel.lastMessageAt → channel_lastMessageAt → snake-case
+to channel_lastmessageat`). The actual column in PG is `lastMessageAt`
+(quoted camelCase from the migration). This is a **naming strategy
+drift** on top of the schema drift.
 
 ## What this finding requires next session
 

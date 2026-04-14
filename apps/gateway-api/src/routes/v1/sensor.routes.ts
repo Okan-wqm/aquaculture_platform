@@ -9,6 +9,17 @@
 import { Module, Controller, Get, Post, Req, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
+import { signedFetch } from '@aquaculture/backend-common';
+
+// Helper to extract tenant UUID from incoming request for signed propagation.
+function resolveTenantId(req: Request): string {
+  const raw = req.headers['x-tenant-id'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(trimmed) ? trimmed : '';
+}
 
 /**
  * Sensor routes controller
@@ -54,10 +65,12 @@ export class SensorRoutesController {
   @Get('mqtt/status')
   async getMqttStatus(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
-      const response = await fetch(`${this.sensorServiceUrl}/api/mqtt/status`, {
+      // SECURITY (HIGH-003): signedFetch binds tenantId into HMAC signature.
+      const response = await signedFetch(`${this.sensorServiceUrl}/api/mqtt/status`, {
+        serviceName: 'gateway-api',
+        tenantId: resolveTenantId(req),
         headers: {
           Authorization: req.headers.authorization || '',
-          'X-Tenant-Id': req.headers['x-tenant-id'] as string || '',
         },
       });
 
@@ -84,14 +97,15 @@ export class SensorRoutesController {
     const sensorId = req.params.sensorId;
 
     try {
-      // Forward multipart form data to sensor service
-      const response = await fetch(
+      // SECURITY (HIGH-003): signed multipart forward with tenant-bound HMAC.
+      const response = await signedFetch(
         `${this.sensorServiceUrl}/api/sensors/${sensorId}/firmware`,
         {
           method: 'POST',
+          serviceName: 'gateway-api',
+          tenantId: resolveTenantId(req),
           headers: {
             Authorization: req.headers.authorization || '',
-            'X-Tenant-Id': req.headers['x-tenant-id'] as string || '',
             'Content-Type': req.headers['content-type'] || 'application/octet-stream',
           },
           body: req.body as BodyInit,
@@ -122,12 +136,14 @@ export class SensorRoutesController {
     const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
 
     try {
-      const response = await fetch(
+      // SECURITY (HIGH-003): signed export request with tenant-bound HMAC.
+      const response = await signedFetch(
         `${this.sensorServiceUrl}/api/sensors/${sensorId}/export?${queryString}`,
         {
+          serviceName: 'gateway-api',
+          tenantId: resolveTenantId(req),
           headers: {
             Authorization: req.headers.authorization || '',
-            'X-Tenant-Id': req.headers['x-tenant-id'] as string || '',
           },
         }
       );

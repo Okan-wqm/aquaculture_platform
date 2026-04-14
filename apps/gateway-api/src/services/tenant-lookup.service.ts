@@ -7,6 +7,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { signedFetch } from '@aquaculture/backend-common';
 import {
   TenantMetadata,
   TenantStatus,
@@ -161,7 +162,6 @@ export class TenantLookupService {
   private readonly cache = new Map<string, { tenant: TenantMetadata; expiry: number }>();
   private readonly cacheTtl: number;
   private readonly maxCacheSize: number;
-  private readonly internalServiceSecret: string | undefined;
 
   constructor(private readonly configService: ConfigService) {
     this.authServiceUrl = this.configService.get<string>(
@@ -171,13 +171,17 @@ export class TenantLookupService {
     this.timeout = this.configService.get<number>('TENANT_LOOKUP_TIMEOUT_MS', 5000);
     this.cacheTtl = this.configService.get<number>('TENANT_CACHE_TTL_MS', 300000); // 5 minutes
     this.maxCacheSize = this.configService.get<number>('TENANT_CACHE_MAX_SIZE', 1000);
-    this.internalServiceSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
 
+    // SECURITY (HIGH-003): internal calls now use signedFetch (HMAC-signed
+    // identity + tenant-bound signature). signedFetch throws at call time
+    // if INTERNAL_SERVICE_SECRET is missing — fail-fast prevents silent
+    // unsigned requests. Emit a startup log so the misconfiguration is
+    // surfaced in deploy logs as well as in the call site.
     const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    if (isProduction && !this.internalServiceSecret) {
+    if (isProduction && !this.configService.get<string>('INTERNAL_SERVICE_SECRET')) {
       this.logger.error(
-        'SECURITY WARNING: INTERNAL_SERVICE_SECRET is not configured in production. ' +
-        'Internal service calls use only X-Internal-Service header which is spoofable.',
+        'SECURITY: INTERNAL_SERVICE_SECRET is not configured in production. ' +
+          'Every call to lookupTenant() will throw until the secret is provided.',
       );
     }
   }
@@ -204,19 +208,17 @@ export class TenantLookupService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-Internal-Service': 'gateway-api',
-      };
-      if (this.internalServiceSecret) {
-        headers['X-Internal-Service-Secret'] = this.internalServiceSecret;
-      }
-
-      const response = await fetch(
+      // SECURITY (HIGH-003): signedFetch attaches HMAC-signed X-Service-*
+      // headers with tenantId bound into the signature — replaces the older
+      // X-Internal-Service / X-Internal-Service-Secret scheme which passed
+      // the secret in plaintext and was trivially spoofable.
+      const response = await signedFetch(
         `${this.authServiceUrl}/api/v1/internal/tenants/${tenantId}`,
         {
           method: 'GET',
-          headers,
+          serviceName: 'gateway-api',
+          tenantId,
+          headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
         },
       );

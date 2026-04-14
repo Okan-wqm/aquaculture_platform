@@ -1,7 +1,7 @@
 # Package 04a: internal-http-signing-lib
 
 ## Metadata
-Status: IN_PROGRESS
+Status: DONE (commit 3ccca098)
 Estimated Tokens: 9K
 Priority: HIGH
 Security-Sensitive: yes

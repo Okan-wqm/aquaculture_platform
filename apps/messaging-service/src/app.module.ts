@@ -370,11 +370,23 @@ const complexityCache = new Map<string, number>();
      * SECURITY (HIGH-004): Tenant Row-Level Security (schema-per-tenant).
      * Messages carry user/tenant PII — defence-in-depth isolation via RLS
      * means an app-layer tenantId bypass cannot read cross-tenant messages.
+     *
+     * excludeTables MUST stay in lockstep with the migration
+     * 1782400000000-EnableRowLevelSecurity so that runtime
+     * TenantRlsSyncService (which sweeps tenant_<uuid>.* schemas) uses
+     * the same skip list as the migration that installed policies on
+     * the source schema. Divergence would mean a table has RLS on
+     * source but none on tenant clones (leak), or vice-versa (orphan
+     * policy).
      */
     RlsModule.forRoot({
       serviceName: 'messaging',
       syncTenantSchemas: true,
-      excludeTables: ['messaging_outbox', 'outbox'],
+      // See P4 migration docblock for rationale:
+      // - messaging_outbox: cross-tenant worker reads (BypassRls)
+      // - embeddings_metadata: platform-wide reference data (no tenantId)
+      excludeTables: ['messaging_outbox', 'embeddings_metadata'],
+      tenantIdColumns: ['tenantId'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'messaging' }),

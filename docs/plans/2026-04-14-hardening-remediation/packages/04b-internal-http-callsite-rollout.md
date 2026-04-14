@@ -1,7 +1,7 @@
 # Package 04b: internal-http-callsite-rollout
 
 ## Metadata
-Status: IN_PROGRESS
+Status: DONE (commit 37bfddc1)
 Estimated Tokens: 10K
 Priority: HIGH
 Security-Sensitive: yes

@@ -29,7 +29,7 @@ CRITICAL: 1 | HIGH: 7 | MEDIUM: 5 | LOW: 1
 - [x] 02-nats-per-service-credentials — provision per-service NATS users in compose+helm [HIGH] [security-sensitive] (commit d7ecb9d6)
 - [x] 03-nats-mtls-enforcement — flip verify:true, distribute client certs [HIGH] [security-sensitive] [blockedBy: 02] (commit a265eeef)
 - [x] 04a-internal-http-signing-lib — shared signed-http-client + guard enhancement [HIGH] [security-sensitive] (commit 3ccca098)
-- [ ] 04b-internal-http-callsite-rollout — migrate every service HTTP caller [HIGH] [security-sensitive] [blockedBy: 04a]
+- [x] 04b-internal-http-callsite-rollout — migrate every service HTTP caller [HIGH] [security-sensitive] [blockedBy: 04a] (commit 37bfddc1)
 - [ ] 05a-rls-session-guc-wiring — tenant-scoped repo sets app.current_tenant_id GUC [HIGH] [security-sensitive]
 - [ ] 05b-rls-policies-enable — migration enables RLS on tenant-scoped tables [HIGH] [security-sensitive] [blockedBy: 05a]
 - [ ] 06-pii-log-masking-central — central masker lib + audit interceptor integration [HIGH] [security-sensitive]
@@ -59,5 +59,5 @@ See: `docs/plans/2026-04-14-hardening-remediation/verification-log.md` (append-o
 - Redis / NATS tenant key-space isolation (requires architectural-arbiter ADR)
 
 ## Progress Summary
-Completed: 4 / 14 packages
+Completed: 5 / 14 packages
 Last Updated: 2026-04-14

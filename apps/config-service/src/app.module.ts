@@ -4,11 +4,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { join } from 'path';
-import { JwtModule } from '@nestjs/jwt';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule } from '@aquaculture/backend-common';
+import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule } from '@aquaculture/backend-common';
 
 /**
  * ConfigMigrationRunnerService — runs pending TypeORM migrations in the
@@ -100,15 +99,14 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       context: ({ req }: { req: Request }) => ({ req }),
     }),
 
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
-      }),
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. config-service is a token CONSUMER, not an issuer.
+    //
+    // History: this service was on the legacy HS256 / JWT_SECRET shared-secret
+    // path identical to the one that crashed hydroponics-service at boot on
+    // 2026-04-14. Migrated to PlatformJwtModule in the WS2.B sweep so the
+    // entire platform is RS256-only.
+    PlatformJwtModule,
 
     CqrsModule.forRoot(),
     ConfigurationModule,

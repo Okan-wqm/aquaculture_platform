@@ -1,11 +1,12 @@
-import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule } from '@aquaculture/backend-common';
+import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule, PlatformJwtModule } from '@aquaculture/backend-common';
 import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
-// JwtModule added: PlatformAdminGuard now uses JwtService.verifyAsync() with
-// centralised getJwtVerifyOptions() instead of raw jwt.verify() (sync, no algorithm restriction).
-import { JwtModule, JwtService } from '@nestjs/jwt';
+// PlatformAdminGuard injects JwtService for verifyAsync() — JwtService is
+// provided by PlatformJwtModule (which re-exports JwtModule), so we still
+// need the named-type import here for DI metadata.
+import { JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
@@ -205,25 +206,12 @@ import { UsersModule } from './users/users.module';
     // SECURITY (NEW-03): forRoot() returns empty module when ENABLE_DEBUG_TOOLS != 'true'.
     // No controllers, providers, or entities are registered in the disabled state.
     DebugToolsModule.forRoot(),
-    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
-    // admin-api-service is a token CONSUMER, not an issuer. It verifies tokens
-    // using the RSA public key from auth-service. JWT_SECRET is no longer accepted.
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
-        const verifyOpts = getJwtVerifyOptions(config);
-        return {
-          publicKey: verifyOpts.publicKey,
-          verifyOptions: {
-            algorithms: ['RS256'],
-            issuer: verifyOpts.issuer,
-            audience: verifyOpts.audience,
-          },
-        };
-      },
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. admin-api-service is a token CONSUMER, not an issuer.
+    // Replaced the per-service JwtModule.registerAsync block (WS2.B,
+    // 2026-04-14). PlatformAdminGuard injects JwtService — JwtService comes
+    // from PlatformJwtModule (which re-exports JwtModule).
+    PlatformJwtModule,
     /**
      * SEC-DB: Tenant Row-Level Security wiring for an admin-only service.
      *

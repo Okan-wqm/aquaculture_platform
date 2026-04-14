@@ -6,7 +6,6 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { JwtModule } from '@nestjs/jwt';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
 import {
@@ -24,6 +23,7 @@ import {
   AuditColumnsModule,
   createMigrationRunnerService,
   SchemaDriftModule,
+  PlatformJwtModule,
 } from '@aquaculture/backend-common';
 
 /**
@@ -152,16 +152,17 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       }),
     }),
 
-    // JWT Module for auth
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRES_IN', '1d') },
-      }),
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. notification-service is a token CONSUMER, not an
+    // issuer.
+    //
+    // History: this service was on the legacy HS256 / JWT_SECRET shared-secret
+    // path identical to the one that crashed hydroponics-service at boot on
+    // 2026-04-14. It would have crashed the same way the next time its deploy
+    // lane caught up to the env-var teardown. Migrated to PlatformJwtModule
+    // in the WS2.B sweep so the entire platform is RS256-only and there is no
+    // remaining HS256 surface to forget.
+    PlatformJwtModule,
 
     // Event Bus Module
     EventBusModule.forRootAsync({

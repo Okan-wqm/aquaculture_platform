@@ -10,7 +10,6 @@ import { join } from 'path';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
 import {
   UserContextMiddleware,
   TenantContextMiddleware,
@@ -23,6 +22,7 @@ import {
   ServiceIdentityGuard,
   RedisModule,
   RlsModule,
+  PlatformJwtModule,
 } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -312,26 +312,11 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       }),
     }),
 
-    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
-    // sensor-service is a token CONSUMER, not an issuer. It verifies tokens using
-    // the RSA public key from auth-service. JWT_SECRET is no longer accepted.
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
-        const verifyOpts = getJwtVerifyOptions(configService);
-        return {
-          publicKey: verifyOpts.publicKey,
-          verifyOptions: {
-            algorithms: ['RS256'],
-            issuer: verifyOpts.issuer,
-            audience: verifyOpts.audience,
-          },
-        };
-      },
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. sensor-service is a token CONSUMER, not an issuer.
+    // Replaced the per-service JwtModule.registerAsync block (WS2.B,
+    // 2026-04-14) — single source of truth for all consumer services.
+    PlatformJwtModule,
 
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),

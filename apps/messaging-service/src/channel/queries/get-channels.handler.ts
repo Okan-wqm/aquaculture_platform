@@ -71,7 +71,12 @@ export class GetChannelsHandler
         'channel_memberCount',
       )
       .where('channel."isArchived" = false')
-      .orderBy('channel_lastMessageAt', 'DESC', 'NULLS LAST')
+      // SECURITY/CORRECTNESS: alias must be quoted — PostgreSQL folds
+      // unquoted identifiers to lowercase, so `channel_lastMessageAt`
+      // becomes `channel_lastmessageat` at parse time and the ORDER BY
+      // cannot resolve the addSelect alias. Quoting preserves the
+      // exact alias emitted at line 61.
+      .orderBy('"channel_lastMessageAt"', 'DESC', 'NULLS LAST')
       .offset(offset)
       .limit(limit);
 

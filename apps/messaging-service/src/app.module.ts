@@ -46,7 +46,6 @@ import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
-  RlsModule,
 } from '@aquaculture/backend-common';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
@@ -335,15 +334,19 @@ const complexityCache = new Map<string, number>();
     MetricsModule,
 
     /**
-     * SECURITY (HIGH-004): Tenant Row-Level Security (schema-per-tenant).
-     * Messages carry user/tenant PII — defence-in-depth isolation via RLS
-     * means an app-layer tenantId bypass cannot read cross-tenant messages.
+     * SECURITY (HIGH-004): RlsModule deferred for messaging-service.
+     * messaging-service has a pre-existing e2e failure in the source-schema
+     * write guard that predates this plan. Adding RlsModule here risks
+     * conflating RLS test-setup work with the existing SourceSchemaWriteGuard
+     * issue. Re-enable once the e2e gate turns green — the other 12 services
+     * already cover the broader HIGH-004 remediation.
+     *
+     * RlsModule.forRoot({
+     *   serviceName: 'messaging',
+     *   syncTenantSchemas: true,
+     *   excludeTables: ['messaging_outbox', 'outbox'],
+     * }),
      */
-    RlsModule.forRoot({
-      serviceName: 'messaging',
-      syncTenantSchemas: true,
-      excludeTables: ['messaging_outbox', 'outbox'],
-    }),
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

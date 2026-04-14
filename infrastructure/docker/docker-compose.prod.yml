@@ -115,7 +115,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      # SECURITY (CRITICAL-001): RS256 asymmetric — see root docker-compose.prod.yml.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       TRUST_PROXY: "1"
@@ -164,7 +165,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
@@ -208,7 +210,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       # ARCH-V11-005: ENCRYPTION_KEY is required for sentinel-hub and regulatory
       # credential encryption at rest. Service starts without it but those features fail.
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
@@ -250,7 +253,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
@@ -285,7 +289,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
@@ -320,7 +325,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
     depends_on:
       - postgres
@@ -351,7 +357,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     depends_on:
       - postgres
       - redis
@@ -382,7 +389,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       # Email config (optional)
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -418,7 +426,8 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NATS_URL: nats://nats:4222
-      JWT_SECRET: ${JWT_SECRET}
+      # SECURITY (CRITICAL-001): RS256 — legacy stub only, canonical compose at repo root.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       # Rate limiting: admin panel fires ~15 requests on page load
       THROTTLE_DEFAULT_LIMIT: 500
       THROTTLE_DEFAULT_TTL: 60

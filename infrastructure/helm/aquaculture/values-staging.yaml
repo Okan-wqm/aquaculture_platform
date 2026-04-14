@@ -2,10 +2,12 @@
 # Aquaculture Platform - Staging Values Overlay
 # =============================================================================
 # Apply with:
+#   infrastructure/docker/scripts/generate-jwt-keypair.sh
 #   helm install aquaculture-staging ./aquaculture \
 #     -n aquaculture-staging --create-namespace \
 #     -f values-staging.yaml \
-#     --set secrets.jwtSecret=$STAGING_JWT_SECRET \
+#     --set-file secrets.jwtPrivateKey=./certs/jwt/private.pem \
+#     --set-file secrets.jwtPublicKey=./certs/jwt/public.pem \
 #     --set secrets.databaseUrl=$STAGING_DATABASE_URL \
 #     --set secrets.redisUrl=$STAGING_REDIS_URL \
 #     --set secrets.natsUrl=$STAGING_NATS_URL \

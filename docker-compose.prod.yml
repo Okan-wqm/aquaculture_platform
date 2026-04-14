@@ -123,7 +123,9 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      # SECURITY (CRITICAL-001): consumer — verifies tokens with RS256 public key.
+      # JWT_SECRET removed; auth-service holds the private key exclusively.
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       # Service URLs for federation
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
@@ -135,6 +137,8 @@ services:
       HYDROPONICS_SERVICE_URL: http://hydroponics-service:3000/graphql
       CONFIG_SERVICE_URL: http://config-service:3000/graphql
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,8 +168,14 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): auth-service is the sole token issuer.
+      # Private key for signing; public key also loaded so it can verify its own tokens.
+      # JWT_SECRET removed — RS256 asymmetric signing replaces the shared HS256 secret.
+      JWT_PRIVATE_KEY_PATH: /var/run/jwt/private.pem
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+    volumes:
+      - ./certs/jwt:/var/run/jwt:ro
     depends_on:
       - postgres
       - redis
@@ -190,8 +200,11 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       - postgres
       - redis
@@ -216,7 +229,10 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       - postgres
       - redis
@@ -241,7 +257,10 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       - postgres
       - redis
@@ -266,7 +285,10 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       - postgres
       - redis
@@ -293,7 +315,10 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       - postgres
       - redis
@@ -321,12 +346,15 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       # Email config (optional)
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       - postgres
       - redis
@@ -357,9 +385,11 @@ services:
       NATS_URL: tls://nats:4222
       NATS_AUTH_USER: ${NATS_AUTH_USER:-nats_internal}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - backup_data:/backups
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
     depends_on:
       - postgres
       - redis

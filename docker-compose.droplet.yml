@@ -457,7 +457,6 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-gateway-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
@@ -567,7 +566,6 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-auth-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PRIVATE_KEY_PATH: /etc/ssl/jwt/private.pem
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
@@ -623,7 +621,6 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-farm-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -678,7 +675,6 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-sensor-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
@@ -742,7 +738,6 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials — admin uses gateway account
       <<: *nats-gateway-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -794,7 +789,6 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-alert-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -841,7 +835,6 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-billing-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -888,7 +881,6 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-hr-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -935,7 +927,6 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-hydroponics-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
     depends_on:
@@ -985,7 +976,6 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-notification-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
       WEBHOOK_ENCRYPTION_KEY: ${WEBHOOK_ENCRYPTION_KEY:?WEBHOOK_ENCRYPTION_KEY required (min 32 chars)}
@@ -1079,7 +1069,6 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials — config uses gateway account
       <<: *nats-gateway-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
@@ -1130,7 +1119,6 @@ services:
       REDIS_DB: '3'
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-messaging-env
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       MINIO_ENDPOINT: minio

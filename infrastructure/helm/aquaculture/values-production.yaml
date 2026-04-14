@@ -2,17 +2,25 @@
 # Aquaculture Platform - Production Values Overlay
 # =============================================================================
 # Apply with:
+#   # Generate RS256 keypair once per environment (SECURITY CRITICAL-001):
+#   infrastructure/docker/scripts/generate-jwt-keypair.sh
 #   helm install aquaculture ./aquaculture \
 #     -n aquaculture --create-namespace \
 #     -f values-production.yaml \
-#     --set secrets.jwtSecret=$JWT_SECRET \
+#     --set-file secrets.jwtPrivateKey=./certs/jwt/private.pem \
+#     --set-file secrets.jwtPublicKey=./certs/jwt/public.pem \
 #     --set secrets.databaseUrl=$DATABASE_URL \
 #     --set secrets.redisUrl=$REDIS_URL \
 #     --set secrets.natsUrl=$NATS_URL \
 #     --set postgresql.auth.password=$PG_PASSWORD \
 #     --set redis.auth.password=$REDIS_PASSWORD
 #
-# Credentials MUST be passed via --set or external-secrets, never committed.
+# When externalSecrets.enabled=true (the production default), the RS256 keypair
+# is loaded from AWS Secrets Manager at paths:
+#   aquaculture/production/jwt-private-key
+#   aquaculture/production/jwt-public-key
+#
+# Credentials MUST be passed via --set-file or external-secrets, never committed.
 # =============================================================================
 
 global:

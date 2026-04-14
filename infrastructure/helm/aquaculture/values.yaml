@@ -4,9 +4,12 @@
 # REQUIRED values that have no safe default are documented with REQUIRED.
 # Set them via --set or a sealed-secrets / external-secrets overlay.
 # Example:
+#   # Generate RS256 keypair once per environment
+#   infrastructure/docker/scripts/generate-jwt-keypair.sh
 #   helm install aquaculture ./aquaculture \
 #     -f values-production.yaml \
-#     --set secrets.jwtSecret=$JWT_SECRET \
+#     --set-file secrets.jwtPrivateKey=./certs/jwt/private.pem \
+#     --set-file secrets.jwtPublicKey=./certs/jwt/public.pem \
 #     --set postgresql.auth.password=$PG_PASSWORD \
 #     --set redis.auth.password=$REDIS_PASSWORD
 
@@ -388,7 +391,13 @@ secrets:
   # REQUIRED: full Redis connection URL
   # e.g. redis://:<password>@redis-master:6379
   redisUrl: ""
-  # REQUIRED: pre-generated JWT signing secret (min 64 chars, generated externally)
+  # REQUIRED: RS256 private key PEM (auth-service only — sole token issuer).
+  # Generate with: infrastructure/docker/scripts/generate-jwt-keypair.sh
+  jwtPrivateKey: ""
+  # REQUIRED: RS256 public key PEM (distributed to every backend service for verification).
+  jwtPublicKey: ""
+  # DEPRECATED: HS256 shared secret. Retained as a legacy sentinel for dev fallback
+  # (ALLOW_DEV_JWT_SECRET=true). Not used in production RS256 verification path.
   jwtSecret: ""
   # REQUIRED: NATS connection URL including credentials token
   # e.g. nats://<token>@nats:4222

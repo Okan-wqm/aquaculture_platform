@@ -96,10 +96,11 @@ Create image name
 
 {{/*
 Common environment variables for backend services.
-JWT_SECRET is intentionally excluded — inject it only into auth-service
-to minimise blast radius of a service compromise.
-Use JWT_PUBLIC_KEY or auth-service introspection for token verification
-in other services.
+SECURITY (CRITICAL-001): JWT_PUBLIC_KEY is distributed to every backend service
+so they can verify RS256-signed access tokens issued by auth-service. The
+matching JWT_PRIVATE_KEY is injected ONLY into auth-service (see backend-services.yaml).
+Before RS256 migration, a shared HS256 JWT_SECRET was distributed everywhere,
+meaning any compromised service could forge tokens platform-wide.
 */}}
 {{- define "aquaculture.backendEnv" -}}
 - name: NODE_ENV
@@ -119,6 +120,11 @@ in other services.
     secretKeyRef:
       name: {{ include "aquaculture.fullname" . }}-secrets
       key: natsUrl
+- name: JWT_PUBLIC_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "aquaculture.fullname" . }}-secrets
+      key: jwtPublicKey
 {{- end }}
 
 {{/*

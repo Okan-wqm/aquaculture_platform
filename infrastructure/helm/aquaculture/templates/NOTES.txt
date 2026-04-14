@@ -6,12 +6,16 @@ REQUIRED CREDENTIALS — verify these are set correctly before going live
 
 The following values have no safe defaults and MUST be set explicitly:
 
-  secrets.jwtSecret        — JWT signing secret (min 64 chars, externally generated)
+  secrets.jwtPrivateKey    — RS256 private key PEM (auth-service only — sole issuer)
+  secrets.jwtPublicKey     — RS256 public key PEM (distributed to every backend)
   secrets.databaseUrl      — PostgreSQL connection URL with credentials
   secrets.redisUrl         — Redis connection URL with credentials
   secrets.natsUrl          — NATS URL including auth token
   postgresql.auth.password — PostgreSQL password for the sub-chart (if enabled)
   redis.auth.password      — Redis password for the sub-chart (if enabled)
+
+Generate the RS256 keypair with:
+  infrastructure/docker/scripts/generate-jwt-keypair.sh
 
 If any of the above were not set, the chart would have failed to render
 (required guards are enforced). Confirm secrets are rotated on first deploy.
@@ -60,7 +64,8 @@ Use environment-specific values files for staging/production:
   helm upgrade aquaculture ./aquaculture \
     -n {{ .Values.namespace }} \
     -f values-production.yaml \
-    --set secrets.jwtSecret=$JWT_SECRET \
+    --set-file secrets.jwtPrivateKey=./certs/jwt/private.pem \
+    --set-file secrets.jwtPublicKey=./certs/jwt/public.pem \
     --set postgresql.auth.password=$PG_PASSWORD \
     --set redis.auth.password=$REDIS_PASSWORD
 

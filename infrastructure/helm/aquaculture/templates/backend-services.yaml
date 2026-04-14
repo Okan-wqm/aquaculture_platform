@@ -36,12 +36,16 @@ spec:
             - containerPort: {{ .Values.authService.service.targetPort }}
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
-            {{- /* JWT_SECRET injected only into auth-service — sole token signing authority */}}
-            - name: JWT_SECRET
+            {{- /*
+              SECURITY (CRITICAL-001): JWT_PRIVATE_KEY injected ONLY into auth-service.
+              Auth-service is the sole RS256 token issuer. Every other backend service
+              receives JWT_PUBLIC_KEY via backendEnv for verification only.
+            */}}
+            - name: JWT_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "aquaculture.fullname" . }}-secrets
-                  key: jwtSecret
+                  key: jwtPrivateKey
             - name: JWT_EXPIRES_IN
               value: {{ .Values.authService.env.JWT_EXPIRES_IN | quote }}
             - name: REFRESH_TOKEN_EXPIRES_IN

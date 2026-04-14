@@ -31,14 +31,39 @@ generate_server_cert() {
   echo "  [done] ${name} (CN=${cn})"
 }
 
-# SECURITY (HIGH-002): mTLS client certificate — shared across backend services.
-# NATS now enforces `verify: true`; clients without a CA-signed cert are
-# rejected at handshake. Per-service identity still comes from the
-# authorization user/pass, but transport-layer trust requires this cert.
+# SECURITY (HIGH-002 / V4): per-service mTLS client certs.
+# nats-tls-enabled.conf runs with `verify_and_map: true` — NATS maps the
+# client cert's CN to the matching `users[*].user` entry in nats.conf.
+# CN values MUST therefore match the per-service NATS user names exactly:
+# auth_service, farm_service, sensor_service, gateway_service, etc.
+# A per-service cert + per-service NATS user means a compromised service's
+# cert grants ONLY that service's pub/sub permissions — cert rotation is
+# also identity rotation, atomically.
+generate_per_service_client_cert() {
+  local svc_user="$1"  # must match nats.conf users[*].user value exactly
+  local out_dir="${CERTS_DIR}/nats/clients"
+  if [ -f "${out_dir}/${svc_user}-cert.pem" ] && [ "$FORCE" = false ]; then
+    echo "  [skip] ${svc_user} client"; return; fi
+  mkdir -p "$out_dir"
+  openssl genrsa -out "${out_dir}/${svc_user}-key.pem" 2048 2>/dev/null
+  openssl req -new -key "${out_dir}/${svc_user}-key.pem" \
+    -out "${out_dir}/${svc_user}.csr" \
+    -subj "/CN=${svc_user}/O=Aquaculture Platform" 2>/dev/null
+  openssl x509 -req -days 365 -in "${out_dir}/${svc_user}.csr" \
+    -CA "${CERTS_DIR}/ca/ca-cert.pem" -CAkey "${CERTS_DIR}/ca/ca-key.pem" \
+    -CAcreateserial -out "${out_dir}/${svc_user}-cert.pem" 2>/dev/null
+  rm -f "${out_dir}/${svc_user}.csr"
+  chmod 644 "${out_dir}/${svc_user}-key.pem" "${out_dir}/${svc_user}-cert.pem"
+  echo "  [done] ${svc_user} client (CN=${svc_user})"
+}
+
+# Legacy shared client cert — kept for backward-compat with deployments that
+# have not yet rolled per-service certs. Production posture is per-service;
+# this is removed in a future cleanup once ALL deployments have rotated.
 generate_client_cert() {
   local name="$1" cn="$2" dir="${CERTS_DIR}/${1}"
   if [ -f "${dir}/client-cert.pem" ] && [ "$FORCE" = false ]; then
-    echo "  [skip] ${name} client"; return; fi
+    echo "  [skip] ${name} client (legacy shared)"; return; fi
   mkdir -p "$dir"
   openssl genrsa -out "${dir}/client-key.pem" 2048 2>/dev/null
   openssl req -new -key "${dir}/client-key.pem" -out "${dir}/client.csr" \
@@ -48,7 +73,7 @@ generate_client_cert() {
     -CAcreateserial -out "${dir}/client-cert.pem" 2>/dev/null
   rm -f "${dir}/client.csr"
   chmod 644 "${dir}/client-key.pem" "${dir}/client-cert.pem"
-  echo "  [done] ${name} client (CN=${cn})"
+  echo "  [done] ${name} client (CN=${cn})  [legacy shared]"
 }
 
 echo "=== Generating Internal TLS Certificates ==="
@@ -67,8 +92,17 @@ generate_server_cert "nats" "nats" "DNS:nats,DNS:aqua-nats,DNS:localhost"
 generate_server_cert "redis" "redis" "DNS:redis,DNS:aqua-redis,DNS:localhost"
 generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost"
 
-# mTLS client cert shared across backend services (server identity comes from
-# server cert; client identity at NATS application level is user/pass).
+# Per-service mTLS client certs (V4 / verify_and_map identity model).
+# CN must match the user name in nats.conf authorization{} block.
+for svc in auth_service farm_service sensor_service gateway_service \
+           notification_service billing_service alert_engine \
+           hr_service messaging_service hydroponics_service; do
+  generate_per_service_client_cert "$svc"
+done
+
+# Legacy shared client cert — kept on-disk for compatibility with deployments
+# that still mount certs/nats/client-cert.pem. New deployments mount the
+# per-service certs from certs/nats/clients/<svc>-cert.pem instead.
 generate_client_cert "nats" "aqua-services"
 
 # PostgreSQL expects server.crt and server.key (not postgres-cert.pem)

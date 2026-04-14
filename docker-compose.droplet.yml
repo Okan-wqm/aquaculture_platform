@@ -39,6 +39,8 @@ x-nats-env: &nats-env
   NATS_AUTH_USER: ${NATS_USER:?NATS_USER is required (legacy shared account)}
   NATS_AUTH_PASS: "${NATS_PASS:?NATS_PASS is required (legacy shared account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  # Legacy shared cert path — still used by services that have not yet
+  # switched to the V4 per-service cert anchors below.
   NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
   NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
   NATS_TLS_ENABLED: "true"
@@ -48,8 +50,9 @@ x-nats-auth-env: &nats-auth-env
   NATS_AUTH_USER: ${NATS_AUTH_USER:?NATS_AUTH_USER is required (auth-service account)}
   NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required (auth-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  # SECURITY (HIGH-002 / V4): per-service mTLS — CN=auth_service maps to NATS user auth_service.
+  NATS_TLS_CERT: /etc/ssl/nats-clients/auth_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/auth_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-farm-env: &nats-farm-env
@@ -57,8 +60,8 @@ x-nats-farm-env: &nats-farm-env
   NATS_AUTH_USER: ${NATS_FARM_USER:?NATS_FARM_USER is required (farm-service account)}
   NATS_AUTH_PASS: "${NATS_FARM_PASS:?NATS_FARM_PASS is required (farm-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/farm_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/farm_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-sensor-env: &nats-sensor-env
@@ -66,8 +69,8 @@ x-nats-sensor-env: &nats-sensor-env
   NATS_AUTH_USER: ${NATS_SENSOR_USER:?NATS_SENSOR_USER is required (sensor-service account)}
   NATS_AUTH_PASS: "${NATS_SENSOR_PASS:?NATS_SENSOR_PASS is required (sensor-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/sensor_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/sensor_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-gateway-env: &nats-gateway-env
@@ -75,8 +78,8 @@ x-nats-gateway-env: &nats-gateway-env
   NATS_AUTH_USER: ${NATS_GATEWAY_USER:?NATS_GATEWAY_USER is required (gateway/admin account)}
   NATS_AUTH_PASS: "${NATS_GATEWAY_PASS:?NATS_GATEWAY_PASS is required (gateway/admin account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/gateway_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/gateway_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-notification-env: &nats-notification-env
@@ -84,8 +87,8 @@ x-nats-notification-env: &nats-notification-env
   NATS_AUTH_USER: ${NATS_NOTIFICATION_USER:?NATS_NOTIFICATION_USER is required (notification-service account)}
   NATS_AUTH_PASS: "${NATS_NOTIFICATION_PASS:?NATS_NOTIFICATION_PASS is required (notification-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/notification_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/notification_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-billing-env: &nats-billing-env
@@ -93,8 +96,8 @@ x-nats-billing-env: &nats-billing-env
   NATS_AUTH_USER: ${NATS_BILLING_USER:?NATS_BILLING_USER is required (billing-service account)}
   NATS_AUTH_PASS: "${NATS_BILLING_PASS:?NATS_BILLING_PASS is required (billing-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/billing_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/billing_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-alert-env: &nats-alert-env
@@ -102,8 +105,8 @@ x-nats-alert-env: &nats-alert-env
   NATS_AUTH_USER: ${NATS_ALERT_USER:?NATS_ALERT_USER is required (alert-engine account)}
   NATS_AUTH_PASS: "${NATS_ALERT_PASS:?NATS_ALERT_PASS is required (alert-engine account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/alert_engine-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/alert_engine-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-hr-env: &nats-hr-env
@@ -111,8 +114,8 @@ x-nats-hr-env: &nats-hr-env
   NATS_AUTH_USER: ${NATS_HR_USER:?NATS_HR_USER is required (hr-service account)}
   NATS_AUTH_PASS: "${NATS_HR_PASS:?NATS_HR_PASS is required (hr-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/hr_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/hr_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-messaging-env: &nats-messaging-env
@@ -120,8 +123,8 @@ x-nats-messaging-env: &nats-messaging-env
   NATS_AUTH_USER: ${NATS_MESSAGING_USER:?NATS_MESSAGING_USER is required (messaging-service account)}
   NATS_AUTH_PASS: "${NATS_MESSAGING_PASS:?NATS_MESSAGING_PASS is required (messaging-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/messaging_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/messaging_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-hydroponics-env: &nats-hydroponics-env
@@ -129,13 +132,18 @@ x-nats-hydroponics-env: &nats-hydroponics-env
   NATS_AUTH_USER: ${NATS_HYDROPONICS_USER:?NATS_HYDROPONICS_USER is required (hydroponics-service account)}
   NATS_AUTH_PASS: "${NATS_HYDROPONICS_PASS:?NATS_HYDROPONICS_PASS is required (hydroponics-service account)}"
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
-  NATS_TLS_CERT: /etc/ssl/nats-client-cert.pem
-  NATS_TLS_KEY: /etc/ssl/nats-client-key.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/hydroponics_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/hydroponics_service-key.pem
   NATS_TLS_ENABLED: "true"
 
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
-# SECURITY (HIGH-002): mTLS client cert/key shared across backend services.
-# NATS enforces verify: true — clients without a CA-signed cert are rejected.
+# SECURITY (HIGH-002 / V4): per-service mTLS client certs.
+# NATS runs `verify_and_map: true` — cert CN maps directly to NATS user.
+# Each service mounts the entire per-service certs/clients dir read-only;
+# its NATS_TLS_CERT / NATS_TLS_KEY env vars point to its specific files
+# (e.g. farm_service-cert.pem, CN=farm_service, mapped to user farm_service).
+# The legacy shared client cert mount is kept for transitional deploys.
+x-nats-clients-mount: &nats-clients-mount ./certs/nats/clients:/etc/ssl/nats-clients:ro
 x-nats-client-cert-mount: &nats-client-cert-mount ./certs/nats/client-cert.pem:/etc/ssl/nats-client-cert.pem:ro
 x-nats-client-key-mount: &nats-client-key-mount ./certs/nats/client-key.pem:/etc/ssl/nats-client-key.pem:ro
 x-jwt-public-key-mount: &jwt-public-key-mount ./certs/jwt/public.pem:/etc/ssl/jwt/public.pem:ro
@@ -557,6 +565,7 @@ services:
         condition: service_started
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -615,6 +624,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-private-key-mount
@@ -665,6 +675,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -734,6 +745,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -789,6 +801,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -838,6 +851,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -899,6 +913,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -947,6 +962,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -995,6 +1011,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -1051,6 +1068,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -1142,6 +1160,7 @@ services:
         condition: service_healthy
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount
@@ -1196,6 +1215,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
+      - *nats-clients-mount
       - *nats-client-cert-mount
       - *nats-client-key-mount
       - *jwt-public-key-mount

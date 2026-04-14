@@ -148,8 +148,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=gateway_service maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/gateway_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/gateway_service-key.pem
       # SECURITY (HIGH-001): gateway-api authenticates to NATS with its own account.
       # Subject ACLs in nats.conf restrict what gateway can publish/subscribe.
       NATS_AUTH_USER: ${NATS_GATEWAY_USER:?NATS_GATEWAY_USER is required}
@@ -202,8 +203,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=auth_service maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/auth_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/auth_service-key.pem
       # SECURITY (HIGH-001): auth-service NATS account — matches nats.conf $NATS_AUTH_USER block.
       NATS_AUTH_USER: ${NATS_AUTH_USER:?NATS_AUTH_USER is required}
       NATS_AUTH_PASS: "${NATS_AUTH_PASS:?NATS_AUTH_PASS is required}"
@@ -245,8 +247,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=farm_service maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/farm_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/farm_service-key.pem
       # SECURITY (HIGH-001): farm-service NATS account with farm-scoped subject ACLs.
       NATS_AUTH_USER: ${NATS_FARM_USER:?NATS_FARM_USER is required}
       NATS_AUTH_PASS: "${NATS_FARM_PASS:?NATS_FARM_PASS is required}"
@@ -282,8 +285,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=sensor_service maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/sensor_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/sensor_service-key.pem
       # SECURITY (HIGH-001): sensor-service NATS account with sensor-scoped subject ACLs.
       NATS_AUTH_USER: ${NATS_SENSOR_USER:?NATS_SENSOR_USER is required}
       NATS_AUTH_PASS: "${NATS_SENSOR_PASS:?NATS_SENSOR_PASS is required}"
@@ -318,8 +322,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=hr_service maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/hr_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/hr_service-key.pem
       # SECURITY (HIGH-001): hr-service NATS account with HR-scoped subject ACLs.
       NATS_AUTH_USER: ${NATS_HR_USER:?NATS_HR_USER is required}
       NATS_AUTH_PASS: "${NATS_HR_PASS:?NATS_HR_PASS is required}"
@@ -354,8 +359,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=billing_service maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/billing_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/billing_service-key.pem
       # SECURITY (HIGH-001): billing-service NATS account with billing-scoped subject ACLs.
       NATS_AUTH_USER: ${NATS_BILLING_USER:?NATS_BILLING_USER is required}
       NATS_AUTH_PASS: "${NATS_BILLING_PASS:?NATS_BILLING_PASS is required}"
@@ -392,8 +398,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=alert_engine maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/alert_engine-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/alert_engine-key.pem
       # SECURITY (HIGH-001): alert-engine NATS account with alert-scoped subject ACLs.
       NATS_AUTH_USER: ${NATS_ALERT_USER:?NATS_ALERT_USER is required}
       NATS_AUTH_PASS: "${NATS_ALERT_PASS:?NATS_ALERT_PASS is required}"
@@ -431,8 +438,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): per-service mTLS — CN=notification_service maps to NATS user.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/notification_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/notification_service-key.pem
       # SECURITY (HIGH-001): notification-service NATS account with notification-scoped ACLs.
       NATS_AUTH_USER: ${NATS_NOTIFICATION_USER:?NATS_NOTIFICATION_USER is required}
       NATS_AUTH_PASS: "${NATS_NOTIFICATION_PASS:?NATS_NOTIFICATION_PASS is required}"
@@ -478,8 +486,9 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: "true"
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      NATS_TLS_CERT: /etc/ssl/nats/client-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/client-key.pem
+      # SECURITY (HIGH-002 / V4): admin-api shares the gateway_service identity (cert + NATS user).
+      NATS_TLS_CERT: /etc/ssl/nats/clients/gateway_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/gateway_service-key.pem
       # SECURITY (HIGH-001): admin-api shares the gateway NATS account per
       # nats.conf comment — both publish tenant/admin lifecycle events on
       # AQUACULTURE_EVENTS.Tenant*/Admin*. Separate account would double the

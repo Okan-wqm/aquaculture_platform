@@ -7,7 +7,10 @@ import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule, JwtService } from '@nestjs/jwt';
+// JwtService is injected by AuthGuard / RemoteGraphQLDataSource for token
+// verification. JwtService is provided by PlatformJwtModule (which re-exports
+// JwtModule), so we still need the named-type import here for DI metadata.
+import { JwtService } from '@nestjs/jwt';
 import depthLimit from 'graphql-depth-limit';
 import {
   getComplexity,
@@ -24,7 +27,7 @@ import {
   RedisModule,
   RedisService,
   generateServiceIdentityHeaders,
-  JWT_SECURITY_CONSTANTS,
+  PlatformJwtModule,
 } from '@aquaculture/backend-common';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
@@ -250,89 +253,24 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       cache: true,
     }),
 
-    // JWT for token validation — RS256 asymmetric (public key only)
-    // SECURITY (CRITICAL-001): gateway-api is a token CONSUMER, not an issuer.
-    // It verifies tokens using the RSA public key from auth-service.
-    // JWT_SECRET is no longer accepted for access-token verification.
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const nodeEnv = configService.get<string>('NODE_ENV', 'development');
-        const isProduction = nodeEnv === 'production';
-
-        // SECURITY: Load RSA public key for token verification
-        const loadPublicKey = (): string => {
-          const inlinePem = configService.get<string>('JWT_PUBLIC_KEY');
-          if (inlinePem) {
-            if (!inlinePem.includes('-----BEGIN')) {
-              return Buffer.from(inlinePem, 'base64').toString('utf8');
-            }
-            return inlinePem;
-          }
-          const keyPath = configService.get<string>('JWT_PUBLIC_KEY_PATH');
-          if (keyPath) {
-            return require('fs').readFileSync(keyPath, 'utf8');
-          }
-          return '';
-        };
-
-        const publicKey = loadPublicKey();
-
-        // CRITICAL: Always require public key in production
-        if (!publicKey && isProduction) {
-          throw new Error(
-            'CRITICAL SECURITY ERROR: JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_PATH must be configured in production. ' +
-            'gateway-api requires the RSA public key to verify tokens signed by auth-service. ' +
-            'Application startup aborted to prevent security vulnerability.',
-          );
-        }
-
-        // In non-production, allow dev fallback with explicit acknowledgment
-        if (!publicKey) {
-          const allowDevSecret = configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false');
-          const devSecret = configService.get<string>('DEV_JWT_SECRET');
-
-          if (allowDevSecret !== 'true') {
-            throw new Error(
-              'JWT_PUBLIC_KEY is not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
-              `with at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters. NEVER enable this in staging/production!`,
-            );
-          }
-
-          if (!devSecret || devSecret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
-            throw new Error(
-              `DEV_JWT_SECRET must be provided and be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters when ALLOW_DEV_JWT_SECRET=true.`,
-            );
-          }
-
-          const jwtLogger = new Logger('JwtModule');
-          jwtLogger.warn(
-            'SECURITY: Using DEV_JWT_SECRET with HS256 for local development only. ' +
-            'Production MUST use RS256 with JWT_PUBLIC_KEY.',
-          );
-          return {
-            secret: devSecret,
-            signOptions: {
-              algorithm: 'HS256' as const,
-              expiresIn: configService.get('JWT_EXPIRES_IN', '15m'),
-            },
-          };
-        }
-
-        return {
-          publicKey,
-          verifyOptions: {
-            // SECURITY: RS256 only — prevents algorithm confusion attacks.
-            // Consumer services NEVER hold the private key; they cannot sign tokens.
-            algorithms: ['RS256'],
-            issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
-            audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
-          },
-        };
-      },
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. gateway-api is a token CONSUMER, not an issuer.
+    //
+    // Replaced the ~80-line bespoke block (WS2.B, 2026-04-14) — single
+    // source of truth for all consumer services. The previous block carried
+    // a non-production HS256 dev fallback (ALLOW_DEV_JWT_SECRET +
+    // DEV_JWT_SECRET) which was the exact RS256/HS256-confusion surface
+    // PlatformJwtModule exists to remove. Dev environments now require
+    // JWT_PUBLIC_KEY (or JWT_PUBLIC_KEY_PATH) just like prod — generate a
+    // keypair via scripts/generate-jwt-keys.sh and source the public key.
+    //
+    // FOLLOW-UP (HIGH-001): docker-compose.dev.yml + docker-compose.yml +
+    // apps/gateway-api/test/header-propagation.e2e-spec.ts still reference
+    // ALLOW_DEV_JWT_SECRET / DEV_JWT_SECRET. They are now dead env vars
+    // for gateway-api but still consumed by auth-service's own dev
+    // fallback. Tracked separately because removing the dev path requires
+    // updating dev-onboarding scripts.
+    PlatformJwtModule,
 
     // Apollo Federation Gateway
     GraphQLModule.forRootAsync<ApolloGatewayDriverConfig>({

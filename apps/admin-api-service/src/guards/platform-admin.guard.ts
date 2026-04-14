@@ -13,14 +13,17 @@ import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 
-// getJwtVerifyOptions: centralised JWT verification options (HS256, issuer, audience).
+// getJwtVerifyOptions: centralised JWT verification options (RS256 public
+// key, issuer, audience).
 // BEFORE: guard used `import * as jwt from 'jsonwebtoken'` with jwt.verify() —
 // synchronous (blocks event loop), no algorithm restriction, no issuer/audience check.
 // AFTER: guard uses JwtService.verifyAsync() with getJwtVerifyOptions() — async,
-// algorithm-restricted to HS256, issuer + audience enforced at library level.
-// jsonwebtoken still imported for error type-checking in the catch block.
+// algorithm-restricted to RS256 (asymmetric — auth-service signs with the
+// private key, every consumer verifies with the public key), issuer + audience
+// enforced at library level. jsonwebtoken still imported for error
+// type-checking in the catch block.
 import * as jwt from 'jsonwebtoken';
-import { JWT_SECURITY_CONSTANTS, getJwtVerifyOptions } from '@aquaculture/backend-common';
+import { getJwtVerifyOptions } from '@aquaculture/backend-common';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**
@@ -55,14 +58,12 @@ export class PlatformAdminGuard implements CanActivate {
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(JwtService) private readonly jwtService: JwtService,
   ) {
-    // Validate JWT_SECRET length at startup (SEC-L05).
-    // getOrThrow() inside getJwtVerifyOptions() handles the missing-secret case.
-    const secret = this.configService.get<string>('JWT_SECRET');
-    if (secret && secret.length < JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
-      throw new Error(
-        `JWT_SECRET must be at least ${JWT_SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters long for adequate security.`,
-      );
-    }
+    // SECURITY (CRITICAL-001): JWT_SECRET length validation removed in WS2.B
+    // (2026-04-14). The check was a hold-over from the HS256 era — verifyAsync
+    // already uses getJwtVerifyOptions() which loads the RS256 public key and
+    // throws at startup if it is missing. There is no JWT_SECRET to validate
+    // anymore; reading it would also trip the ESLint no-restricted-syntax
+    // ban on JWT_SECRET reads (WS2.C).
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

@@ -1,7 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
 import { GraphQLModule } from '@nestjs/graphql';
 import {
   ApolloFederationDriver,
@@ -21,6 +20,7 @@ import {
   SourceSchemaBootstrapService,
   ServiceIdentityGuard,
   ThrottlerModule,
+  PlatformJwtModule,
 } from '@aquaculture/backend-common';
 
 /**
@@ -319,26 +319,14 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
       }),
     }),
 
-    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
-    // farm-service is a token CONSUMER, not an issuer. It verifies tokens using
-    // the RSA public key from auth-service. JWT_SECRET is no longer accepted.
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
-        const verifyOpts = getJwtVerifyOptions(configService);
-        return {
-          publicKey: verifyOpts.publicKey,
-          verifyOptions: {
-            algorithms: ['RS256'],
-            issuer: verifyOpts.issuer,
-            audience: verifyOpts.audience,
-          },
-        };
-      },
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. farm-service is a token CONSUMER, not an issuer.
+    // Replaced the per-service JwtModule.registerAsync block (WS2.B,
+    // 2026-04-14) so future RS256/HS256 wiring changes touch ONE file
+    // instead of ten. The shared module enforces algorithms ['RS256']
+    // unconditionally; HS256 reintroduction is additionally banned by the
+    // ESLint no-restricted-syntax rule on JWT_SECRET reads (WS2.C).
+    PlatformJwtModule,
 
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),

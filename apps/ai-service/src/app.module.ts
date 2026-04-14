@@ -4,7 +4,6 @@ import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import {
   ApolloFederationDriver,
@@ -35,6 +34,7 @@ import {
   RlsModule,
   createMigrationRunnerService,
   SchemaDriftModule,
+  PlatformJwtModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
@@ -196,26 +196,11 @@ const complexityCache = new Map<string, number>();
         };
       },
     }),
-    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
-    // ai-service is a token CONSUMER, not an issuer. It verifies tokens using
-    // the RSA public key from auth-service. JWT_SECRET is no longer accepted.
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
-        const verifyOpts = getJwtVerifyOptions(configService);
-        return {
-          publicKey: verifyOpts.publicKey,
-          verifyOptions: {
-            algorithms: ['RS256'],
-            issuer: verifyOpts.issuer,
-            audience: verifyOpts.audience,
-          },
-        };
-      },
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. ai-service is a token CONSUMER, not an issuer.
+    // Replaced the per-service JwtModule.registerAsync block (WS2.B,
+    // 2026-04-14) — single source of truth for all consumer services.
+    PlatformJwtModule,
     // Event bus for NATS pub/sub
     EventBusModule.forRootAsync({
       imports: [ConfigModule],

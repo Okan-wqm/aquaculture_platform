@@ -5,7 +5,6 @@ import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import {
   ApolloFederationDriver,
@@ -34,6 +33,7 @@ import {
   AuditLogInterceptor,
   RlsModule,
   SchemaDriftModule,
+  PlatformJwtModule,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
@@ -171,34 +171,20 @@ const complexityCache = new Map<string, number>();
     }),
     // NOTE: CqrsModule intentionally omitted — no CQRS handlers are wired in this service yet.
     // Re-add CqrsModule.forRoot() once actual command/query handlers are implemented.
-    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
-    // hydroponics-service is a token CONSUMER, not an issuer. It verifies
-    // tokens using the RSA public key from auth-service. JWT_SECRET (HS256)
-    // was deprecated by commit 7c076361 (auth-service migrated to RS256);
-    // hydroponics-service was missed in that pass and stayed on the legacy
-    // shared-secret path until its config getOrThrow('JWT_SECRET') started
-    // crashing at boot when the env var was no longer provisioned.
     //
-    // Migrated 2026-04-14 to mirror farm-service / sensor-service / hr /
-    // billing / alert / messaging / admin-api JWT verification pattern via
-    // the shared backend-common helper getJwtVerifyOptions.
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
-        const verifyOpts = getJwtVerifyOptions(configService);
-        return {
-          publicKey: verifyOpts.publicKey,
-          verifyOptions: {
-            algorithms: ['RS256'],
-            issuer: verifyOpts.issuer,
-            audience: verifyOpts.audience,
-          },
-        };
-      },
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. hydroponics-service is a token CONSUMER, not an issuer.
+    //
+    // History: this service was missed in the HS256 -> RS256 migration
+    // (commit 7c076361). It stayed on the legacy
+    // configService.getOrThrow('JWT_SECRET') path and crashed at boot on
+    // 2026-04-14 when JWT_SECRET stopped being provisioned. The mirror-fix
+    // commit (607f9d9d) copied the canonical block from farm-service —
+    // which left ten copies of the same wiring in the tree, exactly the
+    // drift surface this WS exists to eliminate. PlatformJwtModule (WS2.B)
+    // is the structural answer: one source of truth, no per-service block
+    // to forget.
+    PlatformJwtModule,
     // Rate limiting: applies sliding-window throttling to all GraphQL and REST endpoints.
     // Limits are configurable via THROTTLE_DEFAULT_LIMIT, THROTTLE_DEFAULT_TTL,
     // THROTTLE_ANONYMOUS_LIMIT, and THROTTLE_ENABLED environment variables.

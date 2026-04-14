@@ -2,7 +2,6 @@ import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import {
@@ -35,6 +34,7 @@ import {
   AuditColumnsModule,
   createMigrationRunnerService,
   SchemaDriftModule,
+  PlatformJwtModule,
 } from '@aquaculture/backend-common';
 
 /**
@@ -284,26 +284,11 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
         streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
-    // SECURITY (CRITICAL-001): RS256 asymmetric verification — public key only.
-    // hr-service is a token CONSUMER, not an issuer. It verifies tokens using
-    // the RSA public key from auth-service. JWT_SECRET is no longer accepted.
-    JwtModule.registerAsync({
-      global: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const { getJwtVerifyOptions } = require('@aquaculture/backend-common');
-        const verifyOpts = getJwtVerifyOptions(configService);
-        return {
-          publicKey: verifyOpts.publicKey,
-          verifyOptions: {
-            algorithms: ['RS256'],
-            issuer: verifyOpts.issuer,
-            audience: verifyOpts.audience,
-          },
-        };
-      },
-    }),
+    // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
+    // PlatformJwtModule. hr-service is a token CONSUMER, not an issuer.
+    // Replaced the per-service JwtModule.registerAsync block (WS2.B,
+    // 2026-04-14) — single source of truth for all consumer services.
+    PlatformJwtModule,
     HRModule,
     LeaveModule,
     AttendanceModule,

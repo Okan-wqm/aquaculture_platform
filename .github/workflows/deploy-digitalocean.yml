@@ -851,17 +851,54 @@ jobs:
                 fi
               }
 
-              # NATS per-service credentials
+              # NATS per-service USER names are STATIC IDENTIFIERS that must match
+              # the cert CN baked into each service's mTLS client certificate by
+              # infrastructure/docker/scripts/generate-internal-certs.sh. The
+              # NATS server (nats.conf) uses `verify_and_map: true` — the client
+              # cert's CN is mapped directly to the user lookup, so mismatch =
+              # 'Authorization Violation' on every service boot.
+              #
+              # Previous bug: this script called generate_credential for
+              # NATS_${SVC}_USER, which generated random 32-char strings. Those
+              # won the env var interpolation (docker-compose default
+              # `:-billing_service` never applied because the .env value was
+              # non-empty). Cert CN was `billing_service`, nats.conf user was
+              # `aXbC7Kd...` → auth failure for every service.
+              #
+              # set_canonical enforces the fixed mapping AND heals existing .env
+              # files that contain bad random values (runs sed -i to rewrite).
+              set_canonical() {
+                local VAR_NAME="$1"
+                local EXPECTED="$2"
+                if grep -q "^${VAR_NAME}=${EXPECTED}$" "$ENV_FILE" 2>/dev/null; then
+                  echo "  ${VAR_NAME}: ${EXPECTED} (correct)"
+                elif grep -q "^${VAR_NAME}=" "$ENV_FILE" 2>/dev/null; then
+                  sed -i "s|^${VAR_NAME}=.*|${VAR_NAME}=${EXPECTED}|" "$ENV_FILE"
+                  echo "  ${VAR_NAME}: healed to ${EXPECTED} (was non-canonical)"
+                else
+                  echo "${VAR_NAME}=${EXPECTED}" >> "$ENV_FILE"
+                  echo "  ${VAR_NAME}: set to ${EXPECTED}"
+                fi
+              }
+
+              # Canonical NATS user names — MUST match cert CNs in
+              # generate-internal-certs.sh line 97-101 exactly.
+              set_canonical "NATS_AUTH_USER"         "auth_service"
+              set_canonical "NATS_FARM_USER"         "farm_service"
+              set_canonical "NATS_SENSOR_USER"       "sensor_service"
+              set_canonical "NATS_GATEWAY_USER"      "gateway_service"
+              set_canonical "NATS_NOTIFICATION_USER" "notification_service"
+              set_canonical "NATS_BILLING_USER"      "billing_service"
+              set_canonical "NATS_ALERT_USER"        "alert_engine"
+              set_canonical "NATS_HR_USER"           "hr_service"
+              set_canonical "NATS_MESSAGING_USER"    "messaging_service"
+              set_canonical "NATS_HYDROPONICS_USER"  "hydroponics_service"
+
+              # NATS per-service credentials (passwords only — user names above)
               for SVC in AUTH FARM SENSOR GATEWAY NOTIFICATION BILLING ALERT HR MESSAGING HYDROPONICS; do
                 generate_credential "NATS_${SVC}_SVC_USER"
                 generate_credential "NATS_${SVC}_SVC_PASS"
-              done
-
-              # NATS per-service user/pass env vars for nats.conf interpolation
-              for SVC_LOWER in auth farm sensor gateway notification billing alert hr messaging hydroponics; do
-                SVC_UPPER=$(echo "$SVC_LOWER" | tr '[:lower:]' '[:upper:]')
-                generate_credential "NATS_${SVC_UPPER}_USER"
-                generate_credential "NATS_${SVC_UPPER}_PASS"
+                generate_credential "NATS_${SVC}_PASS"
               done
 
               # PostgreSQL per-service role passwords
@@ -964,7 +1001,11 @@ jobs:
                 echo "No existing JetStream data directory found"
               fi
 
-              # Per-service credential provisioning (same as full deploy path)
+              # Per-service credential provisioning (same as full deploy path).
+              # See the full-deploy block above for the architectural rationale
+              # behind set_canonical (fixes the NATS_USER vs cert CN mismatch
+              # that was causing 'Authorization Violation' on every service
+              # boot). Same helpers, same canonical list — kept in sync.
               echo "=== Ensuring per-service credentials exist ==="
               ENV_FILE="/var/aqua-saas/.env"
               generate_credential() {
@@ -977,10 +1018,32 @@ jobs:
                   echo "  ${VAR_NAME}: generated"
                 fi
               }
+              set_canonical() {
+                local VAR_NAME="$1"
+                local EXPECTED="$2"
+                if grep -q "^${VAR_NAME}=${EXPECTED}$" "$ENV_FILE" 2>/dev/null; then
+                  echo "  ${VAR_NAME}: ${EXPECTED} (correct)"
+                elif grep -q "^${VAR_NAME}=" "$ENV_FILE" 2>/dev/null; then
+                  sed -i "s|^${VAR_NAME}=.*|${VAR_NAME}=${EXPECTED}|" "$ENV_FILE"
+                  echo "  ${VAR_NAME}: healed to ${EXPECTED} (was non-canonical)"
+                else
+                  echo "${VAR_NAME}=${EXPECTED}" >> "$ENV_FILE"
+                  echo "  ${VAR_NAME}: set to ${EXPECTED}"
+                fi
+              }
+              set_canonical "NATS_AUTH_USER"         "auth_service"
+              set_canonical "NATS_FARM_USER"         "farm_service"
+              set_canonical "NATS_SENSOR_USER"       "sensor_service"
+              set_canonical "NATS_GATEWAY_USER"      "gateway_service"
+              set_canonical "NATS_NOTIFICATION_USER" "notification_service"
+              set_canonical "NATS_BILLING_USER"      "billing_service"
+              set_canonical "NATS_ALERT_USER"        "alert_engine"
+              set_canonical "NATS_HR_USER"           "hr_service"
+              set_canonical "NATS_MESSAGING_USER"    "messaging_service"
+              set_canonical "NATS_HYDROPONICS_USER"  "hydroponics_service"
               for SVC in AUTH FARM SENSOR GATEWAY NOTIFICATION BILLING ALERT HR MESSAGING HYDROPONICS; do
                 generate_credential "NATS_${SVC}_SVC_USER"
                 generate_credential "NATS_${SVC}_SVC_PASS"
-                generate_credential "NATS_${SVC}_USER"
                 generate_credential "NATS_${SVC}_PASS"
               done
               for SVC in AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING; do

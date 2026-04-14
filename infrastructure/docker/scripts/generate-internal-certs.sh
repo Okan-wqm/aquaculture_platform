@@ -94,9 +94,54 @@ generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:l
 
 # Per-service mTLS client certs (V4 / verify_and_map identity model).
 # CN must match the user name in nats.conf authorization{} block.
-for svc in auth_service farm_service sensor_service gateway_service \
-           notification_service billing_service alert_engine \
-           hr_service messaging_service hydroponics_service; do
+#
+# SSoT: the service list is DERIVED at runtime from
+# infrastructure/nats/services.yaml. DO NOT hand-edit a list here — editing
+# services.yaml is the single correct way to add/remove a service cert.
+# ADR-015 + BACKLOG-NATS-002: mirrors the pattern used by
+# scripts/nats/generate-nats-conf.py so cert CNs and nats.conf users[]
+# cannot drift apart.
+#
+# We use `python3 -c` + PyYAML (same toolchain the sibling generator uses)
+# rather than `yq` — Python + PyYAML is preinstalled on GitHub Actions
+# ubuntu-latest runners and every supported dev environment, eliminating
+# an extra tool dependency. The inline script prints one service name per
+# line on stdout, and errors (missing file, malformed YAML, missing
+# `services` key, empty list) exit non-zero so `set -e` aborts this script
+# — there is NO silent fallback to a hardcoded list.
+SERVICES_YAML="${REPO_ROOT}/infrastructure/nats/services.yaml"
+if [ ! -f "$SERVICES_YAML" ]; then
+  echo "error: ${SERVICES_YAML} not found — cannot derive per-service cert CN list" >&2
+  exit 1
+fi
+SERVICE_NAMES=$(python3 - "$SERVICES_YAML" <<'PY'
+import sys
+try:
+    import yaml
+except ImportError:
+    sys.stderr.write("error: PyYAML not available. Install via `pip install pyyaml` or `apt-get install python3-yaml`.\n")
+    sys.exit(1)
+with open(sys.argv[1]) as f:
+    doc = yaml.safe_load(f)
+if not isinstance(doc, dict) or "services" not in doc:
+    sys.stderr.write(f"error: {sys.argv[1]} is malformed — expected top-level 'services' key\n")
+    sys.exit(1)
+services = doc["services"]
+if not isinstance(services, list) or len(services) == 0:
+    sys.stderr.write(f"error: {sys.argv[1]} services list is empty or not a list\n")
+    sys.exit(1)
+for svc in services:
+    if not isinstance(svc, dict) or "name" not in svc:
+        sys.stderr.write(f"error: {sys.argv[1]} entry missing 'name': {svc!r}\n")
+        sys.exit(1)
+    print(svc["name"])
+PY
+)
+if [ -z "$SERVICE_NAMES" ]; then
+  echo "error: no service names extracted from ${SERVICES_YAML}" >&2
+  exit 1
+fi
+for svc in $SERVICE_NAMES; do
   generate_per_service_client_cert "$svc"
 done
 

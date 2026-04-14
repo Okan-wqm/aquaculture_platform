@@ -225,7 +225,7 @@ export class TenantDetailService {
         SELECT
           COUNT(*) FILTER (WHERE "createdAt" > NOW() - INTERVAL '24 hours') as calls_24h,
           COUNT(*) FILTER (WHERE "createdAt" > NOW() - INTERVAL '7 days') as calls_7d
-        FROM audit_logs
+        FROM shared.audit_logs
         WHERE "tenantId" = $1
       `,
         [tenant.id],

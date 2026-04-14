@@ -381,7 +381,7 @@ export class AnalyticsService {
             ((EXTRACT(DOW FROM "createdAt")::int + 6) % 7) AS dow,
             EXTRACT(HOUR FROM "createdAt")::int             AS hour,
             COUNT(*)                                         AS cnt
-          FROM audit_logs
+          FROM shared.audit_logs
           WHERE "createdAt" >= NOW() - INTERVAL '30 days'
           GROUP BY 1, 2
         `);

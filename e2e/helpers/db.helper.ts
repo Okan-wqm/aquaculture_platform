@@ -9,6 +9,14 @@ const DEFAULT_DATABASE_URL =
 
 /**
  * Row type for a user record from auth.users.
+ *
+ * Index signature (`[k: string]: unknown`) is required so this interface
+ * satisfies the `Record<string, unknown>` constraint on the
+ * `TestDatabase.query<T>` generic. Without it, ts-jest hard-fails the whole
+ * helper at compile time (TS2344) and every transitively-importing
+ * integration test silently never runs — closes CRITICAL-005 from the
+ * 2026-04-14 review where `schema-invariants.spec.ts` looked green
+ * because the suite errored before any assertion ran.
  */
 export interface UserRow {
   id: string;
@@ -21,10 +29,12 @@ export interface UserRow {
   lastName: string | null;
   createdAt: Date;
   updatedAt: Date;
+  [k: string]: unknown;
 }
 
 /**
- * Row type for a tenant record from auth.tenants.
+ * Row type for a tenant record from auth.tenants. See UserRow above for the
+ * rationale behind the index signature.
  */
 export interface TenantRow {
   id: string;
@@ -36,6 +46,7 @@ export interface TenantRow {
   userCount: number;
   createdAt: Date;
   updatedAt: Date;
+  [k: string]: unknown;
 }
 
 /**

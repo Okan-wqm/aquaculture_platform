@@ -374,7 +374,7 @@ export class SystemMetricsService {
     try {
       const result = await this.dataSource.query(`
         SELECT count(*) as count
-        FROM audit_logs
+        FROM shared.audit_logs
         WHERE "createdAt" >= NOW() - INTERVAL '24 hours'
       `);
       return parseInt(result[0]?.count || '0', 10);

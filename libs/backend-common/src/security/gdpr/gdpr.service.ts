@@ -379,7 +379,7 @@ export class GdprService implements IGdprService {
       collect: async (userId: string) => {
         try {
           const result = await this.dataSource.query(
-            `SELECT * FROM audit_logs WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 1000`,
+            `SELECT * FROM shared.audit_logs WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 1000`,
             [userId],
           );
           return { count: result.length, logs: result };

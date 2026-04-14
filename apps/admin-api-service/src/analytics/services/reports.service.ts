@@ -773,8 +773,13 @@ export class ReportsService {
         let auditCountsByDate = new Map<string, number>();
         try {
           const auditRows: Array<{ day: string; cnt: string }> = await this.dataSource.query(
+            // Schema-qualified after P9 (2026-04-14): audit_logs lives in
+            // shared schema. Unqualified read would resolve via search_path
+            // (admin, public) — both empty after the move, returning zeros
+            // silently inside the surrounding try/catch. Qualifying is the
+            // architectural fix per docs/adr/011-schema-ownership-model.md.
             `SELECT DATE("createdAt")::text AS day, COUNT(*) AS cnt
-             FROM audit_logs
+             FROM shared.audit_logs
              WHERE "createdAt" >= $1 AND "createdAt" <= $2
              GROUP BY DATE("createdAt")
              ORDER BY day ASC`,

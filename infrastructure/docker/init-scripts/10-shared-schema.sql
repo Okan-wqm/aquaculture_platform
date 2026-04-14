@@ -92,7 +92,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA shared
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO PUBLIC;
 
 -- ----------------------------------------------------------------------------
--- 2. Move tables from public to shared
+-- 2. Move tables from public to shared (live-DB migration path)
 -- ----------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -104,11 +104,134 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = t)
     THEN
       EXECUTE format('ALTER TABLE public.%I SET SCHEMA shared', t);
+    END IF;
+  END LOOP;
+END
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 2b. Create shared.* tables that don't exist anywhere yet (fresh-deploy path)
+--
+-- Closes CRITICAL-001 from the 2026-04-14 review: previously, the only init
+-- script that creates any of these tables in public is 04-billing-tables.sql
+-- (audit_logs only). On fresh deploys the other 3 tables didn't exist when
+-- this script ran, so step 2 above no-op'd, step 3 (RLS install) skipped
+-- them, and TypeORM synchronize later created them in shared without RLS —
+-- a cross-tenant leak window.
+--
+-- Idempotency contract: each block runs ONLY when the table is absent from
+-- BOTH public AND shared. This means:
+--   - Live DB (table currently in public): step 2 moves it; this section
+--     skips it (NOT EXISTS in shared check fails after the move? No — step
+--     2 ran in this same DO block earlier, so this section sees it in shared
+--     and skips). Verified by reading.
+--   - Fresh deploy (table absent everywhere): this section creates it in
+--     shared with the canonical column shape from the entity file referenced
+--     in each block's leading comment.
+--   - Re-run after table exists in shared: skipped (NOT EXISTS check fails).
+--
+-- Column shapes are MIRRORED from the entity files. If an entity changes,
+-- update both the entity AND this section in the same PR. The schema-drift
+-- validator (libs/backend-common/.../schema-drift-validator.service.ts) will
+-- catch divergence at runtime as a defense-in-depth backstop.
+-- ----------------------------------------------------------------------------
+
+-- shared.gdpr_data_requests
+-- Mirrors libs/backend-common/src/security/gdpr/entities/data-request.entity.ts:38
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public', 'shared') AND tablename = 'gdpr_data_requests') THEN
+    CREATE TABLE shared.gdpr_data_requests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "userId" UUID NOT NULL,
+      "tenantId" UUID,
+      "requestType" VARCHAR(50) NOT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'pending',
+      reason TEXT,
+      "ipAddress" VARCHAR(50),
+      "userAgent" VARCHAR(500),
+      "requestDetails" JSONB,
+      "processingDetails" JSONB,
+      "downloadUrl" VARCHAR(500),
+      "downloadExpiresAt" TIMESTAMPTZ,
+      "processedAt" TIMESTAMPTZ,
+      "processedBy" UUID,
+      "errorMessage" TEXT,
+      "recordsAffected" INT NOT NULL DEFAULT 0,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX "IDX_data_request_user" ON shared.gdpr_data_requests ("userId");
+    CREATE INDEX "IDX_data_request_tenant" ON shared.gdpr_data_requests ("tenantId");
+    CREATE INDEX "IDX_data_request_type" ON shared.gdpr_data_requests ("requestType");
+    CREATE INDEX "IDX_data_request_status" ON shared.gdpr_data_requests (status);
+  END IF;
+END
+$$;
+
+-- shared.user_consents
+-- Mirrors libs/backend-common/src/security/gdpr/entities/consent.entity.ts:17
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public', 'shared') AND tablename = 'user_consents') THEN
+    CREATE TABLE shared.user_consents (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "userId" UUID NOT NULL,
+      "tenantId" UUID,
+      "consentType" VARCHAR(50) NOT NULL,
+      granted BOOLEAN NOT NULL,
+      version VARCHAR(50) NOT NULL,
+      "ipAddress" VARCHAR(50),
+      "userAgent" VARCHAR(500),
+      "expiresAt" TIMESTAMPTZ,
+      metadata JSONB,
+      "withdrawalReason" TEXT,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX "IDX_consent_user" ON shared.user_consents ("userId");
+    CREATE INDEX "IDX_consent_tenant" ON shared.user_consents ("tenantId");
+    CREATE INDEX "IDX_consent_type" ON shared.user_consents ("consentType");
+    CREATE INDEX "IDX_consent_user_type" ON shared.user_consents ("userId", "consentType");
+  END IF;
+END
+$$;
+
+-- shared.user_permissions
+-- Mirrors apps/admin-api-service/src/users/entities/user-permissions.entity.ts:97
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public', 'shared') AND tablename = 'user_permissions') THEN
+    CREATE TABLE shared.user_permissions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "userId" UUID NOT NULL,
+      "tenantId" UUID NOT NULL,
+      permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+      "isActive" BOOLEAN NOT NULL DEFAULT true,
+      "grantedBy" UUID,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX idx_user_permissions_user ON shared.user_permissions ("userId");
+    CREATE INDEX idx_user_permissions_tenant ON shared.user_permissions ("tenantId");
+    CREATE UNIQUE INDEX idx_user_permissions_user_tenant_unique ON shared.user_permissions ("userId", "tenantId");
+  END IF;
+END
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 2c. Apply ownership + FORCE RLS to every shared.* table that exists now
+--
+-- Idempotent re-assertion. Catches both code paths (move from public,
+-- create-fresh-in-shared) with a single unified loop. SET SCHEMA preserves
+-- ENABLE/FORCE bits since PG 9.5 but re-asserting is free defensive coding.
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['audit_logs', 'gdpr_data_requests', 'user_consents', 'user_permissions']
+  LOOP
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = t) THEN
       EXECUTE format('ALTER TABLE shared.%I OWNER TO shared_schema_owner', t);
-      -- Preserve RLS intent: ENABLE + FORCE are idempotent, so re-asserting
-      -- them here handles both the SET SCHEMA case (policies travel, but
-      -- ENABLE/FORCE bits travel only in recent PG versions so re-assert
-      -- defensively) and the fresh-deploy-via-init case (no policies yet).
       EXECUTE format('ALTER TABLE shared.%I ENABLE ROW LEVEL SECURITY', t);
       EXECUTE format('ALTER TABLE shared.%I FORCE ROW LEVEL SECURITY', t);
     END IF;

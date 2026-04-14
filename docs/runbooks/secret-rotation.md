@@ -68,3 +68,22 @@ Can be done one role at a time without cross-service impact because each service
 ## Audit trail
 
 Every rotation triggers a WARN log entry via the standard logging middleware. Grep production logs for `secret.rotated` to confirm the deploy picked up the new value. Consider adding a Grafana alert on absence of this entry after a scheduled rotation window.
+
+## Rotation cadence
+
+Closes `docs/reviews/infra-expert/2026-04-14-infrastructure-hardening.md#INFRA-ROTATION-001`. Without an explicit cadence, secrets drift toward "rotate never" by default. The cadence below is the baseline; an observed compromise or suspected leak collapses the interval to "now" and triggers the incident-response runbook instead.
+
+| Secret | Rotation interval | Reminder lead time | Owner | Procedure |
+|---|---|---|---|---|
+| `JWT_PRIVATE_KEY` + `JWT_PUBLIC_KEY` (RS256 keypair) | 90 days | 14 days | auth-service oncall | §"JWT signing keys" once the zero-downtime rollout runbook is written; until then, treat as an annual planned outage |
+| `STRIPE_WEBHOOK_SECRET` | 90 days | 14 days | billing oncall | §"Stripe webhook signing secret" |
+| `STRIPE_API_KEY` (restricted) | 90 days | 14 days | billing oncall | §"Stripe server-side API key" |
+| Per-service DB passwords | 90 days | 14 days | data oncall | §"Database passwords (per-service)" |
+| `PASSWORD_PEPPER` | 180 days (or on incident) | 30 days | auth-service oncall | §"Password pepper" (incident-response only outside cadence) |
+| `REDIS_PASSWORD` | 180 days | 30 days | infra oncall | roll via droplet env + `docker compose up -d redis` |
+| NATS mTLS client certs | 12 months | 30 days | infra oncall | `scripts/generate-internal-certs.sh` regenerates in lockstep with `infrastructure/nats/services.yaml` |
+| DigitalOcean Spaces keys (backup workflow) | 90 days | 14 days | infra oncall | rotate in DO panel → update `SPACES_ACCESS_KEY_ID` / `SPACES_SECRET_ACCESS_KEY` GitHub secrets → run the `Backup - Production Postgres` workflow with `dry_run: true` to verify |
+
+**Reminders:** `.github/workflows/secret-rotation-reminder.yml` opens a GitHub issue `Rotation due: <secret>` during the lead-time window. The issue is assigned to the owner team listed above; closing the issue without rotating the secret requires a comment explaining the deferral, its new due date, and the mitigating control.
+
+**Deferrals are capped at one cadence interval.** A JWT keypair cannot be deferred twice in a row; the second deferral auto-escalates to the CTO as a CRITICAL finding under INFRA-ROTATION-001.

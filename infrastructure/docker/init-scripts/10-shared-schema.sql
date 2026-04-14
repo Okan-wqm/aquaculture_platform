@@ -136,6 +136,63 @@ $$;
 -- catch divergence at runtime as a defense-in-depth backstop.
 -- ----------------------------------------------------------------------------
 
+-- shared.audit_logs
+-- Mirrors libs/backend-common/src/audit/audit-log.entity.ts:28 — the
+-- CANONICAL writer for this table. Every backend service that imports
+-- AuditLogModule writes via AuditLogService.record() which builds rows
+-- with this column shape (resource, userId, userEmail, schemaName,
+-- metadata, ip, correlationId).
+--
+-- # Recovery from wrong shape (NEW-CRITICAL-A live-DB fix)
+--
+-- The pre-2026-04-14 04-billing-tables.sql created public.audit_logs
+-- with the admin-api entity column shape (entityType, performedBy,
+-- requestId, etc). Live DBs that ran that init have shared.audit_logs
+-- with the wrong shape (after P9's SET SCHEMA move). The DROP-and-
+-- recreate guard below detects the wrong shape via the absence of the
+-- canonical `resource` column and rebuilds. Safe because every
+-- AuditLogService.record() call against the wrong-shape table has been
+-- silently failing — there are no real audit rows to lose.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'shared' AND tablename = 'audit_logs')
+     AND NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'shared' AND table_name = 'audit_logs' AND column_name = 'resource'
+     )
+  THEN
+    DROP TABLE shared.audit_logs CASCADE;
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname IN ('public', 'shared') AND tablename = 'audit_logs') THEN
+    CREATE TABLE shared.audit_logs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      action VARCHAR(100) NOT NULL,
+      resource VARCHAR(100) NOT NULL,
+      "resourceId" VARCHAR(255),
+      "userId" VARCHAR(255),
+      "userEmail" VARCHAR(255),
+      "tenantId" UUID,
+      "schemaName" VARCHAR(100),
+      metadata JSONB,
+      ip VARCHAR(45),
+      "userAgent" VARCHAR(500),
+      severity VARCHAR(20) NOT NULL DEFAULT 'info',
+      "correlationId" VARCHAR(100),
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX "IDX_audit_log_tenant_created" ON shared.audit_logs ("tenantId", "createdAt");
+    CREATE INDEX "IDX_audit_log_user_tenant" ON shared.audit_logs ("userId", "tenantId");
+    CREATE INDEX "IDX_audit_log_resource" ON shared.audit_logs (resource, "resourceId", "tenantId");
+    CREATE INDEX "IDX_audit_log_action" ON shared.audit_logs (action, "tenantId");
+  END IF;
+END
+$$;
+
 -- shared.gdpr_data_requests
 -- Mirrors libs/backend-common/src/security/gdpr/entities/data-request.entity.ts:38
 DO $$
@@ -235,6 +292,59 @@ BEGIN
       EXECUTE format('ALTER TABLE shared.%I OWNER TO shared_schema_owner', t);
       EXECUTE format('ALTER TABLE shared.%I ENABLE ROW LEVEL SECURITY', t);
       EXECUTE format('ALTER TABLE shared.%I FORCE ROW LEVEL SECURITY', t);
+    END IF;
+  END LOOP;
+END
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 2d. Live-DB timestamp → timestamptz drift correction
+--
+-- Closes NEW-HIGH-E from round-2 review. On live DBs where the GDPR
+-- entities (libs/backend-common/src/security/gdpr/entities/*.ts) were
+-- created via TypeORM synchronize BEFORE commit d14fb6fc updated the
+-- entity decorators to declare `timestamptz`, the columns persist as
+-- `timestamp without time zone` even though the entity now expects
+-- `timestamp with time zone`. AuditColumnsBootstrap only converts
+-- `createdAt`/`updatedAt` and only operates on `current_schema()` —
+-- it does not reach the GDPR-domain timestamp columns
+-- (downloadExpiresAt, processedAt, expiresAt) nor the shared schema.
+--
+-- Symptom of the drift: the tz-naive timestamp adopts the connection's
+-- TIMEZONE setting on write, then reads back as if UTC — silent ±N-hour
+-- skew on GDPR `downloadExpiresAt` (URL expiry) and `processedAt`
+-- (audit window). Fixes correctness without data loss: the USING cast
+-- treats the existing tz-naive value as UTC (the connection's stored
+-- intent) and re-anchors as timestamptz.
+--
+-- Idempotent: each ALTER fires only when the column's current data_type
+-- is `timestamp without time zone`. After conversion, re-runs are no-ops.
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+  entry record;
+BEGIN
+  FOR entry IN
+    SELECT * FROM (VALUES
+      ('gdpr_data_requests', 'downloadExpiresAt'),
+      ('gdpr_data_requests', 'processedAt'),
+      ('gdpr_data_requests', 'createdAt'),
+      ('gdpr_data_requests', 'updatedAt'),
+      ('user_consents',      'expiresAt'),
+      ('user_consents',      'createdAt')
+    ) AS t(tbl, col)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'shared'
+        AND table_name   = entry.tbl
+        AND column_name  = entry.col
+        AND data_type    = 'timestamp without time zone'
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE shared.%I ALTER COLUMN %I TYPE TIMESTAMPTZ USING %I AT TIME ZONE ''UTC''',
+        entry.tbl, entry.col, entry.col
+      );
     END IF;
   END LOOP;
 END

@@ -110,6 +110,16 @@ externalSecrets:
   pathPrefix: "aquaculture/production"
   refreshInterval: "1h"
 
+# SECURITY (MEDIUM-002, V7): cert-manager internal PKI ON by default in
+# production. Operators who run a cluster without cert-manager must
+# explicitly opt out (`--set certManager.internal.enabled=false`) so the
+# absence is a deliberate decision, not forgetfulness. This flips the base
+# chart's default-off to a production-specific default-on — the Automatic
+# tier of CLAUDE.md's architectural hierarchy.
+certManager:
+  internal:
+    enabled: true
+
 networkPolicy:
   enabled: true
 

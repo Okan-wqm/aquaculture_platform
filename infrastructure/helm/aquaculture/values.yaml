@@ -429,9 +429,6 @@ secrets:
   jwtPrivateKey: ""
   # REQUIRED: RS256 public key PEM (distributed to every backend service for verification).
   jwtPublicKey: ""
-  # DEPRECATED: HS256 shared secret. Retained as a legacy sentinel for dev fallback
-  # (ALLOW_DEV_JWT_SECRET=true). Not used in production RS256 verification path.
-  jwtSecret: ""
   # REQUIRED: HMAC pepper applied to user passwords before bcrypt (auth-service only).
   # Generate with: openssl rand -base64 48
   passwordPepper: ""

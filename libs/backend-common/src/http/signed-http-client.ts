@@ -50,9 +50,14 @@ export interface SignedFetchOptions extends RequestInit {
   /**
    * Tenant UUID for tenant-scoped calls. Bound into the HMAC signature so
    * the receiving guard rejects any request where X-Tenant-ID was tampered
-   * with after signing. Omit (or pass empty string) for non-tenant calls.
+   * with after signing.
+   *
+   * REQUIRED — no default. Pass the empty string ONLY for provably
+   * non-tenant paths (health probes, cross-tenant admin RPC). Every other
+   * call site MUST pass the real tenant UUID. This opts every caller into
+   * explicit review of tenant-binding correctness.
    */
-  tenantId?: string;
+  tenantId: string;
   /**
    * Override the environment-sourced INTERNAL_SERVICE_SECRET. For test
    * fixtures only — real call sites rely on the env var.
@@ -71,7 +76,8 @@ export interface SignedFetchOptions extends RequestInit {
  */
 export function buildSignedInternalHeaders(args: {
   serviceName: string;
-  tenantId?: string;
+  /** Required — pass empty string only for provably non-tenant paths. */
+  tenantId: string;
   secret?: string;
 }): Record<string, string> {
   const secret = args.secret ?? process.env['INTERNAL_SERVICE_SECRET'];
@@ -82,8 +88,7 @@ export function buildSignedInternalHeaders(args: {
         'production, or pass the `secret` override in tests.',
     );
   }
-  const tenantId = args.tenantId ?? '';
-  const identityHeaders = generateServiceIdentityHeaders(args.serviceName, secret, tenantId);
+  const identityHeaders = generateServiceIdentityHeaders(args.serviceName, secret, args.tenantId);
   const headers: Record<string, string> = {
     'X-Service-Identity': identityHeaders['X-Service-Identity'],
     'X-Service-Timestamp': identityHeaders['X-Service-Timestamp'],
@@ -120,6 +125,13 @@ export async function signedFetch(
   const merged = new Headers(options.headers);
   for (const [name, value] of Object.entries(signedHeaders)) {
     merged.set(name, value);
+  }
+  // When the caller explicitly declared a non-tenant path (empty string),
+  // scrub any pre-existing X-Tenant-ID from caller headers so the signed
+  // contract and the wire match — empty signature bound to empty header.
+  if (options.tenantId === '') {
+    merged.delete('X-Tenant-ID');
+    merged.delete('x-tenant-id');
   }
 
   // Strip custom fields before forwarding to fetch — RequestInit does not

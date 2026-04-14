@@ -130,31 +130,27 @@ CREATE INDEX IF NOT EXISTS idx_invoices_subscription_id ON billing.invoices ("su
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON billing.invoices (status);
 
 -- ============================================================================
--- public.audit_logs (used by billing for subscription audit trail)
+-- audit_logs
+--
+-- REMOVED 2026-04-14 (NEW-CRITICAL-A from round-2 review): this block
+-- created public.audit_logs with the *admin-api* AuditLog entity column
+-- shape (entityType, performedBy, ipAddress, requestId, sessionId, ...)
+-- but the canonical writer is backend-common's `AuditLogEntity` which
+-- declares a *completely different* shape (resource, userId, userEmail,
+-- schemaName, metadata, ip, correlationId, ...). Every backend service
+-- that imports `AuditLogModule.forRoot()` (billing, config, notification,
+-- alert, ai, hr) was silently failing to persist audit rows because
+-- TypeORM emitted INSERT against columns that didn't exist — caught
+-- only by the `.catch()` in audit-log.service.ts. GDPR / IEC 62443 /
+-- OWASP A09 audit trail loss on every fresh deploy.
+--
+-- Architectural fix: the canonical `shared.audit_logs` is now created
+-- in `10-shared-schema.sql` section 2b with the backend-common entity
+-- shape (the actual writer). admin-api keeps its own `admin.audit_logs`
+-- (different domain — SUPER_ADMIN actions); auth-service keeps its own
+-- `auth.audit_logs` (login/MFA/token events). Three audit tables, three
+-- distinct shapes, three owning schemas — no overload, no silent drift.
 -- ============================================================================
-
-CREATE TABLE IF NOT EXISTS public.audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    action VARCHAR(100) NOT NULL,
-    "entityType" VARCHAR(50),
-    "entityId" UUID,
-    "tenantId" UUID,
-    "performedBy" VARCHAR(100) NOT NULL,
-    "performedByEmail" VARCHAR(100),
-    "ipAddress" VARCHAR(45),
-    "userAgent" VARCHAR(500),
-    details JSONB,
-    "previousValue" JSONB,
-    "newValue" JSONB,
-    severity VARCHAR(20) NOT NULL DEFAULT 'info',
-    "requestId" VARCHAR(100),
-    "sessionId" VARCHAR(100),
-    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_id ON public.audit_logs ("tenantId");
-CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON public.audit_logs (action);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs ("createdAt");
 
 -- ============================================================================
 -- admin.module_pricing

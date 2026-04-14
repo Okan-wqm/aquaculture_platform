@@ -5,8 +5,15 @@ apiVersion: v2
 name: aquaculture
 description: A Helm chart for Aquaculture Platform - Multi-tenant aquaculture management system
 type: application
-version: 1.0.0
-appVersion: "1.0.0"
+# Chart 2.0.0 — BREAKING: 2026-04-14 security hardening.
+# - secrets.jwtSecret REMOVED (superseded by jwtPrivateKey + jwtPublicKey).
+# - secrets.passwordPepper, stripeWebhookSecret, stripeApiKey REQUIRED.
+# - Per-service NATS passwords REQUIRED (secrets.natsAuth.<svc>Pass).
+# - Pod Security Standards enforced at namespace level.
+# - cert-manager internal PKI enabled by default in production overlay.
+# Upgrade path documented in docs/runbooks/chart-v2-upgrade.md.
+version: 2.0.0
+appVersion: "2.0.0"
 
 keywords:
   - aquaculture

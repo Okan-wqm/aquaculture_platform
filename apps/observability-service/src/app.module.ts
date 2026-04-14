@@ -1,7 +1,7 @@
 import { Module, Logger } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { LoggingModule } from '@aquaculture/backend-common';
+import { LoggingModule, RlsModule } from '@aquaculture/backend-common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { readFile } from 'fs/promises';
@@ -64,6 +64,19 @@ import { InternalApiGuard } from './guards/internal-api.guard';
     MetricsAggregatorModule,
     HealthModule,
     TracingModule,
+    /**
+     * SECURITY (HIGH-004, V6): RlsConnectionBootstrap for pool-level GUC
+     * propagation. observability-service reads aggregated metrics across
+     * tenants — deliberately cross-tenant access pattern — but the pool
+     * patch is still registered so that the GUC contract is uniform
+     * platform-wide. Cross-tenant reads happen explicitly via
+     * BypassRlsService, never by accident.
+     */
+    RlsModule.forRoot({
+      serviceName: 'observability',
+      autoApply: false,
+      excludeTables: [],
+    }),
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

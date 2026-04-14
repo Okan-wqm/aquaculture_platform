@@ -316,8 +316,13 @@ export class ReportsService {
     try {
       const auditCountRows: Array<{ tenantId: string; cnt: string }> =
         await this.dataSource.query(
+          // Schema-qualified after P9 (2026-04-14): audit_logs in shared schema.
+          // The earlier batch of unqualified→qualified rewrites missed this site
+          // because grep pattern matched only `FROM audit_logs<space>` and this
+          // form had a multi-space alignment. Closes NEW-CRITICAL-B from the
+          // round-2 review.
           `SELECT "tenantId", COUNT(*) AS cnt
-           FROM   audit_logs
+           FROM   shared.audit_logs
            WHERE  "tenantId" IS NOT NULL
            GROUP  BY "tenantId"`,
         );

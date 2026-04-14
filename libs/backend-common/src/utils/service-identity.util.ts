@@ -29,17 +29,25 @@ export interface ServiceIdentityHeaders {
 /**
  * Generate HMAC-signed service identity headers.
  *
+ * SECURITY (HIGH-003, strict-mode 2026-04-14): `tenantId` is REQUIRED — no
+ * default. The compiler refuses to build call sites that omit it. Callers
+ * with no tenant context MUST pass the empty string explicitly to signal
+ * "I reviewed this, no tenant applies". That explicit-opt-out pattern is
+ * the only way to make tenant binding "make impossible" rather than
+ * "encouraged but optional".
+ *
  * @param serviceName - The name of the calling service (e.g. 'gateway-api')
  * @param secret - The shared HMAC secret (INTERNAL_SERVICE_SECRET env var)
- * @param tenantId - Optional tenant UUID; bound into the signature so the
- *                   X-Tenant-ID header cannot be spoofed downstream. Pass
- *                   empty string (default) for non-tenant-scoped requests.
+ * @param tenantId - Tenant UUID bound into the signature. Pass empty string
+ *                   ONLY for provably non-tenant paths (health probes,
+ *                   cross-tenant admin calls). Every other call site MUST
+ *                   pass the real tenant UUID.
  * @returns Headers object to merge into the outgoing request
  */
 export function generateServiceIdentityHeaders(
   serviceName: string,
   secret: string,
-  tenantId: string = '',
+  tenantId: string,
 ): ServiceIdentityHeaders {
   const timestamp = Date.now().toString();
   const signature = createHmac('sha256', secret)
@@ -77,7 +85,7 @@ export function verifyServiceIdentity(
   timestamp: string,
   signature: string,
   secret: string,
-  tenantId: string = '',
+  tenantId: string,
   maxAgeMs: number = SERVICE_IDENTITY_MAX_AGE_MS,
 ): boolean {
   // Validate timestamp freshness (replay protection)

@@ -25,6 +25,7 @@ import {
   RedisService,
   generateServiceIdentityHeaders,
   JWT_SECURITY_CONSTANTS,
+  RlsModule,
 } from '@aquaculture/backend-common';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
@@ -577,6 +578,20 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
         db: parseInt(configService.get('REDIS_DB', '0'), 10),
         keyPrefix: 'gateway:',
       }),
+    }),
+
+    /**
+     * SECURITY (HIGH-004, V6): RlsConnectionBootstrap for pool-level GUC
+     * propagation. gateway-api does not own tenant-scoped business tables,
+     * but its `gateway_service` DB role holds tenant-lookup / session /
+     * audit reads. Registering the module makes the GUC-propagation path
+     * uniform across every service with a pool — consistent deny-by-default
+     * behavior even on services that only read.
+     */
+    RlsModule.forRoot({
+      serviceName: 'gateway',
+      autoApply: false,
+      excludeTables: [],
     }),
   ],
   providers: [

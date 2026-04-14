@@ -177,7 +177,21 @@ export function createSchemaDriftValidator(
       for (const column of entity.columns) {
         const dbName = column.databaseName;
         const dbColumn = columns.get(dbName);
-        if (!dbColumn) continue; // new entity column, not yet migrated — skip
+        if (!dbColumn) {
+          // Entity declares a column the DB lacks. Closes NEW-HIGH-D from
+          // the round-2 review: previously the validator silently skipped
+          // this case ("new entity column, not yet migrated"), which
+          // hid the column-shape mismatch failure mode that broke
+          // shared.audit_logs writes (NEW-CRITICAL-A). The skip was
+          // wrong-by-construction — if the entity declares a column,
+          // every INSERT/SELECT against that column crashes today, NOT
+          // "after migration". Operators in a genuine mid-migration
+          // window can suppress via SCHEMA_DRIFT_FATAL=false (default).
+          violations.push(
+            `[${schema}.${tableName}.${dbName}] entity declares column but DB has no such column`,
+          );
+          continue;
+        }
 
         // Declared-type check for the high-signal uuid case. TypeORM's
         // type field can be many things (string identifier, ctor, object)

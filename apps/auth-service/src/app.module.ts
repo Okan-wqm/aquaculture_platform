@@ -269,7 +269,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
      * defence-in-depth kicks in without a separate migration.
      * excludeTables: audit logs and outbox are cross-tenant by design.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'auth',
       autoApply: true,
       excludeTables: ['auth_outbox', 'audit_log', 'audit_logs'],

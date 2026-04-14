@@ -417,7 +417,7 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
      *    propagate RLS policies, so per-tenant tables need them
      *    installed explicitly.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'farm',
       autoApply: false,
       syncTenantSchemas: true,

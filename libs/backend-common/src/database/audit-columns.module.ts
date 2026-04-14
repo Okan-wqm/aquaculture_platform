@@ -12,7 +12,7 @@ import {
  * One-line wiring for the NEW-H1 audit-column TIMESTAMP → TIMESTAMPTZ
  * conversion in services that have **no TypeORM migration runner**
  * (currently hr, billing, notification, config, ai). Mirrors the
- * `RlsModule.forRoot()` pattern so the two pieces of cold-start schema
+ * `RlsModule.forPoolService()` pattern so the two pieces of cold-start schema
  * hardening look and feel identical at the call site.
  *
  * # What you get from `forRoot()`
@@ -46,7 +46,7 @@ import {
  * @Module({
  *   imports: [
  *     TypeOrmModule.forRoot({ ... }),
- *     RlsModule.forRoot({ serviceName: 'billing', autoApply: true }),
+ *     RlsModule.forPoolService({ serviceName: 'billing', autoApply: true }),
  *     AuditColumnsModule.forRoot({ serviceName: 'billing' }),
  *   ],
  * })

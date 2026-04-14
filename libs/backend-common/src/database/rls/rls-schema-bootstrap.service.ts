@@ -138,7 +138,7 @@ export class RlsSchemaBootstrap implements OnApplicationBootstrap {
 }
 
 /**
- * Options accepted by `RlsModule.forRoot()` and forwarded into the
+ * Options accepted by `RlsModule.forPoolService()` and forwarded into the
  * bootstrap. Mirrors `ApplyTenantRlsOptions` but adds wiring concerns
  * (`serviceName`, `disabled`).
  */

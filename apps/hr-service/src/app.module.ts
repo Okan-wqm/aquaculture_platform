@@ -311,7 +311,7 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
      * hr-service has no TypeORM migration runner — it currently delivers
      * schema concerns through OnApplicationBootstrap services
      * (SourceSchemaBootstrapService, TenantSchemaSyncService). The
-     * AuditColumnsModule.forRoot() pattern mirrors RlsModule.forRoot()
+     * AuditColumnsModule.forRoot() pattern mirrors RlsModule.forPoolService()
      * exactly: a single import line that registers the bootstrap with
      * DataSource injection. The bootstrap is idempotent at the discovery
      * layer, so cold restarts re-run safely.

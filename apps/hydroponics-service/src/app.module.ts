@@ -194,7 +194,7 @@ const complexityCache = new Map<string, number>();
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant hydroponics). */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'hydroponics',
       syncTenantSchemas: true,
       excludeTables: ['hydroponics_outbox'],

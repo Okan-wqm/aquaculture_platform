@@ -7,7 +7,7 @@ import { createSchemaDriftValidator } from '../schema-drift-validator.service';
  *
  * NestJS dynamic module that wires the `OnApplicationBootstrap`
  * schema-drift validator into a service. Mirrors the registration
- * ergonomics of `RlsModule.forRoot()` so the wiring story across the
+ * ergonomics of `RlsModule.forPoolService()` so the wiring story across the
  * codebase is consistent: one import line in AppModule, no per-feature-
  * module ceremony, no `providers: [createXService('name')]` factory call
  * leaking into module configuration.

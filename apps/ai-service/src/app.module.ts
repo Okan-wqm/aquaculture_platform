@@ -240,7 +240,7 @@ const complexityCache = new Map<string, number>();
      * Conversations and tool executions carry user context — RLS prevents
      * cross-tenant reads if an app-layer check is bypassed.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'ai',
       syncTenantSchemas: true,
       excludeTables: ['ai_outbox'],

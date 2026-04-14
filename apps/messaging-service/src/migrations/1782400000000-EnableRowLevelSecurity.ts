@@ -50,7 +50,7 @@ import {
  *
  * Messaging uses schema-per-tenant clones (`tenant_<uuid>.channels`,
  * etc.) created via `CREATE TABLE LIKE INCLUDING ALL` which does NOT
- * copy RLS policies. The already-wired `RlsModule.forRoot({
+ * copy RLS policies. The already-wired `RlsModule.forPoolService({
  * syncTenantSchemas: true })` in app.module.ts runs
  * `TenantRlsSyncService` at every service start, which iterates every
  * `tenant_<uuid>` schema and re-applies the same policy via the same

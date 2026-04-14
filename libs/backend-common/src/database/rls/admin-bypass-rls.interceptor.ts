@@ -67,7 +67,7 @@ import { BypassRlsService } from './bypass-rls.service';
  *
  * @Module({
  *   imports: [
- *     RlsModule.forRoot({ serviceName: 'admin-api' }),
+ *     RlsModule.forPoolService({ serviceName: 'admin-api' }),
  *   ],
  *   providers: [
  *     {

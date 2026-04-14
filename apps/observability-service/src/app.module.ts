@@ -72,7 +72,7 @@ import { InternalApiGuard } from './guards/internal-api.guard';
      * platform-wide. Cross-tenant reads happen explicitly via
      * BypassRlsService, never by accident.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'observability',
       autoApply: false,
       excludeTables: [],

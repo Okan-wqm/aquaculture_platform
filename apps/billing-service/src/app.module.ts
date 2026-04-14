@@ -182,7 +182,7 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
      *   helper is idempotent — cold restarts re-install the canonical
      *   predicate without manual intervention.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'billing',
       autoApply: true,
     }),

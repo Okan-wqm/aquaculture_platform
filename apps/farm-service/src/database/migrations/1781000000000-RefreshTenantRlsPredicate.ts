@@ -64,7 +64,7 @@ import {
  * # Out of scope
  *
  * This migration does NOT add the runtime RLS context propagation. That is
- * delivered by `RlsModule.forRoot('farm')` in `AppModule`, which patches
+ * delivered by `RlsModule.forPoolService({ serviceName: 'farm' })` in `AppModule`, which patches
  * the pg pool to set `app.current_tenant` per checkout. Without that
  * runtime piece, the policy installed here would deny every query — so
  * the AppModule wiring MUST land in the same deploy.

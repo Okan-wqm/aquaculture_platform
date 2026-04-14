@@ -113,7 +113,7 @@ import { AddMissingOutboxColumns1782200000000 } from './migrations/1782200000000
 import { AddTenantIdToMessageChildren1782300000000 } from './migrations/1782300000000-AddTenantIdToMessageChildren';
 // P4 of 2026-04-14 messaging-isolation plan — canonical tenant_isolation_policy
 // on messaging source schema. Tenant-schema clones receive the same policy
-// via TenantRlsSyncService (wired by RlsModule.forRoot syncTenantSchemas: true).
+// via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
 import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
 
 // Feature modules
@@ -364,7 +364,7 @@ const complexityCache = new Map<string, number>();
      * source but none on tenant clones (leak), or vice-versa (orphan
      * policy).
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'messaging',
       syncTenantSchemas: true,
       // See P4 migration docblock for rationale:

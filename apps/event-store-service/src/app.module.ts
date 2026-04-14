@@ -74,7 +74,7 @@ import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1
      * the helper at OnApplicationBootstrap so policies are idempotently
      * installed on every cold start.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'event-store',
       autoApply: true,
       excludeTables: ['stored_events', 'projection_checkpoint'],

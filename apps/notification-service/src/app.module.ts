@@ -205,7 +205,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * autoApply runs the helper at OnApplicationBootstrap because there
      * is no migration runner wired in for this service.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'notification',
       autoApply: true,
     }),

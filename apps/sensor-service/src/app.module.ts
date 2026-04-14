@@ -358,7 +358,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
      * syncTenantSchemas makes RlsModule iterate every tenant_<uuid> schema
      * at OnApplicationBootstrap and install the canonical policy on each.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'sensor',
       syncTenantSchemas: true,
       excludeTables: ['sensor_outbox'],

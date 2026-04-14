@@ -182,7 +182,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant alert). */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'alert',
       syncTenantSchemas: true,
       excludeTables: ['alert_outbox'],

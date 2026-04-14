@@ -225,7 +225,7 @@ import { UsersModule } from './users/users.module';
      * The interceptor is registered below as APP_INTERCEPTOR so EVERY
      * request automatically runs inside `BypassRlsService.withBypass()`.
      */
-    RlsModule.forRoot({
+    RlsModule.forPoolService({
       serviceName: 'admin-api',
       autoApply: false,
     }),

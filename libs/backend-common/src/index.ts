@@ -93,6 +93,7 @@ export * from './audit';
 
 // NATS - Shared connection factory with SEC-H01 authentication support
 export { buildNatsConnectionOptions, buildNatsTransportOptions } from './nats/nats-connection.factory';
+export type { NatsAuthMode } from './nats/nats-connection.factory';
 
 // NATS - Tenant-validating consumer base class for cross-tenant isolation
 export { TenantValidatingConsumer, TenantValidationResult } from './nats/tenant-validating-consumer';

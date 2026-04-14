@@ -529,17 +529,18 @@ const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
   'PASSWORD_PEPPER',
   'POSTGRES_PASSWORD',
   'REDIS_PASSWORD',
-  'NATS_PASS',
-  'NATS_AUTH_PASS',
-  'NATS_FARM_PASS',
-  'NATS_SENSOR_PASS',
-  'NATS_GATEWAY_PASS',
-  'NATS_NOTIFICATION_PASS',
-  'NATS_BILLING_PASS',
-  'NATS_ALERT_PASS',
-  'NATS_HR_PASS',
-  'NATS_MESSAGING_PASS',
-  'NATS_HYDROPONICS_PASS',
+  // NATS per-service passwords REMOVED (ADR-015).
+  // Production NATS auth is mTLS cert-only (verify_and_map on the server
+  // maps cert CN → user identity; CONNECT-frame user/pass fields are
+  // IGNORED by the server). Passwords in env vars would be legitimate
+  // secrets only if user/pass auth were load-bearing — which it no
+  // longer is. Keeping them in this list would keep the file-mounted
+  // secret-delivery pipeline wired for values that no service consumes,
+  // which is the anti-pattern ADR-014 + ADR-015 exist to eliminate.
+  //
+  // Dev environments that still use user/pass auth (TLS disabled) get
+  // credentials from the container's env directly — they don't need the
+  // secrets-provider file-mount path.
   'ENCRYPTION_KEY',
   'MFA_ENCRYPTION_KEY',
   'SUPER_ADMIN_PASSWORD',

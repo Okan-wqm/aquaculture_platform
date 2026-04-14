@@ -1,17 +1,32 @@
 import { readFileSync } from 'fs';
 
 /**
- * SEC-H01 / IP-1: Centralized NATS connection options factory.
+ * SEC-H01 / IP-1 / ADR-015: Centralized NATS connection options factory.
  *
  * All services MUST use this factory to build NATS connection options.
  * This ensures consistent authentication, TLS configuration, and
  * reconnection behavior across the entire platform.
  *
+ * # Authentication model (ADR-015)
+ *
+ * Production: mTLS cert-only. The NATS server in production mounts
+ * `nats-tls-enabled.conf` with `verify_and_map: true`, which makes the
+ * client certificate CN the authoritative NATS user identity. The server
+ * IGNORES any `user` / `pass` / `token` fields in the CONNECT frame —
+ * cert rotation IS identity rotation, atomic and unambiguous.
+ *
+ * Dev / CI: fallback to user/password (or no auth). `nats-tls.conf` dev
+ * default has TLS disabled, so verify_and_map does not apply; servers
+ * consume CONNECT-frame credentials when set.
+ *
+ * The factory's `authMode` return field exposes which path was selected
+ * so callers and tests can verify.
+ *
  * Environment variables consumed:
  *   NATS_URL                       — server address (default: nats://localhost:4222)
- *   NATS_AUTH_USER                 — username for NATS authorization block
- *   NATS_AUTH_PASS                 — password for NATS authorization block
- *   NATS_AUTH_TOKEN                — token-based auth (alternative to user/pass)
+ *   NATS_AUTH_USER                 — dev/CI fallback username (ignored when mTLS is configured)
+ *   NATS_AUTH_PASS                 — dev/CI fallback password (ignored when mTLS is configured)
+ *   NATS_AUTH_TOKEN                — token-based auth (ignored when mTLS is configured)
  *   NATS_TLS_ENABLED               — MUST be set to `true` when NATS_URL is `tls://...`.
  *                                    Cross-validated against the URL scheme: mismatch
  *                                    throws immediately so misconfiguration is never silent.
@@ -105,6 +120,23 @@ interface NatsTlsOptions {
  * @param serviceName — identifies this client in NATS server logs
  * @returns Connection options with auth, reconnect, TLS, and server config
  */
+/**
+ * Which auth path the factory chose. Exposed on the return object so callers
+ * (bootstrap, NatsEventBus, tests) can log/verify the selected mode without
+ * re-deriving it from env vars.
+ *
+ * - `mtls-cert`: cert-only (TLS URL + NATS_TLS_CERT/KEY present). Server
+ *   runs verify_and_map; cert CN IS the NATS user identity. CONNECT-frame
+ *   user/pass/token are NOT sent — server would ignore them anyway and
+ *   including them obscures which field is authoritative.
+ * - `token`: NATS_AUTH_TOKEN present; token-based auth on CONNECT frame.
+ * - `user-pass`: NATS_AUTH_USER + NATS_AUTH_PASS present; legacy username/
+ *   password auth. Kept as dev/CI fallback when mTLS isn't available.
+ * - `none`: no auth (dev with TLS+auth both disabled). Only permitted when
+ *   NODE_ENV !== 'production'; production throws.
+ */
+export type NatsAuthMode = 'mtls-cert' | 'token' | 'user-pass' | 'none';
+
 export function buildNatsConnectionOptions(serviceName?: string): {
   servers: string[];
   user?: string;
@@ -115,27 +147,87 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   maxReconnectAttempts: number;
   reconnectTimeWait: number;
   tls?: NatsTlsOptions;
+  authMode: NatsAuthMode;
 } {
   const natsUrl = process.env['NATS_URL'] || 'nats://localhost:4222';
   const authUser = process.env['NATS_AUTH_USER'];
   const authPass = process.env['NATS_AUTH_PASS'];
   const authToken = process.env['NATS_AUTH_TOKEN'];
+  const certPath = process.env['NATS_TLS_CERT'];
+  const keyPath = process.env['NATS_TLS_KEY'];
+
+  const servers = natsUrl.split(',').map((s) => s.trim());
+  const usesTls = servers.some((s) => s.startsWith('tls://'));
+  const hasClientCert = Boolean(certPath && keyPath);
+  const isProduction = process.env['NODE_ENV'] === 'production';
+
+  // ── Authentication mode decision (ADR-015) ────────────────────────────
+  //
+  // Priority order, first match wins:
+  //
+  //   1. mTLS cert-only — production standard. Server runs verify_and_map;
+  //      cert CN IS the user. Omit CONNECT-frame user/pass/token so the
+  //      wire protocol is unambiguous about which field authenticated.
+  //
+  //   2. Token — service-account auth for external integrations (not
+  //      currently used on the aquaculture platform but supported for
+  //      future NATS-cluster federation scenarios).
+  //
+  //   3. User/password — dev + CI fallback when mTLS isn't configured.
+  //      nats-tls.conf (dev default) has verify disabled, so the server
+  //      DOES consume user/pass fields in this mode.
+  //
+  //   4. None — local dev with all auth disabled. Allowed only when
+  //      NODE_ENV !== 'production'.
+  //
+  // Production invariant: case 4 with isProduction === true MUST throw.
+  // A missing auth configuration in production is always a deploy defect
+  // that must surface at startup, not silently produce an unauthenticated
+  // connection.
+  let authMode: NatsAuthMode;
+  if (usesTls && hasClientCert) {
+    authMode = 'mtls-cert';
+  } else if (authToken) {
+    authMode = 'token';
+  } else if (authUser && authPass) {
+    authMode = 'user-pass';
+  } else if (isProduction) {
+    throw new Error(
+      '[nats-connection.factory] SECURITY: production NATS connection has no ' +
+        'authentication configured. Set one of: ' +
+        '(a) mTLS — NATS_URL=tls://... + NATS_TLS_CERT + NATS_TLS_KEY (recommended), ' +
+        '(b) NATS_AUTH_TOKEN, ' +
+        '(c) NATS_AUTH_USER + NATS_AUTH_PASS. ' +
+        'Boot refuses to proceed.',
+    );
+  } else {
+    authMode = 'none';
+  }
 
   const options: ReturnType<typeof buildNatsConnectionOptions> = {
-    servers: natsUrl.split(',').map((s) => s.trim()),
+    servers,
     reconnect: true,
     maxReconnectAttempts: parseInt(process.env['NATS_MAX_RECONNECT_ATTEMPTS'] || '50', 10),
     reconnectTimeWait: parseInt(process.env['NATS_RECONNECT_TIME_WAIT_MS'] || '2000', 10),
+    authMode,
     ...(serviceName ? { name: serviceName } : {}),
   };
 
-  /** SEC-H01: Inject authentication credentials if configured. */
-  if (authToken) {
+  // ── Inject auth fields based on chosen mode ───────────────────────────
+  //
+  // NOTE: For 'mtls-cert' mode we INTENTIONALLY do NOT set user/pass/token,
+  // even if those env vars happen to be populated. The server under
+  // verify_and_map ignores them, and passing them anyway would make the
+  // CONNECT frame misleading (operator reading a packet capture sees a
+  // user field and wonders whether it's authoritative). Cert-only mode
+  // means cert ONLY — one authority, no ambiguity.
+  if (authMode === 'token') {
     options.token = authToken;
-  } else if (authUser && authPass) {
+  } else if (authMode === 'user-pass') {
     options.user = authUser;
     options.pass = authPass;
   }
+  // authMode 'mtls-cert' and 'none' → leave options.user/pass/token unset.
 
   // ── TLS Configuration ─────────────────────────────────────────────────
   // Hard-fail on misconfiguration — see the IP-1 docblock above for the

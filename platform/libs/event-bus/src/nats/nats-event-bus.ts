@@ -22,8 +22,12 @@ import {
   Consumer,
   ConnectionOptions,
 } from 'nats';
-import * as fs from 'fs';
 import * as os from 'os';
+// ADR-015: centralize NATS connection option building in the shared factory.
+// This class previously duplicated all the TLS + auth + production-warning
+// logic inline, which was the exact drift vector that the cert-is-identity
+// refactor exists to eliminate. One factory, one auth model, one code path.
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
 import {
   IEventBus,
   IEvent,
@@ -63,20 +67,15 @@ export class NatsEventBus
     'disconnected';
 
   // Configuration
+  // ADR-015: TLS + auth fields are NOT stored on the instance — the shared
+  // `buildNatsConnectionOptions()` factory reads env at connect time and
+  // returns fully-formed ConnectionOptions. Duplicating state here was the
+  // source-of-truth drift this refactor eliminates.
   private readonly natsUrl: string;
   private readonly streamName: string;
   private readonly clientId: string;
   private readonly maxReconnectAttempts: number;
   private readonly reconnectTimeWaitMs: number;
-  // Security configuration
-  private readonly tlsEnabled: boolean;
-  private readonly tlsInsecureAllow: boolean;
-  private readonly tlsCaPath?: string;
-  private readonly tlsCertPath?: string;
-  private readonly tlsKeyPath?: string;
-  private readonly authToken?: string;
-  private readonly authUser?: string;
-  private readonly authPass?: string;
 
   /** Optional event upcaster registry for v1→v2+ event schema migration */
   private readonly upcasterRegistry?: EventUpcasterRegistry;
@@ -122,35 +121,10 @@ export class NatsEventBus
       'NATS_RECONNECT_TIME_WAIT_MS',
       2000,
     );
-
-    // SECURITY: TLS configuration
-    this.tlsEnabled = this.configService.get<string>('NATS_TLS_ENABLED', 'false') === 'true';
-    this.tlsInsecureAllow = this.configService.get<string>('NATS_TLS_INSECURE_ALLOW') === 'true';
-    this.tlsCaPath = this.configService.get<string>('NATS_TLS_CA');
-    this.tlsCertPath = this.configService.get<string>('NATS_TLS_CERT');
-    this.tlsKeyPath = this.configService.get<string>('NATS_TLS_KEY');
-
-    // SECURITY: Authentication configuration
-    this.authToken = this.configService.get<string>('NATS_AUTH_TOKEN');
-    this.authUser = this.configService.get<string>('NATS_AUTH_USER');
-    this.authPass = this.configService.get<string>('NATS_AUTH_PASS');
-
-    // SECURITY: Production security warnings
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    if (isProduction) {
-      if (!this.tlsEnabled) {
-        this.logger.warn(
-          '⚠️  SECURITY WARNING: NATS TLS is disabled in production! ' +
-          'Set NATS_TLS_ENABLED=true and provide certificates for secure communication.',
-        );
-      }
-      if (!this.authToken && !this.authUser) {
-        this.logger.warn(
-          '⚠️  SECURITY WARNING: NATS authentication is not configured in production! ' +
-          'Set NATS_AUTH_TOKEN or NATS_AUTH_USER/NATS_AUTH_PASS for secure access.',
-        );
-      }
-    }
+    // ADR-015: TLS / auth config is read inside `connect()` via the shared
+    // `buildNatsConnectionOptions()` factory. Production security enforcement
+    // (no-auth throw) lives in the factory so every NATS consumer on the
+    // platform shares exactly one validation path.
   }
 
   /**
@@ -221,67 +195,32 @@ export class NatsEventBus
       this.connectionState = 'reconnecting';
       this.logger.log(`Connecting to NATS at ${this.natsUrl}...`);
 
-      // Build connection options with security
+      // ADR-015: build ConnectionOptions via the shared factory so this
+      // service uses the same auth + TLS resolution as every NestJS
+      // ClientProxy-based NATS consumer on the platform. The factory
+      // handles:
+      //   - URL scheme ↔ NATS_TLS_ENABLED consistency check
+      //   - CA / cert / key validation and PEM loading
+      //   - mTLS cert-only mode (production; cert CN IS identity)
+      //   - user/pass fallback (dev/CI when TLS is disabled)
+      //   - production no-auth hard-fail
+      //
+      // Override only the fields where this class's identity matters:
+      // `name` becomes the durable JetStream consumer identity
+      // (see ARCH-020 comment in constructor).
+      const factoryOptions = buildNatsConnectionOptions(this.clientId);
+      const { authMode: _authMode, ...natsJsOptions } = factoryOptions;
       const connectionOptions: ConnectionOptions = {
-        servers: this.natsUrl.split(','),
+        ...natsJsOptions,
         name: this.clientId,
         maxReconnectAttempts: this.maxReconnectAttempts,
         reconnectTimeWait: this.reconnectTimeWaitMs,
-        reconnect: true,
       };
 
-      // SECURITY: Two-layer TLS validation — must match nats-connection.factory.ts logic exactly.
-      //
-      // Layer 1 — URL scheme: `tls://` is the authoritative indicator.
-      //   A `nats://` URL with NATS_TLS_ENABLED=true is a misconfiguration.
-      //   A `tls://` URL with NATS_TLS_ENABLED=false is a misconfiguration.
-      // Layer 2 — Explicit flag: NATS_TLS_ENABLED must agree with the URL scheme.
-      //   Disagreement means one side was updated without the other — a deployment bug.
-      //
-      // Hard-fail on any mismatch so the problem surfaces immediately in the
-      // deploy log rather than manifesting as a silent security regression.
-      const servers = connectionOptions.servers as string[];
-      const usesTls = servers.some((s) => s.startsWith('tls://'));
-
-      if (usesTls !== this.tlsEnabled) {
-        const msg = usesTls
-          ? 'NATS_URL uses tls:// but NATS_TLS_ENABLED is not "true". ' +
-            'Set NATS_TLS_ENABLED=true or change NATS_URL to nats://.'
-          : 'NATS_TLS_ENABLED=true but NATS_URL does not use tls://. ' +
-            'Change NATS_URL to tls://nats:4222 or set NATS_TLS_ENABLED=false.';
-        throw new Error(`[NatsEventBus] Security misconfiguration: ${msg}`);
-      }
-
-      if (usesTls) {
-        if (!this.tlsCaPath && !this.tlsInsecureAllow) {
-          // SECURITY: Hard-fail — connecting to a tls:// broker without a CA cert
-          // means the server identity is unverified. On this platform the NATS cert is
-          // self-signed by the Aquaculture Internal CA, which is NOT in any container's
-          // system trust store, so the connection will always fail at handshake time.
-          // Surface the misconfiguration here, at startup, rather than after connect.
-          throw new Error(
-            '[NatsEventBus] NATS_URL uses tls:// but NATS_TLS_CA is not set. ' +
-              'Mount the CA bundle and set NATS_TLS_CA=/etc/ssl/nats-ca.pem. ' +
-              'For local-dev smoke tests only, set NATS_TLS_INSECURE_ALLOW=true.',
-          );
-        }
-        connectionOptions.tls = {
-          ...(this.tlsCaPath ? { ca: fs.readFileSync(this.tlsCaPath, 'utf8') } : {}),
-          ...(this.tlsCertPath ? { cert: fs.readFileSync(this.tlsCertPath, 'utf8') } : {}),
-          ...(this.tlsKeyPath ? { key: fs.readFileSync(this.tlsKeyPath, 'utf8') } : {}),
-        };
-        this.logger.log('NATS TLS enabled with CA verification');
-      }
-
-      // SECURITY: Add authentication if configured
-      if (this.authToken) {
-        connectionOptions.token = this.authToken;
-        this.logger.log('NATS token authentication enabled');
-      } else if (this.authUser && this.authPass) {
-        connectionOptions.user = this.authUser;
-        connectionOptions.pass = this.authPass;
-        this.logger.log('NATS user/password authentication enabled');
-      }
+      this.logger.log(
+        `NATS auth mode: ${factoryOptions.authMode} ` +
+          `(${factoryOptions.authMode === 'mtls-cert' ? 'cert CN is identity; verify_and_map on server' : factoryOptions.authMode === 'none' ? 'dev/local' : 'fallback'})`,
+      );
 
       this.connection = await connect(connectionOptions);
 

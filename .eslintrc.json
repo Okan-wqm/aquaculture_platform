@@ -81,16 +81,17 @@
           }
         ],
         "no-console": [
-          "warn",
-          {
-            "allow": ["warn", "error"]
-          }
+          "error"
         ],
         "no-restricted-syntax": [
           "error",
           {
             "selector": "CallExpression[callee.property.name='getRepository']",
             "message": "Direct getRepository() bypasses TenantAwareRepository and skips tenantId injection on all find operations, creating IDOR vulnerabilities. Use getScopedRepository() instead. For cross-tenant admin operations, use getUnfilteredRepository() with explicit justification."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.length>2]",
+            "message": "JSON.stringify with an indent argument produces multi-line output that breaks structured JSON logging. Use the NestJS Logger — it calls StructuredLoggerService and emits a single JSON event per log."
           }
         ]
       }
@@ -121,13 +122,14 @@
       }
     },
     {
-      "files": ["*.spec.ts", "*.spec.tsx", "*.spec.js", "*.spec.jsx"],
+      "files": ["*.spec.ts", "*.spec.tsx", "*.spec.js", "*.spec.jsx", "test/**/*.ts", "**/__tests__/**"],
       "env": {
         "jest": true
       },
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
-        "@typescript-eslint/unbound-method": "off"
+        "@typescript-eslint/unbound-method": "off",
+        "no-console": "off"
       }
     }
   ]

@@ -214,6 +214,39 @@ New `infrastructure/kubernetes/base/jobs/pg-backup-cronjob.yaml` — shelf-ready
 
 ---
 
+### INFRA-DB-POOL-001 — Connection-pool architecture: factory + RDS Proxy path (HIGH)
+
+A reviewer flagged "15 microservices each open their own TypeORM pool;
+add PgBouncer." The comment is half right (connection explosion is real
+once HPA is live) but missing the critical compatibility constraints
+this codebase imposes. PgBouncer in the standard "transaction-pooling"
+mode would silently break the platform.
+
+**Five session-state dependencies that pin sessions:**
+
+1. `SET search_path` per checkout (`libs/backend-common/src/database/tenant-connection-bootstrap.service.ts:91-155`).
+2. RLS GUC bootstrap with `is_local=false` (`libs/backend-common/src/database/rls/rls-connection-bootstrap.service.ts:93-96`). Docblock at lines 38-48 explicitly justifies session-scope.
+3. `pg_try_advisory_lock` for distributed cron coordination (`apps/billing-service/src/billing/billing-scheduler.service.ts`, `apps/farm-service/src/feeding/services/feeding-cron.service.ts`, `apps/db-migrate/src/migration-orchestrator.ts`).
+4. `LISTEN`/`pg_notify` for outbox dispatch (`platform/libs/outbox/src/outbox-notify-listener.service.ts` + per-service migration triggers).
+5. TypeORM server-side prepared statements (default-on; no `noPreparedStatements: true` flag platform-wide).
+
+**Pre-refactor budget gaps (all fixed in this initiative):**
+
+- Three different env-var names for the same setting: `DATABASE_POOL_SIZE`, `DB_POOL_SIZE`, `DATABASE_POOL_MAX`.
+- Per-service defaults ranged 5–50 with no shared rationale.
+- Nine services read `DB_SSL` while compose sets `DATABASE_SSL` → SSL silently disabled in production (INFRA-DB-SSL-001 sub-finding).
+- Two services (`event-store`, `observability`) read `DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_NAME` instead of the platform-standard `DATABASE_*` (INFRA-DB-ENV-001 sub-finding).
+
+**Resolution (Track A + Track B + parked Track C):**
+
+- **Track A** — `createServiceTypeOrmConfig` factory at `libs/backend-common/src/database/typeorm-config.factory.ts` consolidates all 14 services. Per-service overrides (admin-api 40, sensor 50 / min 10 / idle 300 s) carry the contention evidence at the call site (MEDIUM-006, MEDIUM-007). Capacity script `tools/scripts/database/capacity-check.sh` enforces a 70 % `max_connections` budget. Runbook `docs/runbooks/database-capacity.md`.
+- **Track B** — RDS Proxy module at `infrastructure/terraform/modules/rds-proxy/`, gated behind `var.enable_rds_proxy=false` in production. Activates with one tfvars change once the EKS cluster is live; auto session-pinning preserves correctness with zero application code change. Helm-side activation procedure documented next to the `externalSecrets` block in `values-production.yaml`.
+- **Track C** — Refactor session-scope state to transaction-scope so the platform could use PgBouncer transaction-mode if AWS exit becomes real. Three changes required: convert per-checkout `SET search_path` to `SET LOCAL` per-transaction (mirror `withRlsContext` pattern), move RLS bootstrap from `is_local=false` to `is_local=true`, and switch `pg_try_advisory_lock` → `pg_advisory_xact_lock`. Several PRs of careful work; not justified today.
+
+**Status:** RESOLVED for current state (factory + capacity check + Terraform module shipped). Sub-findings INFRA-DB-SSL-001 and INFRA-DB-ENV-001 closed in the same commit chain.
+
+---
+
 ## Parked Findings (Awaiting EKS Cluster)
 
 These gaps are real but not actionable without a provisioned Kubernetes cluster. They are raised here for audit trail only.

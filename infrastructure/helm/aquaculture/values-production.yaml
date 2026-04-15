@@ -139,6 +139,31 @@ externalSecrets:
   pathPrefix: "aquaculture/production"
   refreshInterval: "1h"
 
+# INFRA-DB-POOL-001 / Track B (RDS Proxy) — DEPLOY-TIME ACTIVATION SWITCH.
+#
+# When the EKS migration completes and `var.enable_rds_proxy=true` is set
+# in infrastructure/terraform/environments/production/main.tf, the
+# Terraform output `rds_proxy_endpoint` returns the proxy hostname. At
+# that point, change the ExternalSecret target for `databaseUrl` so its
+# rendered Secret resolves the proxy endpoint, NOT the direct RDS
+# endpoint. The ExternalSecret data source path lives at
+#
+#     aquaculture/production/database-url
+#
+# in AWS Secrets Manager (templated via the `secrets-manager` Terraform
+# module). The operator updates that secret's value to point at the
+# proxy endpoint; pods pick up the change at the next refreshInterval
+# (1h above) without a redeploy.
+#
+# This block is intentionally documentation-only today — the Helm chart
+# does not need any new key. Recording the activation procedure HERE
+# (next to the externalSecrets block it depends on) keeps the runbook
+# co-located with the configuration it modifies. See
+# docs/runbooks/database-capacity.md for the end-to-end Track B procedure.
+#
+# rdsProxy:
+#   enabled: true   # purely informational — flip the value above instead
+
 # SECURITY (MEDIUM-002, V7): cert-manager internal PKI ON by default in
 # production. Operators who run a cluster without cert-manager must
 # explicitly opt out (`--set certManager.internal.enabled=false`) so the

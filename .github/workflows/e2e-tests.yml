@@ -5,8 +5,12 @@ permissions:
   contents: read
 
 on:
+  # CD-Production and CD-Staging workflows were deleted in TRACK B
+  # (commit 7317fc13) — they were disabled K8s stubs superseded by
+  # the live deploy-digitalocean.yml + deploy-staging.yml pair. The
+  # stale names are removed so workflow_run registration is clean.
   workflow_run:
-    workflows: ["CD - Production", "CD - Staging", "Deploy to DigitalOcean"]
+    workflows: ["Deploy to DigitalOcean"]
     types: [completed]
     branches: [main]
 

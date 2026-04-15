@@ -22,14 +22,25 @@
 # DO NOT add real secret values here.
 # =============================================================================
 
-# Force the inline-Secret render path (vs ExternalSecret CRD path).
-# CI does not have ESO installed; rendering ExternalSecret without
-# the CRD passes via kubeconform's -ignore-missing-schemas flag, but
-# we still want to validate the inline path which is the production-
-# realistic shape on a real cluster without ESO.
-externalSecrets:
-  enabled: false
-
+# NOTE: do NOT force `externalSecrets.enabled` here. The chart matrix
+# tests three overlays:
+#   - values.yaml             externalSecrets.enabled defaults to false
+#                             → renders inline Secret block → needs the
+#                               dummy values below to satisfy the
+#                               `{{ required }}` guards in secrets.yaml.
+#   - values-staging.yaml     same default; same path; same dummies.
+#   - values-production.yaml  externalSecrets.enabled=true → renders the
+#                             ExternalSecret CRD instead of the inline
+#                             Secret. The `{{ required }}` guards on
+#                             `.Values.secrets.*` are inside an
+#                             `{{- if not .Values.externalSecrets.enabled }}`
+#                             branch, so the dummies below are unused on
+#                             this overlay — but are harmlessly accepted.
+#
+# The previous version of this file forced `externalSecrets.enabled: false`
+# globally, which silently swapped values-production.yaml's render path
+# from the ExternalSecret CRD (its real production shape) to the inline
+# Secret block — making the production-overlay test misleading.
 secrets:
   databaseUrl: "postgres://ci-dummy:ci-dummy@localhost:5432/ci-dummy"
   redisUrl: "redis://localhost:6379"

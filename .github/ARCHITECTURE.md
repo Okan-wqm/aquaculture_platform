@@ -18,9 +18,15 @@ This document provides a high-level overview of the aquaculture platform archite
 
 ## Deployment
 - CI: GitHub Actions (`ci-affected.yml`, `ci-full.yml`)
-- CD: GitHub Actions for staging and production (`cd-staging.yml`, `cd-production.yml`)
+- CD: GitHub Actions DigitalOcean droplet path (`deploy-digitalocean.yml`,
+  `deploy-staging.yml`). Auto-fires from `ci-affected.yml`'s final `deploy:`
+  job via `workflow_call` (replaced the previous `workflow_run` chain in
+  TRACK A). Staging is shelf-ready; gated behind `vars.STAGING_ENABLED`.
+  K8s migration deferred — the previously-shelf K8s workflows
+  (`cd-production.yml`, `cd-staging.yml`) were deleted in TRACK B; recreate
+  from git history when EKS lands.
 - Container Registry: GHCR (ghcr.io)
-- Orchestration: Kubernetes (EKS)
+- Orchestration: DigitalOcean Droplet (current) → Kubernetes (planned)
 
 ## Security
 - Snyk and Trivy scans

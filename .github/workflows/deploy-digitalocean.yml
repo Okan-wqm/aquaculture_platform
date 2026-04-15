@@ -116,11 +116,13 @@ jobs:
   #   when staging itself is down.
   # ===========================================================================
   staging-gate:
-    # workflow_call is invoked from ci-affected.yml's final `deploy` job
-    # only after every other CI gate is green — the implicit precondition
-    # is satisfied by the `needs:` graph in the calling workflow, so this
-    # job has no further gating logic of its own. workflow_dispatch is
-    # operator-initiated and trusted by definition.
+    # workflow_call is invoked from ci-affected.yml's `deploy` job which
+    # depends on `[install, detect-changes]`. On push to main those are
+    # the only jobs that run (lint/test/build/type-check are PR-gates by
+    # design — the merge gate is the PR review). So this `if:` doesn't
+    # claim "every CI gate green" — it gates on event source only, and
+    # the actual quality assurance is the PR review gate that must have
+    # passed before the commit reached main.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
@@ -170,8 +172,13 @@ jobs:
         if: steps.enablement.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          BYPASS='${{ github.event.inputs.bypass_staging_gate }}'
-          REASON='${{ github.event.inputs.bypass_reason }}'
+          # workflow_dispatch populates `github.event.inputs.X`;
+          # workflow_call populates `inputs.X`. Read both so the gate
+          # behaves identically regardless of how the workflow was
+          # invoked. Default 'false' / '' so an unset input never
+          # silently treated as bypass=true.
+          BYPASS='${{ inputs.bypass_staging_gate || github.event.inputs.bypass_staging_gate || 'false' }}'
+          REASON='${{ inputs.bypass_reason || github.event.inputs.bypass_reason || '' }}'
 
           if [ "${BYPASS}" = "true" ]; then
             if [ -z "${REASON}" ]; then

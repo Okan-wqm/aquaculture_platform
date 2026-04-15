@@ -161,6 +161,8 @@ export const AUTH_ADMIN_COMMAND_SUBJECTS = {
   UPDATE_USER: 'request.auth.admin.updateUser',
   DEACTIVATE_USER: 'request.auth.admin.deactivateUser',
   FORCE_LOGOUT_USER: 'request.auth.admin.forceLogoutUser',
+  INVITE_USER: 'request.auth.admin.inviteUser',
+  CHECK_USER_LIMIT: 'request.auth.admin.checkUserLimit',
 } as const;
 
 /**
@@ -401,6 +403,113 @@ export interface AdminForceLogoutUserResult {
 }
 
 /**
+ * Command to invite a user to a tenant (tenant-admin-initiated flow).
+ *
+ * Unlike `AdminCreateUserCommand` (used by platform SUPER_ADMIN to mint
+ * users at arbitrary roles), this command is the admin-panel "invite
+ * user" button: a tenant admin invites a new user into their own tenant
+ * with a specific role, optionally scoped to a set of modules. The
+ * handler enforces:
+ *   - User-count limit for the tenant (`Tenant.maxUsers`).
+ *   - Email uniqueness (case-insensitive).
+ *   - Role-hierarchy rule: inviter's role must be ≥ target role, and a
+ *     non-SUPER_ADMIN inviter cannot invite into a different tenant.
+ *   - Atomic multi-row write: User + Invitation + optional
+ *     UserModuleAssignments + Tenant.userCount increment, all in one
+ *     repository transaction.
+ *
+ * CRITICAL-005 (docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md
+ * finding #4): the previous admin-api implementation wrote three
+ * cross-service INSERTs against `auth.*` tables using snake_case column
+ * names that drift from the TypeORM entities (same class as
+ * CRITICAL-001). This contract fully replaces that path.
+ */
+export interface AdminInviteUserCommand {
+  /** Tenant UUID the user is being invited into */
+  tenantId: string;
+  /** Invitee email — unique, lowercased by handler */
+  email: string;
+  /** Given name (optional; filled in at invite-accept time if omitted) */
+  firstName?: string;
+  /** Family name (optional) */
+  lastName?: string;
+  /**
+   * Role to assign on invite-accept. Must be ≤ inviter's role.
+   * Allowed: TENANT_ADMIN, MODULE_MANAGER, MODULE_USER.
+   * SUPER_ADMIN is NEVER invited — SUPER_ADMIN accounts are minted
+   * via AdminCreateUserCommand by a platform operator.
+   */
+  role: string;
+  /** Module UUIDs the invitee is granted access to. Ignored for TENANT_ADMIN. */
+  moduleIds?: string[];
+  /**
+   * Primary module for a MODULE_MANAGER. Must appear in `moduleIds`.
+   * Ignored for non-manager roles.
+   */
+  primaryModuleId?: string;
+  /** Inviter's user ID — used for role-hierarchy validation + audit */
+  invitedBy: string;
+  /** Optional human message stored on the Invitation row */
+  message?: string;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+/**
+ * Result of `AdminInviteUserCommand`.
+ *
+ * `invitationToken` is the RAW token the caller delivers via email. The
+ * auth-service stores only the SHA-256 hash on `Invitation.token` and
+ * `User.invitationToken`; the raw value never hits any log line or audit
+ * record. If the email send path fails, the caller is responsible for
+ * reissuing via the resend-invitation flow (not covered by this contract).
+ */
+export interface AdminInviteUserResult {
+  success: boolean;
+  userId?: string;
+  invitationId?: string;
+  invitationToken?: string;
+  errorCode?:
+    | 'USER_LIMIT_REACHED'
+    | 'DUPLICATE_EMAIL'
+    | 'ROLE_VALIDATION_FAILED'
+    | 'TENANT_NOT_FOUND'
+    | 'INVITER_NOT_FOUND'
+    | 'INVALID_ROLE'
+    | 'VALIDATION_ERROR'
+    | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/**
+ * Query to check whether a tenant can add more users.
+ *
+ * Used by admin-panel to gate the "invite user" button before the user
+ * fills in the form. Returns a snapshot of currentCount + limit +
+ * remaining so the UI can show "3 of 10 user slots used" style messaging.
+ *
+ * `limit === -1` means unlimited (enterprise tier).
+ */
+export interface AdminCheckUserLimitQuery {
+  /** Tenant UUID */
+  tenantId: string;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+export interface AdminCheckUserLimitResult {
+  success: boolean;
+  canCreate?: boolean;
+  currentCount?: number;
+  /** -1 means unlimited */
+  limit?: number;
+  remaining?: number;
+  message?: string;
+  errorCode?: 'TENANT_NOT_FOUND' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/**
  * Union type for all admin-api → auth-service user lifecycle commands.
  */
 export type AuthAdminCommand =
@@ -408,4 +517,6 @@ export type AuthAdminCommand =
   | AdminResetUserPasswordCommand
   | AdminUpdateUserCommand
   | AdminDeactivateUserCommand
-  | AdminForceLogoutUserCommand;
+  | AdminForceLogoutUserCommand
+  | AdminInviteUserCommand
+  | AdminCheckUserLimitQuery;

@@ -16,7 +16,9 @@ import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { Invitation, InvitationStatus } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
+import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User, AccessType } from '../../authentication/entities/user.entity';
 import { Tenant } from '../entities/tenant.entity';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
@@ -80,6 +82,10 @@ export class UserLifecycleService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(MobileUserSettings)
     private readonly mobileSettingsRepository: Repository<MobileUserSettings>,
+    @InjectRepository(Invitation)
+    private readonly invitationRepository: Repository<Invitation>,
+    @InjectRepository(UserModuleAssignment)
+    private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
@@ -570,6 +576,281 @@ export class UserLifecycleService {
       `Admin force-logout userId=${user.id}, sessionsInvalidated=${sessionsInvalidated}`,
     );
     return { userId: user.id, sessionsInvalidated };
+  }
+
+  /**
+   * Tenant-admin-initiated user invitation (CRITICAL-005 NATS path).
+   *
+   * Replaces the admin-api raw-SQL inviteUser path that wrote three
+   * cross-service INSERTs against `auth.*` tables with snake_case column
+   * names that drift from the User / Invitation / UserModuleAssignment
+   * entities. By centralising the write here:
+   *   - Column names live exactly once (on the entities).
+   *   - The transaction is owned by the schema-owning service.
+   *   - User-limit, role-hierarchy, email-uniqueness checks are
+   *     authoritative (admin-api can no longer race on the count).
+   *
+   * Side-effects (all in one transaction):
+   *   - Creates the User row with role + invitationToken hash.
+   *   - Creates the Invitation row with status=PENDING + token hash.
+   *   - For non-TENANT_ADMIN roles with moduleIds, creates one
+   *     UserModuleAssignment per module (the first being marked primary
+   *     when the role is MODULE_MANAGER and primaryModuleId is provided).
+   *   - Increments tenant.userCount atomically.
+   *
+   * Returns the RAW (unhashed) invitation token so the caller can
+   * deliver it via email. The hash is what's persisted; the raw value
+   * never appears in audit logs.
+   */
+  async adminInviteUser(input: {
+    tenantId: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    role: string;
+    moduleIds?: string[];
+    primaryModuleId?: string;
+    invitedBy: string;
+    message?: string;
+  }): Promise<{
+    userId: string;
+    invitationId: string;
+    invitationToken: string;
+  }> {
+    // 1. Tenant existence + user-limit check (uses authoritative user
+    //    count from auth.users, not the denormalized `tenant.userCount`
+    //    counter — the counter can drift; the row count cannot).
+    const tenant = await this.tenantRepository.findOne({
+      where: { id: input.tenantId },
+    });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant with ID "${input.tenantId}" not found`);
+    }
+
+    const currentUserCount = await this.userRepository.count({
+      where: { tenantId: input.tenantId },
+    });
+    // -1 means unlimited (enterprise tier).
+    if (tenant.maxUsers !== -1 && currentUserCount >= tenant.maxUsers) {
+      throw new BadRequestException(
+        `User limit reached (${tenant.maxUsers} users). Upgrade plan to add more users.`,
+      );
+    }
+
+    // 2. Role validation — only the four canonical roles.
+    if (!(Object.values(Role) as string[]).includes(input.role)) {
+      throw new BadRequestException(`Unknown role "${input.role}"`);
+    }
+    if (input.role === Role.SUPER_ADMIN) {
+      throw new BadRequestException(
+        'SUPER_ADMIN cannot be invited — use AdminCreateUserCommand for platform accounts',
+      );
+    }
+
+    // 3. Inviter + role-hierarchy validation.
+    const inviter = await this.userRepository.findOne({
+      where: { id: input.invitedBy },
+    });
+    if (!inviter) {
+      throw new NotFoundException(`Inviter user "${input.invitedBy}" not found`);
+    }
+    this.assertRoleHierarchy(inviter, input.tenantId, input.role);
+
+    // 4. Email uniqueness (case-insensitive — schema enforces this via
+    //    the LOWER(email) expression index too, but failing fast in the
+    //    service gives a clean typed exception path).
+    const normalisedEmail = input.email.toLowerCase();
+    const existing = await this.userRepository.findOne({
+      where: { email: normalisedEmail },
+    });
+    if (existing) {
+      throw new ConflictException(`User with email "${input.email}" already exists`);
+    }
+
+    // 5. Invitation token: raw token returned to caller (for email
+    //    delivery), SHA-256 hash stored in the DB (MED-004 pattern).
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    // 6. Atomic multi-row write via a transaction. Using a transactional
+    //    EntityManager guarantees that a User without an Invitation row
+    //    (or vice versa) cannot exist if any single insert fails.
+    const result = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const invitationRepo = manager.getRepository(Invitation);
+      const umaRepo = manager.getRepository(UserModuleAssignment);
+      const tenantRepo = manager.getRepository(Tenant);
+
+      const newUser = userRepo.create({
+        email: normalisedEmail,
+        firstName: input.firstName ?? null,
+        lastName: input.lastName ?? null,
+        role: input.role as Role,
+        tenantId: input.tenantId,
+        isActive: true,
+        isEmailVerified: false,
+        invitationToken: tokenHash,
+        invitationExpiresAt: expiresAt,
+        invitedBy: input.invitedBy,
+      });
+      const savedUser = await userRepo.save(newUser);
+
+      const newInvitation = invitationRepo.create({
+        token: tokenHash,
+        email: normalisedEmail,
+        firstName: input.firstName ?? null,
+        lastName: input.lastName ?? null,
+        role: input.role as Role,
+        tenantId: input.tenantId,
+        moduleIds:
+          input.moduleIds && input.moduleIds.length > 0
+            ? input.moduleIds
+            : null,
+        primaryModuleId: input.primaryModuleId ?? null,
+        status: InvitationStatus.PENDING,
+        expiresAt,
+        message: input.message ?? null,
+        invitedBy: input.invitedBy,
+        sendCount: 1,
+        lastSentAt: new Date(),
+      });
+      const savedInvitation = await invitationRepo.save(newInvitation);
+
+      // Module assignments — only meaningful for module-scoped roles.
+      // TENANT_ADMIN inherits access from TenantModule rows and gets
+      // no UserModuleAssignment entries.
+      const wantsModuleAssignments =
+        input.role !== Role.TENANT_ADMIN &&
+        input.moduleIds &&
+        input.moduleIds.length > 0;
+      if (wantsModuleAssignments) {
+        const assignments = input.moduleIds!.map((moduleId) =>
+          umaRepo.create({
+            userId: savedUser.id,
+            moduleId,
+            tenantId: input.tenantId,
+            isPrimaryManager:
+              input.role === Role.MODULE_MANAGER &&
+              moduleId === input.primaryModuleId,
+            isActive: true,
+            assignedBy: input.invitedBy,
+          }),
+        );
+        await umaRepo.save(assignments);
+      }
+
+      // Atomic counter increment via SQL expression, not a read-modify-write
+      // (avoids a concurrent-invite race that would have to be solved by
+      // either advisory locks or a unique constraint).
+      await tenantRepo.increment({ id: input.tenantId }, 'userCount', 1);
+
+      return { userId: savedUser.id, invitationId: savedInvitation.id };
+    });
+
+    this.logger.log(
+      `Admin invited userId=${result.userId} into tenant=${input.tenantId} role=${input.role}`,
+    );
+
+    return {
+      userId: result.userId,
+      invitationId: result.invitationId,
+      invitationToken: rawToken,
+    };
+  }
+
+  /**
+   * Snapshot of how many user slots a tenant has remaining.
+   *
+   * Returned shape mirrors the admin-api's REST contract so the client
+   * can consume the result without translation. `limit === -1` means
+   * unlimited (enterprise tier); `remaining` clamps to ≥ 0.
+   */
+  async adminCheckUserLimit(tenantId: string): Promise<{
+    canCreate: boolean;
+    currentCount: number;
+    limit: number;
+    remaining: number;
+    message?: string;
+  }> {
+    const tenant = await this.tenantRepository.findOne({
+      where: { id: tenantId },
+    });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant with ID "${tenantId}" not found`);
+    }
+
+    // Authoritative count from auth.users — avoids the denormalised
+    // counter drift that has bitten this code path historically.
+    const currentCount = await this.userRepository.count({
+      where: { tenantId },
+    });
+    const limit = tenant.maxUsers ?? 0;
+
+    if (limit === -1) {
+      return {
+        canCreate: true,
+        currentCount,
+        limit: -1,
+        remaining: -1,
+        message: 'Unlimited users allowed',
+      };
+    }
+
+    const remaining = Math.max(0, limit - currentCount);
+    const canCreate = remaining > 0;
+    return {
+      canCreate,
+      currentCount,
+      limit,
+      remaining,
+      message: canCreate
+        ? `${remaining} user slots remaining`
+        : `User limit reached (${limit} users). Upgrade plan to add more users.`,
+    };
+  }
+
+  /**
+   * Enforce the platform role hierarchy at invite time. SUPER_ADMIN can
+   * invite into any tenant at any role. Tenant-scoped roles can only
+   * invite into their own tenant, and only at a role ≤ their own.
+   * MODULE_MANAGER can invite only MODULE_USER. Anything else throws.
+   */
+  private assertRoleHierarchy(
+    inviter: User,
+    targetTenantId: string,
+    targetRole: string,
+  ): void {
+    const ranks: Record<string, number> = {
+      [Role.SUPER_ADMIN]: 4,
+      [Role.TENANT_ADMIN]: 3,
+      [Role.MODULE_MANAGER]: 2,
+      [Role.MODULE_USER]: 1,
+    };
+
+    if (inviter.role === Role.SUPER_ADMIN) return;
+
+    if (inviter.tenantId !== targetTenantId) {
+      throw new ForbiddenException(
+        'Cannot invite users to a different tenant',
+      );
+    }
+
+    if (inviter.role === Role.TENANT_ADMIN) {
+      if ((ranks[targetRole] ?? 0) <= ranks[Role.TENANT_ADMIN]) return;
+      throw new ForbiddenException(
+        'Cannot create user with higher role than your own',
+      );
+    }
+
+    if (inviter.role === Role.MODULE_MANAGER) {
+      if (targetRole === Role.MODULE_USER) return;
+      throw new ForbiddenException(
+        'Module managers can only invite module users',
+      );
+    }
+
+    throw new ForbiddenException('You do not have permission to invite users');
   }
 
   // ==========================================================================

@@ -39,7 +39,12 @@ import {
   type AdminDeactivateUserResult,
   type AdminForceLogoutUserCommand,
   type AdminForceLogoutUserResult,
+  type AdminInviteUserCommand,
+  type AdminInviteUserResult,
+  type AdminCheckUserLimitQuery,
+  type AdminCheckUserLimitResult,
 } from '@platform/event-contracts';
+import { ForbiddenException } from '@nestjs/common';
 
 import { UserLifecycleService } from '../services/user-lifecycle.service';
 
@@ -54,6 +59,8 @@ type ResetErrorCode = NonNullable<AdminResetUserPasswordResult['errorCode']>;
 type UpdateErrorCode = NonNullable<AdminUpdateUserResult['errorCode']>;
 type DeactivateErrorCode = NonNullable<AdminDeactivateUserResult['errorCode']>;
 type ForceLogoutErrorCode = NonNullable<AdminForceLogoutUserResult['errorCode']>;
+type InviteErrorCode = NonNullable<AdminInviteUserResult['errorCode']>;
+type CheckUserLimitErrorCode = NonNullable<AdminCheckUserLimitResult['errorCode']>;
 
 @Controller()
 export class AuthAdminNatsHandler {
@@ -286,6 +293,100 @@ export class AuthAdminNatsHandler {
 
   private mapForceLogoutError(err: unknown): ForceLogoutErrorCode {
     if (err instanceof NotFoundException) return 'USER_NOT_FOUND';
+    return 'INTERNAL_ERROR';
+  }
+
+  /**
+   * Tenant-admin-initiated invite (CRITICAL-005 NATS path).
+   *
+   * Replaces the admin-api raw-SQL inviteUser path that wrote across
+   * `auth.users` / `auth.invitations` / `auth.user_module_assignments`
+   * with snake_case columns drifting from the entity definitions.
+   */
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.INVITE_USER)
+  async inviteUser(
+    @Payload() command: AdminInviteUserCommand,
+  ): Promise<AdminInviteUserResult> {
+    try {
+      const result = await this.userLifecycleService.adminInviteUser({
+        tenantId: command.tenantId,
+        email: command.email,
+        firstName: command.firstName,
+        lastName: command.lastName,
+        role: command.role,
+        moduleIds: command.moduleIds,
+        primaryModuleId: command.primaryModuleId,
+        invitedBy: command.invitedBy,
+        message: command.message,
+      });
+      return {
+        success: true,
+        userId: result.userId,
+        invitationId: result.invitationId,
+        invitationToken: result.invitationToken,
+      };
+    } catch (err) {
+      const errorCode = this.mapInviteError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `adminInviteUser failed: tenantId=${command.tenantId}, code=${errorCode}, reason=${message}`,
+      );
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  /**
+   * Read-side companion to inviteUser — returns a snapshot of the
+   * tenant's user-slot capacity. Used by admin-panel to gate the
+   * "invite" button before the user fills the form.
+   */
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.CHECK_USER_LIMIT)
+  async checkUserLimit(
+    @Payload() query: AdminCheckUserLimitQuery,
+  ): Promise<AdminCheckUserLimitResult> {
+    try {
+      const result = await this.userLifecycleService.adminCheckUserLimit(
+        query.tenantId,
+      );
+      return {
+        success: true,
+        canCreate: result.canCreate,
+        currentCount: result.currentCount,
+        limit: result.limit,
+        remaining: result.remaining,
+        message: result.message,
+      };
+    } catch (err) {
+      const errorCode = this.mapCheckUserLimitError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `adminCheckUserLimit failed: tenantId=${query.tenantId}, code=${errorCode}, reason=${message}`,
+      );
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  private mapInviteError(err: unknown): InviteErrorCode {
+    if (err instanceof ConflictException) return 'DUPLICATE_EMAIL';
+    if (err instanceof ForbiddenException) return 'ROLE_VALIDATION_FAILED';
+    if (err instanceof NotFoundException) {
+      const msg = err.message.toLowerCase();
+      if (msg.includes('inviter')) return 'INVITER_NOT_FOUND';
+      return 'TENANT_NOT_FOUND';
+    }
+    if (err instanceof BadRequestException) {
+      const msg = err.message.toLowerCase();
+      if (msg.includes('user limit reached')) return 'USER_LIMIT_REACHED';
+      if (msg.includes('role') || msg.includes('super_admin')) {
+        return 'INVALID_ROLE';
+      }
+      return 'VALIDATION_ERROR';
+    }
+    return 'INTERNAL_ERROR';
+  }
+
+  private mapCheckUserLimitError(err: unknown): CheckUserLimitErrorCode {
+    if (err instanceof NotFoundException) return 'TENANT_NOT_FOUND';
     return 'INTERNAL_ERROR';
   }
 }

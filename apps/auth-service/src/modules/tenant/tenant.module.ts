@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SchemaManagerService } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
+import { Invitation } from '../authentication/entities/invitation.entity';
 import { RefreshToken } from '../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../authentication/entities/user-module-assignment.entity';
 import { User } from '../authentication/entities/user.entity';
@@ -33,6 +34,7 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       SystemModule,
       MobileUserSettings,
       RefreshToken,
+      Invitation,
     ]),
     EventBusModule,
   ],

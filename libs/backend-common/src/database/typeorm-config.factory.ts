@@ -1,8 +1,19 @@
-import { Logger } from '@nestjs/common';
+import { Logger, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
+import type { EntitySchema, MixedList } from 'typeorm';
 
 import { buildDatabaseSslConfig } from './ssl-config';
+
+/**
+ * TypeORM accepts arrays OR map-of-T as inputs to entities/migrations/
+ * subscribers. Re-using its native `MixedList<T>` keeps our factory
+ * surface aligned with what TypeORM actually consumes — no `as` casts
+ * are required at the boundary.
+ */
+type EntityInput = Type<unknown> | EntitySchema | string;
+type MigrationInput = Type<unknown> | string;
+type SubscriberInput = Type<unknown> | string;
 
 /**
  * =============================================================================
@@ -93,17 +104,18 @@ export interface ServiceTypeOrmOptions {
   schema: string;
 
   /**
-   * Class references for this service's TypeORM migrations. Glob paths are
-   * NOT used — they match zero files at runtime in a bundled NestJS service.
+   * Migrations for this service. Either class references (preferred — webpack
+   * bundles them so `dist/migrations/*.js` glob would match zero files at
+   * runtime) OR a glob path string for tsc-built services.
    */
-  migrations: ReadonlyArray<unknown>;
+  migrations: MixedList<MigrationInput>;
 
   /**
-   * Optional explicit entity classes. Default is `autoLoadEntities: true`
+   * Optional explicit entity list. Default is `autoLoadEntities: true`
    * which picks up everything imported via `TypeOrmModule.forFeature`.
    * Override only when a service has entities outside the forFeature graph.
    */
-  entities?: ReadonlyArray<unknown>;
+  entities?: MixedList<EntityInput>;
 
   /**
    * Service-specific override of the platform default pool size (10).
@@ -136,7 +148,7 @@ export interface ServiceTypeOrmOptions {
    * as a factory option keeps the call site explicit instead of leaking
    * subscriber configuration into the factory.
    */
-  subscribers?: ReadonlyArray<unknown>;
+  subscribers?: MixedList<SubscriberInput>;
 
   /**
    * Use TypeORM's built-in migration runner (`true`) or defer to the
@@ -253,11 +265,11 @@ export function createServiceTypeOrmConfig(
     database: configService.get('DATABASE_NAME', 'aquaculture'),
     // INTENTIONAL: do NOT set `schema` — see factory docblock §"Why schema is NOT applied".
     autoLoadEntities: opts.entities == null,
-    entities: opts.entities as Array<Function> | undefined,
-    subscribers: opts.subscribers as Array<Function> | undefined,
+    entities: opts.entities,
+    subscribers: opts.subscribers,
     synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
     migrationsRun,
-    migrations: opts.migrations as Array<Function>,
+    migrations: opts.migrations,
     logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
     ssl: buildDatabaseSslConfig(configService),
     extra: {

@@ -26,3 +26,13 @@ variable "allowed_cidrs" {
     error_message = "At least one CIDR block must be specified for EKS API access."
   }
 }
+
+# INFRA-DB-POOL-001 / Track B: shelf-ready gate for the RDS Proxy module.
+# Default false — terraform plan today is unchanged. Flip to true ONLY when
+# the EKS workload SG exists and the docs/runbooks/database-capacity.md
+# Track B procedure has been read end-to-end.
+variable "enable_rds_proxy" {
+  description = "When true, provision RDS Proxy in front of the RDS instance and update workload-facing outputs to point at the proxy endpoint. Default false — gate stays off until the K8s migration."
+  type        = bool
+  default     = false
+}

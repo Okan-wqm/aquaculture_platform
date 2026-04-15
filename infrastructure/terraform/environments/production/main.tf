@@ -253,6 +253,45 @@ module "elasticache" {
 }
 
 # =============================================================================
+# RDS Proxy (INFRA-DB-POOL-001 / Track B — shelf-ready, gated)
+# =============================================================================
+#
+# Default count=0 (var.enable_rds_proxy=false). terraform plan in production
+# stays unchanged today; the only diff lands when the operator explicitly
+# sets `enable_rds_proxy = true` in a tfvars file or via TF_VAR_enable_rds_proxy.
+#
+# When enabled, the proxy multiplexes workload connections to the RDS
+# instance. The platform's TenantConnectionBootstrap, RlsConnectionBootstrap,
+# advisory locks (billing/feeding cron), LISTEN/NOTIFY (outbox), and
+# server-side prepared statements all rely on session state — RDS Proxy's
+# automatic session pinning preserves correctness without code change.
+# See docs/runbooks/database-capacity.md and the INFRA-DB-POOL-001 finding
+# for the full reasoning.
+
+module "rds_proxy" {
+  count  = var.enable_rds_proxy ? 1 : 0
+  source = "../../modules/rds-proxy"
+
+  identifier                = "${local.project_name}-${local.environment}"
+  vpc_id                    = module.networking.vpc_id
+  subnet_ids                = module.networking.private_subnet_ids
+  db_secret_arn             = module.rds.secret_arn
+  db_instance_identifier    = module.rds.instance_id
+  db_security_group_id      = module.rds.security_group_id
+  allowed_security_group_id = module.eks.cluster_security_group_id
+
+  require_tls                       = true
+  idle_client_timeout_seconds       = 1800
+  max_connections_percent           = 100
+  max_idle_connections_percent      = 50
+  connection_borrow_timeout_seconds = 120
+
+  log_retention_days = 30
+
+  tags = local.common_tags
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 
@@ -284,4 +323,13 @@ output "rds_secret_arn" {
 
 output "redis_secret_arn" {
   value = module.elasticache.secret_arn
+}
+
+# When the proxy is enabled, this is the DATABASE_HOST workloads should use.
+# When disabled (today), the value is null — workloads keep the direct
+# rds_endpoint. Wiring the proxy endpoint into the Helm/ExternalSecret
+# chain is the deploy-time switch that activates Track B.
+output "rds_proxy_endpoint" {
+  value     = var.enable_rds_proxy ? module.rds_proxy[0].endpoint : null
+  sensitive = true
 }

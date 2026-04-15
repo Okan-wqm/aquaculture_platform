@@ -1,4 +1,4 @@
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -24,6 +24,7 @@ import {
   createMigrationRunnerService,
   SchemaDriftModule,
   PlatformJwtModule,
+  createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common';
 
 /**
@@ -55,58 +56,24 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       cache: true,
     }),
 
-    // Database connection
+    // Database connection — uses the platform TypeORM factory.
+    // NotificationMigrationRunnerService (provider above) executes
+    // migrations at OnApplicationBootstrap; factory's migrationsRun:false
+    // default keeps TypeORM out of that codepath.
+    // INFRA-DB-POOL-001: env var unified to DATABASE_POOL_SIZE (was
+    // DATABASE_POOL_MAX). Default 10 (was 20).
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
-        username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
-        database: configService.get('DATABASE_NAME', 'notification_service'),
-        autoLoadEntities: true,
-        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
-        // Migrations executed by NotificationMigrationRunnerService at
-        // OnApplicationBootstrap (search_path pinning + per-migration
-        // transaction isolation + production hard-fail semantics).
-        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
-        migrationsRun: false,
-        migrationsTableName: 'migrations',
-        logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
-        extra: {
-          max: configService.get<number>('DATABASE_POOL_MAX', 20),
-          min: configService.get<number>('DATABASE_POOL_MIN', 2),
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 5000,
-        },
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get('DATABASE_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'notification',
+          // notification tables currently in `public`; P6/P7 migrations move
+          // them to `notification`. After the move, the search_path pin
+          // here will resolve them first.
+          schema: 'notification',
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        }),
     }),
 
     // GraphQL Federation

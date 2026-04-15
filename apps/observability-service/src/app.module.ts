@@ -1,10 +1,9 @@
-import { Module, Logger } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { LoggingModule, RlsModule } from '@aquaculture/backend-common';
+import { LoggingModule, RlsModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
-import { readFile } from 'fs/promises';
 import { PrometheusModule } from './prometheus/prometheus.module';
 import { MetricsAggregatorModule } from './metrics/metrics-aggregator.module';
 import { HealthModule } from './health/health.module';
@@ -19,46 +18,28 @@ import { InternalApiGuard } from './guards/internal-api.guard';
       envFilePath: ['.env.local', '.env'],
     }),
     ScheduleModule.forRoot(),
+    // Database connection — observability-service reads aggregated metrics
+    // across tenants (deliberate cross-tenant access). Uses the platform
+    // TypeORM factory so pool, SSL, fail-fast, and search_path semantics
+    // stay identical across services.
+    //
+    // INFRA-DB-ENV-001 fix: previously read DB_HOST/DB_PORT/DB_USERNAME/
+    // DB_PASSWORD/DB_NAME — drift from the platform-standard DATABASE_*
+    // contract enforced by the factory. docker-compose.droplet.yml was
+    // updated atomically in the same commit to publish DATABASE_* env vars.
+    // INFRA-DB-SSL-001 fix: DB_SSL → DATABASE_SSL via factory.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => {
-        const sslEnabled = configService.get<string>('DB_SSL') === 'true';
-        const isProduction = configService.get('NODE_ENV') === 'production';
-        const caPath = configService.get<string>('DATABASE_SSL_CA');
-        const rejectUnauthorized =
-          configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-        let sslConfig: boolean | Record<string, unknown> = false;
-        if (sslEnabled) {
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-          // Read CA certificate asynchronously to avoid blocking the event loop
-          const ca = caPath ? await readFile(caPath) : undefined;
-          sslConfig = { rejectUnauthorized, ...(ca ? { ca } : {}) };
-        }
-
-        return {
-          type: 'postgres',
-          host: configService.get<string>('DB_HOST', 'localhost'),
-          port: configService.get<number>('DB_PORT', 5432),
-          username: configService.get<string>('DB_USERNAME', 'postgres'),
-          password: configService.get<string>('DB_PASSWORD', 'postgres'),
-          database: configService.get<string>('DB_NAME', 'aquaculture'),
-          autoLoadEntities: true,
-          synchronize: configService.get<string>('NODE_ENV') === 'development',
-          logging: configService.get<string>('NODE_ENV') === 'development',
-          // SECURITY: SSL configuration with proper certificate validation
-          ssl: sslConfig,
-          extra: {
-            max: configService.get<number>('DB_POOL_SIZE', 10),
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 10000,
-            options: '-c search_path=observability,public',
-          },
-        };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'observability',
+          schema: 'observability',
+          // No migrations — observability-service uses synchronize=true in
+          // dev (factory honours DATABASE_SYNC) and reads cross-schema
+          // aggregates in prod. RLS module above handles schema bootstrap.
+          migrations: [],
+        }),
     }),
     PrometheusModule,
     MetricsAggregatorModule,

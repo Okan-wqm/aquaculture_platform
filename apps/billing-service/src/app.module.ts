@@ -1,4 +1,4 @@
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -11,7 +11,7 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
 
 /**
  * BillingMigrationRunnerService — runs pending TypeORM migrations in the
@@ -47,62 +47,25 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
-    // Database connection with schema separation
-    // billing-service owns the 'billing' schema
+    // Database connection — billing-service owns the 'billing' schema. Uses
+    // the platform TypeORM factory; pool / SSL / fail-fast / env contract
+    // are all routed through createServiceTypeOrmConfig.
+    //
+    // INFRA-DB-SSL-001 fix: previously read DB_SSL while compose set
+    // DATABASE_SSL — SSL was silently disabled. Factory uses DATABASE_SSL.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword) {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be configured');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
-        username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword,
-        database: configService.get('DATABASE_NAME', 'aquaculture'),
-        schema: configService.get('DATABASE_SCHEMA', 'billing'),
-        autoLoadEntities: true,
-        synchronize: configService.get('NODE_ENV') !== 'production',
-        logging: configService.get('NODE_ENV') === 'development',
-        // Migrations discovered at build time — compiled to dist/ alongside
-        // the rest of the service code. MigrationRunnerService executes
-        // pending migrations at OnApplicationBootstrap; migrationsRun:false
-        // here prevents TypeORM from auto-running them during DataSource
-        // init (which would bypass the search_path pinning + per-migration
-        // transaction isolation the runner provides).
-        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
-        migrationsRun: false,
-        migrationsTableName: 'migrations',
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get('DB_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-        extra: {
-          max: configService.get<number>('DB_POOL_SIZE', 20),
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 10000,
-        },
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'billing',
+          schema: 'billing',
+          // BillingMigrationRunnerService (provider below) executes pending
+          // migrations at OnApplicationBootstrap with search_path pinning
+          // + per-migration transaction isolation. Factory default
+          // (migrationsRun: false) keeps TypeORM out of that codepath.
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        }),
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,

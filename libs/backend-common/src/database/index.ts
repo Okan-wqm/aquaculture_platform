@@ -35,6 +35,24 @@ export * from './watchdog';
 // Tenant Connection Bootstrap (centralized factory)
 export { createTenantConnectionBootstrap } from './tenant-connection-bootstrap.service';
 
+// TypeORM bootstrap factory — single source of truth for every service's
+// TypeOrmModule.forRootAsync payload. Replaces 13 hand-rolled, drift-prone
+// app.module.ts blocks. See INFRA-DB-POOL-001 + the factory's docblock.
+export {
+  createServiceTypeOrmConfig,
+  DEFAULT_POOL_SIZE,
+  DEFAULT_POOL_MIN,
+  DEFAULT_POOL_IDLE_TIMEOUT_MS,
+  DEFAULT_POOL_CONNECTION_TIMEOUT_MS,
+} from './typeorm-config.factory';
+export type { ServiceTypeOrmOptions } from './typeorm-config.factory';
+
+// SSL config helper — extracted previously but never wired in. Now consumed
+// by the TypeORM factory above. Re-exported so direct callers (e.g. raw
+// DataSource construction in CLI tools) can use the same logic.
+export { buildDatabaseSslConfig } from './ssl-config';
+export type { SslConfigResult } from './ssl-config';
+
 // Row-Level Security (RLS) for PostgreSQL tenant isolation
 export * from './rls';
 

@@ -1,4 +1,4 @@
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -29,6 +29,7 @@ import {
   RlsModule,
   createMigrationRunnerService,
   SchemaDriftModule,
+  createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
@@ -64,57 +65,22 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       cache: true,
     }),
 
-    // Database connection - NO explicit schema!
-    // Schema isolation is handled by TenantSchemaMiddleware via PostgreSQL search_path
-    // search_path is set to: "tenant_xxx", alert, public
-    // This ensures queries use tenant schema first, falling back to alert for shared data
+    // Database connection — uses the platform TypeORM factory.
+    // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
+    // search_path per request. AlertMigrationRunnerService (provider above)
+    // executes migrations at OnApplicationBootstrap; factory's
+    // migrationsRun:false default keeps TypeORM out of that codepath.
+    // Pre-factory, this service had NO explicit pool max — pg driver
+    // default 10 was used. The factory's default 10 preserves that.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
-        username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
-        database: configService.get('DATABASE_NAME', 'aquaculture'),
-        // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
-        autoLoadEntities: true,
-        synchronize: false,
-        // Migrations executed by AlertMigrationRunnerService at
-        // OnApplicationBootstrap — search_path pinning, per-migration
-        // transaction isolation, production hard-fail semantics.
-        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
-        migrationsRun: false,
-        migrationsTableName: 'migrations',
-        logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
-        extra: { options: '-c search_path=alert,public' },
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get('DATABASE_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'alert',
+          schema: 'alert',
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        }),
     }),
 
     // GraphQL Federation

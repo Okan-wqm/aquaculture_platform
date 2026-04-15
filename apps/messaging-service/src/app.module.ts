@@ -5,10 +5,9 @@
  * transport, JWT auth, rate limiting, and all feature modules.
  * @see ADR-012 section 1 (Architecture Overview)
  */
-import { readFileSync } from 'fs';
 import { createHash } from 'crypto';
 import { join } from 'path';
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -49,6 +48,7 @@ import {
   RlsModule,
   SchemaDriftModule,
   PlatformJwtModule,
+  createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
@@ -140,24 +140,22 @@ const complexityCache = new Map<string, number>();
       envFilePath: ['.env.local', '.env'],
     }),
 
-    // Database connection — NO explicit schema!
-    // Schema isolation handled by TenantSchemaMiddleware via PostgreSQL search_path
-    // search_path set to: "tenant_xxx", messaging, public
+    // Database connection — uses the platform TypeORM factory.
+    // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
+    // search_path per request. Partitioned tables (messages,
+    // message_receipts) require migrations — synchronize stays disabled
+    // (factory honours DATABASE_SYNC default false).
+    // MessagingMigrationRunnerService (provider above) executes migrations
+    // at OnApplicationBootstrap; factory's migrationsRun:false default
+    // keeps TypeORM out of that codepath.
+    // INFRA-DB-SSL-001 fix: DB_SSL → DATABASE_SSL via factory.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-          type: 'postgres',
-          host: configService.get('DATABASE_HOST', 'localhost'),
-          port: configService.get<number>('DATABASE_PORT', 5432),
-          username: configService.get('DATABASE_USER', 'postgres'),
-          password: dbPassword || 'postgres',
-          database: configService.get('DATABASE_NAME', 'aquaculture'),
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'messaging',
+          schema: 'messaging',
           entities: [
             Channel,
             ChannelMember,
@@ -175,18 +173,6 @@ const complexityCache = new Map<string, number>();
             KnowledgeEntry,
             EmbeddingsMetadata,
           ],
-          // ALWAYS false — partitioned tables (messages, message_receipts)
-          // require migrations. TypeORM synchronize cannot handle PARTITION BY RANGE.
-          synchronize: false,
-          // ALWAYS false — migrations are executed by
-          // MessagingMigrationRunnerService at OnApplicationBootstrap,
-          // which pins search_path to "messaging" between migrations.
-          // Setting this to true would bypass that invariant and re-introduce
-          // the 2026-04-07 farm-service search_path leak class of bug.
-          // The runner respects DATABASE_MIGRATIONS_RUN (hard-fails in
-          // production when false).
-          migrationsRun: false,
-          migrationsTableName: 'migrations',
           // Class references (NOT glob paths) — webpack bundles all into main.js,
           // so 'dist/migrations/*.js' would match zero files at runtime.
           migrations: [
@@ -203,33 +189,7 @@ const complexityCache = new Map<string, number>();
             AddTenantIdToMessageChildren1782300000000,
             EnableRowLevelSecurity1782400000000,
           ],
-          logging: configService.get('NODE_ENV') === 'development',
-          ssl: (() => {
-            const sslEnabled = configService.get('DB_SSL') === 'true';
-            if (!sslEnabled) return false;
-
-            const isProduction = configService.get('NODE_ENV') === 'production';
-            const caPath = configService.get<string>('DATABASE_SSL_CA');
-            const rejectUnauthorized =
-              configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-            if (isProduction && !rejectUnauthorized && !caPath) {
-              new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-            }
-
-            return {
-              rejectUnauthorized,
-              ...(caPath ? { ca: readFileSync(caPath) } : {}),
-            };
-          })(),
-          extra: {
-            max: configService.get<number>('DB_POOL_SIZE', 20),
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 10000,
-            options: '-c search_path=messaging,public',
-          },
-        };
-      },
+        }),
     }),
 
     // GraphQL Federation subgraph

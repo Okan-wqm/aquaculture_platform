@@ -1,4 +1,4 @@
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -32,7 +32,7 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule } from '@aquaculture/backend-common';
+import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
@@ -164,92 +164,44 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
     // Rate limiting (custom sliding-window implementation from backend-common)
     ThrottlerModule,
 
-    // Database connection - NO explicit schema!
-    // Schema isolation is handled by TenantSchemaMiddleware via PostgreSQL search_path
-    // search_path is set to: "tenant_xxx", farm, public
-    // This ensures queries use tenant schema first, falling back to farm for shared data
+    // Database connection — uses the platform TypeORM factory so pool size,
+    // SSL, fail-fast, env-var contract, and search_path semantics are
+    // identical across every backend service. INTENTIONAL: no `schema:` —
+    // TenantConnectionBootstrap manages search_path per request (see the
+    // factory's docblock §"Why schema is NOT applied").
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
-        username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
-        database: configService.get('DATABASE_NAME', 'aquaculture'),
-        // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
-        // Setting schema here would cause TypeORM to add explicit schema prefix to all queries,
-        // overriding the search_path and breaking multi-tenant isolation
-        autoLoadEntities: true,
-        // Enable sync from DATABASE_SYNC env var (default: false for safety)
-        // In production, always use migrations: npx typeorm migration:generate
-        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
-        // migrationsRun is FALSE here because MigrationRunnerService (in database.module)
-        // executes migrations on OnApplicationBootstrap. That ordering guarantees
-        // SourceSchemaBootstrapService.synchronize() (which fires in OnModuleInit) has
-        // already created the base tables before any ALTER statement runs.
-        // SECURITY: production hard-fails if DATABASE_MIGRATIONS_RUN=false (see migration-runner.service.ts).
-        migrationsRun: false,
-        // Class references — tsc/webpack bundles all into the build output.
-        // Glob paths would match zero files at runtime in a bundled NestJS service.
-        migrations: [
-          AddSystemHierarchy1734336000000,
-          AddBatchDocuments1734500000000,
-          AddRegulatorySettings1769000000000,
-          AddSpeciesTags1769100000000,
-          AddFeedMinFishWeight1770000000000,
-          AddStorageManagement1771000000000,
-          AddPurchaseOrders1772000000000,
-          AddWeatherTables1773000000000,
-          AddFeederCalibrations1774000000000,
-          AddFeederFieldsToExecution1775000000000,
-          ConvergeTenantIdTypesAndDropPondBatch1775900000000,
-          EnableRowLevelSecurity1776000000000,
-          CreateFarmOutboxTable1780300000000,
-          RefreshTenantRlsPredicate1781000000000,
-          ConvertFarmOutboxToIdentity1781200000000,
-          AddTenantActivePartialIndexes1781800000000,
-          ConvertAuditColumnsToTimestamptz1781900000000,
-          AddFarmOutboxLeaseColumns1782000000000,
-          AddFarmOutboxNotifyTrigger1782100000000,
-        ],
-        logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get('DATABASE_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-        extra: {
-          // Connection pool settings for multi-tenant
-          max: configService.get<number>('DATABASE_POOL_SIZE', 50),
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 5000,
-          // Default search_path targets the source schema so TypeORM sync/migrations
-          // create tables there. TenantSchemaMiddleware overrides per-request.
-          options: '-c search_path=farm,public',
-        },
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'farm',
+          schema: 'farm',
+          // migrationsRun: false (default) — MigrationRunnerService in
+          // database.module executes migrations at OnApplicationBootstrap
+          // so SourceSchemaBootstrapService.synchronize() (OnModuleInit)
+          // creates base tables BEFORE any ALTER statement runs.
+          migrations: [
+            AddSystemHierarchy1734336000000,
+            AddBatchDocuments1734500000000,
+            AddRegulatorySettings1769000000000,
+            AddSpeciesTags1769100000000,
+            AddFeedMinFishWeight1770000000000,
+            AddStorageManagement1771000000000,
+            AddPurchaseOrders1772000000000,
+            AddWeatherTables1773000000000,
+            AddFeederCalibrations1774000000000,
+            AddFeederFieldsToExecution1775000000000,
+            ConvergeTenantIdTypesAndDropPondBatch1775900000000,
+            EnableRowLevelSecurity1776000000000,
+            CreateFarmOutboxTable1780300000000,
+            RefreshTenantRlsPredicate1781000000000,
+            ConvertFarmOutboxToIdentity1781200000000,
+            AddTenantActivePartialIndexes1781800000000,
+            ConvertAuditColumnsToTimestamptz1781900000000,
+            AddFarmOutboxLeaseColumns1782000000000,
+            AddFarmOutboxNotifyTrigger1782100000000,
+          ],
+        }),
     }),
 
     // GraphQL Federation

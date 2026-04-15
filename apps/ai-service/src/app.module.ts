@@ -1,6 +1,5 @@
-import { readFileSync } from 'fs';
 import { createHash } from 'crypto';
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -35,6 +34,7 @@ import {
   createMigrationRunnerService,
   SchemaDriftModule,
   PlatformJwtModule,
+  createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
@@ -76,65 +76,22 @@ const complexityCache = new Map<string, number>();
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
-    // Database connection - NO explicit schema!
-    // Schema isolation is handled by TenantSchemaMiddleware via PostgreSQL search_path
-    // search_path is set to: "tenant_xxx", ai, public
+    // Database connection — uses the platform TypeORM factory.
+    // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
+    // search_path per request. AiMigrationRunnerService (provider above)
+    // executes migrations at OnApplicationBootstrap; factory's
+    // migrationsRun:false default keeps TypeORM out of that codepath.
+    // INFRA-DB-SSL-001 fix: DB_SSL → DATABASE_SSL via factory.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
-        username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
-        database: configService.get('DATABASE_NAME', 'aquaculture'),
-        // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
-        entities: [
-          AgentConversation,
-          TenantAgentConfig,
-          ToolExecutionAudit,
-        ],
-        synchronize: configService.get('DATABASE_SYNC') === 'true' && configService.get('NODE_ENV') !== 'production',
-        // Migrations executed by AiMigrationRunnerService at
-        // OnApplicationBootstrap — search_path pinning, per-migration
-        // transaction isolation, production hard-fail semantics.
-        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
-        migrationsRun: false,
-        migrationsTableName: 'migrations',
-        logging: configService.get('NODE_ENV') === 'development',
-        ssl: (() => {
-          const sslEnabled = configService.get('DB_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: readFileSync(caPath) } : {}),
-          };
-        })(),
-        extra: {
-          max: configService.get<number>('DB_POOL_SIZE', 5),
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 10000,
-          // Default search_path targets the source schema so TypeORM sync/migrations
-          // create tables there. TenantConnectionBootstrap overrides per-request.
-          options: '-c search_path=ai,public',
-        },
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'ai',
+          schema: 'ai',
+          entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit],
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        }),
     }),
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,

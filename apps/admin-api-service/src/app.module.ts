@@ -1,5 +1,5 @@
-import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule, PlatformJwtModule } from '@aquaculture/backend-common';
-import { Module, Logger } from '@nestjs/common';
+import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig, buildDatabaseSslConfig } from '@aquaculture/backend-common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -43,72 +43,36 @@ import { UsersModule } from './users/users.module';
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
-    // Database connection with schema separation
-    // admin-api-service owns the 'admin' schema
-    // Note: Also has read-only access to auth/billing schemas for analytics
+    // Database connection — admin-api-service owns the 'admin' schema and
+    // has read-only access to auth/billing for analytics. Uses the
+    // platform TypeORM factory so pool size, SSL, fail-fast, env-var
+    // contract, and search_path semantics stay identical across services.
+    //
+    // INFRA-DB-SSL-001 fix: previously read DB_SSL while compose set
+    // DATABASE_SSL — SSL was silently disabled. Factory uses DATABASE_SSL.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get<string>('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
-        username: configService.get<string>('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
-        database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
-        schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
-        autoLoadEntities: true,
-        // SECURITY: Default to false — explicit DATABASE_SYNC=true required.
-        // Shared bootstrap guards against DATABASE_SYNC=true in production.
-        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
-        // Enterprise: Run pending migrations on startup (idempotent,
-        // safe for multi-replica because TypeORM tracks applied
-        // migrations in the `migrations` table with advisory-lock
-        // based single-runner semantics).
-        migrationsRun:
-          configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
-        // Class references (not glob paths) — webpack bundles all files
-        // into main.js and glob patterns match zero files at runtime.
-        // Matches the pattern used by farm-service and messaging-service.
-        migrations: [
-          ConvertTimestampToTimestamptz1781500000000,
-          AddMfaCompletedToImpersonationSessions1782100000000,
-        ],
-        logging: configService.get<string>('NODE_ENV') === 'development',
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get<string>('DB_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-        extra: {
-          // MEDIUM-007 fix: raised default pool size from 20 → 40.
-          // The admin-api-service fans out to 5 parallel metric queries on every
-          // dashboard call; 20 connections exhausted under concurrent usage.
-          max: configService.get<number>('DB_POOL_SIZE', 40),
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 10000,
-        },
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'admin-api',
+          schema: 'admin',
+          // MEDIUM-007: dashboard fans out 5 parallel metric queries. With a
+          // pool of 10, two concurrent dashboard loads drained the pool;
+          // operators saw `connection pool exhausted` under normal admin
+          // traffic. 40 was validated under concurrent superadmin sessions
+          // in 2026-Q1. Operators may further raise via DATABASE_POOL_SIZE.
+          defaultPoolSize: 40,
+          migrations: [
+            ConvertTimestampToTimestamptz1781500000000,
+            AddMfaCompletedToImpersonationSessions1782100000000,
+          ],
+          // admin-api opts in to TypeORM's built-in migration runner via the
+          // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other
+          // services use MigrationRunnerService factory pattern instead.
+          migrationsRunFromEnv: (cfg) =>
+            cfg.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+        }),
     }),
     /**
      * SECURITY (ADMIN-CRITICAL-004): Read-only DataSource for DB Explorer.
@@ -140,19 +104,15 @@ import { UsersModule } from './users/users.module';
           // SECURITY: No entities — this DataSource is for raw queries only
           entities: [],
           synchronize: false,
-          logging: configService.get<string>('NODE_ENV') === 'development',
-          ssl: (() => {
-            const sslEnabled = configService.get<string>('DB_SSL') === 'true';
-            if (!sslEnabled) return false;
-            const caPath = configService.get<string>('DATABASE_SSL_CA');
-            const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-            return {
-              rejectUnauthorized,
-              ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-            };
-          })(),
+          logging: configService.get<string>('DATABASE_LOGGING', 'false') === 'true',
+          // INFRA-DB-SSL-001: previously read DB_SSL while compose set DATABASE_SSL.
+          // buildDatabaseSslConfig is the single source of truth for SSL env-var contract.
+          ssl: buildDatabaseSslConfig(configService),
           extra: {
-            // SECURITY: Force read-only at connection level — defense-in-depth
+            // SECURITY: Force read-only at connection level — defense-in-depth.
+            // Independent from the platform factory because Explorer needs
+            // `-c default_transaction_read_only=on` instead of a search_path
+            // hint and does not participate in the connection-budget rules.
             options: '-c default_transaction_read_only=on',
             max: configService.get<number>('DB_EXPLORER_POOL_SIZE', 5),
             idleTimeoutMillis: 30000,

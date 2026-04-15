@@ -1,4 +1,4 @@
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -35,6 +35,7 @@ import {
   createMigrationRunnerService,
   SchemaDriftModule,
   PlatformJwtModule,
+  createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common';
 
 /**
@@ -113,101 +114,53 @@ import { PerformanceSummary, ReviewSummaryItem } from './performance/query-handl
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
-    // Database connection - NO explicit schema!
-    // Schema isolation is handled by TenantSchemaMiddleware via PostgreSQL search_path
-    // search_path is set to: "tenant_xxx", hr, public
-    // This ensures queries use tenant schema first, falling back to hr for shared data
+    // Database connection — uses the platform TypeORM factory.
+    // INTENTIONAL: no `schema:` — TenantSchemaMiddleware manages
+    // search_path per request. INFRA-DB-SSL-001 fix: DB_SSL → DATABASE_SSL.
+    // HrMigrationRunnerService (provider above) executes migrations at
+    // OnApplicationBootstrap; factory's migrationsRun:false default keeps
+    // TypeORM out of that codepath (search_path pinning + per-migration
+    // transaction isolation belong in the runner, not in TypeORM bootstrap).
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
-        username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
-        database: configService.get('DATABASE_NAME', 'aquaculture'),
-        // NOTE: Do NOT set 'schema' here! Schema is managed dynamically by TenantSchemaMiddleware
-        // Explicit entity list required for webpack bundle (glob patterns don't work)
-        entities: [
-          // Core HR
-          Employee,
-          Payroll,
-          PayrollAudit,
-          DepartmentHR,
-          HrOutbox,
-          // Leave
-          LeaveType,
-          LeaveBalance,
-          LeaveRequest,
-          // Attendance
-          Shift,
-          Schedule,
-          ScheduleEntry,
-          AttendanceRecord,
-          // Training
-          CertificationType,
-          EmployeeCertification,
-          TrainingCourse,
-          TrainingEnrollment,
-          // Aquaculture
-          WorkArea,
-          WorkRotation,
-          SafetyTrainingRecord,
-          // Scheduling
-          SchedulingSettings,
-          WeeklyPlan,
-          WeeklyPlanEntry,
-          Holiday,
-          // Performance
-          PerformanceReview,
-          Goal,
-          EmployeeKPI,
-        ],
-        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
-        // Migrations executed by HrMigrationRunnerService at
-        // OnApplicationBootstrap (replaces the gap called out in
-        // app.module.ts:300 — "hr-service has no TypeORM migration
-        // runner"). Search_path pinning + per-migration transaction
-        // isolation + production hard-fail semantics apply.
-        migrations: [__dirname + '/database/migrations/*.{js,ts}'],
-        migrationsRun: false,
-        migrationsTableName: 'migrations',
-        logging: configService.get('NODE_ENV') === 'development',
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get('DB_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-        extra: {
-          max: configService.get<number>('DB_POOL_SIZE', 20),
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 10000,
-          // Default search_path targets the source schema so TypeORM sync/migrations
-          // create tables there. TenantSchemaMiddleware overrides per-request.
-          options: '-c search_path=hr,public',
-        },
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'hr',
+          schema: 'hr',
+          // Explicit entity list required for webpack bundle (glob patterns
+          // don't work). Listing them here keeps autoLoad off so we never
+          // auto-pull a stray entity file.
+          entities: [
+            Employee,
+            Payroll,
+            PayrollAudit,
+            DepartmentHR,
+            HrOutbox,
+            LeaveType,
+            LeaveBalance,
+            LeaveRequest,
+            Shift,
+            Schedule,
+            ScheduleEntry,
+            AttendanceRecord,
+            CertificationType,
+            EmployeeCertification,
+            TrainingCourse,
+            TrainingEnrollment,
+            WorkArea,
+            WorkRotation,
+            SafetyTrainingRecord,
+            SchedulingSettings,
+            WeeklyPlan,
+            WeeklyPlanEntry,
+            Holiday,
+            PerformanceReview,
+            Goal,
+            EmployeeKPI,
+          ],
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+        }),
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,

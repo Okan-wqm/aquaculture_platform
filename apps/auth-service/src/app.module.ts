@@ -1,7 +1,5 @@
-import { readFileSync } from 'fs';
-
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -9,7 +7,7 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist, RlsModule, SchemaDriftModule } from '@aquaculture/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
@@ -35,60 +33,29 @@ import { TenantModule } from './modules/tenant/tenant.module';
       cache: true,
     }),
 
-    // Database connection with schema separation
-    // auth-service owns the 'auth' schema
+    // Database connection — auth-service owns the 'auth' schema. Uses the
+    // platform TypeORM factory so pool size, SSL, fail-fast, env-var
+    // contract, and search_path semantics stay identical across services.
+    // auth-service does NOT use TenantConnectionBootstrap (it owns a
+    // single global schema, not per-tenant ones), but the factory's
+    // `extra.options: -c search_path=auth,public` covers schema routing
+    // without needing TypeORM's `schema:` option.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST', 'localhost'),
-        port: configService.get('DATABASE_PORT', 5432),
-        username: configService.get('DATABASE_USER', 'postgres'),
-        password: dbPassword || 'postgres',
-        database: configService.get('DATABASE_NAME', 'aquaculture'),
-        schema: configService.get('DATABASE_SCHEMA', 'auth'),
-        autoLoadEntities: true,
-        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
-        // Enterprise: Run pending migrations on startup (idempotent, safe for multi-replica)
-        migrationsRun: true,
-        migrations: [__dirname + '/migrations/*{.ts,.js}'],
-        logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
-        // Connection pool configuration
-        extra: {
-          max: configService.get<number>('DATABASE_POOL_MAX', 20),
-          min: configService.get<number>('DATABASE_POOL_MIN', 5),
-          idleTimeoutMillis: configService.get<number>('DATABASE_POOL_IDLE_TIMEOUT', 30000),
-        },
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get('DATABASE_SSL', 'false') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          // SECURITY: Warn (but don't crash) when SSL verification is disabled in production.
-          // Managed DB providers (DigitalOcean, AWS RDS) on private VPC networks commonly
-          // use SSL without CA pinning. Crashing here blocks all deploys.
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: readFileSync(caPath) } : {}),
-          };
-        })(),
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'auth',
+          schema: 'auth',
+          // Enterprise: TypeORM's built-in migrationsRun is idempotent and
+          // safe for multi-replica because the `migrations` table acts as a
+          // distributed lock via row-level uniqueness on `name`. auth-service
+          // is the ONLY service still on this path; every other service uses
+          // the MigrationRunnerService factory which adds search_path
+          // invariants and production hard-fail semantics.
+          migrationsRun: true,
+          migrations: [__dirname + '/migrations/*{.ts,.js}'],
+        }),
     }),
 
     // Schema bootstrap — MUST be before any module that queries auth.users

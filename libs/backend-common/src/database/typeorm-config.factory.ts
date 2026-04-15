@@ -1,0 +1,308 @@
+import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
+
+import { buildDatabaseSslConfig } from './ssl-config';
+
+/**
+ * =============================================================================
+ * Service-level TypeORM configuration factory  (INFRA-DB-POOL-001)
+ * =============================================================================
+ *
+ * Single source of truth for the `TypeOrmModule.forRootAsync` payload that
+ * every backend service consumes. Before this factory existed, each service
+ * hand-rolled the same ~40 lines of TypeORM bootstrap inside its own
+ * `app.module.ts`, leading to:
+ *
+ *   - Three different env-var names for the same setting
+ *     (`DATABASE_POOL_SIZE`, `DB_POOL_SIZE`, `DATABASE_POOL_MAX`).
+ *   - Pool defaults that ranged from 5 to 50 with no documented rationale.
+ *   - `extra.options` strings copy-pasted with per-service search_path
+ *     tweaks that were easy to mis-edit.
+ *   - SSL bootstrap duplicated in every service (with subtle drift —
+ *     some services threw on production-without-CA, some only warned).
+ *   - No place to add a new database knob (e.g. RDS Proxy endpoint
+ *     switch in INFRA-DB-POOL-001 Track B) without touching 13 files.
+ *
+ * The factory lifts the duplication into one explicit, parameterised call.
+ * Services that need a non-default pool size (admin-api, MEDIUM-007 fix)
+ * pass `defaultPoolSize` with a comment explaining WHY at the call site —
+ * the justification lives next to the override, not buried deep in code.
+ *
+ * # Environment variable contract
+ *
+ *   DATABASE_HOST                       host                    default localhost
+ *   DATABASE_PORT                       port (number)           default 5432
+ *   DATABASE_USER                       username                default postgres
+ *   DATABASE_PASSWORD                   password (required in production — fail-fast)
+ *   DATABASE_NAME                       database name           default aquaculture
+ *   DATABASE_LOGGING                    "true" / "false"        default false
+ *   DATABASE_SYNC                       "true" / "false"        default false
+ *   DATABASE_POOL_SIZE                  pg pool max             default 10 (or `defaultPoolSize` opt)
+ *   DATABASE_POOL_MIN                   pg pool min             default 2
+ *   DATABASE_POOL_IDLE_TIMEOUT_MS       pg idle timeout (ms)    default 30000
+ *   DATABASE_POOL_CONNECTION_TIMEOUT_MS pg connect timeout (ms) default 5000
+ *   DATABASE_SSL                        "true" enables TLS       (see ssl-config.ts)
+ *   DATABASE_SSL_CA                     filesystem path to CA   (see ssl-config.ts)
+ *   DATABASE_SSL_REJECT_UNAUTHORIZED    "true" / "false"         (see ssl-config.ts)
+ *
+ * Pool size is bounded by the connection-budget invariant documented in
+ * `docs/runbooks/database-capacity.md`:
+ *
+ *   sum(per-service DATABASE_POOL_SIZE) × max(replica count) < max_connections × 0.7
+ *
+ * The CI script `tools/scripts/database/capacity-check.sh` enforces the
+ * invariant by parsing this factory's `defaultPoolSize` arguments.
+ *
+ * # Why `schema` is NOT applied as a TypeORM `schema:` option
+ *
+ * Setting `schema:` causes TypeORM to inject explicit schema prefixes into
+ * every query, overriding the per-request `search_path` set by
+ * `TenantConnectionBootstrap` (`tenant-connection-bootstrap.service.ts`).
+ * That breaks multi-tenant isolation. Instead we set the default
+ * `search_path` via the pg driver's `options:` param so:
+ *
+ *   1. CLI / migration / bootstrap connections (no request context) land on
+ *      the source schema.
+ *   2. Per-request connections get overridden by the bootstrap's
+ *      `SET search_path TO <tenant>,<source>,public` on every checkout.
+ *
+ * # Why `migrationsRun` defaults to `false`
+ *
+ * The platform standard is the per-service `MigrationRunnerService`
+ * factory (`migration-runner/`) which enforces a search_path invariant
+ * around each migration and hard-fails in production when
+ * `DATABASE_MIGRATIONS_RUN=false`. TypeORM's built-in `migrationsRun:true`
+ * skips those guardrails, so it is opt-in via the `migrationsRun` factory
+ * argument and only auth-service currently uses it (legacy).
+ */
+
+export interface ServiceTypeOrmOptions {
+  /**
+   * Short service identifier used in error messages and logger contexts.
+   * E.g. 'farm', 'sensor', 'auth'. Keep lowercase, no suffix.
+   */
+  serviceName: string;
+
+  /**
+   * Source schema that owns this service's tables. Becomes the default
+   * `search_path` for connections without a request context (migrations,
+   * bootstrap, TypeORM CLI). Per-request connections override this via
+   * `TenantConnectionBootstrap`.
+   */
+  schema: string;
+
+  /**
+   * Class references for this service's TypeORM migrations. Glob paths are
+   * NOT used — they match zero files at runtime in a bundled NestJS service.
+   */
+  migrations: ReadonlyArray<unknown>;
+
+  /**
+   * Optional explicit entity classes. Default is `autoLoadEntities: true`
+   * which picks up everything imported via `TypeOrmModule.forFeature`.
+   * Override only when a service has entities outside the forFeature graph.
+   */
+  entities?: ReadonlyArray<unknown>;
+
+  /**
+   * Service-specific override of the platform default pool size (10).
+   * MUST be paired with a call-site comment explaining the contention
+   * evidence. Example: admin-api uses 40 because its dashboard fans out
+   * 5 parallel metric queries (MEDIUM-007).
+   *
+   * Operators can override at deploy time via the `DATABASE_POOL_SIZE`
+   * env var; the call-site `defaultPoolSize` only sets a higher floor.
+   */
+  defaultPoolSize?: number;
+
+  /**
+   * Service-specific override of the platform default pool MIN (2). Most
+   * services do not need to touch this.
+   */
+  defaultPoolMin?: number;
+
+  /**
+   * Service-specific override of the platform default idle timeout
+   * (30000 ms). Use a longer value for services with continuous-ingestion
+   * workloads where letting connections drop and re-handshake adds
+   * noticeable latency (e.g. sensor-service @ 5 min for MQTT ingest).
+   */
+  defaultPoolIdleTimeoutMs?: number;
+
+  /**
+   * TypeORM EventSubscriber classes (e.g. AuditSubscriber). Optional
+   * because most services do not register subscribers; passing it through
+   * as a factory option keeps the call site explicit instead of leaking
+   * subscriber configuration into the factory.
+   */
+  subscribers?: ReadonlyArray<unknown>;
+
+  /**
+   * Use TypeORM's built-in migration runner (`true`) or defer to the
+   * `MigrationRunnerService` factory provider in this service's app
+   * module (`false`, default). Only auth-service uses `true` today.
+   */
+  migrationsRun?: boolean;
+
+  /**
+   * Conditional override for `migrationsRun` based on env. Provided as a
+   * function so the factory can evaluate against the running ConfigService
+   * without leaking ConfigService into the call site twice. Mutually
+   * exclusive with `migrationsRun`.
+   */
+  migrationsRunFromEnv?: (configService: ConfigService) => boolean;
+
+  /**
+   * Additional pg driver `extra` keys merged AFTER the factory defaults,
+   * giving call sites a defined extension surface without forcing a fork
+   * of the whole `extra:` block. Use sparingly — every key here is a
+   * spot of drift waiting to happen.
+   */
+  extraOptions?: Record<string, unknown>;
+}
+
+/**
+ * Build the TypeOrmModule.forRootAsync `useFactory` payload for one service.
+ *
+ * @example
+ * ```ts
+ * TypeOrmModule.forRootAsync({
+ *   imports: [ConfigModule],
+ *   inject: [ConfigService],
+ *   useFactory: (configService: ConfigService) =>
+ *     createServiceTypeOrmConfig(configService, {
+ *       serviceName: 'farm',
+ *       schema: 'farm',
+ *       migrations: [AddSystemHierarchy1734336000000, ...]
+ *     }),
+ * }),
+ * ```
+ *
+ * @example Service-specific pool override with documented reason
+ * ```ts
+ * useFactory: (configService: ConfigService) =>
+ *   createServiceTypeOrmConfig(configService, {
+ *     serviceName: 'admin-api',
+ *     schema: 'admin',
+ *     migrations: [...],
+ *     // MEDIUM-007: dashboard fans out 5 parallel metric queries; 10 was
+ *     // tight under concurrent superadmin sessions. Validated at 40 in
+ *     // 2026-Q1. Operators may further raise via DATABASE_POOL_SIZE env.
+ *     defaultPoolSize: 40,
+ *   }),
+ * ```
+ */
+export function createServiceTypeOrmConfig(
+  configService: ConfigService,
+  opts: ServiceTypeOrmOptions,
+): TypeOrmModuleOptions {
+  if (opts.migrationsRun !== undefined && opts.migrationsRunFromEnv !== undefined) {
+    throw new Error(
+      `[${opts.serviceName}] createServiceTypeOrmConfig: pass either migrationsRun OR migrationsRunFromEnv, not both`,
+    );
+  }
+
+  // SECURITY: fail-fast in production if the password is missing. We check
+  // process.env directly here (instead of configService.get) so a forgotten
+  // ConfigModule.forRoot wiring cannot mask the requirement.
+  const dbPassword = configService.get<string>('DATABASE_PASSWORD');
+  if (!dbPassword && process.env['NODE_ENV'] === 'production') {
+    throw new Error(
+      `SECURITY: DATABASE_PASSWORD must be set in production (service=${opts.serviceName})`,
+    );
+  }
+
+  const migrationsRun =
+    opts.migrationsRunFromEnv != null
+      ? opts.migrationsRunFromEnv(configService)
+      : opts.migrationsRun ?? false;
+
+  // Hot-path: read env once into a local; ConfigService.get does a string-
+  // parse on each call which adds up across 13 services × N reads.
+  const poolMax = configService.get<number>(
+    'DATABASE_POOL_SIZE',
+    opts.defaultPoolSize ?? DEFAULT_POOL_SIZE,
+  );
+  const poolMin = configService.get<number>(
+    'DATABASE_POOL_MIN',
+    opts.defaultPoolMin ?? DEFAULT_POOL_MIN,
+  );
+  const poolIdleTimeoutMs = configService.get<number>(
+    'DATABASE_POOL_IDLE_TIMEOUT_MS',
+    opts.defaultPoolIdleTimeoutMs ?? DEFAULT_POOL_IDLE_TIMEOUT_MS,
+  );
+  const poolConnectionTimeoutMs = configService.get<number>(
+    'DATABASE_POOL_CONNECTION_TIMEOUT_MS',
+    DEFAULT_POOL_CONNECTION_TIMEOUT_MS,
+  );
+
+  // Defensive log on every bootstrap so capacity drift is greppable.
+  // Single line per service keeps it cheap; structured fields make it
+  // amenable to log-based dashboards.
+  new Logger(`TypeORM(${opts.serviceName})`).log(
+    `pool max=${poolMax} min=${poolMin} schema=${opts.schema} migrationsRun=${migrationsRun}`,
+  );
+
+  return {
+    type: 'postgres',
+    host: configService.get('DATABASE_HOST', 'localhost'),
+    port: configService.get<number>('DATABASE_PORT', 5432),
+    username: configService.get('DATABASE_USER', 'postgres'),
+    password: dbPassword || 'postgres',
+    database: configService.get('DATABASE_NAME', 'aquaculture'),
+    // INTENTIONAL: do NOT set `schema` — see factory docblock §"Why schema is NOT applied".
+    autoLoadEntities: opts.entities == null,
+    entities: opts.entities as Array<Function> | undefined,
+    subscribers: opts.subscribers as Array<Function> | undefined,
+    synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+    migrationsRun,
+    migrations: opts.migrations as Array<Function>,
+    logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
+    ssl: buildDatabaseSslConfig(configService),
+    extra: {
+      max: poolMax,
+      min: poolMin,
+      idleTimeoutMillis: poolIdleTimeoutMs,
+      connectionTimeoutMillis: poolConnectionTimeoutMs,
+      // Default search_path covers no-context connections (CLI, migrations,
+      // bootstrap). Per-request connections are overridden on checkout by
+      // TenantConnectionBootstrap.
+      options: `-c search_path=${opts.schema},public`,
+      ...opts.extraOptions,
+    },
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Defaults
+// -----------------------------------------------------------------------------
+
+/**
+ * Platform default pool max. Sized so 13 services × 10 = 130 connections
+ * fits comfortably below the droplet `max_connections=300` and leaves
+ * headroom for migrations, bootstrap, and ad-hoc psql sessions. Per-service
+ * overrides via `defaultPoolSize` arg or `DATABASE_POOL_SIZE` env var.
+ */
+export const DEFAULT_POOL_SIZE = 10;
+
+/**
+ * Platform default pool min — keeps a warm baseline so the first request
+ * after idle does not pay full TLS handshake + auth round-trip latency.
+ */
+export const DEFAULT_POOL_MIN = 2;
+
+/**
+ * pg driver default is 10 seconds. We tighten to 30s instead of leaving
+ * the default 10s because some long-lived idle connections (the
+ * outbox-notify listener) intentionally sleep on LISTEN.
+ */
+export const DEFAULT_POOL_IDLE_TIMEOUT_MS = 30_000;
+
+/**
+ * Connection acquisition timeout. 5 seconds is generous for a healthy
+ * cluster and short enough to fail fast when the pool is exhausted (so
+ * the request's own deadline error fires before the upstream LB times
+ * us out).
+ */
+export const DEFAULT_POOL_CONNECTION_TIMEOUT_MS = 5_000;

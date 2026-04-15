@@ -7,7 +7,7 @@ import { join } from 'path';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule } from '@aquaculture/backend-common';
+import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
 
 /**
  * ConfigMigrationRunnerService — runs pending TypeORM migrations in the
@@ -35,48 +35,21 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       cache: true,
     }),
 
+    // Database connection — config-service currently lives in the `public`
+    // schema (will migrate to dedicated `config` schema in P6-P10 of the
+    // 2026-04-14 teardown plan). Uses the platform TypeORM factory.
+    // ConfigMigrationRunnerService (provider above) executes migrations
+    // at OnApplicationBootstrap; factory's migrationsRun:false default
+    // keeps TypeORM out of that codepath.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD must be set in production');
-        }
-        return {
-          type: 'postgres',
-          host: configService.get('DATABASE_HOST', 'localhost'),
-          port: configService.get<number>('DATABASE_PORT', 5432),
-          username: configService.get('DATABASE_USER', 'postgres'),
-          password: dbPassword || 'postgres',
-          database: configService.get('DATABASE_NAME', 'config_service'),
-          autoLoadEntities: true,
-          synchronize: false,
-          // Discover migrations at boot but defer execution to
-          // ConfigMigrationRunnerService so we get search_path pinning,
-          // per-migration transaction isolation, and production hard-fail
-          // semantics on DATABASE_MIGRATIONS_RUN=false.
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'config',
+          schema: 'public',
           migrations: [__dirname + '/database/migrations/*.{js,ts}'],
-          migrationsRun: false,
-          migrationsTableName: 'migrations',
-          logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
-          ssl: (() => {
-            const sslEnabled = configService.get('DATABASE_SSL') === 'true';
-            if (!sslEnabled) return false;
-            const caPath = configService.get<string>('DATABASE_SSL_CA');
-            const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-            return {
-              rejectUnauthorized,
-              ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-            };
-          })(),
-          extra: {
-            max: configService.get<number>('DATABASE_POOL_SIZE', 10),
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 10000,
-          },
-        };
-      },
+        }),
     }),
 
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({

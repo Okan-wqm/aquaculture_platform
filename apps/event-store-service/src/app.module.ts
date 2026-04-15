@@ -1,10 +1,10 @@
-import { Module, Logger } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
-import { LoggingModule, RlsModule } from '@aquaculture/backend-common';
+import { LoggingModule, RlsModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
 import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
@@ -19,48 +19,28 @@ import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    // Database connection — event-store-service owns the `event_store`
+    // schema. Uses the platform TypeORM factory.
+    //
+    // INFRA-DB-ENV-001 fix: previously read DB_HOST/DB_PORT/DB_USERNAME/
+    // DB_PASSWORD/DB_NAME/DB_SSL — drift from the platform-standard
+    // DATABASE_* env-var contract enforced by the factory. event-store is
+    // not yet deployed, so no operator config breaks; future deploys must
+    // use DATABASE_* (matches every other backend service).
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST', 'localhost'),
-        port: configService.get<number>('DB_PORT', 5432),
-        username: configService.get<string>('DB_USERNAME', 'postgres'),
-        password: configService.get<string>('DB_PASSWORD', 'postgres'),
-        database: configService.get<string>('DB_NAME', 'aquaculture_events'),
-        autoLoadEntities: true,
-        synchronize: configService.get<string>('NODE_ENV') === 'development',
-        migrationsRun:
-          configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
-        migrations: [
-          AddStoredEventsImmutabilityTriggers1782000000000,
-        ],
-        logging: configService.get<string>('NODE_ENV') === 'development',
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get<string>('DB_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-        extra: {
-          max: configService.get<number>('DB_POOL_SIZE', 20),
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 10000,
-        },
-      }),
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'event-store',
+          schema: 'event_store',
+          migrations: [AddStoredEventsImmutabilityTriggers1782000000000],
+          // event-store opts in to TypeORM's built-in migration runner via
+          // DATABASE_MIGRATIONS_RUN (default true). No MigrationRunnerService
+          // for this service yet.
+          migrationsRunFromEnv: (cfg) =>
+            cfg.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+        }),
     }),
     CqrsModule.forRoot(),
     // Schedule module — single forRoot() for the entire service

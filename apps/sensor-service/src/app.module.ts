@@ -2,7 +2,7 @@ import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
 } from '@nestjs/apollo';
-import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -23,6 +23,7 @@ import {
   RedisModule,
   RlsModule,
   PlatformJwtModule,
+  createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -117,123 +118,85 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       cache: true,
     }),
 
-    // Database connection with schema separation
-    // sensor-service owns the 'sensor' schema - uses TimescaleDB (PostgreSQL extension)
+    // Database connection — sensor-service owns the 'sensor' schema (over
+    // TimescaleDB). Uses the platform TypeORM factory.
+    // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
+    // search_path per request.
+    //
+    // MEDIUM-006: pool sized 50 / min 10 / idle 5min for continuous MQTT
+    // ingestion — connection cold-starts during burst ingest cause
+    // >100ms tail-latency spikes. Idle 5min prevents pool churn between
+    // bursts. Operators may further tune via DATABASE_POOL_* env vars.
+    //
+    // Legacy TIMESCALE_* env-var fallbacks were removed — they were not
+    // set anywhere in the platform (compose / helm / .env). Operator
+    // config flows through DATABASE_* uniformly.
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // SECURITY: Fail fast in production if database password is not configured
-        const dbPassword = configService.get<string>('DATABASE_PASSWORD') || configService.get<string>('TIMESCALE_PASSWORD');
-        if (!dbPassword && process.env['NODE_ENV'] === 'production') {
-          throw new Error('SECURITY: DATABASE_PASSWORD or TIMESCALE_PASSWORD must be set in production');
-        }
-        return {
-        type: 'postgres',
-        host: configService.get('DATABASE_HOST') || configService.get('TIMESCALE_HOST') || 'localhost',
-        port: configService.get<number>('DATABASE_PORT') || configService.get<number>('TIMESCALE_PORT') || 5432,
-        username: configService.get('DATABASE_USER') || configService.get('TIMESCALE_USER') || 'postgres',
-        password: dbPassword || 'postgres',
-        database: configService.get('DATABASE_NAME') || configService.get('TIMESCALE_DATABASE') || 'aquaculture',
-        // Schema is now dynamic - set via search_path in TenantSchemaMiddleware
-        // schema: undefined - entities should not specify schema, it comes from search_path
-        // Explicit entity list required for webpack bundle (glob patterns don't work)
-        entities: [
-          Sensor,
-          SensorReading,
-          SensorProtocol,
-          SensorDataChannel,
-          VfdDevice,
-          VfdReading,
-          VfdRegisterMapping,
-          Process,
-          ScadaPackage,
-          DashboardLayout,
-          EdgeDevice,
-          DeviceIoConfig,
-          LoRaDevice,
-          TenantProvisioningKey,
-          DeviceEvent,
-          // Automation entities (IEC 61131-3)
-          AutomationProgram,
-          ProgramStep,
-          StepAction,
-          ProgramTransition,
-          ProgramVariable,
-          DeploymentLog,
-          // PLC Control entities (OPC UA)
-          PlcConnection,
-          FeedingParameter,
-          PlcAlarm,
-          PlcTelemetry,
-          // Dynamic sensor type entities
-          SensorTypeDefinition,
-          IndustryTemplate,
-          ChannelDetectionLog,
-          // Unified SCADA entities
-          UnifiedTag,
-          ScadaDeployLog,
-          // Device group entities
-          DeviceGroup,
-          DeviceGroupMember,
-          // VFD Programming entities (remote parameter programming)
-          VfdParameterDefinition,
-          VfdChangeSet,
-          VfdChangeSetItem,
-          VfdParameterAuditLog,
-          VfdAutomationRule,
-          // Audit trail
-          AuditLog,
-        ],
-        migrations: [
-          CreateDynamicSensorTypes1740200000000,
-          CreateProcessesTable1740300000000,
-          CreateAutomationTables1740300001000,
-          AddEnterprisePlcConnectionFields1741100000000,
-          EnterprisePerformanceOptimizations1741200000000,
-          AddSensorProtocolTopicIndex1781400000000,
-          ConvertAuditColumnsToTimestamptz1781900000000,
-          MovePublicTablesToSensor1786000100000,
-        ],
-        // When sync is on (initial deploy), skip migrations to avoid index conflicts.
-        // When sync is off (production), run migrations for structural changes.
-        synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
-        migrationsRun: configService.get('DATABASE_SYNC', 'false') !== 'true',
-        logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
-        subscribers: [AuditSubscriber],
-        // SECURITY: SSL configuration with proper certificate validation
-        ssl: (() => {
-          const sslEnabled = configService.get('DATABASE_SSL') === 'true';
-          if (!sslEnabled) return false;
-
-          const isProduction = configService.get('NODE_ENV') === 'production';
-          const caPath = configService.get<string>('DATABASE_SSL_CA');
-          const rejectUnauthorized = configService.get('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false';
-
-          if (isProduction && !rejectUnauthorized && !caPath) {
-            new Logger('TypeORM').warn('SECURITY: SSL certificate verification disabled in production. Set DATABASE_SSL_CA for MITM protection.');
-          }
-
-          return {
-            rejectUnauthorized,
-            ...(caPath ? { ca: require('fs').readFileSync(caPath) } : {}),
-          };
-        })(),
-        extra: {
-          // Connection pool optimized for time-series / continuous ingestion (MEDIUM-006)
-          // max: 50 handles concurrent MQTT ingestion + HTTP requests + health checks
-          max: configService.get<number>('DATABASE_POOL_SIZE', 50),
-          // min: 10 keeps warm connections for continuous ingestion (avoids cold-start latency)
-          min: configService.get<number>('DATABASE_POOL_MIN', 10),
-          // 5 minutes — prevents churn during continuous MQTT ingestion
-          idleTimeoutMillis: configService.get<number>('DATABASE_IDLE_TIMEOUT_MS', 300000),
-          connectionTimeoutMillis: 5000,
-          // Default search_path targets the source schema so TypeORM sync/migrations
-          // create tables there. TenantSchemaMiddleware overrides per-request.
-          options: '-c search_path=sensor,public',
-        },
-      };
-      },
+      useFactory: (configService: ConfigService) =>
+        createServiceTypeOrmConfig(configService, {
+          serviceName: 'sensor',
+          schema: 'sensor',
+          defaultPoolSize: 50,
+          defaultPoolMin: 10,
+          defaultPoolIdleTimeoutMs: 300_000,
+          subscribers: [AuditSubscriber],
+          entities: [
+            Sensor,
+            SensorReading,
+            SensorProtocol,
+            SensorDataChannel,
+            VfdDevice,
+            VfdReading,
+            VfdRegisterMapping,
+            Process,
+            ScadaPackage,
+            DashboardLayout,
+            EdgeDevice,
+            DeviceIoConfig,
+            LoRaDevice,
+            TenantProvisioningKey,
+            DeviceEvent,
+            AutomationProgram,
+            ProgramStep,
+            StepAction,
+            ProgramTransition,
+            ProgramVariable,
+            DeploymentLog,
+            PlcConnection,
+            FeedingParameter,
+            PlcAlarm,
+            PlcTelemetry,
+            SensorTypeDefinition,
+            IndustryTemplate,
+            ChannelDetectionLog,
+            UnifiedTag,
+            ScadaDeployLog,
+            DeviceGroup,
+            DeviceGroupMember,
+            VfdParameterDefinition,
+            VfdChangeSet,
+            VfdChangeSetItem,
+            VfdParameterAuditLog,
+            VfdAutomationRule,
+            AuditLog,
+          ],
+          migrations: [
+            CreateDynamicSensorTypes1740200000000,
+            CreateProcessesTable1740300000000,
+            CreateAutomationTables1740300001000,
+            AddEnterprisePlcConnectionFields1741100000000,
+            EnterprisePerformanceOptimizations1741200000000,
+            AddSensorProtocolTopicIndex1781400000000,
+            ConvertAuditColumnsToTimestamptz1781900000000,
+            MovePublicTablesToSensor1786000100000,
+          ],
+          // When sync is on (initial deploy), skip migrations to avoid index conflicts.
+          // When sync is off (production), run migrations for structural changes.
+          migrationsRunFromEnv: (cfg) =>
+            cfg.get('DATABASE_SYNC', 'false') !== 'true',
+        }),
     }),
 
     // GraphQL Federation

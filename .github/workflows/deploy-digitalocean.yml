@@ -24,11 +24,31 @@
 name: Deploy to DigitalOcean
 
 on:
-  # Only deploy after CI passes (ci-affected workflow must succeed first)
-  workflow_run:
-    workflows: ["CI - Affected"]
-    types: [completed]
-    branches: [main]
+  # Reusable subworkflow: invoked from .github/workflows/ci-affected.yml
+  # as the final job after lint/type-check/test/build all pass on push to
+  # main. Replaces the previous `workflow_run` event-chain trigger which
+  # has a known fragility: GitHub silently stops registering the chain
+  # if the workflow file fails its internal schema validation, with no
+  # surfaced error. workflow_call is a synchronous subworkflow call —
+  # if it cannot start, CI Affected itself fails (visible signal),
+  # rather than the deploy silently no-firing (invisible failure mode).
+  workflow_call:
+    inputs:
+      services:
+        description: 'Services to deploy (comma-separated, or "all")'
+        required: false
+        type: string
+        default: 'all'
+      bypass_staging_gate:
+        description: 'EMERGENCY ONLY — bypass the staging-success gate.'
+        required: false
+        type: string
+        default: 'false'
+      bypass_reason:
+        description: 'Required when bypass_staging_gate=true.'
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       services:
@@ -40,15 +60,30 @@ on:
       # Set this to 'true' ONLY for genuine emergency hotfixes when staging is
       # broken and a prod fix cannot wait. The bypass is logged and the deploy
       # banner warns loudly — this is not a business-as-usual switch.
+      #
+      # NOTE: `type: string` (not `boolean`) — kept identical to the
+      # workflow_call inputs above so a single bash check works for both
+      # invocation paths. The historical `type: boolean` was suspected of
+      # tripping GitHub's schema validation on the workflow_run path and
+      # was eliminated in TRACK A.
       bypass_staging_gate:
         description: 'EMERGENCY ONLY — bypass the staging-success gate. Document the reason below.'
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: 'false'
       bypass_reason:
         description: 'Required when bypass_staging_gate=true. Why is staging being skipped? (e.g. "staging droplet offline; CVE-XXXX-YYYY fix")'
         required: false
         default: ''
+
+# Permissions are declared explicitly here so workflow_call invocations
+# from ci-affected.yml (which restricts to `contents: read`) can still
+# push images and tags. The called workflow's permissions OVERRIDE the
+# caller's when declared at this top level.
+permissions:
+  contents: write   # push the deployed/production tag after success
+  packages: write   # push container images to GHCR
+  id-token: write   # OIDC for GHCR auth where used
 
 env:
   REGISTRY: ghcr.io
@@ -81,9 +116,14 @@ jobs:
   #   when staging itself is down.
   # ===========================================================================
   staging-gate:
-    # Same CI-success precondition as prepare — prod only runs when CI passed.
+    # workflow_call is invoked from ci-affected.yml's final `deploy` job
+    # only after every other CI gate is green — the implicit precondition
+    # is satisfied by the `needs:` graph in the calling workflow, so this
+    # job has no further gating logic of its own. workflow_dispatch is
+    # operator-initiated and trusted by definition.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60   # staging deploy typically lands in ~30 min
@@ -207,9 +247,12 @@ jobs:
   # ===========================================================================
   prepare:
     needs: [staging-gate]
-    # Only deploy if CI workflow succeeded (skip if it failed or was cancelled)
+    # CI-success precondition is now implicit: workflow_call is only
+    # invoked from ci-affected.yml's final `deploy` job after all other
+    # jobs are green. workflow_dispatch is operator-initiated.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
@@ -277,9 +320,12 @@ jobs:
             AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
             FULL_DEPLOY=true
 
-          # ── Case 3: workflow_run — detect from deployed/production tag ──
+          # ── Case 3: workflow_call (push from CI) or other — detect from
+          #   the deployed/production tag. Computes the diff against the
+          #   last successful prod deploy so only services actually
+          #   touched since then get rebuilt + redeployed.
           else
-            echo "Mode: workflow_run — detecting changes since last deploy"
+            echo "Mode: workflow_call/push — detecting changes since last deploy"
             DEPLOY_BASE=$(git rev-parse deployed/production 2>/dev/null || echo "")
             if [ -z "$DEPLOY_BASE" ]; then
               echo "  No deployed/production tag found — full deploy"

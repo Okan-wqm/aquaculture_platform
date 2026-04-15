@@ -1234,17 +1234,13 @@ jobs:
               echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
               # Pull the migration image separately so its failure doesn't
               # cascade into the service-container pull logic below.
-<<<<<<< HEAD
+              # The compose SERVICE name is `db-migrate` (the container_name
+              # is `aqua-db-migrate` but `docker compose` operates on service
+              # names, not container names).
               docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
               if ! docker compose -f docker-compose.droplet.yml \
                     up --no-build --abort-on-container-exit \
                     --exit-code-from db-migrate db-migrate; then
-=======
-              docker compose -f docker-compose.droplet.yml pull aqua-db-migrate 2>&1 || true
-              if ! docker compose -f docker-compose.droplet.yml \
-                    up --no-build --abort-on-container-exit \
-                    --exit-code-from aqua-db-migrate aqua-db-migrate; then
->>>>>>> 9a533f89 (feat(deploy): staging environment shelf-ready (WS9 / ADR-016 Phase D))
                 echo "::error::aqua-db-migrate failed — schema migration aborted BEFORE service containers started."
                 echo "Inspect logs: docker logs aqua-db-migrate"
                 exit 1
@@ -1331,37 +1327,23 @@ jobs:
               # ─────────────────────────────────────────────────────────────
               # WS10 / ADR-016 Phase E — one-shot schema migration container.
               #
-<<<<<<< HEAD
               # Even on a selective deploy, run aqua-db-migrate before the
-=======
-              # Even on a selective deploy, we run aqua-db-migrate before the
->>>>>>> 9a533f89 (feat(deploy): staging environment shelf-ready (WS9 / ADR-016 Phase D))
               # affected services restart. Pending migrations only land on
               # services that were changed, but the migration SET typically
               # spans schemas a service change did not touch (e.g. a shared
               # auth-schema tenant_id column rename lands in auth-service's
               # own migration but other services' RLS policies depend on
-<<<<<<< HEAD
               # the new column name). Running the full migration pass keeps
               # schema state coherent regardless of which services this
               # deploy restarts.
               # ─────────────────────────────────────────────────────────────
               echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
+              # The compose SERVICE name is `db-migrate` (container_name is
+              # `aqua-db-migrate`).
               docker compose -f docker-compose.droplet.yml pull db-migrate 2>&1 || true
               if ! docker compose -f docker-compose.droplet.yml \
                     up --no-build --abort-on-container-exit \
                     --exit-code-from db-migrate db-migrate; then
-=======
-              # the new column name). Running the full migration pass
-              # keeps schema state coherent regardless of which services
-              # this deploy restarts.
-              # ─────────────────────────────────────────────────────────────
-              echo "=== Running aqua-db-migrate (one-shot schema runner) ==="
-              docker compose -f docker-compose.droplet.yml pull aqua-db-migrate 2>&1 || true
-              if ! docker compose -f docker-compose.droplet.yml \
-                    up --no-build --abort-on-container-exit \
-                    --exit-code-from aqua-db-migrate aqua-db-migrate; then
->>>>>>> 9a533f89 (feat(deploy): staging environment shelf-ready (WS9 / ADR-016 Phase D))
                 echo "::error::aqua-db-migrate failed — selective deploy aborted BEFORE restarting services."
                 echo "Inspect logs: docker logs aqua-db-migrate"
                 exit 1

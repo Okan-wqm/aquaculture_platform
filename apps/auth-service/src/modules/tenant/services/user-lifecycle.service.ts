@@ -837,7 +837,7 @@ export class UserLifecycleService {
     }
 
     if (inviter.role === Role.TENANT_ADMIN) {
-      if ((ranks[targetRole] ?? 0) <= ranks[Role.TENANT_ADMIN]) return;
+      if ((ranks[targetRole] ?? 0) <= (ranks[Role.TENANT_ADMIN] ?? 0)) return;
       throw new ForbiddenException(
         'Cannot create user with higher role than your own',
       );

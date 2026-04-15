@@ -76,6 +76,12 @@ jobs:
       # Render the chart and schema-validate every resource. -ignore-missing-schemas
       # lets us pass for CRDs we don't vendor locally (ExternalSecret, ClusterSecretStore,
       # ServiceMonitor, etc.). -strict catches typos in core API fields.
+      #
+      # The chart's secrets.yaml uses `{{ required ... }}` on every secret value
+      # so a real `helm install` cannot proceed without operator-supplied
+      # creds. CI is template-validation only — pass dummy values via --set so
+      # the `required` guards do not block the render. The dummy values are
+      # NEVER written to a cluster from this workflow.
       - name: Helm template | kubeconform (${{ matrix.values }})
         working-directory: ${{ env.CHART_DIR }}
         run: |
@@ -83,6 +89,14 @@ jobs:
           helm template aquaculture . \
             --values ${{ matrix.values }} \
             --namespace aquaculture \
+            --set 'secrets.databaseUrl=postgres://ci:ci@localhost:5432/ci' \
+            --set 'secrets.redisUrl=redis://localhost:6379' \
+            --set 'secrets.natsUrl=tls://nats:4222' \
+            --set 'secrets.passwordPepper=ci-dummy-pepper' \
+            --set 'secrets.jwtPrivateKey=ci-dummy-private-key' \
+            --set 'secrets.jwtPublicKey=ci-dummy-public-key' \
+            --set 'secrets.stripeWebhookSecret=ci-dummy-stripe-webhook' \
+            --set 'secrets.stripeApiKey=ci-dummy-stripe-api' \
           | kubeconform \
               -strict \
               -ignore-missing-schemas \

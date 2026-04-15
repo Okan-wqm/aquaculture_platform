@@ -4,7 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
-import { LoggingModule } from '@aquaculture/backend-common';
+import { LoggingModule, RlsModule } from '@aquaculture/backend-common';
 import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';

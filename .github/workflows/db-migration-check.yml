@@ -190,47 +190,23 @@ jobs:
           echo "All migration timestamps are unique within each service."
 
       # -------------------------------------------------------------------
-      # Check 4: type-check migration files so structural TypeScript
-      # errors surface here rather than at deploy time. We install
-      # dependencies once and then run `tsc --noEmit` against every
-      # service's `tsconfig.build.json` that actually contains
-      # migrations. The install is expensive (~90s on a cold cache) but
-      # runs once per workflow invocation, and type-checking each
-      # service is sub-10 seconds because tsc has skipLibCheck: true.
+      # Check 4 — REMOVED in TRACK C (scope realignment).
+      #
+      # The previous revision compiled EVERY service that owns
+      # migrations with `tsc --noEmit`, regardless of whether the PR
+      # touched migration code. That made this gate fail on pre-existing
+      # TS strict-null errors in totally unrelated libraries (e.g.
+      # `libs/aquaculture-engines/water-chemistry/reagents.ts`) every
+      # time anyone touched any `.entity.ts` file.
+      #
+      # Type-checking belongs in `ci-affected.yml`'s dedicated
+      # `type-check` job which uses `nx affected -t type-check` —
+      # only the services actually affected by a change get checked,
+      # and the same gate applies uniformly to the whole codebase
+      # (not just services that happen to own migrations).
+      #
+      # This workflow now focuses strictly on its named purpose:
+      # migration filename / class-name / timestamp-uniqueness
+      # conventions. The whole-service compile is no longer this
+      # workflow's concern.
       # -------------------------------------------------------------------
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
-
-      - name: Type-check every service that owns migrations
-        run: |
-          set -euo pipefail
-          # Services with migrations, derived from the filesystem so this
-          # list stays in sync automatically when a new service is added.
-          services=$(
-            find apps -type d -name migrations \
-              | sed -E 's|apps/([^/]+)/.*|\1|' \
-              | sort -u
-          )
-          if [ -z "$services" ]; then
-            echo "No services with migrations — nothing to check."
-            exit 0
-          fi
-
-          FAILED=0
-          for svc in $services; do
-            tsconfig="apps/${svc}/tsconfig.build.json"
-            if [ ! -f "$tsconfig" ]; then
-              echo "::warning::Service '$svc' has migrations but no $tsconfig — skipping"
-              continue
-            fi
-            echo "─── Type-checking $svc ───"
-            if ! npx --no-install tsc -p "$tsconfig" --noEmit; then
-              echo "::error::Type-check failed for service '$svc'"
-              FAILED=1
-            fi
-          done
-
-          if [ "$FAILED" -eq 1 ]; then
-            exit 1
-          fi
-          echo "All services with migrations type-checked successfully."

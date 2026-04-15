@@ -15,6 +15,7 @@ import Redis from 'ioredis';
 import {
   createE2eTestApp,
   gqlRequest,
+  expectGqlOk,
   setupTenantSchemas,
   cleanupTenantData,
   flushAllTestRedisKeys,
@@ -59,7 +60,11 @@ describe('Rate Limiting (E2E)', () => {
     await setupTenantSchemas(dataSource, [TENANT_A]);
     resetIdempotencyCounter();
 
-    // Create a test channel with both users
+    // Create a test channel with both users.
+    // expectGqlOk surfaces the GraphQL `errors` array on failure
+    // (TRACK E) — replaces the historical .expect(200) +
+    // body.data.X.id pattern that silently produced
+    // "Cannot read properties of null" with no diagnostic content.
     const channelRes = await gqlRequest(httpServer, TENANT_A, ADMIN_A, ['TENANT_ADMIN'])
       .query(CREATE_CHANNEL, {
         input: {
@@ -67,9 +72,12 @@ describe('Rate Limiting (E2E)', () => {
           name: 'Hız Sınırı Test Kanalı',
           memberIds: [USER_A1, USER_A2, ADMIN_A],
         },
-      })
-      .expect(200);
-    channelId = channelRes.body.data.createChannel.id;
+      });
+    const created = expectGqlOk<{ createChannel: { id: string } }>(
+      channelRes,
+      'createChannel',
+    );
+    channelId = created.createChannel.id;
 
     // Flush rate limit keys to ensure clean state
     await flushAllTestRedisKeys(redis);

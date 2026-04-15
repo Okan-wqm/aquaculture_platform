@@ -200,6 +200,49 @@ export function gqlRequest(
   };
 }
 
+/**
+ * Assert a GraphQL response is fully successful (no `errors`, non-null
+ * `data`) and return the typed payload. Replaces the historical
+ * pattern of `.expect(200)` followed by `res.body.data.X.id` which
+ * silently returned `undefined` and produced "Cannot read properties
+ * of null (reading 'X')" stack traces with no diagnostic content.
+ *
+ * Use this helper at every place an E2E test reads `res.body.data.<op>`
+ * — the failure message becomes the actual GraphQL error array, which
+ * tells the operator what to fix instead of where the assertion blew
+ * up.
+ *
+ * TRACK E (architectural-fix shape): we don't yet know the root cause
+ * of the rate-limiting spec's pre-existing flake (createChannel
+ * returning null at beforeAll). Surfacing the actual error is the
+ * Tier-1 prerequisite to root-causing it.
+ */
+export function expectGqlOk<T = Record<string, unknown>>(
+  res: { status: number; body: { data?: T | null; errors?: unknown[] } },
+  opName?: string,
+): T {
+  const label = opName ? ` (${opName})` : '';
+  if (res.status !== 200) {
+    throw new Error(
+      `GraphQL HTTP ${res.status}${label}: expected 200.\n` +
+        `Body: ${JSON.stringify(res.body, null, 2)}`,
+    );
+  }
+  if (Array.isArray(res.body.errors) && res.body.errors.length > 0) {
+    throw new Error(
+      `GraphQL request returned errors${label}:\n` +
+        JSON.stringify(res.body.errors, null, 2),
+    );
+  }
+  if (res.body.data === null || res.body.data === undefined) {
+    throw new Error(
+      `GraphQL response had no \`data\` field${label}.\n` +
+        `Body: ${JSON.stringify(res.body, null, 2)}`,
+    );
+  }
+  return res.body.data;
+}
+
 // ── Tenant Schema Setup ─────────────────────────────────────────────────────
 
 /**

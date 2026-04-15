@@ -79,24 +79,18 @@ jobs:
       #
       # The chart's secrets.yaml uses `{{ required ... }}` on every secret value
       # so a real `helm install` cannot proceed without operator-supplied
-      # creds. CI is template-validation only — pass dummy values via --set so
-      # the `required` guards do not block the render. The dummy values are
-      # NEVER written to a cluster from this workflow.
+      # creds. CI is template-validation only — values-ci.yaml provides dummy
+      # values for the same field set, kept ALONGSIDE the templates so any
+      # new `required` guard lands with its CI-dummy in the same PR (TRACK D
+      # SSoT alignment). The dummies are NEVER applied to a real cluster.
       - name: Helm template | kubeconform (${{ matrix.values }})
         working-directory: ${{ env.CHART_DIR }}
         run: |
           set -euo pipefail
           helm template aquaculture . \
             --values ${{ matrix.values }} \
+            --values values-ci.yaml \
             --namespace aquaculture \
-            --set 'secrets.databaseUrl=postgres://ci:ci@localhost:5432/ci' \
-            --set 'secrets.redisUrl=redis://localhost:6379' \
-            --set 'secrets.natsUrl=tls://nats:4222' \
-            --set 'secrets.passwordPepper=ci-dummy-pepper' \
-            --set 'secrets.jwtPrivateKey=ci-dummy-private-key' \
-            --set 'secrets.jwtPublicKey=ci-dummy-public-key' \
-            --set 'secrets.stripeWebhookSecret=ci-dummy-stripe-webhook' \
-            --set 'secrets.stripeApiKey=ci-dummy-stripe-api' \
           | kubeconform \
               -strict \
               -ignore-missing-schemas \

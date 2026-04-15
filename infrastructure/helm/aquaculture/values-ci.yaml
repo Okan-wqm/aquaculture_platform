@@ -1,0 +1,51 @@
+# =============================================================================
+# Aquaculture Platform — CI-Validation Values Overlay (TRACK D / WS9)
+# =============================================================================
+#
+# Purpose: provide DUMMY values for every secret the chart's
+# `templates/secrets.yaml` marks `{{ required ... }}`, ONLY so the
+# CI workflow can `helm template` the chart without operator-supplied
+# credentials. The dummy values are NEVER applied to a real cluster.
+#
+# Why this file lives in the chart, not the workflow:
+#   The chart's secret structure is owned by the chart authors. If
+#   they add a new `{{ required }}` guard, the corresponding dummy
+#   must land in the SAME pull request — keeping CI green and
+#   chart-templates correct in lockstep. With `--set` flags in the
+#   workflow, a chart change requires a parallel workflow change in
+#   a separate file, which silently drifts.
+#
+# Consumed by: .github/workflows/infra-helm-lint.yml
+#   helm template aquaculture . --values values-ci.yaml ...
+#
+# DO NOT use this file with `helm install` against a real cluster.
+# DO NOT add real secret values here.
+# =============================================================================
+
+# Force the inline-Secret render path (vs ExternalSecret CRD path).
+# CI does not have ESO installed; rendering ExternalSecret without
+# the CRD passes via kubeconform's -ignore-missing-schemas flag, but
+# we still want to validate the inline path which is the production-
+# realistic shape on a real cluster without ESO.
+externalSecrets:
+  enabled: false
+
+secrets:
+  databaseUrl: "postgres://ci-dummy:ci-dummy@localhost:5432/ci-dummy"
+  redisUrl: "redis://localhost:6379"
+  natsUrl: "tls://nats:4222"
+  passwordPepper: "ci-dummy-pepper-not-for-real-use"
+
+  # PEM-shape values are only validated for non-empty by the chart's
+  # `required` guard; their content is not consumed at template time.
+  jwtPrivateKey: |
+    -----BEGIN PRIVATE KEY-----
+    ci-dummy-private-key-content-not-for-real-use
+    -----END PRIVATE KEY-----
+  jwtPublicKey: |
+    -----BEGIN PUBLIC KEY-----
+    ci-dummy-public-key-content-not-for-real-use
+    -----END PUBLIC KEY-----
+
+  stripeWebhookSecret: "whsec_ci_dummy_not_for_real_use"
+  stripeApiKey: "sk_test_ci_dummy_not_for_real_use"

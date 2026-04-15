@@ -177,8 +177,14 @@ jobs:
           # behaves identically regardless of how the workflow was
           # invoked. Default 'false' / '' so an unset input never
           # silently treated as bypass=true.
-          BYPASS='${{ inputs.bypass_staging_gate || github.event.inputs.bypass_staging_gate || 'false' }}'
-          REASON='${{ inputs.bypass_reason || github.event.inputs.bypass_reason || '' }}'
+          #
+          # NOTE: outer double-quotes here, inner single-quotes in the
+          # GitHub expression. Mixing the same quote style nests
+          # incorrectly and breaks GitHub's stricter workflow-file
+          # parser (Python yaml.safe_load is lenient about it; the
+          # GitHub schema is not).
+          BYPASS="${{ inputs.bypass_staging_gate || github.event.inputs.bypass_staging_gate || 'false' }}"
+          REASON="${{ inputs.bypass_reason || github.event.inputs.bypass_reason || '' }}"
 
           if [ "${BYPASS}" = "true" ]; then
             if [ -z "${REASON}" ]; then

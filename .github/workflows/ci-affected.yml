@@ -44,11 +44,27 @@ jobs:
               - 'platform/libs/**'
             web:
               - 'web/**'
+            # Deploy-pipeline infrastructure. Changes here affect how the
+            # deploy runs even when no application source changed — e.g.
+            # a droplet-up.sh tweak, a new criticality-manifest entry, a
+            # change to the compose topology. Without including these,
+            # deploy-workflow fixes cannot TEST THEMSELVES (recursive
+            # chicken-egg: the fix lands but nothing triggers the chain
+            # that would exercise it).
+            deploy-config:
+              - 'scripts/deploy/**'
+              - '.github/workflows/deploy-digitalocean.yml'
+              - '.github/workflows/deploy-staging.yml'
+              - '.github/workflows/ci-affected.yml'
+              - 'infrastructure/deploy/**'
+              - 'docker-compose.droplet.yml'
+              - 'docker-compose.prod.yml'
       - id: check
         run: |
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
              [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
-             [ "${{ steps.changes.outputs.web }}" = "true" ]; then
+             [ "${{ steps.changes.outputs.web }}" = "true" ] || \
+             [ "${{ steps.changes.outputs.deploy-config }}" = "true" ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
             echo "has_changes=false" >> $GITHUB_OUTPUT

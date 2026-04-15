@@ -88,8 +88,46 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60   # staging deploy typically lands in ~30 min
     steps:
+      # ────────────────────────────────────────────────────────────────────
+      # WS9 enablement gate.
+      #
+      # The staging-gate enforces "staging-success-before-prod" only when
+      # `STAGING_ENABLED=true` is set as a repository variable
+      # (Settings → Variables). Until the operator provisions the staging
+      # droplet via the Terraform module + sets STAGING_ENABLED=true, the
+      # gate auto-bypasses and prod deploy proceeds as before.
+      #
+      # This is NOT a defensive shim — it's the explicit lifecycle of a
+      # shelf-ready feature. The Tier-1 invariant "every prod deploy was
+      # green on staging" only HOLDS when staging exists. Pretending the
+      # invariant applies before staging exists would block every prod
+      # deploy for 60min until the gate timed out — strictly worse than
+      # the pre-WS9 state.
+      #
+      # Operator workflow:
+      #   1. terraform apply infrastructure/terraform/modules/staging-droplet/
+      #   2. seed staging .env (per docs/runbooks/staging-environment.md)
+      #   3. Settings → Variables → set STAGING_ENABLED=true
+      #   4. From this point on, every prod deploy waits for the
+      #      `deployed/staging-<sha>` tag emitted by deploy-staging.yml.
+      # ────────────────────────────────────────────────────────────────────
+      - name: Check staging enablement
+        id: enablement
+        run: |
+          set -euo pipefail
+          ENABLED='${{ vars.STAGING_ENABLED }}'
+          if [ "${ENABLED}" != "true" ]; then
+            echo "::warning::STAGING_ENABLED repo variable is not 'true'."
+            echo "::warning::Skipping staging-gate — staging environment not yet provisioned."
+            echo "::warning::See docs/runbooks/staging-environment.md to enable."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check bypass / capture reason
         id: bypass
+        if: steps.enablement.outputs.skip != 'true'
         run: |
           set -euo pipefail
           BYPASS='${{ github.event.inputs.bypass_staging_gate }}'
@@ -109,7 +147,7 @@ jobs:
           fi
 
       - name: Assert deployed/staging-<sha> tag
-        if: steps.bypass.outputs.bypass != 'true'
+        if: steps.enablement.outputs.skip != 'true' && steps.bypass.outputs.bypass != 'true'
         run: |
           set -euo pipefail
 
@@ -155,7 +193,10 @@ jobs:
 
       - name: Gate summary
         run: |
-          if [ "${{ steps.bypass.outputs.bypass }}" = "true" ]; then
+          if [ "${{ steps.enablement.outputs.skip }}" = "true" ]; then
+            echo "Staging gate: SKIPPED — STAGING_ENABLED repo var is not 'true'."
+            echo "  This is the expected state until the staging droplet is provisioned."
+          elif [ "${{ steps.bypass.outputs.bypass }}" = "true" ]; then
             echo "Staging gate: BYPASSED (emergency — see earlier warning)."
           else
             echo "Staging gate: PASSED — deployed/staging-${{ github.sha }} exists."

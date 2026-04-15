@@ -54,9 +54,42 @@ concurrency:
 
 jobs:
   # ===========================================================================
+  # Enablement gate — paired with deploy-digitalocean.yml's staging-gate.
+  #
+  # The whole staging pipeline is shelf-ready: the workflow is committed
+  # but only fires once the operator provisions the staging droplet and
+  # sets repo variable `STAGING_ENABLED=true`. Without this gate, every
+  # push to main would attempt SSH to a non-existent host and fail
+  # noisily for no operational gain.
+  #
+  # See docs/runbooks/staging-environment.md for the enable-flow.
+  # ===========================================================================
+  enablement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check STAGING_ENABLED
+        id: check
+        run: |
+          set -euo pipefail
+          ENABLED='${{ vars.STAGING_ENABLED }}'
+          if [ "${ENABLED}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "STAGING_ENABLED=true — proceeding with staging deploy."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::STAGING_ENABLED is not 'true' — skipping staging deploy."
+            echo "::warning::Set STAGING_ENABLED=true once the staging droplet is provisioned."
+          fi
+
+  # ===========================================================================
   # Prepare — compute image tag, detect affected services (same logic as prod)
   # ===========================================================================
   prepare:
+    needs: [enablement]
+    if: needs.enablement.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

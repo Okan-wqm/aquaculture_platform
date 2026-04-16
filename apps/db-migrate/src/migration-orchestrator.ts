@@ -4,58 +4,46 @@
  *
  * WS10 / ADR-016 Phase E — Phase 1.
  *
- * This module runs pending TypeORM migrations for a single PostgreSQL
- * schema from a one-shot container (no HTTP server, no Nest lifecycle).
- * It mirrors the invariants of `createMigrationRunnerService` in
- * `libs/backend-common/src/database/migration-runner/migration-runner.service.ts`
- * but as a plain async function so it can be invoked from a bare CLI
- * entry point without bootstrapping a Nest module graph.
+ * This module runs pending TypeORM migrations for a PostgreSQL schema from
+ * a one-shot container (no HTTP server, no Nest lifecycle). It mirrors the
+ * invariants of `createMigrationRunnerService` in backend-common.
  *
- * # Invariants preserved from the Nest-side runner
+ * # Source-schema invariants (preserved)
  *
  * 1. Source-schema identifier validation.
- *    `search_path` is pinned via string interpolation (`SET search_path TO
- *    "<schema>"`). Anything reaching this SQL must match
- *    /^[a-zA-Z_][a-zA-Z0-9_]*$/ to eliminate the injection vector.
- *
- * 2. Session-level search_path pin.
- *    `SET search_path TO "<schema>", public` (NOT `SET LOCAL`) so the
- *    pin persists across the BEGIN/COMMIT cycles MigrationExecutor issues
- *    in `transaction: 'each'` mode.
- *
+ * 2. Session-level search_path pin (NOT `SET LOCAL`).
  * 3. Re-assert search_path before every migration's up().
- *    Closes the 2026-04-07 farm-service incident class where migration N
- *    left `search_path = public` and migration N+1 silently executed
- *    against the wrong schema.
- *
  * 4. Per-migration transaction.
- *    Partial failure in migration N does not leak uncommitted DDL into
- *    migration N+1's execution.
- *
  * 5. Production hard-fail on DATABASE_MIGRATIONS_RUN=false.
- *    NODE_ENV=production + DATABASE_MIGRATIONS_RUN=false is a security
- *    boundary — the runner aborts rather than silently skipping.
+ * 6. Postgres advisory lock per schema. Key:
+ *    `hashtext('aqua-db-migrate:<schema>')`. Same key namespace as the
+ *    per-service MigrationRunnerService so the Phase-1 "both runners can
+ *    fire" world is race-free.
  *
- * # What this runner adds over the Nest-side runner
+ * # Tenant-aware fan-out (WP5)
  *
- * 6. Postgres advisory lock before schema migration.
- *    `pg_try_advisory_lock(hashtext('<schema>'))` — if another writer
- *    holds the lock, this runner waits for release (bounded by a timeout).
- *    Phase 1 runs ONE container per deploy, so the lock is mostly
- *    defensive. Once Phase 2 ships, it prevents a service that hasn't
- *    yet cut over from stepping on the container's toes during a
- *    deploy-mid-hotfix window.
+ * After the source schema is migrated, services listed in
+ * `TENANT_AWARE_SCHEMAS` have their migration set replayed against every
+ * `tenant_<uuid16>` schema in the database. This closes the "deploy
+ * finishes, but existing tenants still lack the new column" window that
+ * the per-service runner fan-out (WP3) only narrows to the service's own
+ * boot time.
+ *
+ * Running this at the orchestrator level means every tenant is up-to-date
+ * BEFORE any backend container starts.
+ *
+ * Idempotency: each tenant schema carries its own `typeorm_migrations`
+ * table (seeded at provisioning time by SchemaManagerService, WP4). A
+ * re-run of an already-applied migration on a tenant is skipped by
+ * `MigrationExecutor.getPendingMigrations()`, so fan-out cost is near-
+ * zero after the first deploy that introduces a new migration.
  *
  * # Shape of the output
  *
- * Every log line is a single-line structured JSON record matching the
- * platform logger contract (level, message, context, extra). The deploy
- * workflow greps this output for the
- *   "Schema migration complete"
- * signal to decide whether to unblock service containers. Breaking that
- * contract is a contract change — review like an event shape change.
+ * Every log line is a single-line structured JSON record. The deploy
+ * workflow greps this output for "Schema migration complete".
  */
-import { DataSource, MigrationExecutor } from 'typeorm';
+import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
 
 /**
  * Safe SQL identifier regex — must match the regex used by
@@ -64,11 +52,27 @@ import { DataSource, MigrationExecutor } from 'typeorm';
  */
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+/** Regex matching per-tenant schema names (`tenant_` + 16 hex). */
+const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
+
+/**
+ * Schemas whose services own per-tenant schema clones. Keep in sync with
+ * `TENANT_AWARE_SCHEMAS` in backend-common's migration-runner.service.ts
+ * — the two lists describe the same architectural fact (which services
+ * have schema-per-tenant deployments).
+ */
+const TENANT_AWARE_SCHEMAS: ReadonlySet<string> = new Set([
+  'farm',
+  'sensor',
+  'hr',
+  'messaging',
+  'alert',
+  'ai',
+  'hydroponics',
+]);
+
 /** Hash used for pg_try_advisory_lock keys (one 64-bit int per schema). */
 function advisoryLockKey(schema: string): string {
-  // Postgres hashtext() is deterministic across a major version; we
-  // defer to the server to compute the key so DBAs can inspect
-  // pg_locks and recognize the lock by schema name.
   return `hashtext('aqua-db-migrate:${schema.replace(/'/g, "''")}')`;
 }
 
@@ -90,6 +94,18 @@ export interface RunSchemaOptions {
   log: (record: Record<string, unknown>) => void;
   /** Advisory-lock acquisition timeout, seconds. Default 300. */
   lockTimeoutSeconds?: number;
+  /**
+   * Explicit override for tenant fan-out. When omitted, defaults to
+   * `true` if `schema` appears in `TENANT_AWARE_SCHEMAS`, else `false`.
+   */
+  tenantAware?: boolean;
+}
+
+export interface TenantMigrationResult {
+  schema: string;
+  pending: number;
+  applied: string[];
+  durationMs: number;
 }
 
 export interface RunSchemaResult {
@@ -97,22 +113,24 @@ export interface RunSchemaResult {
   pending: number;
   applied: string[];
   durationMs: number;
+  /** Per-tenant fan-out results, populated when tenantAware is true. */
+  tenantResults?: TenantMigrationResult[];
 }
 
 /**
- * Run pending migrations for a single schema.
+ * Run pending migrations for a schema and (optionally) fan out to every
+ * `tenant_<uuid16>` schema in the database.
  *
- * The DataSource is created, initialized, used, and destroyed inside
- * this function — the container opens one PostgreSQL connection per
- * schema and closes it before moving on. That is intentional: it keeps
- * resource use bounded (at most one active pool) and makes failures
- * isolate cleanly (an error in schema N does not leak a half-initialised
- * pool into schema N+1).
+ * The DataSource is created, initialized, used, and destroyed inside this
+ * function — the container opens one PostgreSQL connection per call and
+ * closes it before moving on. Resource use is bounded (one active pool
+ * per schema-registry entry) and failures isolate cleanly.
  */
 export async function runSchemaMigrations(
   opts: RunSchemaOptions,
 ): Promise<RunSchemaResult> {
   const { schema, migrations, database, log, lockTimeoutSeconds = 300 } = opts;
+  const tenantAware = opts.tenantAware ?? TENANT_AWARE_SCHEMAS.has(schema);
 
   if (!SAFE_IDENT_RE.test(schema)) {
     throw new Error(
@@ -128,6 +146,7 @@ export async function runSchemaMigrations(
     context: 'DbMigrate',
     schema,
     migrationsGlobs: migrations,
+    tenantAware,
   });
 
   const dataSource = new DataSource({
@@ -139,16 +158,14 @@ export async function runSchemaMigrations(
     database: database.database,
     schema,
     migrations,
-    // The runner owns migration execution — TypeORM must NOT run them
-    // itself at init time, or we'd execute them twice (once with the
-    // wrong search_path, once with the correct one).
     migrationsRun: false,
     synchronize: false,
     logging: false,
     ssl: database.ssl,
-    // Bound pool size to 2: one connection for the migration session,
-    // one reserve for the advisory-lock meta-queries below.
-    extra: { max: 2 },
+    // Pool size 3: one for active migration session, one reserve for
+    // advisory-lock meta-queries, one headroom for brief overlap when
+    // swapping schemas between source → tenant.
+    extra: { max: 3 },
   });
 
   await dataSource.initialize();
@@ -157,145 +174,227 @@ export async function runSchemaMigrations(
   try {
     await queryRunner.connect();
 
-    // ── Advisory lock so two db-migrate containers cannot race on the
-    //    same schema. During Phase 1 only one container runs per deploy,
-    //    but the lock is cheap insurance; Phase 2's service-side schema
-    //    version gate reuses this same key so a rogue legacy runner
-    //    cannot slip in under a live container either.
-    const lockKey = advisoryLockKey(schema);
-    const lockDeadline = Date.now() + lockTimeoutSeconds * 1000;
-    let locked = false;
-    while (Date.now() < lockDeadline) {
-      const rows: Array<{ locked: boolean }> = await queryRunner.query(
-        `SELECT pg_try_advisory_lock(${lockKey}) AS locked`,
-      );
-      if (rows[0]?.locked) {
-        locked = true;
-        break;
-      }
-      log({
-        level: 'warn',
-        message: 'Waiting for advisory lock',
-        context: 'DbMigrate',
-        schema,
-      });
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-    if (!locked) {
-      throw new Error(
-        `[db-migrate] Could not acquire advisory lock for "${schema}" ` +
-          `within ${lockTimeoutSeconds}s. Another migration runner may be ` +
-          `active — resolve before retrying.`,
-      );
-    }
+    // ── Phase 1 — source schema ──
+    const sourceResult = await runMigrationsOnSchema({
+      queryRunner,
+      dataSource,
+      schema,
+      log,
+      lockTimeoutSeconds,
+    });
 
-    try {
-      // ── Pin search_path at session level (NOT `SET LOCAL`) ──
-      await queryRunner.query(
-        `SET search_path TO "${schema}", public`,
-      );
-      const schemaRows: Array<{ current_schema: string }> =
-        await queryRunner.query(`SELECT current_schema()`);
-      const observed = schemaRows[0]?.current_schema;
-      if (observed !== schema) {
-        throw new Error(
-          `[db-migrate] search_path pin verification failed for "${schema}" — ` +
-            `observed current_schema() = "${observed ?? '<null>'}". ` +
-            `Ensure 00-init-schemas.sh created the schema and granted USAGE ` +
-            `to the connecting role before this container ran.`,
-        );
-      }
-
-      const executor = new MigrationExecutor(dataSource, queryRunner);
-      executor.transaction = 'each';
-      const pending = await executor.getPendingMigrations();
-
-      log({
-        level: 'info',
-        message: 'Pending migrations enumerated',
-        context: 'DbMigrate',
-        schema,
-        pendingCount: pending.length,
-        pendingNames: pending.map((m) => m.name),
-      });
-
-      if (pending.length === 0) {
+    // ── Phase 2 — tenant fan-out (only when this service is tenant-aware) ──
+    const tenantResults: TenantMigrationResult[] = [];
+    if (tenantAware) {
+      const tenantSchemas = await listTenantSchemas(queryRunner);
+      if (tenantSchemas.length === 0) {
         log({
           level: 'info',
-          message: 'Schema migration complete',
+          message: 'Tenant fan-out skipped — no tenant_* schemas present',
           context: 'DbMigrate',
           schema,
-          applied: [],
         });
-        return {
+      } else {
+        log({
+          level: 'info',
+          message: 'Tenant fan-out starting',
+          context: 'DbMigrate',
           schema,
-          pending: 0,
-          applied: [],
-          durationMs: Date.now() - started,
-        };
-      }
-
-      const applied: string[] = [];
-      for (const migration of pending) {
-        // Re-assert search_path before EVERY migration. Mirrors the
-        // contract in libs/backend-common/src/database/migration-runner.
-        await queryRunner.query(
-          `SET search_path TO "${schema}", public`,
-        );
-        await queryRunner.startTransaction();
-        try {
-          await executor.executeMigration(migration);
-          await queryRunner.commitTransaction();
-          applied.push(migration.name);
-          log({
-            level: 'info',
-            message: 'Migration applied',
-            context: 'DbMigrate',
-            schema,
-            migration: migration.name,
+          tenantCount: tenantSchemas.length,
+        });
+        for (const tenantSchema of tenantSchemas) {
+          if (!TENANT_SCHEMA_RE.test(tenantSchema)) {
+            throw new Error(
+              `[db-migrate] Refusing unsafe tenant schema name "${tenantSchema}" ` +
+                `— expected /${TENANT_SCHEMA_RE.source}/.`,
+            );
+          }
+          const tenantResult = await runMigrationsOnSchema({
+            queryRunner,
+            dataSource,
+            schema: tenantSchema,
+            log,
+            lockTimeoutSeconds,
           });
-        } catch (err: unknown) {
-          await queryRunner.rollbackTransaction();
-          const msg = err instanceof Error ? err.message : String(err);
-          log({
-            level: 'error',
-            message: 'Migration failed',
-            context: 'DbMigrate',
-            schema,
-            migration: migration.name,
-            error: msg,
-          });
-          throw err;
+          tenantResults.push(tenantResult);
         }
+        log({
+          level: 'info',
+          message: 'Tenant fan-out complete',
+          context: 'DbMigrate',
+          schema,
+          tenantCount: tenantSchemas.length,
+          totalApplied: tenantResults.reduce(
+            (acc, r) => acc + r.applied.length,
+            0,
+          ),
+        });
       }
+    }
 
+    return {
+      ...sourceResult,
+      durationMs: Date.now() - started,
+      tenantResults: tenantAware ? tenantResults : undefined,
+    };
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/** Query information_schema for every per-tenant schema. */
+async function listTenantSchemas(queryRunner: QueryRunner): Promise<string[]> {
+  const rows: Array<{ schema_name: string }> = await queryRunner.query(
+    `SELECT schema_name FROM information_schema.schemata
+     WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+     ORDER BY schema_name`,
+  );
+  return rows.map((r) => r.schema_name);
+}
+
+interface RunMigrationsOnSchemaArgs {
+  queryRunner: QueryRunner;
+  dataSource: DataSource;
+  schema: string;
+  log: (record: Record<string, unknown>) => void;
+  lockTimeoutSeconds: number;
+}
+
+/**
+ * Acquire advisory lock, pin search_path, run pending migrations for ONE
+ * schema. Reused for both the source schema and each tenant during fan-out.
+ */
+async function runMigrationsOnSchema(
+  args: RunMigrationsOnSchemaArgs,
+): Promise<TenantMigrationResult> {
+  const { queryRunner, dataSource, schema, log, lockTimeoutSeconds } = args;
+  const started = Date.now();
+
+  // Advisory lock; key namespace shared with MigrationRunnerService.
+  const lockKey = advisoryLockKey(schema);
+  const lockDeadline = Date.now() + lockTimeoutSeconds * 1000;
+  let locked = false;
+  while (Date.now() < lockDeadline) {
+    const rows: Array<{ locked: boolean }> = await queryRunner.query(
+      `SELECT pg_try_advisory_lock(${lockKey}) AS locked`,
+    );
+    if (rows[0]?.locked) {
+      locked = true;
+      break;
+    }
+    log({
+      level: 'warn',
+      message: 'Waiting for advisory lock',
+      context: 'DbMigrate',
+      schema,
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (!locked) {
+    throw new Error(
+      `[db-migrate] Could not acquire advisory lock for "${schema}" ` +
+        `within ${lockTimeoutSeconds}s. Another migration runner may be ` +
+        `active — resolve before retrying.`,
+    );
+  }
+
+  try {
+    // Pin search_path at session level (NOT `SET LOCAL`).
+    await queryRunner.query(`SET search_path TO "${schema}", public`);
+    const schemaRows: Array<{ current_schema: string }> =
+      await queryRunner.query(`SELECT current_schema()`);
+    const observed = schemaRows[0]?.current_schema;
+    if (observed !== schema) {
+      throw new Error(
+        `[db-migrate] search_path pin verification failed for "${schema}" — ` +
+          `observed current_schema() = "${observed ?? '<null>'}". ` +
+          `Ensure 00-init-schemas.sh created the schema and granted USAGE ` +
+          `to the connecting role before this container ran.`,
+      );
+    }
+
+    const executor = new MigrationExecutor(dataSource, queryRunner);
+    executor.transaction = 'each';
+    const pending = await executor.getPendingMigrations();
+
+    log({
+      level: 'info',
+      message: 'Pending migrations enumerated',
+      context: 'DbMigrate',
+      schema,
+      pendingCount: pending.length,
+      pendingNames: pending.map((m) => m.name),
+    });
+
+    if (pending.length === 0) {
       log({
         level: 'info',
         message: 'Schema migration complete',
         context: 'DbMigrate',
         schema,
-        applied,
+        applied: [],
       });
-
       return {
         schema,
-        pending: pending.length,
-        applied,
+        pending: 0,
+        applied: [],
         durationMs: Date.now() - started,
       };
-    } finally {
-      // Release the advisory lock even if an error bubbled up.
+    }
+
+    const applied: string[] = [];
+    for (const migration of pending) {
+      // Re-assert search_path before EVERY migration.
+      await queryRunner.query(`SET search_path TO "${schema}", public`);
+      await queryRunner.startTransaction();
       try {
-        await queryRunner.query(
-          `SELECT pg_advisory_unlock(${lockKey})`,
-        );
-      } catch {
-        // unlock failure is non-fatal — the session closes below and
-        // advisory locks are session-scoped by default.
+        await executor.executeMigration(migration);
+        await queryRunner.commitTransaction();
+        applied.push(migration.name);
+        log({
+          level: 'info',
+          message: 'Migration applied',
+          context: 'DbMigrate',
+          schema,
+          migration: migration.name,
+        });
+      } catch (err: unknown) {
+        await queryRunner.rollbackTransaction();
+        const msg = err instanceof Error ? err.message : String(err);
+        log({
+          level: 'error',
+          message: 'Migration failed',
+          context: 'DbMigrate',
+          schema,
+          migration: migration.name,
+          error: msg,
+        });
+        throw err;
       }
     }
+
+    log({
+      level: 'info',
+      message: 'Schema migration complete',
+      context: 'DbMigrate',
+      schema,
+      applied,
+    });
+
+    return {
+      schema,
+      pending: pending.length,
+      applied,
+      durationMs: Date.now() - started,
+    };
   } finally {
-    await queryRunner.release();
-    await dataSource.destroy();
+    // Release advisory lock even if an error bubbled up.
+    try {
+      await queryRunner.query(`SELECT pg_advisory_unlock(${lockKey})`);
+    } catch {
+      // unlock failure is non-fatal — session closes below and locks are
+      // session-scoped.
+    }
   }
 }

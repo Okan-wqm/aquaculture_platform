@@ -55,15 +55,9 @@ Rotation is more involved (all services need the new public key before auth-serv
 
 Consumed by auth-service to HMAC passwords before bcrypt. Rotation requires re-hashing all existing user passwords. NOT a routine rotation — only performed after a suspected pepper leak. Separate incident-response runbook covers this.
 
-**Initial generation (new droplet).** `droplet-up.sh` fails Phase A4 if `PASSWORD_PEPPER` (or any other secret in `scripts/deploy/lib/required-env-secrets.sh`) is missing from `/var/aqua-saas/.env` — that fail-fast signal is the cue to run the bootstrap generator once:
+**Initial generation (new droplet).** Happens automatically: `droplet-up.sh` Phase A4 invokes `scripts/deploy/droplet-bootstrap-env.sh` on every deploy. The generator is idempotent — it greps for each required secret's `^NAME=` line and skips any that are already present, so it amortises to "runs once per droplet's lifetime" in practice. A pre-existing `PASSWORD_PEPPER` is never overwritten: this path only generates if absent, never rotates. Manual invocation with `sudo bash scripts/deploy/droplet-bootstrap-env.sh` is still available for disaster-recovery / onboarding scenarios but is not required for routine deploys.
 
-```bash
-ssh root@<droplet>
-cd /var/aqua-saas
-sudo bash scripts/deploy/droplet-bootstrap-env.sh
-```
-
-The generator is idempotent: on a droplet where every required secret is already set, it's a no-op. The deploy path itself never regenerates secrets — a deploy that silently rotated the pepper on each run would invalidate every stored bcrypt hash.
+**Rotation is a separate, deliberate operation.** Rotating `PASSWORD_PEPPER` invalidates every stored bcrypt hash and requires a platform-wide forced password reset — reserved for compromise response, never scheduled. The bootstrap generator deliberately has no "rotate" mode; rotation is performed by removing the line from `.env` under incident-response supervision, letting bootstrap regenerate, and then running the forced-reset migration.
 
 ## Database passwords (per-service)
 

@@ -3,29 +3,36 @@
 # scripts/deploy/droplet-bootstrap-env.sh
 #
 # Idempotently populates /var/aqua-saas/.env with any REQUIRED_ENV_SECRETS
-# that are currently missing. Runs exactly once per droplet's lifetime
-# (initial provisioning); subsequent invocations are a no-op because
-# every secret is already present.
+# that are currently missing. For each required secret the script greps
+# for an existing `^NAME=` line and skips if present — a pre-existing
+# PASSWORD_PEPPER or INTERNAL_SERVICE_SECRET is NEVER overwritten. On a
+# fully-provisioned droplet the script is a no-op that exits 0.
 #
-# NOT called from the deploy path. The deploy workflow invokes
-# `droplet-up.sh`, whose preflight (Phase A4) aborts if any required
-# secret is absent — that fail-fast signal is the CUE to run this
-# script manually on the droplet:
+# Invoked from two places:
 #
-#   ssh root@<droplet>
-#   cd /var/aqua-saas
-#   sudo bash scripts/deploy/droplet-bootstrap-env.sh
+#   1. droplet-up.sh Phase A4 (automatic, every deploy). Safe because of
+#      the "generate if absent, never rotate" semantics described above —
+#      running on every deploy amortises to "run once per droplet's
+#      lifetime" in practice. This keeps deploys fully automated even on
+#      the very first rollout to a fresh droplet.
 #
-# Deploy path intentionally does NOT auto-generate: a deploy that
-# silently rotated PASSWORD_PEPPER on each run would invalidate every
-# stored bcrypt hash and lock every user out of the platform.
-# See docs/runbooks/secret-rotation.md#password-pepper for the rotation
-# semantics.
+#   2. Manual invocation during disaster recovery / onboarding:
+#
+#        ssh root@<droplet>
+#        cd /var/aqua-saas
+#        sudo bash scripts/deploy/droplet-bootstrap-env.sh
+#
+# The distinction that MUST be preserved: "generate if absent" is safe;
+# "rotate" (overwriting a pre-existing secret) is not — rotating
+# PASSWORD_PEPPER invalidates every stored bcrypt hash and locks every
+# user out of the platform. See docs/runbooks/secret-rotation.md
+# §"Password pepper" for the rotation path (explicit incident response).
 #
 # Exit codes:
 #   0 — all required secrets are present (either pre-existing or just
 #       generated). A subsequent droplet-up.sh preflight will pass.
-#   1 — invocation error (ENV_FILE unreadable or SSoT lib missing).
+#   1 — invocation error (ENV_FILE unreadable or SSoT lib missing, or
+#       a generator command itself failed).
 # =============================================================================
 
 set -euo pipefail

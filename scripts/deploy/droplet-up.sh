@@ -117,11 +117,24 @@ else
   echo "  SKIP: generator script not present (commit predates ADR-015)"
 fi
 
-# Phase A4 — required secrets present in .env (don't generate, just check).
+# Phase A4 — ensure required secrets exist in .env.
 # The REQUIRED set lives in scripts/deploy/lib/required-env-secrets.sh and
 # is shared with droplet-bootstrap-env.sh so the preflight check and the
-# bootstrap generator cannot drift (Tier-1 architectural fix).
+# bootstrap generator cannot drift (Tier-1 SSoT architectural fix).
+#
+# Bootstrap is invoked UNCONDITIONALLY here and is safe by design because
+# droplet-bootstrap-env.sh is strictly idempotent: for each required
+# secret it `grep`s for an existing `^NAME=` line and skips if present.
+# A pre-existing PASSWORD_PEPPER is never overwritten — this path only
+# *generates if absent*, never *rotates*. Rotation (the dangerous
+# operation that invalidates every bcrypt hash) still requires explicit
+# incident-response — see docs/runbooks/secret-rotation.md#password-pepper.
+#
+# The post-bootstrap verify loop is defense-in-depth: if the generator
+# fails halfway, we catch the gap here rather than letting containers
+# boot with half-populated env.
 echo "=== Pre-flight: required secrets presence ==="
+bash /var/aqua-saas/scripts/deploy/droplet-bootstrap-env.sh
 # shellcheck disable=SC1091
 source /var/aqua-saas/scripts/deploy/lib/required-env-secrets.sh
 MISSING=()
@@ -131,10 +144,9 @@ while IFS= read -r SECRET; do
   fi
 done < <(required_env_secret_names)
 if [ ${#MISSING[@]} -gt 0 ]; then
-  echo "::error::Required secrets missing from /var/aqua-saas/.env: ${MISSING[*]}"
-  echo "  Run: sudo bash scripts/deploy/droplet-bootstrap-env.sh"
-  echo "  (idempotent; only generates secrets that are absent)"
-  echo "  Aborting BEFORE container actions — set these and retry."
+  echo "::error::Still missing after bootstrap: ${MISSING[*]}"
+  echo "  Bootstrap reported success but preflight re-check failed — investigate"
+  echo "  /var/aqua-saas/.env permissions and scripts/deploy/droplet-bootstrap-env.sh output."
   exit 1
 fi
 echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"

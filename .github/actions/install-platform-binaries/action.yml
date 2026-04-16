@@ -16,8 +16,9 @@ runs:
   steps:
     - name: Install Linux platform binaries
       shell: bash
-      # timeout bounded because this talks to the public npm registry
-      timeout-minutes: 3
+      # Outer timeout is enforced by the consuming job's `timeout-minutes`;
+      # composite-action steps do not support `timeout-minutes` directly.
+      # Each network call below is independently bounded by `curl --max-time`.
       run: |
         # Lockfile generated on Windows/macOS only carries those platforms'
         # native binaries. The linux-x64-gnu tarballs must be fetched

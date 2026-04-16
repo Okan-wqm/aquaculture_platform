@@ -1,0 +1,107 @@
+# Backup manifest invariant — companion gate to INFRA-1
+#
+# Enforces that any PR touching tools/scripts/database/backup-databases.sh
+# OR the pinned hash manifest at .github/manifests/backup-script.sha256
+# keeps the pair in lockstep. Without this gate, a script change can land
+# without a matching hash update, which would cause the nightly backup to
+# ABORT on the droplet (good — fail-closed is the correct posture) but
+# would also create a silent backup outage until someone notices. This
+# check fails the PR BEFORE merge so drift never ships.
+#
+# Symmetric threat:
+# - Attacker tries to slip a script change without manifest update → fails here
+# - Attacker tries to update manifest to a malicious hash without script
+#   update → still requires @Okan-wqm CODEOWNERS approval on .github/manifests/**
+#   AND .github/workflows/** per BLOCKER-9, so the same-PR-two-edit pattern is
+#   the only path AND both edits are reviewed together.
+#
+# See /root/.claude/plans/declarative-riding-shamir.md INFRA-1
+# See .github/workflows/backup-production.yml (the runtime verifier)
+
+name: backup-manifest-invariant
+
+on:
+  pull_request:
+    paths:
+      - 'tools/scripts/database/backup-databases.sh'
+      - '.github/manifests/backup-script.sha256'
+      - '.github/workflows/backup-manifest-invariant.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-hash:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify manifest placeholder is resolved
+        run: |
+          set -euo pipefail
+          MANIFEST=.github/manifests/backup-script.sha256
+          if [ ! -f "$MANIFEST" ]; then
+            echo "FATAL: $MANIFEST does not exist."
+            echo "INFRA-1 protection is bypassed without it. Restore the file."
+            exit 1
+          fi
+
+          if grep -q "__COMPUTE_ON_MERGE__" "$MANIFEST"; then
+            echo "FATAL: manifest still carries the __COMPUTE_ON_MERGE__ placeholder."
+            echo "The PR that introduced this placeholder should have computed the"
+            echo "real SHA-256 in the same commit via:"
+            echo "    sha256sum tools/scripts/database/backup-databases.sh"
+            exit 1
+          fi
+
+      - name: Compute actual hash and compare to manifest
+        run: |
+          set -euo pipefail
+          MANIFEST=.github/manifests/backup-script.sha256
+          SCRIPT=tools/scripts/database/backup-databases.sh
+
+          if [ ! -f "$SCRIPT" ]; then
+            echo "FATAL: $SCRIPT does not exist."
+            echo "The backup workflow depends on this script; do not delete without"
+            echo "first removing backup-production.yml and the manifest."
+            exit 1
+          fi
+
+          EXPECTED=$(awk '/backup-databases\.sh$/ && $1 !~ /^#/ {print $1; exit}' "$MANIFEST")
+          ACTUAL=$(sha256sum "$SCRIPT" | awk '{print $1}')
+
+          if [ -z "$EXPECTED" ]; then
+            echo "FATAL: could not parse expected hash from $MANIFEST."
+            echo "Manifest format is one non-comment line:"
+            echo "    <64-hex-sha256>  tools/scripts/database/backup-databases.sh"
+            exit 1
+          fi
+
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo ""
+            echo "FATAL: backup-databases.sh SHA-256 does not match the manifest."
+            echo ""
+            echo "If you modified the script legitimately, regenerate the hash:"
+            echo "    sha256sum tools/scripts/database/backup-databases.sh"
+            echo "and update $MANIFEST in the same PR."
+            echo ""
+            echo "This check exists to block the INFRA-1 vector: a malicious change"
+            echo "to the script that the nightly backup workflow would blindly execute"
+            echo "on the droplet. See /root/.claude/plans/declarative-riding-shamir.md"
+            echo "INFRA-1 for the full threat model."
+            exit 1
+          fi
+
+          echo "Manifest and script are in lockstep. OK."

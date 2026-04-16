@@ -40,13 +40,13 @@ export class HRMediumFixes1744200000000 implements MigrationInterface {
         ALTER TABLE leave_requests
         ADD CONSTRAINT leave_no_overlap
         EXCLUDE USING gist (
-          "tenantId" WITH =,
-          "employeeId" WITH =,
-          daterange("startDate", "endDate", '[]') WITH &&
+          "tenant_id" WITH =,
+          "employee_id" WITH =,
+          daterange("start_date", "end_date", '[]') WITH &&
         )
         WHERE (
           status NOT IN ('cancelled', 'rejected', 'withdrawn')
-          AND "isDeleted" = false
+          AND "is_deleted" = false
         );
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$
@@ -69,12 +69,12 @@ export class HRMediumFixes1744200000000 implements MigrationInterface {
       DO $$ BEGIN
         IF (SELECT data_type FROM information_schema.columns
             WHERE table_name = 'weekly_plan_entries'
-              AND column_name = 'plannedStartTime') = 'time without time zone' THEN
+              AND column_name = 'planned_start_time') = 'time without time zone' THEN
           ALTER TABLE weekly_plan_entries
-          ALTER COLUMN "plannedStartTime" TYPE timestamptz
+          ALTER COLUMN "planned_start_time" TYPE timestamptz
           USING CASE
-            WHEN "plannedStartTime" IS NOT NULL
-            THEN ("date" + "plannedStartTime")::timestamptz
+            WHEN "planned_start_time" IS NOT NULL
+            THEN ("date" + "planned_start_time")::timestamptz
             ELSE NULL
           END;
         END IF;
@@ -85,12 +85,12 @@ export class HRMediumFixes1744200000000 implements MigrationInterface {
       DO $$ BEGIN
         IF (SELECT data_type FROM information_schema.columns
             WHERE table_name = 'weekly_plan_entries'
-              AND column_name = 'plannedEndTime') = 'time without time zone' THEN
+              AND column_name = 'planned_end_time') = 'time without time zone' THEN
           ALTER TABLE weekly_plan_entries
-          ALTER COLUMN "plannedEndTime" TYPE timestamptz
+          ALTER COLUMN "planned_end_time" TYPE timestamptz
           USING CASE
-            WHEN "plannedEndTime" IS NOT NULL
-            THEN ("date" + "plannedEndTime")::timestamptz
+            WHEN "planned_end_time" IS NOT NULL
+            THEN ("date" + "planned_end_time")::timestamptz
             ELSE NULL
           END;
         END IF;
@@ -101,7 +101,7 @@ export class HRMediumFixes1744200000000 implements MigrationInterface {
     // Already idempotent via ADD COLUMN IF NOT EXISTS.
     await queryRunner.query(`
       ALTER TABLE certification_types
-      ADD COLUMN IF NOT EXISTS "isSTCW" boolean NOT NULL DEFAULT false
+      ADD COLUMN IF NOT EXISTS "is_stcw" boolean NOT NULL DEFAULT false
     `);
   }
 
@@ -109,20 +109,20 @@ export class HRMediumFixes1744200000000 implements MigrationInterface {
     // Reverse: drop STCW column
     await queryRunner.query(`
       ALTER TABLE certification_types
-      DROP COLUMN IF EXISTS "isSTCW"
+      DROP COLUMN IF EXISTS "is_stcw"
     `);
 
     // Reverse: change timestamptz back to time
     await queryRunner.query(`
       ALTER TABLE weekly_plan_entries
-      ALTER COLUMN "plannedStartTime" TYPE time
-      USING "plannedStartTime"::time
+      ALTER COLUMN "planned_start_time" TYPE time
+      USING "planned_start_time"::time
     `);
 
     await queryRunner.query(`
       ALTER TABLE weekly_plan_entries
-      ALTER COLUMN "plannedEndTime" TYPE time
-      USING "plannedEndTime"::time
+      ALTER COLUMN "planned_end_time" TYPE time
+      USING "planned_end_time"::time
     `);
 
     // Reverse: drop exclusion constraint

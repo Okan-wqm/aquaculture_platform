@@ -15,7 +15,7 @@
   - `FARM-*`, `SENSOR-*`, `HR-*`, `MSG-*`, `ADMIN-*` — respective domain experts
   - `ANTI-*` — anti-pattern scan (general-purpose repo-wide cycles)
   - `ADR-*` — ADR drift matrix entries
-  - `AUDIT-*` — root-cause-auditor (W9)
+  - `AUDIT-*` — root-cause-auditor (active 2026-04-16, Phase 5 of abstract-brewing-mochi plan). Sub-kinds: `OVER_CLAIMED`, `RULING_PARTIAL_APPLICATION`, `RULING_MISSED_DEADLINE`, `OVERRIDE_UNSUPPORTED`, `BOUNDARY_EXPIRED`, `BANNED_PHRASE_IN_CLAIM`.
   - `CTX-*` — context-manager meta-findings (over-claimed tiers, systemic patterns)
 - `SEVERITY` — CRITICAL / HIGH / MEDIUM / LOW per CLAUDE.md.
 - `NNN` — zero-padded sequential within the agent's cycle output (001, 002, …).

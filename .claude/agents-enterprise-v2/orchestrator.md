@@ -180,16 +180,18 @@ Check if any agent flagged a cross-domain dependency that requires another agent
 - If circular dependencies exist → flag for human resolution
 - If `architectural-arbiter` produced a decision in Phase 3.5 → apply that decision as the final word, overriding any individual agent's recommendation on the disputed point
 
-### Phase 4.5 (reserved — future `root-cause-auditor` insertion point)
+### Phase 4.5: Root-Cause Auditor
 
-**Status:** not yet implemented. Scheduled for W9 of the agent+skill+gate initiative (see `/root/.claude/plans/declarative-riding-shamir.md`). This note locks in the semantic BEFORE implementation to prevent the chicken-and-egg issue surfaced by Round-3 architectural-arbiter review (BLOCKER-12).
+**Status:** active (landed 2026-04-16 per Phase 5 of `/root/.claude/plans/abstract-brewing-mochi.md`; agent file `.claude/agents-enterprise-v2/root-cause-auditor.md`).
 
-When the `root-cause-auditor` agent lands here, it will execute with this role split to avoid same-cycle circularity:
+The `root-cause-auditor` runs after Phase 4 cross-domain resolution and before Phase 5 unified report. Role split (avoids same-cycle circularity per BLOCKER-12):
 
-- **Within-cycle verification (current diff):** classify every author-authored `// tier-N:` claim against the 4-tier hierarchy and flag `OVER_CLAIMED` violations. This is always safe to run on the current diff because the author's inline claim exists before Phase 4 runs; no arbiter output is needed.
+- **Within-cycle verification (current diff):** classify every author-authored `// tier-N:` claim against the 4-tier hierarchy and flag `OVER_CLAIMED` violations. This is always safe to run on the current diff because the author's inline claim exists before Phase 4 runs; no arbiter output is needed. Consumes `tools/gates/tier-claim-lint.ts` output (Phase 2 deliverable — until built, auditor reverts to manual claim extraction).
 - **Cross-cycle verification (cycle N−1):** verify that `architectural-arbiter` rulings issued in the PREVIOUS review cycle have been implemented in the current cycle's diff. Rulings issued in the CURRENT cycle's Phase 4 land in the finding state registry as `IN-PROGRESS`; they are verified in the next cycle's Phase 4.5. Auditor never attempts to verify same-cycle arbiter rulings — those cannot have been implemented yet.
 
-Until Phase 4.5 is implemented, Phase 4 directly hands off to Phase 5 as described below.
+**Dispatch:** orchestrator invokes `Agent(root-cause-auditor, mode=review)` with the cycle's changed file set + prior-cycle ruling list (from `docs/reviews/_registry/findings.jsonl`, Phase 6 deliverable). Any `AUDIT-CRITICAL-*` blocks merge per the same severity contract as domain experts. Rulings transitioning `IN-PROGRESS → RESOLVED` trigger finding-registry state update in Phase 6 pipeline.
+
+**Fallback behaviour (until Phase 2 + Phase 6 infrastructure lands):** auditor emits observations as a report in `docs/reviews/root-cause-auditor/{date}-{topic}.md` with `AUDIT-*` finding IDs; orchestrator Phase 5 incorporates the section as any other agent's output. State transitions recorded by hand in the review file's YAML front matter until registry is live.
 
 ### Phase 5: Unified Report
 
@@ -294,6 +296,7 @@ All agents use `opus` with `effort: max` per platform policy.
 | architectural-arbiter | docs/reviews/*/ + source code (read-only) — cross-agent conflict resolution, ADR authoring |
 | multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
 | mcp-expert | mcp/ — MCP servers, tool registry, session/auth context, prompt and knowledge safety |
+| root-cause-auditor | Phase 4.5 — author-authored tier-claim verification + prior-cycle arbiter-ruling implementation check. Emits `AUDIT-*` findings. |
 
 ## Auxiliary Maintenance Tooling
 

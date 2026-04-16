@@ -1,0 +1,37 @@
+# Dependabot configuration.
+#
+# Purpose: keep 20+ SHA-pinned GitHub Actions workflows from silent rot.
+# Every `uses: org/action@<40-char-sha>` in .github/workflows/** is pinned
+# for supply-chain integrity; without dependabot tracking, pins age out and
+# eventually reference unmaintained or vulnerable versions.
+#
+# See /root/.claude/plans/declarative-riding-shamir.md INFRA-3 (Round 3).
+
+version: 2
+
+updates:
+  # ── GitHub Actions ────────────────────────────────────────────────
+  # Weekly PRs bumping pinned SHAs to latest verified release.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
+    reviewers:
+      - Okan-wqm
+    # Group minor + patch bumps into one PR per action to reduce noise;
+    # major bumps stay individual so review can assess breaking changes.
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch

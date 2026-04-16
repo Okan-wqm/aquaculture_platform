@@ -38,7 +38,7 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `web/modules/admin-panel/**` | admin-expert | |
 | `web/modules/tenant-admin/**` | admin-expert | |
 | `apps/messaging-service/**` | messaging-expert | |
-| `apps/ai-service/**` | messaging-expert | |
+| `apps/ai-service/**` | ai-safety-auditor | messaging-expert (chat persistence), tenant-cost-attribution-agent (cost emission) |
 | `apps/auth-service/**` | auth-security-expert | security-reviewer |
 | `apps/gateway-api/**` | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/auth/**` | auth-security-expert | security-reviewer |
@@ -112,6 +112,12 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `.claude/skills/**` | prompt-writer | implementation-planner |
 | `tools/gates/**`, `tools/eslint-rules/**`, `tools/ripple-tracer/**` | infra-expert | architectural-arbiter, security-reviewer |
 | `CLAUDE.md` | architectural-arbiter | prompt-writer, *all experts* |
+| `apps/*/src/gdpr/**` (handler implementations) | gdpr-erasure-executor | compliance-expert (review), legal-hold-auditor (precedence), audit-trail-completeness-auditor (audit row) |
+| `libs/backend-common/src/compliance/legal-hold/**` | legal-hold-auditor | compliance-expert |
+| destructive action paths (cross-cutting) | legal-hold-auditor | *primary destructive handler owner* |
+| every CQRS COMMAND handler audit capture | audit-trail-completeness-auditor | *respective domain expert* |
+| `libs/backend-common/src/ai/safety/**`, `libs/backend-common/src/ai/anthropic-client/**` | ai-safety-auditor | messaging-expert, security-reviewer |
+| `apps/observability-service/src/cost-attribution/**`, `infrastructure/monitoring/prometheus/cost-metrics.yml` | tenant-cost-attribution-agent | observability-expert, billing-expert |
 | `libs/backend-common/src/security/gdpr/**` | compliance-expert | auth-security-expert |
 | `apps/auth-service/src/{privacy,modules/gdpr}/**` | compliance-expert | auth-security-expert |
 | `apps/admin-api-service/src/security/{controllers,services}/{compliance,audit-trail}*` | compliance-expert | admin-expert |
@@ -308,6 +314,11 @@ All agents use `opus` with `effort: max` per platform policy.
 | mcp-expert | mcp/ — MCP servers, tool registry, session/auth context, prompt and knowledge safety |
 | root-cause-auditor | Phase 4.5 — author-authored tier-claim verification + prior-cycle arbiter-ruling implementation check. Emits `AUDIT-*` findings. |
 | compliance-expert | Cross-cutting GDPR Art 17/20 + KVKK + SOC 2 SSoT. Owns erasure cascade across 10 tenant-data services, portability export shape, consent capture/withdrawal, dual-consent (AI), SOC 2 control evidence. Other agents delegate compliance topics here. |
+| gdpr-erasure-executor | WRITER-primary execution agent for GDPR Art 17 cascade. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Compliance-expert reviews; legal-hold-auditor enforces precedence. |
+| ai-safety-auditor | Anthropic Claude SDK safety + cost reviewer — prompt injection defense, tool whitelisting, output PII scrub, prompt caching adoption, streaming backpressure, context-window budgeting, per-tenant cost cap reservation. Promoted from test-agents/ai-tool-execution-auditor. |
+| legal-hold-auditor | Cross-service enforcement of legal hold precedence on every destructive action (delete, anonymize, retention-expiry, partition DROP, outbox GC, GDPR erasure). Litigation discovery + record retention non-negotiable. |
+| audit-trail-completeness-auditor | Cross-cutting reviewer for audit log completeness on every regulated action — SOC 2 CC4 + GDPR Art 30 alignment. Coverage of @AuditedOperation decorator, immutability invariant, retention policy. |
+| tenant-cost-attribution-agent | Per-tenant cost attribution pipeline — Prometheus cost-labelled metric emission, observability-service rollup, Stripe reconciliation, plan-tier margin SLO, cost explosion isolation per-tenant circuit breaker. |
 
 ## Auxiliary Maintenance Tooling
 

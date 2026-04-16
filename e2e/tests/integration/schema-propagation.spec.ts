@@ -46,24 +46,15 @@
 
 import { TestDatabase } from '../../helpers/db.helper';
 
-/**
- * Schemas that own per-tenant clones. Must stay in sync with
- * `TENANT_AWARE_SCHEMAS` in:
- *   - libs/backend-common/src/database/migration-runner/migration-runner.service.ts
- *   - apps/db-migrate/src/migration-orchestrator.ts
- */
-const TENANT_AWARE_SOURCE_SCHEMAS = [
-  'farm',
-  'sensor',
-  'hr',
-  'messaging',
-  'alert',
-  'ai',
-  'hydroponics',
-] as const;
+// TENANT_AWARE_SCHEMAS + tenant-schema regex come from the SSoT module
+// in backend-common (MA6). This spec previously carried a local copy
+// with a tombstone comment marking the drift debt — now closed.
+import {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
+} from '@aquaculture/backend-common';
 
-/** Regex matching per-tenant schema names. */
-const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
+const TENANT_AWARE_SOURCE_SCHEMAS = [...TENANT_AWARE_SCHEMAS] as const;
 
 interface ColumnRow {
   table_name: string;

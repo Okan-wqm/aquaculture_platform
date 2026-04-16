@@ -52,24 +52,15 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
  */
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-/** Regex matching per-tenant schema names (`tenant_` + 16 hex). */
-const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
-
-/**
- * Schemas whose services own per-tenant schema clones. Keep in sync with
- * `TENANT_AWARE_SCHEMAS` in backend-common's migration-runner.service.ts
- * — the two lists describe the same architectural fact (which services
- * have schema-per-tenant deployments).
- */
-const TENANT_AWARE_SCHEMAS: ReadonlySet<string> = new Set([
-  'farm',
-  'sensor',
-  'hr',
-  'messaging',
-  'alert',
-  'ai',
-  'hydroponics',
-]);
+// TENANT_AWARE_SCHEMAS + tenant-schema regex come from the SSoT module
+// in backend-common (MA6). Previously this orchestrator and
+// MigrationRunnerService each maintained a local copy of the same
+// 7-element Set — the SSoT export makes drift between the two
+// impossible.
+import {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
+} from '@aquaculture/backend-common';
 
 /** Hash used for pg_try_advisory_lock keys (one 64-bit int per schema). */
 function advisoryLockKey(schema: string): string {

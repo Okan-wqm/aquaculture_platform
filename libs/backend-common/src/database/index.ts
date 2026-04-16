@@ -28,6 +28,15 @@ export { MigrationLogger } from './migration-logger';
 // live in one place. See base-migration.ts for rationale.
 export { pinSearchPath, dropPartialTables } from './base-migration';
 
+// TENANT_AWARE_SCHEMAS — SSoT for schema-per-tenant services. Imported
+// by migration-runner.service.ts (boot-time fan-out), aqua-db-migrate
+// orchestrator (deploy-time fan-out), and schema-propagation.spec.ts
+// (CI invariant). See tenant-aware-schemas.ts for rationale.
+export {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE,
+} from './tenant-aware-schemas';
+
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';
 

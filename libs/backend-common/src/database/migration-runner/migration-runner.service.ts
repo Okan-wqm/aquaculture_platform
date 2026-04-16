@@ -83,25 +83,14 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
  * don't yet have their expected columns.
  */
 
-/**
- * Schemas whose services own per-tenant schema clones. Adding a service to
- * this set enables automatic tenant fan-out in its migration runner.
- *
- * Cross-referenced with MODULE_SCHEMAS and tenant-schema.utils.ts. Keep
- * these lists in sync.
- */
-const TENANT_AWARE_SCHEMAS: ReadonlySet<string> = new Set([
-  'farm',
-  'sensor',
-  'hr',
-  'messaging',
-  'alert',
-  'ai',
-  'hydroponics',
-]);
-
-/** Regex matching per-tenant schema names (`tenant_` + 16 hex). */
-const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
+// TENANT_AWARE_SCHEMAS + tenant-schema regex come from the SSoT module
+// (MA6). Local duplicates here, in the orchestrator, and in the
+// schema-propagation invariant test were prone to drift; the SSoT
+// export makes them impossible to diverge.
+import {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
+} from '../tenant-aware-schemas';
 
 export interface MigrationRunnerOptions {
   /**

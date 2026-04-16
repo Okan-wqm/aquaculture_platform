@@ -300,19 +300,16 @@ async function runMigrationsOnSchema(
   }
 
   try {
-    // Ensure the schema exists before pinning. `00-init-schemas.sh` is
-    // supposed to create every service's schema at container init, but
-    // has drifted from SCHEMA_REGISTRY in the past (notification,
-    // observability, event_store were missing as of 2026-04-16). Since
-    // the migration container is the authoritative "schema applies on
-    // first run" entry point, it's the right place to guarantee the
-    // schema is present — belt AND suspenders with init-schemas.sh.
-    // CREATE SCHEMA IF NOT EXISTS is idempotent and harmless on fresh
-    // DBs; on droplets where the schema already exists (the common
-    // case), it's a no-op.
-    await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
-
     // Pin search_path at session level (NOT `SET LOCAL`).
+    //
+    // MA4 (2026-04-16): removed the defensive `CREATE SCHEMA IF NOT EXISTS`
+    // that previously lived here. That line was a patch compensating for
+    // drift between SCHEMA_REGISTRY and init-schemas.sh. Drift is now
+    // architecturally impossible: init-schemas.sh's schema block is
+    // generated from SCHEMA_REGISTRY by
+    // `scripts/schema-registry/generate-init-schemas.ts`, and
+    // `e2e/tests/integration/schema-registry-invariants.spec.ts` rejects
+    // any PR that edits SCHEMA_REGISTRY without regenerating.
     await queryRunner.query(`SET search_path TO "${schema}", public`);
     const schemaRows: Array<{ current_schema: string }> =
       await queryRunner.query(`SELECT current_schema()`);
@@ -321,9 +318,9 @@ async function runMigrationsOnSchema(
       throw new Error(
         `[db-migrate] search_path pin verification failed for "${schema}" — ` +
           `observed current_schema() = "${observed ?? '<null>'}". ` +
-          `The CREATE SCHEMA IF NOT EXISTS above should have produced a ` +
-          `valid target — if this still fires, the DB user is likely ` +
-          `missing USAGE on the schema (granted by 00-init-schemas.sh).`,
+          `Ensure 00-init-schemas.sh ran (regenerate with ` +
+          `\`npm run codegen:schema-registry\` if SCHEMA_REGISTRY changed) ` +
+          `and that the connecting DB user has USAGE on the schema.`,
       );
     }
 

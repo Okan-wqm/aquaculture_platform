@@ -75,7 +75,8 @@
     "start:all": "concurrently -k -n \"backend,frontend\" -c \"blue,green\" \"npm run start:backend\" \"sleep 30 && npm run start:frontend\"",
     "schema:generate": "nx run-many --target=build --all --parallel=2",
     "codegen": "graphql-codegen --config codegen.ts",
-    "codegen:check": "graphql-codegen --config codegen.ts --check"
+    "codegen:check": "graphql-codegen --config codegen.ts --check",
+    "codegen:schema-registry": "node --experimental-strip-types scripts/schema-registry/generate-init-schemas.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",

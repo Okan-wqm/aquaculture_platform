@@ -163,6 +163,17 @@ Check if any agent flagged a cross-domain dependency that requires another agent
 - If circular dependencies exist → flag for human resolution
 - If `architectural-arbiter` produced a decision in Phase 3.5 → apply that decision as the final word, overriding any individual agent's recommendation on the disputed point
 
+### Phase 4.5 (reserved — future `root-cause-auditor` insertion point)
+
+**Status:** not yet implemented. Scheduled for W9 of the agent+skill+gate initiative (see `/root/.claude/plans/declarative-riding-shamir.md`). This note locks in the semantic BEFORE implementation to prevent the chicken-and-egg issue surfaced by Round-3 architectural-arbiter review (BLOCKER-12).
+
+When the `root-cause-auditor` agent lands here, it will execute with this role split to avoid same-cycle circularity:
+
+- **Within-cycle verification (current diff):** classify every author-authored `// tier-N:` claim against the 4-tier hierarchy and flag `OVER_CLAIMED` violations. This is always safe to run on the current diff because the author's inline claim exists before Phase 4 runs; no arbiter output is needed.
+- **Cross-cycle verification (cycle N−1):** verify that `architectural-arbiter` rulings issued in the PREVIOUS review cycle have been implemented in the current cycle's diff. Rulings issued in the CURRENT cycle's Phase 4 land in the finding state registry as `IN-PROGRESS`; they are verified in the next cycle's Phase 4.5. Auditor never attempts to verify same-cycle arbiter rulings — those cannot have been implemented yet.
+
+Until Phase 4.5 is implemented, Phase 4 directly hands off to Phase 5 as described below.
+
 ### Phase 5: Unified Report
 
 Produce a unified report combining all agent findings:

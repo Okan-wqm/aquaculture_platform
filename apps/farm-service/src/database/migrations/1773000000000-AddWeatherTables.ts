@@ -1,5 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common';
+import {
+  MigrationLogger,
+  assertSafeSchemaName,
+  pinSearchPath,
+} from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Weather & Marine Observation Tables
@@ -18,9 +22,8 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
   name = 'AddWeatherTables1773000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Pin search_path to farm (defense-in-depth; unqualified CREATE TABLE
-    // statements below + LIKE clause in tenant loop rely on source schema).
-    await queryRunner.query(`SET search_path TO "farm", public`);
+    // MA5b: pinSearchPath helper.
+    await pinSearchPath(queryRunner, 'farm');
 
     const schema = await queryRunner.query(`SELECT current_schema()`);
     this.logger.log('Running AddWeatherTables migration in schema:', schema);

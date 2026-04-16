@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { pinSearchPath } from '@aquaculture/backend-common';
 
 /**
  * Migration: HR MEDIUM Fixes
@@ -11,10 +12,8 @@ export class HRMediumFixes1744200000000 implements MigrationInterface {
   name = 'HRMediumFixes1744200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Pin search_path so unqualified table names below resolve to hr.*
-    // (defense-in-depth against running under any search_path — see
-    // CreateHRModuleSchema migration for full rationale).
-    await queryRunner.query(`SET search_path TO "hr", public`);
+    // MA5b: pinSearchPath helper (replaces inline SET search_path).
+    await pinSearchPath(queryRunner, 'hr');
 
     // ── HR-MEDIUM-002: Leave overlap exclusion constraint ──
     // Requires btree_gist extension for GiST index on scalar types

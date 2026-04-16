@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
-import { assertSafeSchemaName } from '@aquaculture/backend-common';
+import { assertSafeSchemaName, pinSearchPath } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add feeder_calibrations table
@@ -14,10 +14,8 @@ export class AddFeederCalibrations1774000000000 implements MigrationInterface {
   private readonly logger = new Logger(this.name);
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Pin search_path to farm (defense-in-depth; unqualified CREATE TABLE
-    // below + LIKE clause in the tenant loop both rely on the source schema
-    // being reachable by bare name).
-    await queryRunner.query(`SET search_path TO "farm", public`);
+    // MA5b: pinSearchPath helper.
+    await pinSearchPath(queryRunner, 'farm');
 
     const schema = await queryRunner.query(`SELECT current_schema()`);
     this.logger.log(`Running AddFeederCalibrations migration in schema: ${JSON.stringify(schema)}`);

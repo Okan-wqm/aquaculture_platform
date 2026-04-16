@@ -1,4 +1,29 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { pinSearchPath, dropPartialTables } from '@aquaculture/backend-common';
+
+const HR_PARTIAL_STATE_TABLES = [
+  'departments_hr',
+  'positions',
+  'salary_structures',
+  'leave_types',
+  'leave_balances',
+  'leave_requests',
+  'shifts',
+  'schedules',
+  'schedule_entries',
+  'attendance_records',
+  'certification_types',
+  'employee_certifications',
+  'training_courses',
+  'training_sessions',
+  'training_enrollments',
+  'performance_reviews',
+  'performance_goals',
+  'employee_kpis',
+  'work_areas',
+  'work_rotations',
+  'safety_training_records',
+] as const;
 
 /**
  * Migration: Create HR Module Schema
@@ -16,57 +41,23 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
   name = 'CreateHRModuleSchema1736000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Pin search_path to the hr schema for the rest of the migration.
-    // Defense-in-depth: aqua-db-migrate orchestrator already pins before
-    // invoking us (migration-orchestrator.ts:194-207) and so does the
-    // per-service MigrationRunnerService fallback. Re-asserting here makes
-    // the migration correct under EITHER runner AND under a hand-run via
-    // psql — which matters because every CREATE TABLE / partial index below
-    // is unqualified and would otherwise land in whatever search_path the
-    // session was started with (root cause of the 2026-04-16 aqua-db-migrate
-    // failure: partial index on "is_deleted" referenced a column from a
-    // table created under the wrong schema).
-    await queryRunner.query(`SET search_path TO "hr", public`);
+    // MA5b: pinSearchPath + dropPartialTables helpers (from
+    // libs/backend-common/src/database/base-migration.ts) replace the
+    // previously inline boilerplate that lived here as 552f289d's
+    // `SET search_path` + 43c6fd2c's inline dropPartialHRTables method.
+    // Signature column `tenant_id` identifies healthy vs partial tables.
+    await pinSearchPath(queryRunner, 'hr');
 
     // 1. Create ENUMs
     await this.createEnums(queryRunner);
 
-    // 2. Heal any tables left in partial state by a prior crashed run.
-    //
-    // A previous invocation of this migration may have crashed AFTER a
-    // CREATE TABLE succeeded but BEFORE ALL of the table's columns were
-    // added (e.g. `is_deleted`, `tenant_id`, `deleted_at`, etc.). TypeORM
-    // `transaction: 'each'` should roll such failures back, but on
-    // production droplets we've observed tables surviving the rollback
-    // window (connection drops, container kill).
-    //
-    // When that happens, `CREATE TABLE IF NOT EXISTS` below silently
-    // no-ops (table is present) and the next partial index / NOT NULL
-    // statement crashes against a skeleton table with missing columns —
-    // we saw this twice consecutively on the droplet: first "is_deleted
-    // does not exist", then "tenant_id does not exist" after the
-    // is_deleted healer was added.
-    //
-    // Column-level healing (ADD COLUMN IF NOT EXISTS per column) breaks
-    // down under NOT NULL constraints without defaults — `tenant_id uuid
-    // NOT NULL` cannot be appended to a non-empty table. But that is
-    // exactly the point: a partial-state table from a rolled-back
-    // CREATE TABLE is EMPTY by definition (the migration aborted before
-    // any INSERT). So the safe reconciliation is:
-    //
-    //   - If the table exists but is missing its signature column AND
-    //     is empty  →  DROP the partial skeleton. CREATE TABLE IF NOT
-    //                  EXISTS below then rebuilds it cleanly from the
-    //                  migration's declared shape (source of truth).
-    //   - If the table exists, is missing a signature column, AND is
-    //     non-empty  →  REFUSE to heal. Fail loudly so a human can
-    //                  investigate — silently dropping real rows is the
-    //                  worst possible outcome.
-    //
-    // `tenant_id` is the signature column because every HR table in the
-    // migration's declared shape carries it. A table in hr schema
-    // without tenant_id is partial by construction.
-    await this.dropPartialHRTables(queryRunner);
+    // 2. Heal partial-state skeletons from prior crashed runs.
+    await dropPartialTables(
+      queryRunner,
+      'hr',
+      HR_PARTIAL_STATE_TABLES,
+      'tenant_id',
+    );
 
     // 3. Create tables in dependency order
     await this.createOrganizationalTables(queryRunner);
@@ -80,91 +71,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
     await this.updateEmployeesTable(queryRunner);
 
     // Migration complete — do not emit application-layer logs from migrations (LOW-03)
-  }
-
-  /**
-   * Drop partial-state HR tables left by a prior crashed run of this
-   * migration. See the commentary above the call site (up() step 2) for
-   * the reasoning — in short: a table whose signature column (`tenant_id`)
-   * is absent is a skeleton left over from an aborted CREATE TABLE, and
-   * safe to drop if empty.
-   *
-   * Refuses to drop non-empty partial tables (raises an exception), so
-   * the human operator sees the problem instead of losing rows.
-   *
-   * Keep this list in sync with the CREATE TABLE statements below — any
-   * new HR table must appear here, or partial-state recovery will miss it
-   * and the next deploy will crash on the same class of column-missing
-   * error.
-   */
-  private async dropPartialHRTables(queryRunner: QueryRunner): Promise<void> {
-    const hrTables = [
-      'departments_hr',
-      'positions',
-      'salary_structures',
-      'leave_types',
-      'leave_balances',
-      'leave_requests',
-      'shifts',
-      'schedules',
-      'schedule_entries',
-      'attendance_records',
-      'certification_types',
-      'employee_certifications',
-      'training_courses',
-      'training_sessions',
-      'training_enrollments',
-      'performance_reviews',
-      'performance_goals',
-      'employee_kpis',
-      'work_areas',
-      'work_rotations',
-      'safety_training_records',
-    ];
-    for (const table of hrTables) {
-      // `table` comes from a static const array in this file — no runtime
-      // input, no injection vector. Inline the value as a SQL string
-      // literal inside the DO block. `format('hr.%I', ...)` inside the
-      // DO block applies quote_ident defence-in-depth on the identifier.
-      await queryRunner.query(`
-        DO $$
-        DECLARE
-          has_tenant_id boolean;
-          rowcount bigint;
-        BEGIN
-          -- Table absent? fresh-DB path; nothing to do.
-          IF NOT EXISTS (
-            SELECT 1 FROM pg_tables
-             WHERE schemaname = 'hr' AND tablename = '${table}'
-          ) THEN
-            RETURN;
-          END IF;
-
-          SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns
-             WHERE table_schema = 'hr'
-               AND table_name = '${table}'
-               AND column_name = 'tenant_id'
-          ) INTO has_tenant_id;
-
-          -- Healthy table (signature column present); leave alone —
-          -- CREATE TABLE IF NOT EXISTS below will also leave it alone.
-          IF has_tenant_id THEN
-            RETURN;
-          END IF;
-
-          -- Partial-state table (tenant_id missing). Drop if empty.
-          EXECUTE format('SELECT count(*) FROM hr.%I', '${table}') INTO rowcount;
-          IF rowcount = 0 THEN
-            EXECUTE format('DROP TABLE hr.%I CASCADE', '${table}');
-          ELSE
-            RAISE EXCEPTION
-              'Partial hr.% table has % non-zero rows but is missing tenant_id — manual intervention required before this migration can proceed.',
-              '${table}', rowcount;
-          END IF;
-        END $$;
-      `);
-    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

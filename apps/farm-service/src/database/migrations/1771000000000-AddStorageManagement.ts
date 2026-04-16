@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Storage Management System
@@ -19,9 +19,8 @@ export class AddStorageManagement1771000000000 implements MigrationInterface {
   name = 'AddStorageManagement1771000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Pin search_path to farm (defense-in-depth; unqualified CREATE TABLE
-    // statements below rely on source-schema resolution).
-    await queryRunner.query(`SET search_path TO "farm", public`);
+    // MA5b: pinSearchPath helper.
+    await pinSearchPath(queryRunner, 'farm');
 
     const schema = await queryRunner.query(`SELECT current_schema()`);
     this.logger.log('Running AddStorageManagement migration in schema:', schema);

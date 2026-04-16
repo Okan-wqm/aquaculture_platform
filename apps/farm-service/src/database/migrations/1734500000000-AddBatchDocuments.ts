@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common';
 
 /**
  * Migration: Add Batch Documents Support
@@ -16,9 +16,8 @@ export class AddBatchDocuments1734500000000 implements MigrationInterface {
   name = 'AddBatchDocuments1734500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Pin search_path to farm (defense-in-depth; unqualified CREATE TABLE
-    // statements below rely on source-schema resolution).
-    await queryRunner.query(`SET search_path TO "farm", public`);
+    // MA5b: pinSearchPath helper.
+    await pinSearchPath(queryRunner, 'farm');
 
     // Check if we're running in the correct schema
     const schema = await queryRunner.query(`SELECT current_schema()`);

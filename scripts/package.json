@@ -1,4 +1,6 @@
 {
+  "name": "aqua-scripts",
+  "version": "0.0.0",
   "type": "module",
   "private": true,
   "description": "Standalone TS/JS scripts invoked directly by CI and deploy workflows. See CLAUDE.md and infrastructure/deploy/ for usage.",

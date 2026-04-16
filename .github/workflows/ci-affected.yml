@@ -100,6 +100,28 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
+      # Graph invariant (ARCH-CI-012): catch ProjectsWithNoNameError and
+      # similar graph-drift failures in the install job (~30s) instead of
+      # 8+ minutes downstream inside deploy/build-*-artifacts.
+      - name: Install Linux platform binaries
+        uses: ./.github/actions/install-platform-binaries
+
+      - name: Validate Nx project graph integrity
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+        run: |
+          npx nx show projects --json > /tmp/nx-projects.json
+          PROJECT_COUNT=$(node -p "require('/tmp/nx-projects.json').length")
+          echo "Nx graph resolved ${PROJECT_COUNT} projects"
+          # Anchor: 16 deployable services live under apps/. A resolved graph
+          # with fewer projects signals a project.json was corrupted, a
+          # package.json lost its `name` field, or a plugin stopped firing.
+          if [ "${PROJECT_COUNT}" -lt 16 ]; then
+            echo "::error::Nx graph resolved only ${PROJECT_COUNT} projects; expected >= 16 apps"
+            exit 1
+          fi
+
       # Persist node_modules for downstream jobs
       - name: Cache node_modules
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3

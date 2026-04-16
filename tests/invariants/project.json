@@ -1,0 +1,16 @@
+{
+  "name": "invariants",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tests/invariants",
+  "projectType": "library",
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/tests/invariants"],
+      "options": {
+        "jestConfig": "tests/invariants/jest.config.ts"
+      }
+    }
+  },
+  "tags": ["type:invariant", "scope:platform"]
+}

@@ -21,15 +21,72 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
     // 1. Create ENUMs
     await this.createEnums(queryRunner);
 
-    // 2. Create tables
+    // 2. Drop any partial-state versions of this migration's tables that
+    // a prior crashed run left behind. Same rationale as
+    // CreateHRModuleSchema.dropPartialHRTables — a table present in hr
+    // schema but missing its signature `tenant_id` column came from an
+    // aborted CREATE TABLE and is empty by construction; safe to drop.
+    await this.dropPartialSchedulingTables(queryRunner);
+
+    // 3. Create tables
     await this.createSchedulingSettingsTable(queryRunner);
     await this.createWeeklyPlansTable(queryRunner);
     await this.createWeeklyPlanEntriesTable(queryRunner);
 
-    // 3. Add totalMinutes column to shifts table if not exists
+    // 4. Add totalMinutes column to shifts table if not exists
     await this.updateShiftsTable(queryRunner);
 
     this.logger.log('Scheduling tables created successfully');
+  }
+
+  /**
+   * Drop partial-state scheduling tables left by a prior crashed run.
+   * Mirrors CreateHRModuleSchema.dropPartialHRTables — see its comment
+   * for the full rationale. Keep this list in sync with the CREATE TABLE
+   * statements below.
+   */
+  private async dropPartialSchedulingTables(queryRunner: QueryRunner): Promise<void> {
+    const schedulingTables = [
+      'scheduling_settings',
+      'weekly_plans',
+      'weekly_plan_entries',
+    ];
+    for (const table of schedulingTables) {
+      await queryRunner.query(`
+        DO $$
+        DECLARE
+          has_tenant_id boolean;
+          rowcount bigint;
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_tables
+             WHERE schemaname = 'hr' AND tablename = '${table}'
+          ) THEN
+            RETURN;
+          END IF;
+
+          SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'hr'
+               AND table_name = '${table}'
+               AND column_name = 'tenant_id'
+          ) INTO has_tenant_id;
+
+          IF has_tenant_id THEN
+            RETURN;
+          END IF;
+
+          EXECUTE format('SELECT count(*) FROM hr.%I', '${table}') INTO rowcount;
+          IF rowcount = 0 THEN
+            EXECUTE format('DROP TABLE hr.%I CASCADE', '${table}');
+          ELSE
+            RAISE EXCEPTION
+              'Partial hr.% table has % non-zero rows but is missing tenant_id — manual intervention required before this migration can proceed.',
+              '${table}', rowcount;
+          END IF;
+        END $$;
+      `);
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

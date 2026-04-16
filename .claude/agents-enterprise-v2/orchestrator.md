@@ -111,6 +111,12 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `.claude/skills/**` | prompt-writer | implementation-planner |
 | `tools/gates/**`, `tools/eslint-rules/**`, `tools/ripple-tracer/**` | infra-expert | architectural-arbiter, security-reviewer |
 | `CLAUDE.md` | architectural-arbiter | prompt-writer, *all experts* |
+| `libs/backend-common/src/security/gdpr/**` | compliance-expert | auth-security-expert |
+| `apps/auth-service/src/{privacy,modules/gdpr}/**` | compliance-expert | auth-security-expert |
+| `apps/admin-api-service/src/security/{controllers,services}/{compliance,audit-trail}*` | compliance-expert | admin-expert |
+| `apps/*/src/gdpr/**` | compliance-expert | *respective domain expert* |
+| `web/shell/src/{hooks/useConsent.ts,pages/ConsentSettingsPage.tsx}`, `web/modules/admin-panel/src/security/**` | compliance-expert | frontend-expert, admin-expert |
+| `docs/compliance/**` | compliance-expert | architectural-arbiter |
 | `.env*` | security-reviewer | |
 
 **Special rules:**
@@ -297,6 +303,7 @@ All agents use `opus` with `effort: max` per platform policy.
 | multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
 | mcp-expert | mcp/ — MCP servers, tool registry, session/auth context, prompt and knowledge safety |
 | root-cause-auditor | Phase 4.5 — author-authored tier-claim verification + prior-cycle arbiter-ruling implementation check. Emits `AUDIT-*` findings. |
+| compliance-expert | Cross-cutting GDPR Art 17/20 + KVKK + SOC 2 SSoT. Owns erasure cascade across 10 tenant-data services, portability export shape, consent capture/withdrawal, dual-consent (AI), SOC 2 control evidence. Other agents delegate compliance topics here. |
 
 ## Auxiliary Maintenance Tooling
 

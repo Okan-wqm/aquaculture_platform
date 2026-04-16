@@ -794,6 +794,35 @@ export class SchemaManagerService {
         GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}
       `);
 
+      // 5. Seed typeorm_migrations history from each module's source schema.
+      //
+      // Without this, a schema-per-tenant service's MigrationRunnerService on
+      // its next boot (see libs/backend-common migration-runner tenant fan-out)
+      // would see tenant_<uuid>.typeorm_migrations as empty and try to re-apply
+      // every migration against the new tenant schema. Those migrations would
+      // then collide with the tables just cloned via `CREATE TABLE LIKE
+      // INCLUDING ALL` above — "relation already exists" errors block boot.
+      //
+      // Seeding the migration-history rows (timestamp, name) from source puts
+      // the tenant in the "every existing migration already applied" state, so
+      // only FUTURE migrations (ones added after the tenant was provisioned)
+      // run against it on subsequent boots. That's exactly the semantic the
+      // runner needs.
+      const seenSourceSchemas = new Set<string>();
+      for (const moduleName of modules) {
+        const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
+        if (!moduleSchema) continue;
+        if (seenSourceSchemas.has(moduleSchema.sourceSchema)) continue;
+        seenSourceSchemas.add(moduleSchema.sourceSchema);
+        try {
+          await this.seedMigrationsHistory(schemaName, moduleSchema.sourceSchema);
+        } catch (historyErr) {
+          const msg = `Failed to seed migrations history from "${moduleSchema.sourceSchema}" into "${schemaName}": ${(historyErr as Error).message}`;
+          this.logger.warn(msg);
+          errors.push(msg);
+        }
+      }
+
       // Update cache
       this.schemaCache.set(schemaName, true);
 
@@ -842,6 +871,79 @@ export class SchemaManagerService {
       await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
       this.logger.debug(`Released advisory lock for tenant ${tenantId}`);
     }
+  }
+
+  /**
+   * Seed the new tenant schema's `typeorm_migrations` history from the
+   * source schema's history. Called once at tenant-schema creation so
+   * the tenant starts in the "every existing migration already applied"
+   * state, matching the table shape that `CREATE TABLE LIKE INCLUDING ALL`
+   * just cloned.
+   *
+   * WITHOUT this, the MigrationRunnerService tenant fan-out would see the
+   * tenant as "no migrations applied" and try to re-run every migration,
+   * colliding with the already-present tables ("relation already exists").
+   *
+   * After this runs, only MIGRATIONS ADDED AFTER PROVISIONING will execute
+   * against the tenant on subsequent boots — which is exactly the semantic
+   * the runner needs.
+   *
+   * SECURITY: All schema identifiers are validated before SQL interpolation.
+   */
+  private async seedMigrationsHistory(
+    targetSchema: string,
+    sourceSchema: string,
+  ): Promise<void> {
+    const safeTarget = validateSqlIdentifier(targetSchema, 'schema');
+    const safeSource = validateSqlIdentifier(sourceSchema, 'schema');
+
+    const sourceHasHistory = await this.tableExists(
+      safeSource,
+      'typeorm_migrations',
+    );
+    if (!sourceHasHistory) {
+      // Source hasn't run any migrations yet — no history to seed.
+      this.logger.debug(
+        `Source schema ${safeSource} has no typeorm_migrations table; nothing to seed.`,
+      );
+      return;
+    }
+
+    // Create the tenant's history table with TypeORM's exact shape. We
+    // don't use `CREATE TABLE LIKE source.typeorm_migrations INCLUDING ALL`
+    // because LIKE pulls in the source's PRIMARY KEY constraint name and
+    // `id` sequence — both are global objects that would collide if the
+    // constraint is dropped/recreated later.
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS "${safeTarget}"."typeorm_migrations" (
+        "id" SERIAL PRIMARY KEY,
+        "timestamp" bigint NOT NULL,
+        "name" varchar NOT NULL
+      )
+    `);
+
+    // Skip the copy if the tenant already has rows (idempotent re-invocation).
+    const existing: Array<{ count: string }> = await this.dataSource.query(
+      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."typeorm_migrations"`,
+    );
+    if (parseInt(existing[0]?.count ?? '0', 10) > 0) {
+      this.logger.debug(
+        `Tenant ${safeTarget} already has typeorm_migrations rows; not re-seeding.`,
+      );
+      return;
+    }
+
+    await this.dataSource.query(`
+      INSERT INTO "${safeTarget}"."typeorm_migrations" ("timestamp", "name")
+      SELECT "timestamp", "name" FROM "${safeSource}"."typeorm_migrations"
+    `);
+
+    const sync: Array<{ count: string }> = await this.dataSource.query(
+      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."typeorm_migrations"`,
+    );
+    this.logger.log(
+      `Seeded ${sync[0]?.count ?? '0'} migration-history row(s) into ${safeTarget} from ${safeSource}`,
+    );
   }
 
   /**

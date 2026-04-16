@@ -55,11 +55,40 @@ jobs:
             set -euo pipefail
             cd /var/aqua-saas
 
-            # Sync the script from main so a freshly-cut release isn't required
-            # just to patch the backup logic.
-            echo "=== Syncing repo ==="
+            # Sync the script from main AND verify its SHA-256 against the
+            # committed manifest before execution. Without this guard, an
+            # attacker who lands a malicious commit on main gains arbitrary
+            # code execution on the droplet as the SSH user (INFRA-1).
+            #
+            # The manifest at .github/manifests/backup-script.sha256 is
+            # CODEOWNERS-gated to @Okan-wqm (BLOCKER-9) so a malicious PR
+            # cannot silently update the hash alongside the script.
+            echo "=== Syncing repo + verifying script integrity ==="
             git fetch --force --prune origin main
-            git checkout -f origin/main -- tools/scripts/database/backup-databases.sh
+            git checkout -f origin/main -- \
+              tools/scripts/database/backup-databases.sh \
+              .github/manifests/backup-script.sha256
+
+            EXPECTED_SHA=$(awk '/backup-databases\.sh$/ && $1 !~ /^#/ {print $1; exit}' \
+              .github/manifests/backup-script.sha256)
+            ACTUAL_SHA=$(sha256sum tools/scripts/database/backup-databases.sh \
+              | awk '{print $1}')
+
+            if [ "$EXPECTED_SHA" = "__COMPUTE_ON_MERGE__" ]; then
+              echo "FATAL: manifest placeholder unresolved — CI must seed the hash on merge."
+              exit 1
+            fi
+
+            if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+              echo "FATAL: backup-databases.sh SHA-256 mismatch — refusing to execute."
+              echo "  expected: $EXPECTED_SHA (from .github/manifests/backup-script.sha256)"
+              echo "  actual:   $ACTUAL_SHA"
+              echo "If this script was legitimately updated, submit a PR updating"
+              echo "BOTH the script AND its manifest hash (CODEOWNERS review required)."
+              exit 1
+            fi
+
+            echo "Script integrity verified: $ACTUAL_SHA"
 
             echo "=== Running backup ==="
             export POSTGRES_CONTAINER=aqua-postgres

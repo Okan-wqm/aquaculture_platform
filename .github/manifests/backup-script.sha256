@@ -1,0 +1,39 @@
+# Integrity manifest for backup-databases.sh
+# =============================================================================
+#
+# This file pins the SHA-256 of the trusted version of
+# tools/scripts/database/backup-databases.sh that the scheduled
+# production backup workflow is permitted to execute on the droplet.
+#
+# Without this pin, backup-production.yml checked out HEAD of origin/main,
+# meaning any attacker who landed a malicious commit on main would gain
+# arbitrary code execution on the droplet as the SSH user during the
+# nightly backup job.
+#
+# # Maintenance contract (INFRA-1 fix, plan v4 W2-E)
+#
+#   1. Any change to `tools/scripts/database/backup-databases.sh`
+#      REQUIRES a paired update to the hash below in the same PR.
+#   2. CI enforces the manifest-vs-script match via
+#      `.github/workflows/backup-manifest-invariant.yml` (W3) —
+#      PR fails if hash drifts from the file content.
+#   3. Per BLOCKER-9 CODEOWNERS routing, both the workflow file and
+#      this manifest live under `.github/**` which routes to @Okan-wqm.
+#      A malicious PR cannot silently update the manifest alongside
+#      the script.
+#
+# # Regenerating the hash
+#
+#   sha256sum tools/scripts/database/backup-databases.sh
+#
+# # Refs
+#
+#   /root/.claude/plans/declarative-riding-shamir.md INFRA-1
+#   /var/aqua-saas/docs/reviews/_audit/2026-04-W16-unified-audit.md
+#     (infra-expert finding surfacing the git-checkout-of-origin-main
+#     code-execution vector)
+#
+# =============================================================================
+
+# sha256  path
+586d1dda66e19d10b028c5293a76b31ce31eddc9577a8600d4b2153703dacc53  tools/scripts/database/backup-databases.sh

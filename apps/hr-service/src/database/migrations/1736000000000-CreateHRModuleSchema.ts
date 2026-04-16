@@ -34,20 +34,39 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
     // 2. Heal any tables left in partial state by a prior crashed run.
     //
     // A previous invocation of this migration may have crashed AFTER a
-    // CREATE TABLE succeeded but BEFORE its soft-delete columns landed
-    // (e.g. `is_deleted` / `deleted_at` / `deleted_by`). TypeORM
+    // CREATE TABLE succeeded but BEFORE ALL of the table's columns were
+    // added (e.g. `is_deleted`, `tenant_id`, `deleted_at`, etc.). TypeORM
     // `transaction: 'each'` should roll such failures back, but on
     // production droplets we've observed tables surviving the rollback
-    // window (connection drops, container kill) and then leaving
-    // CREATE TABLE IF NOT EXISTS below to no-op, so the next partial
-    // index (WHERE NOT "is_deleted") crashes with "column does not
-    // exist". This loop reconciles that: ALTER TABLE IF EXISTS …
-    // ADD COLUMN IF NOT EXISTS is idempotent on a fresh DB (no-op on
-    // every table because the tables don't exist yet — CREATE TABLE
-    // below handles fresh state) and healing on a partial-state DB
-    // (adds the missing soft-delete triad in place). Production data
-    // in existing columns is preserved.
-    await this.healSoftDeleteColumns(queryRunner);
+    // window (connection drops, container kill).
+    //
+    // When that happens, `CREATE TABLE IF NOT EXISTS` below silently
+    // no-ops (table is present) and the next partial index / NOT NULL
+    // statement crashes against a skeleton table with missing columns —
+    // we saw this twice consecutively on the droplet: first "is_deleted
+    // does not exist", then "tenant_id does not exist" after the
+    // is_deleted healer was added.
+    //
+    // Column-level healing (ADD COLUMN IF NOT EXISTS per column) breaks
+    // down under NOT NULL constraints without defaults — `tenant_id uuid
+    // NOT NULL` cannot be appended to a non-empty table. But that is
+    // exactly the point: a partial-state table from a rolled-back
+    // CREATE TABLE is EMPTY by definition (the migration aborted before
+    // any INSERT). So the safe reconciliation is:
+    //
+    //   - If the table exists but is missing its signature column AND
+    //     is empty  →  DROP the partial skeleton. CREATE TABLE IF NOT
+    //                  EXISTS below then rebuilds it cleanly from the
+    //                  migration's declared shape (source of truth).
+    //   - If the table exists, is missing a signature column, AND is
+    //     non-empty  →  REFUSE to heal. Fail loudly so a human can
+    //                  investigate — silently dropping real rows is the
+    //                  worst possible outcome.
+    //
+    // `tenant_id` is the signature column because every HR table in the
+    // migration's declared shape carries it. A table in hr schema
+    // without tenant_id is partial by construction.
+    await this.dropPartialHRTables(queryRunner);
 
     // 3. Create tables in dependency order
     await this.createOrganizationalTables(queryRunner);
@@ -64,19 +83,22 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
   }
 
   /**
-   * Idempotent soft-delete column healer. Adds `is_deleted` / `deleted_at`
-   * / `deleted_by` to every HR table that defines them below, if the
-   * columns are absent. No-op on tables that don't yet exist (ALTER TABLE
-   * IF EXISTS) and on columns that already exist (ADD COLUMN IF NOT
-   * EXISTS). Safe to run before CREATE TABLE IF NOT EXISTS — CREATE
-   * handles fresh creation, this handles partial healing.
+   * Drop partial-state HR tables left by a prior crashed run of this
+   * migration. See the commentary above the call site (up() step 2) for
+   * the reasoning — in short: a table whose signature column (`tenant_id`)
+   * is absent is a skeleton left over from an aborted CREATE TABLE, and
+   * safe to drop if empty.
+   *
+   * Refuses to drop non-empty partial tables (raises an exception), so
+   * the human operator sees the problem instead of losing rows.
    *
    * Keep this list in sync with the CREATE TABLE statements below — any
-   * new table that declares a soft-delete triad must also be added here,
-   * or partial-state recovery will miss it.
+   * new HR table must appear here, or partial-state recovery will miss it
+   * and the next deploy will crash on the same class of column-missing
+   * error.
    */
-  private async healSoftDeleteColumns(queryRunner: QueryRunner): Promise<void> {
-    const tablesWithSoftDelete = [
+  private async dropPartialHRTables(queryRunner: QueryRunner): Promise<void> {
+    const hrTables = [
       'departments_hr',
       'positions',
       'salary_structures',
@@ -99,16 +121,49 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       'work_rotations',
       'safety_training_records',
     ];
-    for (const table of tablesWithSoftDelete) {
-      await queryRunner.query(
-        `ALTER TABLE IF EXISTS "${table}" ADD COLUMN IF NOT EXISTS "is_deleted" boolean DEFAULT false`,
-      );
-      await queryRunner.query(
-        `ALTER TABLE IF EXISTS "${table}" ADD COLUMN IF NOT EXISTS "deleted_at" timestamptz`,
-      );
-      await queryRunner.query(
-        `ALTER TABLE IF EXISTS "${table}" ADD COLUMN IF NOT EXISTS "deleted_by" uuid`,
-      );
+    for (const table of hrTables) {
+      // `table` comes from a static const array in this file — no runtime
+      // input, no injection vector. Inline the value as a SQL string
+      // literal inside the DO block. `format('hr.%I', ...)` inside the
+      // DO block applies quote_ident defence-in-depth on the identifier.
+      await queryRunner.query(`
+        DO $$
+        DECLARE
+          has_tenant_id boolean;
+          rowcount bigint;
+        BEGIN
+          -- Table absent? fresh-DB path; nothing to do.
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_tables
+             WHERE schemaname = 'hr' AND tablename = '${table}'
+          ) THEN
+            RETURN;
+          END IF;
+
+          SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'hr'
+               AND table_name = '${table}'
+               AND column_name = 'tenant_id'
+          ) INTO has_tenant_id;
+
+          -- Healthy table (signature column present); leave alone —
+          -- CREATE TABLE IF NOT EXISTS below will also leave it alone.
+          IF has_tenant_id THEN
+            RETURN;
+          END IF;
+
+          -- Partial-state table (tenant_id missing). Drop if empty.
+          EXECUTE format('SELECT count(*) FROM hr.%I', '${table}') INTO rowcount;
+          IF rowcount = 0 THEN
+            EXECUTE format('DROP TABLE hr.%I CASCADE', '${table}');
+          ELSE
+            RAISE EXCEPTION
+              'Partial hr.% table has % non-zero rows but is missing tenant_id — manual intervention required before this migration can proceed.',
+              '${table}', rowcount;
+          END IF;
+        END $$;
+      `);
     }
   }
 

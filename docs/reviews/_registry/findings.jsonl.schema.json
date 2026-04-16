@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json",
+  "title": "Finding Registry Entry",
+  "description": "One JSON object per line in findings.jsonl. Hash-chained append-only state store for every CATCHER-produced finding in the enterprise-v2 review cycle. Consumed by tools/gates/finding-registry.ts CLI (Phase 2), commit-msg-validator.ts (Phase 2), finding-state-sweep.yml (Phase 6 cron), and root-cause-auditor (Phase 5).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "severity",
+    "state",
+    "title",
+    "owner_agent",
+    "raised_in_cycle",
+    "created_at",
+    "prev_hash",
+    "content_hash"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0)-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3}$",
+      "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{SEVERITY}-{NNN}. P0 is reserved for Phase-0 audit bootstrap findings."
+    },
+    "severity": {
+      "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+      "description": "Match severity in the id field."
+    },
+    "state": {
+      "enum": ["OPEN", "IN-PROGRESS", "RESOLVED", "STALE", "BLOCKED"],
+      "description": "Lifecycle state. OPEN = raised, no commit. IN-PROGRESS = in an implementation-planner package. RESOLVED = merged commit carries matching Closes: line. STALE = 30 days OPEN without movement. BLOCKED = escalated to architectural-arbiter or awaiting override."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 200,
+      "description": "One-line human-readable summary."
+    },
+    "layer": {
+      "enum": [1, 2, 3],
+      "description": "Layer-1 (tech) / Layer-2 (pattern) / Layer-3 (ADR) per the 3-layer knowledge model. Optional — not every finding fits the layer taxonomy."
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[^:]+:[0-9]+(-[0-9]+)?$"
+      },
+      "description": "file:line or file:start-end citations. At least one entry required for CRITICAL/HIGH."
+    },
+    "rule_violated": {
+      "type": "string",
+      "description": "Named rule: ADR number + title, ESLint rule ID, CLAUDE.md section, or layer-1/2/3 entry."
+    },
+    "owner_agent": {
+      "type": "string",
+      "description": "Agent that raised the finding. Must be a name in orchestrator.md runtime roster."
+    },
+    "raised_in_cycle": {
+      "type": "string",
+      "description": "Review cycle identifier — YYYY-MM-DD-{topic} matching docs/reviews/{agent}/{file}.md naming."
+    },
+    "review_file": {
+      "type": "string",
+      "description": "Path to the review markdown file that first documented this finding. Relative to repo root."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of first state transition to OPEN."
+    },
+    "closed_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of transition to RESOLVED. null while not RESOLVED."
+    },
+    "closing_commits": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{7,40}$"
+      },
+      "description": "Git SHAs of commits whose message contains 'Closes: ...#<this-id>'. Populated by closes-footer-check workflow."
+    },
+    "deadline": {
+      "type": ["string", "null"],
+      "format": "date",
+      "description": "Deadline for BLOCKED state (override protocol) or for tracked planner packages. null otherwise."
+    },
+    "owner_user": {
+      "type": ["string", "null"],
+      "description": "GitHub handle accountable for closing. Required when state is BLOCKED."
+    },
+    "override_of": {
+      "type": ["string", "null"],
+      "description": "If this entry represents an auditor-override (a Tier-4 exception tracked via inline comment), this field points to the underlying finding ID being overridden. null otherwise."
+    },
+    "prev_hash": {
+      "type": "string",
+      "pattern": "^(0{64}|[0-9a-f]{64})$",
+      "description": "SHA-256 of the previous entry's content_hash (64 zeros for the first entry). Enables tamper-evident append-only chain."
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of this entry's JSON serialization with prev_hash and content_hash fields excluded. Computed and stamped at write time by tools/gates/finding-registry.ts CLI."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-text notes. No structural requirements; avoid sensitive data — the jsonl is committed to the repo."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "RESOLVED" } }, "required": ["state"] },
+      "then": { "required": ["closed_at", "closing_commits"] }
+    },
+    {
+      "if": { "properties": { "state": { "const": "BLOCKED" } }, "required": ["state"] },
+      "then": { "required": ["owner_user", "deadline"] }
+    },
+    {
+      "if": { "properties": { "severity": { "enum": ["CRITICAL", "HIGH"] } }, "required": ["severity"] },
+      "then": { "required": ["evidence"] }
+    }
+  ]
+}

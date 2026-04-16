@@ -119,6 +119,13 @@
       }
     },
     {
+      "files": ["web/**/*.ts", "web/**/*.tsx"],
+      "excludedFiles": ["web/**/*.spec.ts", "web/**/*.test.ts", "web/**/__tests__/**"],
+      "rules": {
+        "aquaculture/no-bare-tenant-query-key": "warn"
+      }
+    },
+    {
       "files": ["*.js", "*.jsx"],
       "extends": ["plugin:@nx/javascript"],
       "rules": {}

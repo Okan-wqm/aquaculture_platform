@@ -14,8 +14,10 @@
  * See `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-20.
  */
 
+import noBareTenantQueryKey from './rules/no-bare-tenant-query-key';
 import requireEntitySchema from './rules/require-entity-schema';
 
 export const rules = {
   'require-entity-schema': requireEntitySchema,
+  'no-bare-tenant-query-key': noBareTenantQueryKey,
 };

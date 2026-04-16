@@ -70,6 +70,17 @@ function advisoryLockKey(schema: string): string {
 export interface RunSchemaOptions {
   /** Target schema (source schema). Must be a safe SQL identifier. */
   schema: string;
+  /**
+   * Database role that owns the schema (from SCHEMA_REGISTRY). When
+   * provided, the orchestrator CREATEs the schema with AUTHORIZATION
+   * to this role if it doesn't already exist — one-time bootstrap for
+   * droplets whose init-schemas.sh didn't include the schema at
+   * postgres first-init (MA4c safety net for existing-droplet upgrades
+   * that add new entries to SCHEMA_REGISTRY). When omitted, the
+   * orchestrator assumes the schema was created by init-schemas.sh and
+   * fails loudly at search_path pin if absent.
+   */
+  role?: string;
   /** TypeORM migrations path(s) or class list. */
   migrations: string[];
   /** Database connection parameters. */
@@ -164,6 +175,61 @@ export async function runSchemaMigrations(
 
   try {
     await queryRunner.connect();
+
+    // ── Phase 0 — bootstrap missing schema on existing droplets (MA4c) ──
+    //
+    // 00-init-schemas.sh runs ONCE at postgres container first-init. If
+    // SCHEMA_REGISTRY gains a new entry after that initial run, the
+    // new schema never materialises on the existing droplet — deploy
+    // fails at search_path pin. This Phase 0 check heals that gap
+    // deterministically, using the SSoT role assignment from the
+    // caller (main.ts passes e.role from SCHEMA_REGISTRY). This is
+    // NOT a defensive CREATE against arbitrary schemas — the call is
+    // gated on `role` being supplied and SAFE_IDENT_RE-validated.
+    //
+    // Idempotent on the common path (schema present): a single existence
+    // check against pg_namespace, zero DDL. Ownership fix (ALTER OWNER)
+    // is also issued because a prior orchestrator-level defensive
+    // CREATE (b4ccb36a before MA4 removed it) may have created the
+    // schema with the connecting user's ownership rather than the
+    // intended service role.
+    if (opts.role) {
+      if (!SAFE_IDENT_RE.test(opts.role)) {
+        throw new Error(
+          `[db-migrate] Unsafe role identifier: "${opts.role}". ` +
+            `Must match /^[a-zA-Z_][a-zA-Z0-9_]*$/.`,
+        );
+      }
+      const roleExists: Array<{ exists: boolean }> = await queryRunner.query(
+        `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1) AS exists`,
+        [opts.role],
+      );
+      if (roleExists[0]?.exists) {
+        await queryRunner.query(
+          `CREATE SCHEMA IF NOT EXISTS "${schema}" AUTHORIZATION "${opts.role}"`,
+        );
+        await queryRunner.query(
+          `ALTER SCHEMA "${schema}" OWNER TO "${opts.role}"`,
+        );
+      } else {
+        // Role missing — init-schemas.sh hasn't been run with the
+        // updated role block either. CREATE SCHEMA without AUTHORIZATION
+        // as a last-resort (connecting user owns it); at least the
+        // schema exists so migrations can land. `ALTER OWNER TO <role>`
+        // will be applied by the next init-schemas.sh regeneration.
+        log({
+          level: 'warn',
+          message: 'Phase 0: role missing; creating schema without AUTHORIZATION',
+          context: 'DbMigrate',
+          schema,
+          role: opts.role,
+          remediation:
+            'Re-run init-schemas.sh (add role block + re-run codegen) ' +
+            'to grant correct ownership.',
+        });
+        await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
+      }
+    }
 
     // ── Phase 1 — source schema ──
     const sourceResult = await runMigrationsOnSchema({

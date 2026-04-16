@@ -219,6 +219,7 @@ async function main(): Promise<number> {
       const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
       const result = await runSchemaMigrations({
         schema: entry.schema,
+        role: entry.role,
         migrations,
         database,
         log,

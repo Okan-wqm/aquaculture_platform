@@ -16,6 +16,18 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
   name = 'CreateHRModuleSchema1736000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Pin search_path to the hr schema for the rest of the migration.
+    // Defense-in-depth: aqua-db-migrate orchestrator already pins before
+    // invoking us (migration-orchestrator.ts:194-207) and so does the
+    // per-service MigrationRunnerService fallback. Re-asserting here makes
+    // the migration correct under EITHER runner AND under a hand-run via
+    // psql — which matters because every CREATE TABLE / partial index below
+    // is unqualified and would otherwise land in whatever search_path the
+    // session was started with (root cause of the 2026-04-16 aqua-db-migrate
+    // failure: partial index on "is_deleted" referenced a column from a
+    // table created under the wrong schema).
+    await queryRunner.query(`SET search_path TO "hr", public`);
+
     // 1. Create ENUMs
     await this.createEnums(queryRunner);
 

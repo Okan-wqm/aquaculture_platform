@@ -14,6 +14,11 @@ export class AddFeederCalibrations1774000000000 implements MigrationInterface {
   private readonly logger = new Logger(this.name);
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Pin search_path to farm (defense-in-depth; unqualified CREATE TABLE
+    // below + LIKE clause in the tenant loop both rely on the source schema
+    // being reachable by bare name).
+    await queryRunner.query(`SET search_path TO "farm", public`);
+
     const schema = await queryRunner.query(`SELECT current_schema()`);
     this.logger.log(`Running AddFeederCalibrations migration in schema: ${JSON.stringify(schema)}`);
 

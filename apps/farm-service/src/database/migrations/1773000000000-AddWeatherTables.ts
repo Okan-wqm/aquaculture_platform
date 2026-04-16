@@ -18,6 +18,10 @@ export class AddWeatherTables1773000000000 implements MigrationInterface {
   name = 'AddWeatherTables1773000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Pin search_path to farm (defense-in-depth; unqualified CREATE TABLE
+    // statements below + LIKE clause in tenant loop rely on source schema).
+    await queryRunner.query(`SET search_path TO "farm", public`);
+
     const schema = await queryRunner.query(`SELECT current_schema()`);
     this.logger.log('Running AddWeatherTables migration in schema:', schema);
 

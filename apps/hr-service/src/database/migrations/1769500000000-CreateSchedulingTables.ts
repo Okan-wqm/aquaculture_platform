@@ -14,6 +14,10 @@ export class CreateSchedulingTables1769500000000 implements MigrationInterface {
   name = 'CreateSchedulingTables1769500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Pin search_path so unqualified CREATE TABLE statements below land in
+    // hr.* (defense-in-depth — see CreateHRModuleSchema for full rationale).
+    await queryRunner.query(`SET search_path TO "hr", public`);
+
     // 1. Create ENUMs
     await this.createEnums(queryRunner);
 

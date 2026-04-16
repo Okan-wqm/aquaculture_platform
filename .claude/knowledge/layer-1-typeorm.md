@@ -28,7 +28,7 @@ Depends on: `layer-1-core.md`, `layer-1-nestjs.md`. Shared schema + tenant patte
   2. Migration B — backfill existing rows
   3. Migration C — `ALTER … SET NOT NULL`
   The `add-entity-field` skill (W5) enforces this — single-step NOT NULL on existing data is banned by `migration-sql-lint.ts` (W5 deliverable).
-- **Lock management** — every DDL transaction sets `SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '30s';` before running. Session-scope `SET search_path` (without `LOCAL`) was the 2026-04-07 pool-contamination incident root cause. 2 messaging migrations still carry session-scope `search_path` (DATA-HIGH-003) — W5 fix.
+- **Lock management** — every DDL transaction sets `SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '30s';` before running. Session-scope `SET search_path` (without `LOCAL`) was the 2026-04-07 pool-contamination incident root cause. Multiple migrations still carry session-scope `search_path` (DATA-HIGH-003 — exact set enumerated there) — W5 fix.
 - **Concurrent indexes** — `CREATE INDEX CONCURRENTLY` on tables > 10k rows. Blocks writes otherwise. Detected by `migration-sql-lint.ts`.
 - **Volatile defaults** — `ADD COLUMN … DEFAULT now()` / `DEFAULT gen_random_uuid()` triggers a full table rewrite. Use nullable + backfill instead.
 

@@ -93,7 +93,23 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `database/scripts/**` | data-expert | database-reviewer, security-reviewer |
 | `libs/backend-common/src/redis/**` | auth-security-expert | multi-tenant-saas-expert |
 | `libs/backend-common/src/nats/**` | data-expert | |
-| `platform/libs/outbox/**` | messaging-expert | data-expert |
+| `platform/libs/outbox/**` | data-expert | messaging-expert |
+| `apps/db-migrate/**` | data-expert | infra-expert |
+| `libs/shared-contracts/**` | data-expert | *all consumers* |
+| `scripts/nats/**` | infra-expert | data-expert |
+| `scripts/ci/**` | infra-expert | test-runner |
+| `scripts/deploy*`, `scripts/*.sh`, `scripts/*.ts` | infra-expert | security-reviewer |
+| `docs/adr/**` | architectural-arbiter | prompt-writer |
+| `docs/runbooks/**` | infra-expert | security-reviewer |
+| `docs/reviews/**` | context-manager | orchestrator |
+| `docs/research/**` | prompt-writer | |
+| `docs/architecture/**`, `docs/security/**`, `docs/api/**`, `docs/guides/**`, `docs/DEPLOY.md` | architectural-arbiter | infra-expert |
+| `nx.json`, `tsconfig.base.json`, `jest.config.*`, `.prettierrc*`, `.nvmrc` | platform-kernel-expert | infra-expert |
+| `.claude/knowledge/**`, `.claude/agents-enterprise-v2/_shared/**` | prompt-writer | architectural-arbiter |
+| `.claude/allowlists/**` | security-reviewer | architectural-arbiter |
+| `.claude/skills/**` | prompt-writer | implementation-planner |
+| `tools/gates/**`, `tools/eslint-rules/**`, `tools/ripple-tracer/**` | infra-expert | architectural-arbiter, security-reviewer |
+| `CLAUDE.md` | architectural-arbiter | prompt-writer, *all experts* |
 | `.env*` | security-reviewer | |
 
 **Special rules:**

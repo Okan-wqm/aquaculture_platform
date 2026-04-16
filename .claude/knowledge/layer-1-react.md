@@ -33,7 +33,7 @@ Depends on: `layer-1-core.md` (TypeScript 5.3). React 19 Server Actions are NOT 
 ## Server state + tenant scoping
 
 - **React Query (`@tanstack/react-query`)** — canonical server-state manager. Per ADR-009 frontend data-fetch pattern.
-- **`createTenantQueryKey(queryKey, tenantId)`** — SSoT tenant-scoped key factory in `web/shared-ui`. Adopted in 4 of ~30+ modules as of W1 (FE-CRITICAL-001). Farm-module alone has 265 non-conforming `queryKey` arrays. Tenant switch cannot purge previous-tenant cache — cross-tenant leak vector.
+- **`createTenantQueryKey(tenantId, ...segments)`** — SSoT tenant-scoped key factory in `web/shared-ui/src/utils/tenant-query-keys.ts` (returns `['tenant', tenantId, ...segments] as const`). `tenantId` is the FIRST parameter followed by variadic segments — inverted order produces cross-tenant cache bleed. Adopted in 4 of ~30+ modules as of W1 (FE-CRITICAL-001). Farm-module alone has 265 non-conforming `queryKey` arrays. Tenant switch cannot purge previous-tenant cache — cross-tenant leak vector.
 - **W6 ESLint rule** `no-bare-tenant-query-key` (BLOCKER-20 family) detects bare arrays and demands `createTenantQueryKey`.
 - **`staleTime` default** — 5 minutes for cross-service joins; 30s for high-churn streams. Customise per query; don't set globally.
 

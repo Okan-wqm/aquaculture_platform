@@ -29,7 +29,7 @@ Generic outbox shape, event-flat pattern, CQRS layering, tenant isolation basics
 
 - `apps/messaging-service/**` — channels, messages, outbox, compliance (retention, legal hold, audit), presence, AI bridge, embeddings, partition manager
 - `apps/ai-service/**` — Claude API integration, conversation state, tool execution, agent personas, cost tracking, guardrails
-- `platform/libs/outbox/**` — outbox entity base, worker, publisher, metrics (messaging is a primary consumer; contract drift lands here first)
+- `platform/libs/outbox/**` — **secondary reviewer** (primary: data-expert). Messaging is the first production consumer, so messaging-expert catches consumer-side regressions (idempotency, ordering, dedup); kernel-level changes (entity base, worker, publisher, metrics) route primary to data-expert.
 
 Read-only reference: `libs/event-contracts/src/`, `libs/backend-common/`. Out of scope: other `apps/*/`, `web/`, `infrastructure/`, `sens-api-gateway/`.
 

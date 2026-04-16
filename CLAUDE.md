@@ -48,7 +48,7 @@ npm run format                   # Prettier write
 
 Nx monorepo. NestJS microservices (`apps/`), React microfrontends (`web/`), platform libs (`platform/libs/`), shared libs (`libs/`), Rust edge gateway (`sens-api-gateway/`).
 
-### Backend Services (`apps/`) — 15 services
+### Backend Services (`apps/`) — 16 services (15 runtime + `db-migrate` CLI)
 | Service | Schema | Responsibility |
 |---|---|---|
 | `gateway-api` | — | API gateway, auth guard, rate limiting, CSP, OPA |
@@ -66,6 +66,7 @@ Nx monorepo. NestJS microservices (`apps/`), React microfrontends (`web/`), plat
 | `config-service` | `config` | Dynamic configuration |
 | `event-store-service` | `event_store` | Event persistence, projections |
 | `observability-service` | — | Prometheus, tracing, security events |
+| `db-migrate` | — | Standalone migration runner CLI (not a long-running service) |
 
 ### Platform Libs (`platform/libs/`)
 - `@platform/cqrs` — Command/Query bus, handler decorators

@@ -27,11 +27,17 @@ Schema-per-tenant service list (7 entries in `PER_TENANT_SCHEMA_SERVICES`, `test
 
 ## Primary Ownership
 
-- `libs/backend-common/src/database/{tenant-connection-bootstrap,schema-manager,watchdog}/**` — L1 search_path bootstrap + CrossTenantProbe / SourceSchemaScanner / SchemaDriftDetector canaries
-- `libs/backend-common/src/database/tenant-scoped-repository.ts` — L1 app-layer isolation primitive (currently unused across `apps/**` — MT-CRITICAL-001 below)
-- `libs/backend-common/src/database/rls/tenant-rls.service.ts` + per-service `EnableRowLevelSecurity` migrations — L2 defense
-- `libs/backend-common/src/redis/tenant-redis.service.ts` — L3 Redis namespace primitive (currently unused across `apps/**` — MT-CRITICAL-002 below)
-- `libs/backend-common/src/guards/tenant*.ts` + `libs/backend-common/src/middleware/tenant-context.middleware.ts` — L5 request-scoped tenant guard + `X-Act-As-Tenant` entry point
+**Ownership grammar** (per `_shared/handoff-protocol.md` delegation rules):
+- **primary** — this agent is the sole CATCHER; routing starts here.
+- **delegated** — path's generic/kernel primary is another agent; this agent reviews ONLY the tenant-contract slice. Generic concerns route back to the primary owner.
+
+Paths:
+
+- `libs/backend-common/src/database/{tenant-connection-bootstrap,schema-manager,watchdog}/**` — **delegated from data-expert** (tenant-contract slice): L1 search_path bootstrap + CrossTenantProbe / SourceSchemaScanner / SchemaDriftDetector canaries. Kernel-level persistence concerns → data-expert.
+- `libs/backend-common/src/database/tenant-scoped-repository.ts` — **delegated from data-expert** (tenant-contract slice): L1 app-layer isolation primitive (currently unused across `apps/**` — MT-CRITICAL-001 below).
+- `libs/backend-common/src/database/rls/tenant-rls.service.ts` + per-service `EnableRowLevelSecurity` migrations — **primary** (L2 RLS defense is a pure tenant concern).
+- `libs/backend-common/src/redis/tenant-redis.service.ts` — **delegated from auth-security-expert** (tenant-contract slice): L3 Redis namespace primitive (currently unused across `apps/**` — MT-CRITICAL-002 below). Session/rate-limit Redis concerns → auth-security-expert.
+- `libs/backend-common/src/guards/tenant*.ts` + `libs/backend-common/src/middleware/tenant-context.middleware.ts` — **primary** (L5 request-scoped tenant guard + `X-Act-As-Tenant` entry point).
 - `apps/*/src/**/tenant*.ts` across every service — tenant-bound controllers, handlers, projections
 - `apps/admin-api-service/src/{tenant,impersonation}/**` — provisioning saga, impersonation surface, cross-tenant audit
 - `apps/auth-service/src/modules/tenant/**` + `libs/event-contracts/src/{tenant-events,base-event}.ts` — tenant entity + `PlanTier` contract

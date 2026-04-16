@@ -65,6 +65,16 @@ If agent-X ran TEACHER in cycle N, the WRITER for the same surface in cycle N (o
 
 Rationale: an agent cannot rubber-stamp its own recommendation. TEACHER → skill/implementation-planner → (different agent) CATCHER is the correct chain.
 
+## Ownership grammar — primary / secondary / delegated
+
+Every path has exactly ONE primary owner (enforced by `tests/invariants/agent-ownership-uniqueness.spec.ts`, Phase 4). Other agents may claim the path under two reduced-scope roles:
+
+- **primary** — CATCHER dispatched here first; this agent's verdict is load-bearing; other owners are consulted only if flagged.
+- **secondary reviewer** — invoked in parallel with primary when the path touches a narrow concern this agent catches better (e.g., `messaging-expert` on `platform/libs/outbox/**` for consumer-side regressions; primary remains data-expert for kernel).
+- **delegated** — this agent reviews ONLY a named slice (e.g., multi-tenant-saas-expert on `libs/backend-common/src/database/tenant-*` reviews the tenant-contract slice; all other database concerns route back to data-expert).
+
+Agent files MUST tag non-primary entries in their Primary Ownership section using the words `secondary reviewer` or `delegated from <agent>`. Untagged overlapping claims are a PROCESS HIGH ownership conflict.
+
 ## Cross-domain handoff rules
 
 Certain surfaces trigger multiple agents:
@@ -76,7 +86,10 @@ Certain surfaces trigger multiple agents:
 | Any path matching tenant middleware / guards / scoped-repo | multi-tenant-saas-expert | primary domain expert + auth-security-expert |
 | Any security-sensitive file (auth, JWT, guards, rate limit) | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/auth/**` / `security/**` | auth-security-expert | security-reviewer |
-| `platform/libs/**` | platform-kernel-expert | depends on sub-module |
+| `libs/backend-common/src/database/**` | data-expert | multi-tenant-saas-expert (tenant slice only) |
+| `libs/backend-common/src/redis/**` | auth-security-expert | multi-tenant-saas-expert (tenant slice only) |
+| `platform/libs/outbox/**` | data-expert | messaging-expert (consumer-side) |
+| `platform/libs/**` (cqrs, event-bus) | platform-kernel-expert | depends on sub-module |
 | `sens-api-gateway/**` | edge-expert | security-reviewer |
 | 3+ distinct domains in one PR | orchestrator invokes security-reviewer as cross-cutting gate | ALL implicated domain experts |
 

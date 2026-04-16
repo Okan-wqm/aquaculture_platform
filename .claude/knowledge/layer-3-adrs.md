@@ -28,7 +28,7 @@ Agents reference this index instead of loading full ADR text. When an agent cite
 
 ## Drift note
 
-Four files under `docs/architecture/ADR-01{0,1,2,3}-*.md` use ADR numbering but live outside `docs/adr/`. They pre-date the canonical set and duplicate numbers. CLAUDE.md: *"Treat `docs/adr/` as authoritative. Moving or renumbering the misfiled files is tracked work, not done here."* Agents must never cite ADR-0-series numbers without the `docs/adr/` path prefix.
+Five files under `docs/architecture/ADR-01{0,1,2,3}-*.md` (ADR-010 has two variants: `AI-REVIEW` + `AI-SELF-LEARNING`, plus `ADR-011-operations-hub-restructuring`, `ADR-012-messaging-service`, `ADR-013-nestjs-v11-upgrade`) use ADR numbering but live outside `docs/adr/`. They pre-date the canonical set and duplicate numbers. CLAUDE.md: *"Treat `docs/adr/` as authoritative. Moving or renumbering the misfiled files is tracked work, not done here."* Agents must never cite ADR-0-series numbers without the `docs/adr/` path prefix.
 
 ## Tier semantics
 

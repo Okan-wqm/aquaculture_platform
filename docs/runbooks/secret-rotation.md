@@ -55,6 +55,16 @@ Rotation is more involved (all services need the new public key before auth-serv
 
 Consumed by auth-service to HMAC passwords before bcrypt. Rotation requires re-hashing all existing user passwords. NOT a routine rotation — only performed after a suspected pepper leak. Separate incident-response runbook covers this.
 
+**Initial generation (new droplet).** `droplet-up.sh` fails Phase A4 if `PASSWORD_PEPPER` (or any other secret in `scripts/deploy/lib/required-env-secrets.sh`) is missing from `/var/aqua-saas/.env` — that fail-fast signal is the cue to run the bootstrap generator once:
+
+```bash
+ssh root@<droplet>
+cd /var/aqua-saas
+sudo bash scripts/deploy/droplet-bootstrap-env.sh
+```
+
+The generator is idempotent: on a droplet where every required secret is already set, it's a no-op. The deploy path itself never regenerates secrets — a deploy that silently rotated the pepper on each run would invalidate every stored bcrypt hash.
+
 ## Database passwords (per-service)
 
 Defined in `infrastructure/docker/init-scripts/00-init-schemas.sh`. Rotated via:

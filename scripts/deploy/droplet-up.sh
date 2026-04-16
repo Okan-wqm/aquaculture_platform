@@ -117,26 +117,27 @@ else
   echo "  SKIP: generator script not present (commit predates ADR-015)"
 fi
 
-# Phase A4 — required secrets present in .env (don't generate, just check)
+# Phase A4 — required secrets present in .env (don't generate, just check).
+# The REQUIRED set lives in scripts/deploy/lib/required-env-secrets.sh and
+# is shared with droplet-bootstrap-env.sh so the preflight check and the
+# bootstrap generator cannot drift (Tier-1 architectural fix).
 echo "=== Pre-flight: required secrets presence ==="
-REQUIRED_SECRETS=(
-  POSTGRES_PASSWORD
-  REDIS_PASSWORD
-  INTERNAL_SERVICE_SECRET
-  PASSWORD_PEPPER
-)
+# shellcheck disable=SC1091
+source /var/aqua-saas/scripts/deploy/lib/required-env-secrets.sh
 MISSING=()
-for SECRET in "${REQUIRED_SECRETS[@]}"; do
+while IFS= read -r SECRET; do
   if ! grep -q "^${SECRET}=" /var/aqua-saas/.env 2>/dev/null; then
     MISSING+=("$SECRET")
   fi
-done
+done < <(required_env_secret_names)
 if [ ${#MISSING[@]} -gt 0 ]; then
   echo "::error::Required secrets missing from /var/aqua-saas/.env: ${MISSING[*]}"
+  echo "  Run: sudo bash scripts/deploy/droplet-bootstrap-env.sh"
+  echo "  (idempotent; only generates secrets that are absent)"
   echo "  Aborting BEFORE container actions — set these and retry."
   exit 1
 fi
-echo "  OK: ${#REQUIRED_SECRETS[@]} required secrets present"
+echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
 
 # End of pre-flight ──────────────────────────────────────────
 

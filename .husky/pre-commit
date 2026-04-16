@@ -1,0 +1,8 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Pre-commit gates — Phase 2 of /root/.claude/plans/abstract-brewing-mochi.md.
+# Hard fail any commit introducing banned CLAUDE.md phrases on staged files.
+# Future Phase 2 additions: tier-claim-lint, migration-sql-lint, lint-staged.
+
+npx ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts --mode=staged

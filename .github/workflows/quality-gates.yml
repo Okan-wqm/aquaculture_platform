@@ -1,0 +1,65 @@
+name: Quality Gates
+
+# =============================================================================
+# Phase 2 of /root/.claude/plans/abstract-brewing-mochi.md.
+#
+# Runs the tools/gates/**.ts CLIs on every PR:
+#   - banned-phrase: scans diff + commit bodies for CLAUDE.md banned phrases
+#   - (Phase 2 future: tier-claim-lint, migration-sql-lint, commit-msg-validator)
+#
+# These gates are the Tier-3 automated enforcement backing CLAUDE.md's
+# "Architectural Approach" section (no patches, no workarounds, no deferrals
+# without owner + deadline + finding-ID, OR plan-phase reference).
+#
+# Reference: tools/gates/README.md (to be written as Phase 2 progresses).
+# =============================================================================
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  banned-phrase-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # SEC-CI-002: pinned to full SHA (infra-expert invariant)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (minimal — ts-node only)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Determine commit range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+            # On first push to a new branch, github.event.before is 40-zero
+            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              BASE=$(git rev-parse HEAD~1)
+            fi
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+          echo "Checking range: $BASE..$HEAD"
+
+      - name: Run banned-phrase gate
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/banned-phrase.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"

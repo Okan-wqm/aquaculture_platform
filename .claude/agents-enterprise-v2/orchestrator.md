@@ -81,7 +81,8 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `apps/*/src/**/tenant*.ts`, `libs/backend-common/src/database/**tenant**`, `libs/backend-common/src/guards/tenant*.ts` | multi-tenant-saas-expert | auth-security-expert, data-expert |
 | `**/*.spec.ts`, `**/*.test.ts`, `e2e/**`, `tests/**`, `.github/workflows/*test*`, `.github/workflows/*ci*` | test-runner | |
 | `mcp/**` | mcp-expert | farm-expert, messaging-expert, security-reviewer |
-| `.claude/agents/*.md`, `.claude/agents-enterprise-v2/*.md` | prompt-writer | maintenance-only; outside runtime review roster |
+| `.claude/agents-enterprise-v2/*.md` | prompt-writer | maintenance-only; outside runtime review roster |
+| `.claude/agents.legacy/**` | prompt-writer | ARCHIVED 2026-04-16; read-only; no dispatch |
 | `apps/alert-engine/**` | platform-services | security-reviewer |
 | `libs/aquaculture-engines/**` | farm-expert | |
 | `libs/farm-shared/**` | farm-expert | |

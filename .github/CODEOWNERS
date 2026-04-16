@@ -9,7 +9,7 @@
 # ── Agent control plane ────────────────────────────────────────────────
 # Modifying any of these paths can alter the behaviour of 22+ review agents.
 # A poisoned _shared/ fragment propagates to every agent via @-include.
-.claude/agents/                  @Okan-wqm
+.claude/agents.legacy/           @Okan-wqm
 .claude/agents-enterprise-v2/    @Okan-wqm
 .claude/test-agents/             @Okan-wqm
 .claude/knowledge/               @Okan-wqm
@@ -24,8 +24,15 @@ tools/gates/                     @Okan-wqm
 # ── CI/CD workflows ───────────────────────────────────────────────────
 # Workflow tampering bypasses every gate. Required to land with signed commits.
 .github/workflows/               @Okan-wqm
+.github/actions/                 @Okan-wqm
+.github/manifests/               @Okan-wqm
 .github/CODEOWNERS               @Okan-wqm
 .github/dependabot.yml           @Okan-wqm
+
+# ── Tooling scripts (finding registry, closes-footer, gates) ─────────
+# Any change here can disable the traceability loop or registry integrity.
+tools/scripts/seed-finding-registry.mjs      @Okan-wqm
+tools/scripts/validate-closes-footer.mjs     @Okan-wqm
 
 # ── Finding registry + audit trail ────────────────────────────────────
 # Direct edits to findings.jsonl are a tamper vector; must be gated.

@@ -56,8 +56,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import type { DataSourceOptions } from 'typeorm';
-
 import { SCHEMA_REGISTRY } from './schema-registry';
 import {
   runSchemaMigrations,
@@ -124,8 +122,15 @@ function envOr(name: string, fallback: string): string {
  * used by every backend service (DATABASE_SSL / DATABASE_SSL_CA /
  * DATABASE_SSL_REJECT_UNAUTHORIZED). Default: disabled, to match the
  * local-dev compose.
+ *
+ * Return type binds to the consumer (RunSchemaOptions.database.ssl).
+ * The previous `DataSourceOptions['ssl']` annotation failed to type-
+ * check because DataSourceOptions is a union of every TypeORM driver's
+ * connection type, and `ssl` is not a member of every branch — so the
+ * property access resolves to never. Tying the annotation to the actual
+ * consumer makes the contract explicit and internally consistent.
  */
-function buildSsl(): DataSourceOptions['ssl'] {
+function buildSsl(): NonNullable<RunSchemaOptions['database']['ssl']> {
   const enabled = envOr('DATABASE_SSL', 'false') === 'true';
   if (!enabled) return false;
   const caPath = process.env['DATABASE_SSL_CA'];

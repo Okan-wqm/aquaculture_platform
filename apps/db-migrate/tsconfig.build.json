@@ -47,6 +47,10 @@
     "src/**/__tests__/**",
     "src/**/test-utils/**",
     "src/**/test-helpers/**",
-    "src/**/*.e2e-spec.ts"
+    "src/**/*.e2e-spec.ts",
+    "../*/src/**/*.spec.ts",
+    "../*/src/**/*.test.ts",
+    "../*/src/**/*.e2e-spec.ts",
+    "../*/src/**/__tests__/**"
   ]
 }

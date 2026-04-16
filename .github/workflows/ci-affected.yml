@@ -123,6 +123,22 @@ jobs:
             exit 1
           fi
 
+      # Schema-registry codegen drift check (MA4). Regenerates
+      # 00-init-schemas.sh from SCHEMA_REGISTRY; fails the PR if the
+      # committed init-schemas.sh differs from what codegen would produce.
+      # Catches "PR author edited SCHEMA_REGISTRY without running the
+      # generator" — the class of drift that sneaked `notification`,
+      # `observability`, `event_store` past init-schemas and blocked
+      # the 2026-04-16 deploy.
+      - name: Schema-registry codegen drift check
+        run: |
+          npm run codegen:schema-registry
+          if ! git diff --exit-code infrastructure/docker/init-scripts/00-init-schemas.sh; then
+            echo "::error::SCHEMA_REGISTRY ↔ 00-init-schemas.sh drift detected."
+            echo "::error::Run \`npm run codegen:schema-registry\` locally and commit the diff."
+            exit 1
+          fi
+
       # Persist node_modules for downstream jobs
       - name: Cache node_modules
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3

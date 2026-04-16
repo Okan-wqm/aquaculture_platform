@@ -23,6 +23,11 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
+// Migration helpers (pinSearchPath, dropPartialTables) — shared by
+// migration authors so search_path boilerplate + partial-state cleanup
+// live in one place. See base-migration.ts for rationale.
+export { pinSearchPath, dropPartialTables } from './base-migration';
+
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';
 

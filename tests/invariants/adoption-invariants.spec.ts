@@ -98,7 +98,9 @@ function extractServiceNameFromRegistration(
   const match = moduleContent.match(
     /SchemaDriftModule\.forRoot\s*\(\s*\{\s*[^}]*serviceName\s*:\s*['"]([\w-]+)['"]/,
   );
-  return match ? match[1] : null;
+  if (match === null) return null;
+  const [, captured] = match;
+  return captured ?? null;
 }
 
 function hasSchemaDriftImport(moduleContent: string): boolean {

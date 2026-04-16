@@ -31,7 +31,25 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
     // 1. Create ENUMs
     await this.createEnums(queryRunner);
 
-    // 2. Create tables in dependency order
+    // 2. Heal any tables left in partial state by a prior crashed run.
+    //
+    // A previous invocation of this migration may have crashed AFTER a
+    // CREATE TABLE succeeded but BEFORE its soft-delete columns landed
+    // (e.g. `is_deleted` / `deleted_at` / `deleted_by`). TypeORM
+    // `transaction: 'each'` should roll such failures back, but on
+    // production droplets we've observed tables surviving the rollback
+    // window (connection drops, container kill) and then leaving
+    // CREATE TABLE IF NOT EXISTS below to no-op, so the next partial
+    // index (WHERE NOT "is_deleted") crashes with "column does not
+    // exist". This loop reconciles that: ALTER TABLE IF EXISTS …
+    // ADD COLUMN IF NOT EXISTS is idempotent on a fresh DB (no-op on
+    // every table because the tables don't exist yet — CREATE TABLE
+    // below handles fresh state) and healing on a partial-state DB
+    // (adds the missing soft-delete triad in place). Production data
+    // in existing columns is preserved.
+    await this.healSoftDeleteColumns(queryRunner);
+
+    // 3. Create tables in dependency order
     await this.createOrganizationalTables(queryRunner);
     await this.createLeaveTables(queryRunner);
     await this.createAttendanceTables(queryRunner);
@@ -39,10 +57,59 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
     await this.createPerformanceTables(queryRunner);
     await this.createAquacultureTables(queryRunner);
 
-    // 3. Update employees table with new columns
+    // 4. Update employees table with new columns
     await this.updateEmployeesTable(queryRunner);
 
     // Migration complete — do not emit application-layer logs from migrations (LOW-03)
+  }
+
+  /**
+   * Idempotent soft-delete column healer. Adds `is_deleted` / `deleted_at`
+   * / `deleted_by` to every HR table that defines them below, if the
+   * columns are absent. No-op on tables that don't yet exist (ALTER TABLE
+   * IF EXISTS) and on columns that already exist (ADD COLUMN IF NOT
+   * EXISTS). Safe to run before CREATE TABLE IF NOT EXISTS — CREATE
+   * handles fresh creation, this handles partial healing.
+   *
+   * Keep this list in sync with the CREATE TABLE statements below — any
+   * new table that declares a soft-delete triad must also be added here,
+   * or partial-state recovery will miss it.
+   */
+  private async healSoftDeleteColumns(queryRunner: QueryRunner): Promise<void> {
+    const tablesWithSoftDelete = [
+      'departments_hr',
+      'positions',
+      'salary_structures',
+      'leave_types',
+      'leave_balances',
+      'leave_requests',
+      'shifts',
+      'schedules',
+      'schedule_entries',
+      'attendance_records',
+      'certification_types',
+      'employee_certifications',
+      'training_courses',
+      'training_sessions',
+      'training_enrollments',
+      'performance_reviews',
+      'performance_goals',
+      'employee_kpis',
+      'work_areas',
+      'work_rotations',
+      'safety_training_records',
+    ];
+    for (const table of tablesWithSoftDelete) {
+      await queryRunner.query(
+        `ALTER TABLE IF EXISTS "${table}" ADD COLUMN IF NOT EXISTS "is_deleted" boolean DEFAULT false`,
+      );
+      await queryRunner.query(
+        `ALTER TABLE IF EXISTS "${table}" ADD COLUMN IF NOT EXISTS "deleted_at" timestamptz`,
+      );
+      await queryRunner.query(
+        `ALTER TABLE IF EXISTS "${table}" ADD COLUMN IF NOT EXISTS "deleted_by" uuid`,
+      );
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

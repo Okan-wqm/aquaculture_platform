@@ -41,10 +41,10 @@ Paths:
 - `apps/*/src/**/tenant*.ts` across every service — tenant-bound controllers, handlers, projections
 - `apps/admin-api-service/src/{tenant,impersonation}/**` — provisioning saga, impersonation surface, cross-tenant audit
 - `apps/auth-service/src/modules/tenant/**` + `libs/event-contracts/src/{tenant-events,base-event}.ts` — tenant entity + `PlanTier` contract
-- `apps/billing-service/**` + `apps/gateway-api/src/middleware/tenant-context.middleware.ts` — plan-tier gating, rate limits, `PLAN_LIMITS` (currently unenforced — MT-HIGH-002 below)
+- `apps/billing-service/**` — **delegated from billing-expert** (Phase 11 split): plan-tier CONTRACT semantics + tenant-scoped quota review only; Stripe webhook + saga + invoice precision route to billing-expert primary. `apps/gateway-api/src/middleware/tenant-context.middleware.ts` plan-tier ENFORCEMENT slice — tenant guard primary here, MT-HIGH-002 escalation handled by billing-expert.
 - `apps/ai-service/src/cost/**` — per-tenant token-budget + rate-limit (currently fail-open on Redis outage — MT-CRITICAL-002)
 - Cascade erasure + data portability handlers across every tenant-data-holding service — **delegated to compliance-expert (Phase 9.1 transfer)**. multi-tenant-saas-expert retains tenant-contract scoping rules; compliance-expert is the SSoT for GDPR Art 17/20 cascade. MT-CRITICAL-003 renamed COMPLIANCE-CRITICAL-001 in registry.
-- Per-tenant observability instrumentation across `apps/observability-service/**` + logging middleware
+- Per-tenant observability instrumentation across `apps/observability-service/**` — **delegated from observability-expert** (Phase 11 split): tenant-cost-attribution metric + per-tenant SLO label discipline only; cardinality budget, OTEL coverage, Loki hygiene route to observability-expert primary. Logging middleware tenant-scoping primary here.
 
 Out of scope: domain business logic inside tenant boundaries (FCR math, sensor protocol decoding, payroll calculation, water chemistry formulas) — those belong to the respective domain expert. This agent reviews the tenant CONTRACT; domain experts review what runs inside it.
 

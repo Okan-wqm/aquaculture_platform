@@ -58,13 +58,14 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `web/shared-ui/**` | frontend-expert | *all frontend modules* |
 | `web/modules/dashboard/**` | frontend-expert | |
 | `web/apps/aquamobil/**` | frontend-expert | |
-| `web/modules/hydroponics-module/**` | platform-services | |
-| `apps/billing-service/**` | platform-services | |
-| `apps/notification-service/**` | platform-services | |
-| `apps/config-service/**` | platform-services | |
-| `apps/event-store-service/**` | platform-services | |
-| `apps/observability-service/**` | platform-services | |
-| `apps/hydroponics-service/**` | platform-services | |
+| `web/modules/hydroponics-module/**` | farm-expert | |
+| `apps/billing-service/**` | billing-expert | multi-tenant-saas-expert, security-reviewer, compliance-expert |
+| `apps/notification-service/**` | auth-security-expert | security-reviewer |
+| `apps/config-service/**` | platform-kernel-expert | infra-expert |
+| `apps/event-store-service/**` | data-expert | observability-expert |
+| `apps/observability-service/**` | observability-expert | |
+| `apps/hydroponics-service/**` | farm-expert | data-expert |
+| `infrastructure/monitoring/**` | observability-expert | infra-expert |
 | `platform/configs/**` | platform-kernel-expert | infra-expert, security-reviewer |
 | `platform/libs/cqrs/**` | platform-kernel-expert | |
 | `platform/libs/event-bus/**` | platform-kernel-expert | data-expert, security-reviewer |
@@ -83,7 +84,7 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `mcp/**` | mcp-expert | farm-expert, messaging-expert, security-reviewer |
 | `.claude/agents-enterprise-v2/*.md` | prompt-writer | maintenance-only; outside runtime review roster |
 | `.claude/agents.legacy/**` | prompt-writer | ARCHIVED 2026-04-16; read-only; no dispatch |
-| `apps/alert-engine/**` | platform-services | security-reviewer |
+| `apps/alert-engine/**` | alert-engine-expert | sensor-expert, farm-expert, multi-tenant-saas-expert, security-reviewer |
 | `libs/aquaculture-engines/**` | farm-expert | |
 | `libs/farm-shared/**` | farm-expert | |
 | `libs/node-components/**` | frontend-expert | |
@@ -294,7 +295,10 @@ All agents use `opus` with `effort: max` per platform policy.
 | frontend-expert | web/shell/, web/shared-ui/, web/modules/dashboard/, web/apps/aquamobil/ |
 | infra-expert | infra/, infrastructure/, deploy/, .github/{workflows,actions}/, nginx/, docker-compose*, Dockerfile* |
 | platform-kernel-expert | platform/libs/cqrs/, platform/libs/event-bus/, platform/configs/, libs/backend-common foundational runtime modules |
-| platform-services | billing, notification, config-service, event-store-service, observability-service, alert-engine, hydroponics-service, hydroponics-module |
+| billing-expert | apps/billing-service/ — Stripe webhook + metered billing + subscription saga + plan-tier enforcement (delegated from multi-tenant). |
+| alert-engine-expert | apps/alert-engine/ — rule evaluation hot-path + escalation ladder + life-safety priority + per-tenant rate-limit. |
+| observability-expert | apps/observability-service/ + infrastructure/monitoring/ + cross-service Prometheus cardinality + OTEL coverage + Loki hygiene + alert runbook discipline. |
+| ~~platform-services~~ | DEPRECATED 2026-04-16 (Phase 11 split — see split destination map in `.claude/agents-enterprise-v2/platform-services.md`). |
 | auth-security-expert | apps/auth-service/, apps/gateway-api/, libs/backend-common/src/{auth,guards,security,middleware}/ |
 | security-reviewer | ALL files — cross-cutting security quality gate |
 | test-runner | ALL test files — build and test quality gate |

@@ -112,7 +112,10 @@ export default {
     {
       ...commonProjectOptions,
       displayName: 'registry',
-      testMatch: ['<rootDir>/adoption-invariants.spec.ts'],
+      testMatch: [
+        '<rootDir>/adoption-invariants.spec.ts',
+        '<rootDir>/three-store-invariants.spec.ts',
+      ],
     },
   ],
 };

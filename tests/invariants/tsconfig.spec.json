@@ -6,7 +6,8 @@
     "types": ["jest", "node"],
     "esModuleInterop": true,
     "strict": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "isolatedModules": true
   },
   "include": ["**/*.ts"],
   "exclude": ["node_modules"]

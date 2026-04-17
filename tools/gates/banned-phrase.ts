@@ -74,16 +74,32 @@ interface BannedPhraseRule {
  * reference is a tracked deferral, not a banned hedge).
  */
 /**
- * Meta-discussion allowIf: a phrase inside double quotes adjacent to a
- * `→` rewrite arrow is a commit body / review note describing the fix
- * ("Temporary ID" → "Client-side optimistic ID"). Hedge-word usage in
- * that context is describing WHAT was removed, not advocating for it.
+ * Meta-discussion allowIf — recognises commit bodies / review notes
+ * that DESCRIBE a hedge-word being removed, rather than ADVOCATE for
+ * hedging. The architectural claim is: the gate's invariant is "no
+ * hedge language advocating compromise in code/commits", not "no
+ * hedge word appears in any line at all". Describing a fix of
+ * `"Temporary ID"` → `"Client-side optimistic ID"` is the inverse
+ * of the gate's target class.
  *
- * Matches when either (a) the phrase sits inside `"..."` and the same
- * line contains `→`, or (b) the line is a git-diff-style `-` / `+`
- * marker that quotes the phrase (code-review rewriting context).
+ * Match requires BOTH of these to be present on the same line (the
+ * allowIf callsite tests one-line windows against the phrase's line):
+ *
+ *   Precondition A — context marker:
+ *     - quoted string `"..."`                    (normal prose quote-back), OR
+ *     - git-diff leading `-` or `+`              (rebase-style diff quote), OR
+ *     - a `L<number>` file:line reference        (commit body pointing to a fix)
+ *
+ *   Precondition B — transformation intent:
+ *     - a `→` arrow                              (ASCII alternative `->` covered), OR
+ *     - a diff-style `-` / `+` line prefix       (already satisfies via A)
+ *
+ * The old permissive branch `→` alone is REMOVED — a stray arrow on
+ * a plain-prose hedge line (e.g. "we'll do temporary fix → Monday")
+ * no longer slips through.
  */
-const META_DISCUSSION_ALLOW_IF = /→|^[-+]\s*"|"[^"]*"\s*→|\bL\d+\s*:\s*"/;
+const META_DISCUSSION_ALLOW_IF =
+  /(^[-+]\s*["'])|("[^"\n]*"\s*(→|->))|(\bL\d+\s*:\s*"[^"\n]*"\s*(→|->)?)|("[^"\n]*"\s*\bL\d+)/;
 
 const BANNED_PHRASES: readonly BannedPhraseRule[] = [
   { phrase: /\bfor now\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'for now' },

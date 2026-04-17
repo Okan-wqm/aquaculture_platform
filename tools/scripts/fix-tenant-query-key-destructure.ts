@@ -74,23 +74,122 @@ function findMatchingBrace(content: string, startIndex: number): number {
   return -1;
 }
 
+/**
+ * Find every top-level function body in the file that MAY need a
+ * tenantId destructure. Handles three syntactic shapes because real
+ * React/TanStack hook files use all three:
+ *
+ *   1. `export function useX(args) { body }`                — hooks.
+ *   2. `const Component: React.FC = () => { body }`         — arrow
+ *      React function components (with or without `export`, with or
+ *      without generic type arguments on React.FC).
+ *   3. Non-export helpers `function helper(args) { body }`   — utility
+ *      functions that receive queryClient and use createTenantQueryKey
+ *      inline. These need an explicit tenantId parameter; this tool
+ *      does not add the parameter (too invasive), but it surfaces the
+ *      function for hand-review — the companion codemod's caller can
+ *      pass such files through a separate hand-fix step.
+ *
+ * The return shape captures each function body's byte range so the
+ * destructure insertion can work on balanced braces.
+ */
+function findFunctionBodies(content: string): Array<{
+  bodyStart: number;
+  bodyEnd: number;
+  paramListEnd: number;
+  shape: 'function' | 'arrow-fc';
+}> {
+  const bodies: Array<{
+    bodyStart: number;
+    bodyEnd: number;
+    paramListEnd: number;
+    shape: 'function' | 'arrow-fc';
+  }> = [];
+
+  // Shape 1: `export function NAME(...params...) ... {`
+  // The negative-lookahead before `{` avoids matching `{` inside
+  // TypeScript parameter-type annotations (e.g. `{ from: string }`):
+  // we walk character by character tracking paren depth.
+  const fnStartRx = /^(?:export\s+)?(?:async\s+)?function\s+[A-Z_a-z]\w*\s*\(/gm;
+  let m: RegExpExecArray | null;
+  while ((m = fnStartRx.exec(content)) !== null) {
+    const parenStart = m.index + m[0].length - 1;
+    const parenEnd = findMatchingParen(content, parenStart);
+    if (parenEnd < 0) continue;
+    // Find the first `{` at statement-start after parenEnd (skip return-
+    // type annotation `:` and any whitespace).
+    const braceIdx = findNextBodyBrace(content, parenEnd + 1);
+    if (braceIdx < 0) continue;
+    const bodyEnd = findMatchingBrace(content, braceIdx);
+    if (bodyEnd < 0) continue;
+    bodies.push({
+      bodyStart: braceIdx,
+      bodyEnd,
+      paramListEnd: parenEnd,
+      shape: 'function',
+    });
+  }
+
+  // Shape 2: `(export )?const NAME: React.FC<...> = (args) => { body }`
+  // or `... = () => { ... }`. Arrow-function React components.
+  const fcStartRx =
+    /^(?:export\s+)?const\s+[A-Z]\w*\s*(?::\s*React\.FC(?:<[^>]*>)?\s*)?=\s*\(/gm;
+  while ((m = fcStartRx.exec(content)) !== null) {
+    const parenStart = m.index + m[0].length - 1;
+    const parenEnd = findMatchingParen(content, parenStart);
+    if (parenEnd < 0) continue;
+    const afterParen = content.slice(parenEnd + 1, parenEnd + 20);
+    if (!/^\s*=>\s*\{/.test(afterParen)) continue;
+    const braceIdx = content.indexOf('{', parenEnd + 1);
+    if (braceIdx < 0) continue;
+    const bodyEnd = findMatchingBrace(content, braceIdx);
+    if (bodyEnd < 0) continue;
+    bodies.push({
+      bodyStart: braceIdx,
+      bodyEnd,
+      paramListEnd: parenEnd,
+      shape: 'arrow-fc',
+    });
+  }
+
+  bodies.sort((a, b) => a.bodyStart - b.bodyStart);
+  return bodies;
+}
+
+function findMatchingParen(content: string, startIndex: number): number {
+  let depth = 0;
+  for (let i = startIndex; i < content.length; i += 1) {
+    const ch = content[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function findNextBodyBrace(content: string, startIndex: number): number {
+  // Scan past return-type annotation + whitespace to find the body `{`.
+  // Return type may contain nested generics `: Promise<{ a: B }>`, so
+  // track angle-bracket depth too.
+  let i = startIndex;
+  let angleDepth = 0;
+  while (i < content.length) {
+    const ch = content[i];
+    if (ch === '<') angleDepth += 1;
+    else if (ch === '>') angleDepth -= 1;
+    else if (ch === '{' && angleDepth === 0) return i;
+    i += 1;
+  }
+  return -1;
+}
+
 function insertDestructureInHooks(content: string): {
   content: string;
   hooksFixed: number;
 } {
-  // Match any top-level `export function Name(...)` — hooks (useX) AND
-  // React components (CapitalCase). Also matches multi-line parameter
-  // lists by using `[\s\S]*?` between `(` and `)`.
-  const hookRx = /^export function [A-Z_a-z]\w*\s*\([\s\S]*?\)\s*:?\s*[^{]*\{/gm;
-  const matches: Array<{ bodyStart: number; bodyEnd: number }> = [];
-  let match: RegExpExecArray | null;
-  while ((match = hookRx.exec(content)) !== null) {
-    // braceIdx is the `{` that actually closed the header.
-    const braceIdx = match.index + match[0].length - 1;
-    const end = findMatchingBrace(content, braceIdx);
-    if (end < 0) continue;
-    matches.push({ bodyStart: braceIdx, bodyEnd: end });
-  }
+  const matches = findFunctionBodies(content);
 
   let hooksFixed = 0;
   for (let i = matches.length - 1; i >= 0; i -= 1) {

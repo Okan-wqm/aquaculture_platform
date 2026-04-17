@@ -527,8 +527,8 @@ services:
       # M-RL-01: Redis-backed rate limiting — prevents multi-replica bypass
       RATE_LIMIT_USE_REDIS: "true"
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — gateway_service can only access gateway schema
       DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}
@@ -645,8 +645,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=384'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — auth_service can only access auth schema
       DATABASE_USER: ${AUTH_SERVICE_DB_USER:-auth_service}
@@ -709,8 +709,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — farm_service can only access farm schema
       DATABASE_USER: ${FARM_SERVICE_DB_USER:-farm_service}
@@ -766,8 +766,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — sensor_service can only access sensor schema
       DATABASE_USER: ${SENSOR_SERVICE_DB_USER:-sensor_service}
@@ -836,8 +836,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — admin_service has read access to auth+billing schemas
       DATABASE_USER: ${ADMIN_SERVICE_DB_USER:-admin_service}
@@ -895,8 +895,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — alert_service can only access alert schema
       DATABASE_USER: ${ALERT_SERVICE_DB_USER:-alert_service}
@@ -947,8 +947,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — billing_service can only access billing schema
       DATABASE_USER: ${BILLING_SERVICE_DB_USER:-billing_service}
@@ -1024,8 +1024,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — hr_service can only access hr schema
       DATABASE_USER: ${HR_SERVICE_DB_USER:-hr_service}
@@ -1076,8 +1076,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — hydroponics_service can only access hydroponics schema
       DATABASE_USER: ${HYDROPONICS_SERVICE_DB_USER:-hydroponics_service}
@@ -1128,8 +1128,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — notification_service uses public schema
       DATABASE_USER: ${NOTIFICATION_SERVICE_DB_USER:-notification_service}
@@ -1232,8 +1232,8 @@ services:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — config service uses its own schema
       # NOTE: config-service does not have a dedicated schema in 00-init-schemas.sh yet.
@@ -1287,8 +1287,8 @@ services:
       PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
       DATABASE_HOST: postgres
-      DATABASE_SSL: "true"
-      DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      # SSL off — Postgres is on the same Docker bridge (no MITM surface).
+      DATABASE_SSL: "false"
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — messaging_service can only access messaging schema
       DATABASE_USER: ${MESSAGING_SERVICE_DB_USER:-messaging_service}

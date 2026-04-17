@@ -48,8 +48,14 @@ jobs:
           sleep 5
 
       - name: Run Lighthouse
-        # SEC-CI-002: pinned to SHA (was @v11)
-        uses: treosh/lighthouse-ci-action@2f8dda0cf82e7b8f5b3e1e7d0dd88b9e35d5c2d4 # v11.4.0
+        # SEC-CI-002: pinned to SHA (was @v11).
+        # The prior pin 2f8dda0cf82e7b8f5b3e1e7d0dd88b9e35d5c2d4 did not
+        # resolve — CI consistently errored "unable to find version".
+        # Re-verified against upstream via `gh api repos/treosh/
+        # lighthouse-ci-action/git/refs/tags/11.4.0` and resolved the
+        # annotated tag to its underlying commit SHA. Same class as
+        # PROC-MEDIUM-002 (unverified SHA).
+        uses: treosh/lighthouse-ci-action@1b0e7c33270fbba31a18a0fbb1de7cc5256b6d39 # v11.4.0
         with:
           urls: |
             http://localhost:4173/

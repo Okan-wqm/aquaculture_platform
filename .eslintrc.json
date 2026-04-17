@@ -177,6 +177,21 @@
       }
     },
     {
+      "files": ["web/**/*.ts", "web/**/*.tsx"],
+      "excludedFiles": [
+        "web/**/*.spec.ts",
+        "web/**/*.test.ts",
+        "web/**/*.spec.tsx",
+        "web/**/*.test.tsx",
+        "web/**/__tests__/**",
+        "web/**/__mocks__/**",
+        "web/**/generated/**"
+      ],
+      "rules": {
+        "aquaculture/no-bare-graphql-query-string": "warn"
+      }
+    },
+    {
       "files": ["*.js", "*.jsx"],
       "extends": ["plugin:@nx/javascript"],
       "rules": {}

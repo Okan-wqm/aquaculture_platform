@@ -3,7 +3,7 @@
  * Handles CRUD operations for health events, treatment, and quarantine management via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES - Health Events
@@ -406,7 +406,7 @@ export function useHealthEvents(filter?: HealthEventFilter) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['healthEvents', tenantId, filter],
+    queryKey: createTenantQueryKey(tenantId, 'healthEvents', filter),
     queryFn: async () => {
       const query = `
         query HealthEvents($filter: HealthEventFilterInput) {
@@ -446,7 +446,7 @@ export function useHealthEvent(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['healthEvent', tenantId, id],
+    queryKey: createTenantQueryKey(tenantId, 'healthEvent', id),
     queryFn: async () => {
       const query = `
         query HealthEvent($id: ID!) {
@@ -471,7 +471,7 @@ export function useHealthEventsByBatch(batchId: string, activeOnly = false) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['healthEventsByBatch', tenantId, batchId, activeOnly],
+    queryKey: createTenantQueryKey(tenantId, 'healthEventsByBatch', batchId, activeOnly),
     queryFn: async () => {
       const query = `
         query HealthEventsByBatch($batchId: ID!, $activeOnly: Boolean) {
@@ -495,7 +495,7 @@ export function useCriticalHealthEvents() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['criticalHealthEvents', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'criticalHealthEvents'),
     queryFn: async () => {
       const query = `
         query CriticalHealthEvents {
@@ -519,7 +519,7 @@ export function useOverdueHealthFollowUps() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['overdueHealthFollowUps', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'overdueHealthFollowUps'),
     queryFn: async () => {
       const query = `
         query OverdueHealthFollowUps {
@@ -543,7 +543,7 @@ export function useHealthEventStats() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['healthEventStats', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'healthEventStats'),
     queryFn: async () => {
       const query = `
         query HealthEventStats {
@@ -602,9 +602,9 @@ export function useCreateHealthEvent() {
       return result.createHealthEvent;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
-      queryClient.invalidateQueries({ queryKey: ['criticalHealthEvents'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'criticalHealthEvents') });
     },
   });
 }
@@ -637,10 +637,10 @@ export function useUpdateHealthEvent() {
       return result.updateHealthEvent;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEvent', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
-      queryClient.invalidateQueries({ queryKey: ['criticalHealthEvents'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvent', data.id) });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'criticalHealthEvents') });
     },
   });
 }
@@ -671,9 +671,9 @@ export function useDeleteHealthEvent() {
       return result.deleteHealthEvent;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
-      queryClient.invalidateQueries({ queryKey: ['criticalHealthEvents'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'criticalHealthEvents') });
     },
   });
 }
@@ -704,9 +704,9 @@ export function useStartHealthEventTreatment() {
       return result.startHealthEventTreatment;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEvent', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvent', data.id) });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
     },
   });
 }
@@ -733,9 +733,9 @@ export function useEndHealthEventTreatment() {
       return result.endHealthEventTreatment;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEvent', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvent', data.id) });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
     },
   });
 }
@@ -766,9 +766,9 @@ export function useStartHealthEventQuarantine() {
       return result.startHealthEventQuarantine;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEvent', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvent', data.id) });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
     },
   });
 }
@@ -795,9 +795,9 @@ export function useEndHealthEventQuarantine() {
       return result.endHealthEventQuarantine;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEvent', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvent', data.id) });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
     },
   });
 }
@@ -828,10 +828,10 @@ export function useResolveHealthEvent() {
       return result.resolveHealthEvent;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['healthEvents'] });
-      queryClient.invalidateQueries({ queryKey: ['healthEvent', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['healthEventStats'] });
-      queryClient.invalidateQueries({ queryKey: ['criticalHealthEvents'] });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvents') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEvent', data.id) });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'healthEventStats') });
+      if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'criticalHealthEvents') });
     },
   });
 }

@@ -48,7 +48,7 @@ npm run format                   # Prettier write
 
 Nx monorepo. NestJS microservices (`apps/`), React microfrontends (`web/`), platform libs (`platform/libs/`), shared libs (`libs/`), Rust edge gateway (`sens-api-gateway/`).
 
-### Backend Services (`apps/`) — 15 services
+### Backend Services (`apps/`) — 16 services (15 runtime + `db-migrate` CLI)
 | Service | Schema | Responsibility |
 |---|---|---|
 | `gateway-api` | — | API gateway, auth guard, rate limiting, CSP, OPA |
@@ -66,6 +66,7 @@ Nx monorepo. NestJS microservices (`apps/`), React microfrontends (`web/`), plat
 | `config-service` | `config` | Dynamic configuration |
 | `event-store-service` | `event_store` | Event persistence, projections |
 | `observability-service` | — | Prometheus, tracing, security events |
+| `db-migrate` | — | Standalone migration runner CLI (not a long-running service) |
 
 ### Platform Libs (`platform/libs/`)
 - `@platform/cqrs` — Command/Query bus, handler decorators
@@ -213,6 +214,7 @@ All event interfaces live in `libs/event-contracts/src/`. When adding a new even
 - Structured JSON logging. String concatenation in log calls is banned
 - Input validation: `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`
 - **Tenant-ID sourcing:** JWT claims are the trust anchor when an authenticated user is present (preferred by `TenantContextMiddleware`). The `x-tenant-id` header is accepted only on explicit pre-auth / cross-tenant admin / edge-device ingestion paths; every such callsite is reviewed individually. Gateway→subgraph HMAC binds tenantId into the signature (`libs/backend-common/src/utils/service-identity.util.ts`) so a compromised intermediary cannot swap tenants in flight.
+- **Tenant row placement (D14, clarified by W1 audit):** the authoritative tenant record lives in the `auth` schema (`auth.tenants`), NOT in the `shared` schema. `auth` is cross-tenant by design (every login resolves a tenant before any other context). The `billing` schema holds the per-tenant subscription record (`billing.subscriptions`) keyed by `tenantId` — the billing service is the SSoT for subscription state, not shared. The `shared` schema is reserved for 4 canonical cross-tenant tables only: `audit_logs`, `gdpr_data_requests`, `user_consents`, `user_permissions`. Adding a 5th requires an ADR per ADR-011 + architectural-arbiter approval (W5 `add-shared-table` skill gate — BLOCKER-15).
 
 ## Git & Deployment Rules
 

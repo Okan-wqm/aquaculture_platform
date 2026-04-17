@@ -122,9 +122,11 @@ def render_user_entry(svc: dict[str, Any]) -> str:
     """
     Render a single NATS authorization users[] entry — cert-only (no password).
 
-    verify_and_map: true in nats-tls-enabled.conf maps cert CN → user,
-    so `user: <name>` (literal, not $-substituted) is sufficient. No
-    `password:` field — cert IS the identity.
+    verify_and_map: true in nats-tls-enabled.conf maps the client cert's
+    formatted Distinguished Name to a user entry. NATS 2.10+ uses the
+    full DN string "CN=<name>" (not just the bare CN value), so the user
+    field must include the "CN=" prefix to match.
+    No `password:` field — cert IS the identity.
     """
     name = svc["name"]
     description = svc["description"].strip().replace("\n", " ")
@@ -134,7 +136,7 @@ def render_user_entry(svc: dict[str, Any]) -> str:
     return (
         f"    # ── {name}: {description} ──\n"
         f"    {{\n"
-        f"      user: {name},\n"
+        f'      user: "CN={name}",\n'
         f"      permissions: {{\n"
         f"        publish: {{\n"
         f"          allow: [\n"

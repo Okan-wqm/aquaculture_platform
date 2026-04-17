@@ -1,2 +1,56 @@
+# CODEOWNERS — Control-plane authenticity gate
+#
+# Purpose: prevent single-PR policy RCE on the agent+skill+gate system.
+# Paths listed here require review from the named owner before merge.
+# See /root/.claude/plans/declarative-riding-shamir.md BLOCKER-9 (Round 3, v3).
+#
+# Rule ordering: last matching rule wins per GitHub's CODEOWNERS semantics.
 
+# ── Agent control plane ────────────────────────────────────────────────
+# Modifying any of these paths can alter the behaviour of 22+ review agents.
+# A poisoned _shared/ fragment propagates to every agent via @-include.
+.claude/agents.legacy/           @Okan-wqm
+.claude/agents-enterprise-v2/    @Okan-wqm
+.claude/test-agents/             @Okan-wqm
+.claude/knowledge/               @Okan-wqm
+.claude/skills/                  @Okan-wqm
 
+# ── Enforcement gate configuration ────────────────────────────────────
+# Allowlists, rule manifests, and boundary carve-outs must not drift silently.
+.claude/allowlists/              @Okan-wqm
+.claude/gates/                   @Okan-wqm
+tools/gates/                     @Okan-wqm
+
+# ── CI/CD workflows ───────────────────────────────────────────────────
+# Workflow tampering bypasses every gate. Required to land with signed commits.
+.github/workflows/               @Okan-wqm
+.github/actions/                 @Okan-wqm
+.github/manifests/               @Okan-wqm
+.github/CODEOWNERS               @Okan-wqm
+.github/dependabot.yml           @Okan-wqm
+
+# ── Tooling scripts (finding registry, closes-footer, gates) ─────────
+# Any change here can disable the traceability loop or registry integrity.
+tools/scripts/seed-finding-registry.mjs      @Okan-wqm
+tools/gates/commit-msg-validator.ts          @Okan-wqm
+tools/gates/banned-phrase.ts                 @Okan-wqm
+tools/gates/migration-sql-lint.ts            @Okan-wqm
+
+# ── Finding registry + audit trail ────────────────────────────────────
+# Direct edits to findings.jsonl are a tamper vector; must be gated.
+docs/reviews/_registry/          @Okan-wqm
+docs/reviews/overrides/          @Okan-wqm
+
+# ── Invariant test suite ──────────────────────────────────────────────
+# Constants file is the single source of truth for schema-owning-services
+# allowlist; edits cascade to adoption-invariants + provision-tenant skill.
+tests/invariants/_constants.ts   @Okan-wqm
+tests/invariants/                @Okan-wqm
+
+# ── Architectural Decision Records ────────────────────────────────────
+# ADRs carry load-bearing invariants (schema ownership, NATS identity, etc.).
+docs/adr/                        @Okan-wqm
+
+# ── CLAUDE.md ─────────────────────────────────────────────────────────
+# Session-start context for every review — must not drift unnoticed.
+CLAUDE.md                        @Okan-wqm

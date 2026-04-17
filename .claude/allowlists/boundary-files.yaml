@@ -1,0 +1,202 @@
+# Boundary allowlist — legitimate escape-hatch surfaces
+#
+# Seeded by context-manager during W1 Part A AMENDMENT-B synthesis (2026-04-W16).
+# Every entry here is a file or glob pattern where tight type rules (`no-explicit-any`,
+# `no-unsafe-*`, `as-unknown-as`, `jsonb`-dumping-ground bans, direct-`getRepository`,
+# etc.) are RELAXED because the code is the trust boundary with a wire protocol,
+# an external SDK, codegen output, or another system whose shape is not ours to type.
+#
+# Rules:
+#   1. Entries MUST name a specific boundary and a boundary rationale.
+#   2. `expires: never` is permitted ONLY when accompanied by an ADR justifying
+#      the permanence (external wire contract we do not own). Default = 12 months.
+#   3. Adding an entry is a reviewed change (CODEOWNERS on this file).
+#   4. Removing an entry requires the code to conform to the full ruleset first.
+#   5. Globs MUST be as narrow as possible. No repo-wide globs.
+#   6. The lint rules that honour this allowlist are listed in `rules:` per entry
+#      so future rules do not accidentally inherit the relaxation.
+
+version: 1
+
+# CODEOWNERS gate — see /var/aqua-saas/.github/CODEOWNERS
+codeowners: "@Okan-wqm"
+
+entries:
+
+  # -------------------------------------------------------------------------
+  # Sensor ingestion wire protocol adapters — MQTT, LoRaWAN, industrial
+  # -------------------------------------------------------------------------
+  - path: "apps/sensor-service/src/ingestion/mqtt-listener.service.ts"
+    reason: "Boundary — MQTT payload deserialization; wire type is dynamic buffer → JSON. See anti-patterns audit ANTI-1 + data-expert DATA-HIGH-X on inline event literals; the 8 inline literals here are legitimate wire→event translations (but each must route through createBaseEvent() — see SYS-1)."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-assignment", "@typescript-eslint/no-unsafe-member-access"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+    notes: "This file ALSO appears in the priority-fix list (ANTI top-10). Allowlist applies to the protocol-decode surface ONLY, not to event construction. New event emissions MUST use createBaseEvent()."
+
+  - path: "apps/sensor-service/src/protocol/adapters/industrial/**"
+    reason: "Boundary — industrial fieldbus adapters (Allen-Bradley DF1/EtherNet, BACnet IP/MSTP, CANopen, CC-Link, DeviceNet, EtherCAT, KNX/IP, OPC UA, Modbus). Each adapter negotiates a binary wire protocol whose TypeScript surface is inherently `any` at the frame-decode layer."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-assignment", "@typescript-eslint/no-unsafe-call", "@typescript-eslint/no-unsafe-return"]
+    owner: "@Okan-wqm"
+    expires: never
+    notes: "Glob covers ~15 adapter files — none of these protocols will ever have a static TS surface we control. Prefer narrowing by wrapping each adapter's public API in a `Decoded<T>` Zod schema — but the internal decode path stays relaxed."
+
+  # -------------------------------------------------------------------------
+  # Stripe webhook — external event shape; signature-verified on receipt
+  # -------------------------------------------------------------------------
+  - path: "apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts"
+    reason: "Boundary — Stripe webhook payload. HMAC-verified + raw-body parse; the event body shape is Stripe's SDK union type (`Stripe.Event`) which uses `any` in places downstream callers cannot type."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-assignment", "@typescript-eslint/no-unsafe-member-access"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+    notes: "PLAT-HIGH-004 flagged Redis-ephemeral dedup here; that is a separate architectural finding, not a boundary-allowlist concern. The `as any` relaxation applies only at the Stripe SDK input."
+
+  - path: "apps/billing-service/src/billing/services/stripe-webhook.service.ts"
+    reason: "Boundary — Stripe SDK interop. `Stripe.Subscription`, `Stripe.Invoice` types contain deeply optional chains that require narrowing at 70+ call sites."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-member-access"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  # -------------------------------------------------------------------------
+  # Event store — polymorphic by contract
+  # -------------------------------------------------------------------------
+  - path: "apps/event-store-service/src/event-store/entities/stored-event.entity.ts"
+    reason: "Boundary — event-store `payload` jsonb column is polymorphic by contract. This is the only legitimate jsonb-dumping-ground in the platform; every other @Column({ type: 'jsonb' }) must be typed per DATA-MEDIUM-006."
+    rules: ["no-restricted-syntax/jsonb-untyped"]
+    owner: "@Okan-wqm"
+    expires: never
+    notes: "This entity is ALSO flagged in PLAT-CRITICAL-001 for missing `schema:` — that is an orthogonal finding requiring its own fix. Allowlist applies to the jsonb relaxation only."
+
+  # -------------------------------------------------------------------------
+  # Zod + Ajv boundary validators — explicit interop with untyped inputs
+  # -------------------------------------------------------------------------
+  - path: "libs/backend-common/src/bootstrap/create-service-app.ts"
+    reason: "Boundary — NestJS bootstrap and Helmet/ValidationPipe factory wiring. Accepts `ConfigService` + `INestApplication` typed loosely by framework. The Zod env-schema validator runs here at boundary-entry and is intentionally typed against `process.env` (`Record<string, string | undefined>`)."
+    rules: ["@typescript-eslint/no-unsafe-assignment", "@typescript-eslint/no-unsafe-call"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  - path: "libs/event-contracts/src/schemas/validator.ts"
+    reason: "Boundary — Ajv JSON Schema validator shim. Ajv's compiled validators take `unknown` / `any` and narrow via type predicates."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-call"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  # -------------------------------------------------------------------------
+  # WebAuthn — external browser credential interop
+  # -------------------------------------------------------------------------
+  - path: "apps/auth-service/src/modules/authentication/services/webauthn.service.ts"
+    reason: "Boundary — @simplewebauthn/server SDK surface. WebAuthn credential objects (`PublicKeyCredentialRequestOptionsJSON`, attestation formats) include ArrayBuffer / ArrayBufferView types that cross the JSON boundary as base64url strings."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-member-access", "@typescript-eslint/no-unsafe-assignment"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+    notes: "SEC-MEDIUM-009 flags `as any` in auth paths; those in this specific file are boundary-legitimate. Other auth-service files are NOT covered by this entry."
+
+  # -------------------------------------------------------------------------
+  # Gateway test-utils mock types — controlled loose typing for test harness
+  # -------------------------------------------------------------------------
+  - path: "apps/gateway-api/src/test-utils/mock-types.ts"
+    reason: "Boundary — test harness mock factory. Uses `as unknown as X` deliberately to synthesize NestJS ExecutionContext mocks that would require reimplementing the framework's private types."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/consistent-type-assertions"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  # -------------------------------------------------------------------------
+  # PII masker — intentional deep-traversal of unknown object trees
+  # -------------------------------------------------------------------------
+  - path: "libs/backend-common/src/utils/pii-mask.util.ts"
+    reason: "Boundary — PII deep-masker walks arbitrary object trees; `unknown` → narrowed redactions require 3 `as unknown as` casts at the recursion boundary. Anti-patterns audit called these out (ANTI-2)."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/consistent-type-assertions"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+    notes: "Only the recursion helpers `maskPiiDeep` / `redactByKey` / `walkSensitiveValue` are covered. Public API entry points MUST remain typed."
+
+  # -------------------------------------------------------------------------
+  # AquaMobil offline queue — IndexedDB blob serialization
+  # -------------------------------------------------------------------------
+  - path: "web/apps/aquamobil/src/pwa/offline-queue.ts"
+    reason: "Boundary — idb-keyval + crypto.subtle AES-GCM payload serialization. Encrypted payloads travel as ArrayBuffer/Uint8Array and require boundary casts at the IndexedDB `put`/`get` calls."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-assignment"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  # -------------------------------------------------------------------------
+  # Rust LoRa / SX1302 FFI shim — only place unsafe is allowed
+  # -------------------------------------------------------------------------
+  - path: "sens-api-gateway/src/lora/sx1302.rs"
+    reason: "Boundary — Semtech SX1302 concentrator C FFI. All 7 `unsafe` blocks are confined to this file with documented SAFETY invariants. No other Rust file may use `unsafe` blocks without a matching allowlist entry."
+    rules: ["clippy::undocumented_unsafe_blocks", "unsafe_op_in_unsafe_fn"]
+    owner: "@Okan-wqm"
+    expires: never
+    notes: "Edge-expert audit Table 1 confirmed single-threaded invariant + documented SAFETY comments. Wrapping in a sealed Sx1302Handle actor is an architectural opportunity (EDGE modernization item 4) but does not change the allowlist scope."
+
+  # -------------------------------------------------------------------------
+  # NATS connection factory — cert-is-identity boundary
+  # -------------------------------------------------------------------------
+  - path: "libs/backend-common/src/nats/nats-connection.factory.ts"
+    reason: "Boundary — NATS mTLS client. The `mtls-cert` branch constructs CONNECT frame options whose type surface drifts across nats.js versions; test overlap with generated cert material requires loose typing."
+    rules: ["@typescript-eslint/no-unsafe-assignment", "@typescript-eslint/no-unsafe-member-access"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  # -------------------------------------------------------------------------
+  # Notification dispatcher — external email/SMS/push SDK shapes
+  # -------------------------------------------------------------------------
+  - path: "apps/notification-service/src/notification/services/email.service.ts"
+    reason: "Boundary — Nodemailer + SES transport. Message envelope type is the SDK's SMTP-extended interface which accepts `Record<string, any>` at the headers layer."
+    rules: ["@typescript-eslint/no-explicit-any"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  - path: "apps/notification-service/src/notification/services/sms.service.ts"
+    reason: "Boundary — Twilio SDK interop. Response envelopes include optional fields whose narrowing across provider plans would require ~40 call-site guards."
+    rules: ["@typescript-eslint/no-unsafe-member-access"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  # -------------------------------------------------------------------------
+  # SSRF validator — exists to handle arbitrary URL input
+  # -------------------------------------------------------------------------
+  - path: "apps/notification-service/src/notification/services/ssrf-validator.service.ts"
+    reason: "Boundary — webhook URL validator. Accepts arbitrary user-provided URLs; the validator's purpose is to handle every possible unsafe shape (RFC-1918, link-local, CGNAT, metadata hostnames)."
+    rules: ["@typescript-eslint/no-explicit-any"]
+    owner: "@Okan-wqm"
+    expires: never
+    notes: "Permanent by design — the boundary exists precisely to handle untyped input."
+
+  # -------------------------------------------------------------------------
+  # Service identity util — HMAC canonical-input construction
+  # -------------------------------------------------------------------------
+  - path: "libs/backend-common/src/utils/service-identity.util.ts"
+    reason: "Boundary — HMAC service identity signer. Accepts arbitrary headers/body for canonical-input construction."
+    rules: ["@typescript-eslint/no-unsafe-member-access"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+    notes: "SEC-HIGH-002 flags missing method/path/body-hash in the canonical input — that is an orthogonal architectural finding. Allowlist applies only to the `Record<string, unknown>` header-traversal relaxation."
+
+  # -------------------------------------------------------------------------
+  # Test fixture allowlist — contains ALL existing /* eslint-disable */ files
+  # -------------------------------------------------------------------------
+  - path: "apps/*/src/**/__tests__/*.spec.ts"
+    reason: "Boundary — unit test fixtures. Consolidates the 27 files ANTI-15 flagged with file-level `/* eslint-disable */` blocks. Tests synthesize mocks via `as unknown as X` deliberately and this is compliant with the W5 allowlist plan."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-*", "@typescript-eslint/require-await", "@typescript-eslint/no-floating-promises"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+    notes: "Production code is NOT covered by this entry — the glob explicitly scopes to `__tests__/` directories. Per ANTI-15, in-file disables must be REMOVED once this allowlist is honored by CI."
+
+  - path: "tests/e2e/**/*.ts"
+    reason: "Boundary — cross-version e2e test fixtures (including v11-upgrade replay suite). Test fixtures use `as EventId` casts to synthesize branded types. Data-expert DATA-LOW-007 tracked 13 such sites; a mkFixtureEvent() helper is a future consolidation."
+    rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/consistent-type-assertions"]
+    owner: "@Okan-wqm"
+    expires: 2027-04-16
+
+  # -------------------------------------------------------------------------
+  # End of seed entries.
+  #
+  # Next additions (when real codegen lands) will include:
+  #   - web/shared-ui/src/generated/**       (GraphQL codegen output — FE-HIGH-002)
+  #   - sens-api-gateway/src/proto/**        (Rust protobuf codegen — does not exist yet)
+  #
+  # Both are intentionally OMITTED from this seed because the directories do not
+  # currently exist in the tree. Adding them prematurely would accept a phantom
+  # boundary. Only include once the codegen pipeline emits real files.
+  # -------------------------------------------------------------------------

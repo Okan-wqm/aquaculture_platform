@@ -46,9 +46,13 @@ generate_per_service_client_cert() {
     echo "  [skip] ${svc_user} client"; return; fi
   mkdir -p "$out_dir"
   openssl genrsa -out "${out_dir}/${svc_user}-key.pem" 2048 2>/dev/null
+  # NATS 2.10 verify_and_map uses DistinguishedNameMatch which compares the
+  # FULL Subject DN against the user name. Adding /O=... makes the DN
+  # "CN=farm_service,O=Aquaculture Platform" which doesn't match the nats.conf
+  # user entry "farm_service". CN-only ensures DN == CN == nats.conf user.
   openssl req -new -key "${out_dir}/${svc_user}-key.pem" \
     -out "${out_dir}/${svc_user}.csr" \
-    -subj "/CN=${svc_user}/O=Aquaculture Platform" 2>/dev/null
+    -subj "/CN=${svc_user}" 2>/dev/null
   openssl x509 -req -days 365 -in "${out_dir}/${svc_user}.csr" \
     -CA "${CERTS_DIR}/ca/ca-cert.pem" -CAkey "${CERTS_DIR}/ca/ca-key.pem" \
     -CAcreateserial -out "${out_dir}/${svc_user}-cert.pem" 2>/dev/null

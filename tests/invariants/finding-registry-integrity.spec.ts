@@ -1,0 +1,143 @@
+/**
+ * Finding Registry Integrity Invariant
+ * ============================================================================
+ *
+ * Phase 6 of /root/.claude/plans/abstract-brewing-mochi.md.
+ *
+ * docs/reviews/_registry/findings.jsonl is an append-only hash-chained
+ * ledger of every CATCHER-produced finding. This invariant asserts:
+ *
+ *   1. Every line parses as JSON.
+ *   2. Every entry conforms to findings.jsonl.schema.json.
+ *   3. The hash chain is intact:
+ *        entries[0].prev_hash === '0'.repeat(64)
+ *        entries[i].prev_hash === entries[i-1].content_hash
+ *        entries[i].content_hash === sha256hex(canonicalJson(entries[i] minus content_hash))
+ *
+ * Any drift means someone modified the registry mid-chain, which is
+ * forbidden for an append-only tamper-evident log.
+ *
+ * # When this fails
+ *
+ *   - Entry mid-registry edited → re-run tools/scripts/seed-finding-registry.mjs
+ *     on a fresh registry OR append a corrective entry (never in-place edit).
+ *   - Schema violation on a new entry → fix the entry to match schema.
+ *   - Hash mismatch → content was modified after append; revert the edit.
+ *
+ * # References
+ *
+ *   - /root/.claude/plans/abstract-brewing-mochi.md#Phase-6
+ *   - /var/aqua-saas/docs/reviews/_registry/README.md (seed + management docs)
+ *   - /var/aqua-saas/docs/reviews/_registry/findings.jsonl.schema.json
+ */
+
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const REGISTRY_PATH = path.join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
+const SCHEMA_PATH = path.join(
+  REPO_ROOT,
+  'docs',
+  'reviews',
+  '_registry',
+  'findings.jsonl.schema.json',
+);
+
+interface FindingEntry {
+  id: string;
+  severity: string;
+  state: string;
+  prev_hash: string;
+  content_hash: string;
+  [key: string]: unknown;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalJson).join(',') + ']';
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return (
+    '{' +
+    keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') +
+    '}'
+  );
+}
+
+function sha256hex(input: string): string {
+  return createHash('sha256').update(input, 'utf8').digest('hex');
+}
+
+function readEntries(): FindingEntry[] {
+  if (!fs.existsSync(REGISTRY_PATH)) return [];
+  const content = fs.readFileSync(REGISTRY_PATH, 'utf8').trim();
+  if (content.length === 0) return [];
+  return content.split('\n').map((line) => JSON.parse(line) as FindingEntry);
+}
+
+function loadValidator(): ValidateFunction {
+  const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  return ajv.compile(schema);
+}
+
+describe('finding registry integrity invariant', () => {
+  const entries = readEntries();
+  const validate = loadValidator();
+
+  it('registry file exists and has at least one entry (Phase 6 seed)', () => {
+    expect(fs.existsSync(REGISTRY_PATH)).toBe(true);
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  it('every entry conforms to findings.jsonl.schema.json', () => {
+    const errors: string[] = [];
+    for (const entry of entries) {
+      const entryId = entry.id;
+      const valid = validate(entry);
+      if (!valid) {
+        errors.push(`${entryId}: ${JSON.stringify(validate.errors)}`);
+      }
+    }
+    expect(errors).toEqual([]);
+  });
+
+  it('first entry has prev_hash = 64 zeros', () => {
+    if (entries.length === 0) return;
+    expect(entries[0]?.prev_hash).toBe('0'.repeat(64));
+  });
+
+  it('hash chain is intact (each entry prev_hash equals previous content_hash)', () => {
+    for (let i = 1; i < entries.length; i++) {
+      const current = entries[i];
+      const previous = entries[i - 1];
+      if (!current || !previous) continue;
+      expect(current.prev_hash).toBe(previous.content_hash);
+    }
+  });
+
+  it('every entry content_hash matches sha256(canonical JSON without content_hash)', () => {
+    for (const entry of entries) {
+      const { content_hash: stored, ...forHash } = entry;
+      const recomputed = sha256hex(canonicalJson(forHash));
+      expect({ id: entry.id, hash: stored }).toEqual({
+        id: entry.id,
+        hash: recomputed,
+      });
+    }
+  });
+
+  it('every finding ID is unique', () => {
+    const ids = entries.map((e) => e.id);
+    const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
+    expect(duplicates).toEqual([]);
+  });
+});

@@ -38,7 +38,7 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `web/modules/admin-panel/**` | admin-expert | |
 | `web/modules/tenant-admin/**` | admin-expert | |
 | `apps/messaging-service/**` | messaging-expert | |
-| `apps/ai-service/**` | messaging-expert | |
+| `apps/ai-service/**` | ai-safety-auditor | messaging-expert (chat persistence), tenant-cost-attribution-agent (cost emission) |
 | `apps/auth-service/**` | auth-security-expert | security-reviewer |
 | `apps/gateway-api/**` | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/auth/**` | auth-security-expert | security-reviewer |
@@ -58,13 +58,14 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `web/shared-ui/**` | frontend-expert | *all frontend modules* |
 | `web/modules/dashboard/**` | frontend-expert | |
 | `web/apps/aquamobil/**` | frontend-expert | |
-| `web/modules/hydroponics-module/**` | platform-services | |
-| `apps/billing-service/**` | platform-services | |
-| `apps/notification-service/**` | platform-services | |
-| `apps/config-service/**` | platform-services | |
-| `apps/event-store-service/**` | platform-services | |
-| `apps/observability-service/**` | platform-services | |
-| `apps/hydroponics-service/**` | platform-services | |
+| `web/modules/hydroponics-module/**` | farm-expert | |
+| `apps/billing-service/**` | billing-expert | multi-tenant-saas-expert, security-reviewer, compliance-expert |
+| `apps/notification-service/**` | auth-security-expert | security-reviewer |
+| `apps/config-service/**` | platform-kernel-expert | infra-expert |
+| `apps/event-store-service/**` | data-expert | observability-expert |
+| `apps/observability-service/**` | observability-expert | |
+| `apps/hydroponics-service/**` | farm-expert | data-expert |
+| `infrastructure/monitoring/**` | observability-expert | infra-expert |
 | `platform/configs/**` | platform-kernel-expert | infra-expert, security-reviewer |
 | `platform/libs/cqrs/**` | platform-kernel-expert | |
 | `platform/libs/event-bus/**` | platform-kernel-expert | data-expert, security-reviewer |
@@ -81,8 +82,9 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `apps/*/src/**/tenant*.ts`, `libs/backend-common/src/database/**tenant**`, `libs/backend-common/src/guards/tenant*.ts` | multi-tenant-saas-expert | auth-security-expert, data-expert |
 | `**/*.spec.ts`, `**/*.test.ts`, `e2e/**`, `tests/**`, `.github/workflows/*test*`, `.github/workflows/*ci*` | test-runner | |
 | `mcp/**` | mcp-expert | farm-expert, messaging-expert, security-reviewer |
-| `.claude/agents/*.md`, `.claude/agents-enterprise-v2/*.md` | prompt-writer | maintenance-only; outside runtime review roster |
-| `apps/alert-engine/**` | platform-services | security-reviewer |
+| `.claude/agents-enterprise-v2/*.md` | prompt-writer | maintenance-only; outside runtime review roster |
+| `.claude/agents.legacy/**` | prompt-writer | ARCHIVED 2026-04-16; read-only; no dispatch |
+| `apps/alert-engine/**` | alert-engine-expert | sensor-expert, farm-expert, multi-tenant-saas-expert, security-reviewer |
 | `libs/aquaculture-engines/**` | farm-expert | |
 | `libs/farm-shared/**` | farm-expert | |
 | `libs/node-components/**` | frontend-expert | |
@@ -93,7 +95,40 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | `database/scripts/**` | data-expert | database-reviewer, security-reviewer |
 | `libs/backend-common/src/redis/**` | auth-security-expert | multi-tenant-saas-expert |
 | `libs/backend-common/src/nats/**` | data-expert | |
-| `platform/libs/outbox/**` | messaging-expert | data-expert |
+| `platform/libs/outbox/**` | data-expert | messaging-expert |
+| `apps/db-migrate/**` | data-expert | infra-expert |
+| `libs/shared-contracts/**` | data-expert | *all consumers* |
+| `scripts/nats/**` | infra-expert | data-expert |
+| `scripts/ci/**` | infra-expert | test-runner |
+| `scripts/deploy*`, `scripts/*.sh`, `scripts/*.ts` | infra-expert | security-reviewer |
+| `docs/adr/**` | architectural-arbiter | prompt-writer |
+| `docs/runbooks/**` | infra-expert | security-reviewer |
+| `docs/reviews/**` | context-manager | orchestrator |
+| `docs/research/**` | prompt-writer | |
+| `docs/architecture/**`, `docs/security/**`, `docs/api/**`, `docs/guides/**`, `docs/DEPLOY.md` | architectural-arbiter | infra-expert |
+| `nx.json`, `tsconfig.base.json`, `jest.config.*`, `.prettierrc*`, `.nvmrc` | platform-kernel-expert | infra-expert |
+| `.claude/knowledge/**`, `.claude/agents-enterprise-v2/_shared/**` | prompt-writer | architectural-arbiter |
+| `.claude/allowlists/**` | security-reviewer | architectural-arbiter |
+| `.claude/skills/**` | prompt-writer | implementation-planner |
+| `tools/gates/**`, `tools/eslint-rules/**`, `tools/ripple-tracer/**` | infra-expert | architectural-arbiter, security-reviewer |
+| `CLAUDE.md` | architectural-arbiter | prompt-writer, *all experts* |
+| `apps/*/src/gdpr/**` (handler implementations) | gdpr-erasure-executor | compliance-expert (review), legal-hold-auditor (precedence), audit-trail-completeness-auditor (audit row) |
+| `libs/backend-common/src/compliance/legal-hold/**` | legal-hold-auditor | compliance-expert |
+| destructive action paths (cross-cutting) | legal-hold-auditor | *primary destructive handler owner* |
+| every CQRS COMMAND handler audit capture | audit-trail-completeness-auditor | *respective domain expert* |
+| `libs/backend-common/src/ai/safety/**`, `libs/backend-common/src/ai/anthropic-client/**` | ai-safety-auditor | messaging-expert, security-reviewer |
+| `apps/observability-service/src/cost-attribution/**`, `infrastructure/monitoring/prometheus/cost-metrics.yml` | tenant-cost-attribution-agent | observability-expert, billing-expert |
+| `infra/openapi/**` | contract-parity-enforcer | *respective domain expert* |
+| `libs/backend-common/src/circuit-breaker/**` | circuit-breaker-auditor | platform-kernel-expert |
+| Performance / N+1 / EXPLAIN evidence reviews (cross-cutting) | performance-expert | *primary domain expert* |
+| Supply-chain CVE / license / SLSA (cross-cutting on package.json, Cargo.toml, Dockerfile) | supply-chain-auditor | infra-expert, security-reviewer |
+| Memory-leak pattern reviews (cross-cutting) | memory-leak-auditor | performance-expert |
+| `libs/backend-common/src/security/gdpr/**` | compliance-expert | auth-security-expert |
+| `apps/auth-service/src/{privacy,modules/gdpr}/**` | compliance-expert | auth-security-expert |
+| `apps/admin-api-service/src/security/{controllers,services}/{compliance,audit-trail}*` | compliance-expert | admin-expert |
+| `apps/*/src/gdpr/**` | compliance-expert | *respective domain expert* |
+| `web/shell/src/{hooks/useConsent.ts,pages/ConsentSettingsPage.tsx}`, `web/modules/admin-panel/src/security/**` | compliance-expert | frontend-expert, admin-expert |
+| `docs/compliance/**` | compliance-expert | architectural-arbiter |
 | `.env*` | security-reviewer | |
 
 **Special rules:**
@@ -162,6 +197,19 @@ Check if any agent flagged a cross-domain dependency that requires another agent
 - If YES and the required agent was NOT invoked → dispatch that agent now with the specific cross-domain task
 - If circular dependencies exist → flag for human resolution
 - If `architectural-arbiter` produced a decision in Phase 3.5 → apply that decision as the final word, overriding any individual agent's recommendation on the disputed point
+
+### Phase 4.5: Root-Cause Auditor
+
+**Status:** active (landed 2026-04-16 per Phase 5 of `/root/.claude/plans/abstract-brewing-mochi.md`; agent file `.claude/agents-enterprise-v2/root-cause-auditor.md`).
+
+The `root-cause-auditor` runs after Phase 4 cross-domain resolution and before Phase 5 unified report. Role split (avoids same-cycle circularity per BLOCKER-12):
+
+- **Within-cycle verification (current diff):** classify every author-authored `// tier-N:` claim against the 4-tier hierarchy and flag `OVER_CLAIMED` violations. This is always safe to run on the current diff because the author's inline claim exists before Phase 4 runs; no arbiter output is needed. Consumes `tools/gates/tier-claim-lint.ts` output (Phase 2 deliverable — until built, auditor reverts to manual claim extraction).
+- **Cross-cycle verification (cycle N−1):** verify that `architectural-arbiter` rulings issued in the PREVIOUS review cycle have been implemented in the current cycle's diff. Rulings issued in the CURRENT cycle's Phase 4 land in the finding state registry as `IN-PROGRESS`; they are verified in the next cycle's Phase 4.5. Auditor never attempts to verify same-cycle arbiter rulings — those cannot have been implemented yet.
+
+**Dispatch:** orchestrator invokes `Agent(root-cause-auditor, mode=review)` with the cycle's changed file set + prior-cycle ruling list (from `docs/reviews/_registry/findings.jsonl`, Phase 6 deliverable). Any `AUDIT-CRITICAL-*` blocks merge per the same severity contract as domain experts. Rulings transitioning `IN-PROGRESS → RESOLVED` trigger finding-registry state update in Phase 6 pipeline.
+
+**Fallback behaviour (until Phase 2 + Phase 6 infrastructure lands):** auditor emits observations as a report in `docs/reviews/root-cause-auditor/{date}-{topic}.md` with `AUDIT-*` finding IDs; orchestrator Phase 5 incorporates the section as any other agent's output. State transitions recorded by hand in the review file's YAML front matter until registry is live.
 
 ### Phase 5: Unified Report
 
@@ -258,7 +306,10 @@ All agents use `opus` with `effort: max` per platform policy.
 | frontend-expert | web/shell/, web/shared-ui/, web/modules/dashboard/, web/apps/aquamobil/ |
 | infra-expert | infra/, infrastructure/, deploy/, .github/{workflows,actions}/, nginx/, docker-compose*, Dockerfile* |
 | platform-kernel-expert | platform/libs/cqrs/, platform/libs/event-bus/, platform/configs/, libs/backend-common foundational runtime modules |
-| platform-services | billing, notification, config-service, event-store-service, observability-service, alert-engine, hydroponics-service, hydroponics-module |
+| billing-expert | apps/billing-service/ — Stripe webhook + metered billing + subscription saga + plan-tier enforcement (delegated from multi-tenant). |
+| alert-engine-expert | apps/alert-engine/ — rule evaluation hot-path + escalation ladder + life-safety priority + per-tenant rate-limit. |
+| observability-expert | apps/observability-service/ + infrastructure/monitoring/ + cross-service Prometheus cardinality + OTEL coverage + Loki hygiene + alert runbook discipline. |
+| ~~platform-services~~ | DEPRECATED 2026-04-16 (Phase 11 split — see split destination map in `.claude/agents-enterprise-v2/platform-services.md`). |
 | auth-security-expert | apps/auth-service/, apps/gateway-api/, libs/backend-common/src/{auth,guards,security,middleware}/ |
 | security-reviewer | ALL files — cross-cutting security quality gate |
 | test-runner | ALL test files — build and test quality gate |
@@ -266,6 +317,18 @@ All agents use `opus` with `effort: max` per platform policy.
 | architectural-arbiter | docs/reviews/*/ + source code (read-only) — cross-agent conflict resolution, ADR authoring |
 | multi-tenant-saas-expert | Cross-cutting SaaS tenancy — isolation, lifecycle, plan gating, quotas, noisy-neighbor, impersonation, portability, per-tenant observability, onboarding/offboarding. Single source of truth for tenant concerns; other agents delegate here |
 | mcp-expert | mcp/ — MCP servers, tool registry, session/auth context, prompt and knowledge safety |
+| root-cause-auditor | Phase 4.5 — author-authored tier-claim verification + prior-cycle arbiter-ruling implementation check. Emits `AUDIT-*` findings. |
+| compliance-expert | Cross-cutting GDPR Art 17/20 + KVKK + SOC 2 SSoT. Owns erasure cascade across 10 tenant-data services, portability export shape, consent capture/withdrawal, dual-consent (AI), SOC 2 control evidence. Other agents delegate compliance topics here. |
+| gdpr-erasure-executor | WRITER-primary execution agent for GDPR Art 17 cascade. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Compliance-expert reviews; legal-hold-auditor enforces precedence. |
+| ai-safety-auditor | Anthropic Claude SDK safety + cost reviewer — prompt injection defense, tool whitelisting, output PII scrub, prompt caching adoption, streaming backpressure, context-window budgeting, per-tenant cost cap reservation. Promoted from test-agents/ai-tool-execution-auditor. |
+| legal-hold-auditor | Cross-service enforcement of legal hold precedence on every destructive action (delete, anonymize, retention-expiry, partition DROP, outbox GC, GDPR erasure). Litigation discovery + record retention non-negotiable. |
+| audit-trail-completeness-auditor | Cross-cutting reviewer for audit log completeness on every regulated action — SOC 2 CC4 + GDPR Art 30 alignment. Coverage of @AuditedOperation decorator, immutability invariant, retention policy. |
+| tenant-cost-attribution-agent | Per-tenant cost attribution pipeline — Prometheus cost-labelled metric emission, observability-service rollup, Stripe reconciliation, plan-tier margin SLO, cost explosion isolation per-tenant circuit breaker. |
+| performance-expert | Cross-cutting runtime performance — EXPLAIN ANALYZE discipline, p99 latency SLO per endpoint, React MFE bundle size budget, memory footprint baseline, concurrency budget. NO primary ownership; secondary reviewer dispatched in parallel with the domain expert on hot-path changes. |
+| supply-chain-auditor | Cross-cutting software supply-chain integrity — npm audit gate, transitive CVE triage, license compliance, SLSA provenance + commit signing, Docker base image CVE scan, --ignore-scripts discipline. Split from infra-expert. |
+| contract-parity-enforcer | Cross-cutting API contract drift — OpenAPI ↔ NestJS Router, GraphQL subgraph schema ↔ resolver, sensorprotocols ↔ Rust adapter, event contract consumer drift. Promoted from test-agents/contract-parity-auditor. |
+| circuit-breaker-auditor | Cross-cutting resilience — every external-dependency call wrapped in breaker, per-tenant keying for isolation, fail-CLOSED for billable/auth, fail-OPEN-degraded for non-critical. |
+| memory-leak-auditor | Cross-cutting memory-leak pattern review — heap growth, event listener orphans, unbounded Map/cache, WebSocket connection leaks, Rust spawn discipline. |
 
 ## Auxiliary Maintenance Tooling
 

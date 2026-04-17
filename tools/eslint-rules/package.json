@@ -1,0 +1,21 @@
+{
+  "name": "eslint-plugin-aquaculture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Custom ESLint rules for the aquaculture platform. Workspace-local plugin resolved by ESLint via the canonical `eslint-plugin-<name>` convention; referenced as `aquaculture` in .eslintrc.json plugins array. Each rule encodes a CLAUDE.md / ADR invariant that is cheaper to catch at lint time than at runtime. See /root/.claude/plans/declarative-riding-shamir.md BLOCKER-20.",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@typescript-eslint/utils": "^6.19.0"
+  },
+  "peerDependencies": {
+    "eslint": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/eslint": "^8.56.0"
+  }
+}

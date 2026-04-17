@@ -1,0 +1,88 @@
+name: Quality Gates
+
+# =============================================================================
+# Phase 2 of docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md.
+#
+# Runs the tools/gates/**.ts CLIs on every PR:
+#   - banned-phrase        : scans diff + commit bodies for CLAUDE.md banned
+#                            phrases (live)
+#   - migration-sql-lint   : enforces data-expert's migration-delta safety
+#                            invariants on newly-added or modified migration
+#                            files — R1 destructive marker, R2 single-step
+#                            NOT NULL, R3 non-concurrent index on live table,
+#                            R4 session-scoped SET search_path, R5 overbroad
+#                            EXCEPTION catch (live)
+#   - (Phase 2 future: tier-claim-lint)
+#
+# commit-msg-validator lives in closes-footer-check.yml because its surface
+# is the commit trailer itself, not a diff walk.
+#
+# These gates are the Tier-3 automated enforcement backing CLAUDE.md's
+# "Architectural Approach" section (no patches, no workarounds, no deferrals
+# without owner + deadline + finding-ID, OR plan-phase reference).
+# =============================================================================
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  banned-phrase-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # SEC-CI-002: pinned to full SHA (infra-expert invariant)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (minimal — ts-node only)
+        # --legacy-peer-deps matches repo-wide convention — @nestjs/apollo
+        # 13.2 peer-depends on @apollo/server@^5 but the project pins v4
+        # (see ci-full.yml and every other workflow). Convergence; the
+        # underlying peer-dep resolution is tracked separately.
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+
+      - name: Determine commit range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+            # On first push to a new branch, github.event.before is 40-zero
+            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              BASE=$(git rev-parse HEAD~1)
+            fi
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+          echo "Checking range: $BASE..$HEAD"
+
+      - name: Run banned-phrase gate
+        id: banned-phrase
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/banned-phrase.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      # `if: always()` so a banned-phrase failure does not hide a migration
+      # finding. Both gates independent; surfacing both failures in one run
+      # saves a retry cycle.
+      - name: Run migration-sql-lint gate
+        if: always()
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/migration-sql-lint.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"

@@ -33,6 +33,13 @@ jobs:
         # SEC-CI-002: pinned to SHA (gitleaks-action v2.3.9)
         uses: gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 # v2.3.9
         env:
+          # gitleaks-action v2.x BREAKING CHANGE (2024-05): GITHUB_TOKEN is
+          # required for PR scans — the action uses it to list the commit
+          # range via the GH API rather than a direct git walk. Omitting it
+          # fails fast with "GITHUB_TOKEN is now required to scan pull
+          # requests" (see the action's README). The automatically-provided
+          # token ${{ secrets.GITHUB_TOKEN }} is sufficient; no PAT needed.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Config path is read automatically from .gitleaks.toml at repo root.
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
           GITLEAKS_ENABLE_SUMMARY: "true"

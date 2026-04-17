@@ -469,15 +469,100 @@ function cmdExport(format: string): number {
   return 2;
 }
 
+/**
+ * `list` — tabular registry view filtered by state / severity / owner.
+ *
+ * Added in Phase 14 (docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#14.1)
+ * as the read-only dev-loop equivalent of `findings:list` / `findings:list:all`
+ * npm scripts. Purely a query — does NOT mutate the registry or recompute
+ * hashes. When no flags are passed, prints every entry.
+ *
+ * Flags:
+ *   --state <CSV>    OPEN,IN-PROGRESS,RESOLVED,STALE,BLOCKED
+ *   --severity <CSV> CRITICAL,HIGH,MEDIUM,LOW
+ *   --owner <name>   owner_agent substring match
+ *   --format <fmt>   table (default) | id-only | json
+ *
+ * Exit 0 always unless the registry itself is missing/malformed; absence
+ * of matches is NOT an error (an empty OPEN list is a good result).
+ */
+function cmdList(args: readonly string[]): number {
+  const flags: Record<string, string> = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a) continue;
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = args[i + 1];
+      if (next && !next.startsWith('--')) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = 'true';
+      }
+    }
+  }
+  const entries = loadRegistry();
+  const stateFilter = flags['state']?.split(',').map((s) => s.trim()).filter(Boolean) ?? null;
+  const sevFilter = flags['severity']?.split(',').map((s) => s.trim()).filter(Boolean) ?? null;
+  const ownerFilter = flags['owner'] ?? null;
+
+  const matched = entries.filter((e) => {
+    if (stateFilter && !stateFilter.includes(e.state)) return false;
+    if (sevFilter && !sevFilter.includes(e.severity)) return false;
+    if (ownerFilter && !e.owner_agent.includes(ownerFilter)) return false;
+    return true;
+  });
+
+  const format = flags['format'] ?? 'table';
+  if (format === 'id-only') {
+    for (const e of matched) console.log(e.id);
+    return 0;
+  }
+  if (format === 'json') {
+    console.log(JSON.stringify(matched, null, 2));
+    return 0;
+  }
+  // table (default)
+  if (matched.length === 0) {
+    const criteria = [
+      stateFilter ? `state=${stateFilter.join(',')}` : null,
+      sevFilter ? `severity=${sevFilter.join(',')}` : null,
+      ownerFilter ? `owner=${ownerFilter}` : null,
+    ].filter(Boolean).join(' ') || 'all';
+    console.log(`(no findings matched: ${criteria})`);
+    return 0;
+  }
+  const header = ['ID', 'SEV', 'STATE', 'OWNER', 'TITLE'];
+  const rows = matched.map((e) => [
+    e.id,
+    e.severity,
+    e.state,
+    e.owner_agent,
+    e.title.length > 60 ? e.title.slice(0, 57) + '...' : e.title,
+  ]);
+  const widths = header.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)),
+  );
+  const fmtRow = (r: readonly string[]): string =>
+    r.map((c, i) => c.padEnd(widths[i] ?? 0)).join('  ');
+  console.log(fmtRow(header));
+  console.log(widths.map((w) => '-'.repeat(w)).join('  '));
+  for (const r of rows) console.log(fmtRow(r));
+  console.log(`\n${matched.length} / ${entries.length} entries matched.`);
+  return 0;
+}
+
 function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
-    console.error('Usage: finding-registry <verify|add|close|sweep|export> [args]');
+    console.error('Usage: finding-registry <verify|add|close|sweep|export|list> [args]');
     console.error('  verify');
     console.error('  add <stub.json>');
     console.error('  close <finding-id> <short-sha>');
     console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
+    console.error('  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]');
     process.exit(2);
   }
 
@@ -508,6 +593,8 @@ function main(): void {
     exitCode = cmdExport(format);
   } else if (sub === 'sweep') {
     exitCode = cmdSweep(args);
+  } else if (sub === 'list') {
+    exitCode = cmdList(args);
   } else {
     console.error(`Unknown subcommand: ${sub}`);
     process.exit(2);

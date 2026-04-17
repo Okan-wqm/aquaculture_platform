@@ -8,22 +8,111 @@
  * schema-owning) is cross-cutting and drift detection requires
  * unconditional execution.
  *
+ * =============================================================================
+ * Phase 14.3 sharding (docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#14.3):
+ *
+ * Pre-phase-14 the suite ran sequentially at ~18-23s wall time. The
+ * two heavy specs (orchestrator-routing-coverage at ~14s and
+ * agent-ownership-uniqueness at ~10s) serialize ts-jest compile cost.
+ * Splitting into 3 Jest `projects` + `--maxWorkers=3` parallelises
+ * compilation across shards and takes wall time to max(heavy-spec)
+ * + startup ≈ ~13-15s, meeting the `invariants:fast` <15s SLO.
+ *
+ * Shard assignment:
+ *
+ *   layer-1 (knowledge SSoT + registry integrity):
+ *     - knowledge-ssot.spec.ts
+ *     - finding-registry-integrity.spec.ts
+ *     - upcaster-chain.spec.ts
+ *
+ *   layer-3 (routing + ownership):
+ *     - orchestrator-routing-coverage.spec.ts
+ *     - agent-ownership-uniqueness.spec.ts
+ *
+ *   registry (adoption + cross-cutting SSoT consumers):
+ *     - adoption-invariants.spec.ts
+ *
+ * Rationale: heavy specs are split across layer-3 to pair the slowest
+ * (~14s) spec with the next-slowest (~10s) so neither shard idles.
+ * layer-1 bundles the 3 fastest specs (each < 1s) which individually
+ * would under-use a shard. registry shard owns adoption-invariants
+ * alone because adoption probes the app.module.ts of every schema-
+ * owning service (large AST read surface) and benefits from isolation.
+ *
+ * A new spec goes in whichever shard its subject matter lives in;
+ * if a shard's wall time crosses ~12s, rebalance by promoting the
+ * heaviest member of that shard to its own shard.
+ *
+ * Every project sets `rootDir: __dirname` explicitly and scopes
+ * `testMatch` to files inside this directory only. Without this,
+ * jest-haste-map scans the repo root (104k+ files under worktrees/
+ * and node_modules shadows) and takes >60s before even starting.
+ *
  * Plan ref: /root/.claude/plans/declarative-riding-shamir.md D.2
+ *           docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#14.3
+ * =============================================================================
  */
+
+import { resolve } from 'path';
+
+// Resolve the invariant-dir relative to cwd when jest is invoked with
+// `--config tests/invariants/jest.config.ts`. Avoids `__dirname` which
+// is not defined when ts-jest transpiles as ESM under newer Node/Jest.
+const INVARIANT_DIR = resolve(process.cwd(), 'tests/invariants');
+
+const baseTransform = {
+  '^.+\\.[tj]s$': [
+    'ts-jest',
+    {
+      tsconfig: resolve(INVARIANT_DIR, 'tsconfig.spec.json'),
+      // Skip full type-check on every compile — ts-jest's default
+      // project-wide type-check dominates startup (~5s per spec file).
+      // The invariant suite's type safety is already enforced by the
+      // `type-check` root script (tsc --noEmit platform-wide); this
+      // transform needs only syntactic transpilation.
+      isolatedModules: true,
+    },
+  ],
+};
+
+const commonProjectOptions = {
+  rootDir: INVARIANT_DIR,
+  // `roots` pins Jest's file scan to this directory only. Without it
+  // jest-haste-map walks up to the repo root and scans ~104k files
+  // (worktrees, node_modules shadows) — adds 60+s of cold-start cost
+  // per invocation. See commit message for Phase 14.3.
+  roots: ['<rootDir>'],
+  testEnvironment: 'node' as const,
+  moduleFileExtensions: ['ts', 'js', 'html'],
+  transform: baseTransform,
+};
 
 export default {
   displayName: 'invariants',
-  preset: '../../jest.preset.js',
-  testEnvironment: 'node',
-  testMatch: ['<rootDir>/**/*.spec.ts'],
-  transform: {
-    '^.+\\.[tj]s$': [
-      'ts-jest',
-      {
-        tsconfig: '<rootDir>/tsconfig.spec.json',
-      },
-    ],
-  },
-  moduleFileExtensions: ['ts', 'js', 'html'],
+  rootDir: INVARIANT_DIR,
   passWithNoTests: false,
+  projects: [
+    {
+      ...commonProjectOptions,
+      displayName: 'layer-1',
+      testMatch: [
+        '<rootDir>/knowledge-ssot.spec.ts',
+        '<rootDir>/finding-registry-integrity.spec.ts',
+        '<rootDir>/upcaster-chain.spec.ts',
+      ],
+    },
+    {
+      ...commonProjectOptions,
+      displayName: 'layer-3',
+      testMatch: [
+        '<rootDir>/orchestrator-routing-coverage.spec.ts',
+        '<rootDir>/agent-ownership-uniqueness.spec.ts',
+      ],
+    },
+    {
+      ...commonProjectOptions,
+      displayName: 'registry',
+      testMatch: ['<rootDir>/adoption-invariants.spec.ts'],
+    },
+  ],
 };

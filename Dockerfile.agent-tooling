@@ -1,0 +1,140 @@
+# syntax=docker/dockerfile:1.7
+# =============================================================================
+# Dockerfile.agent-tooling — Phase 14.2 reproducible agent-tooling base
+# =============================================================================
+#
+# docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#14.2
+#
+# This image is the reproducible substrate for running:
+#
+#   - The Phase 2 gate suite (banned-phrase, migration-sql-lint,
+#     tier-claim-lint, commit-msg-validator, finding-registry).
+#   - The invariant test suite (tests/invariants/**) via
+#     `npm run invariants:fast` / `invariants:full`.
+#   - The orchestrator-runner CLI (tools/scripts/orchestrator-runner.ts)
+#     when the runner is invoked from a pipeline job that must not
+#     inherit the host's node/npm version.
+#
+# The image deliberately does NOT include the full monorepo's runtime
+# deps (NestJS apps, React modules, native bindings for piscina, etc.).
+# Those belong in app-specific images. This image is agent-tooling
+# only: TypeScript, ts-morph, Jest, ts-jest, Ajv, gh-cli.
+#
+# ## Why a dedicated image
+#
+# Running `npx ts-morph@X.Y.Z` in CI is subject to registry outages
+# + tarball churn + transient network failures. A pinned layer cache
+# turns the registry hit into a build-time concern (stable inside
+# the image's lifetime) rather than a per-CI-run concern.
+#
+# ## Rebuild cadence
+#
+# Rebuild on any bump to:
+#   - node engine version
+#   - tooling dep (ts-morph, ajv, jest, ts-jest, gh)
+#   - gate CLI shape (rare — the gates use stdlib + above deps only)
+#
+# Tag: aquaculture-agent-tooling:<commit-sha-short>
+# Push: ghcr.io/okan-wqm/aquaculture-agent-tooling:<tag>
+# =============================================================================
+
+# Pinned base: node:22.11.0-alpine3.20 (SHA will land when first build runs).
+# Alpine chosen for small attack surface + small layer size. Tool-only
+# binaries (gh-cli is a static Go binary) work on musl without issue.
+FROM node:22.11.0-alpine3.20 AS base
+
+WORKDIR /workspace
+
+# Non-root by default (CIS Docker 4.1).
+# Alpine's `node` user exists at UID 1000; fall back to creating an
+# unprivileged user if the base image ever drops the default.
+RUN set -eux; \
+  if ! id -u node >/dev/null 2>&1; then \
+    addgroup -g 1000 -S node; \
+    adduser -u 1000 -S -G node -s /bin/sh node; \
+  fi
+
+# System deps: git (for ripple-tracer git ls-files), bash (for husky
+# hooks testing), ca-certificates (https), curl (gh-cli install),
+# jq (gh api response parsing). Pinned to Alpine 3.20 default versions.
+RUN apk add --no-cache \
+    bash \
+    ca-certificates \
+    curl \
+    git \
+    jq \
+  && rm -rf /var/cache/apk/*
+
+# gh-cli: required by finding-registry verify+close flows + workflow
+# SHA verification (architectural requirement per memory rule).
+# Pinned to a known-good version; update when the workflows that call
+# gh bump their minimum version.
+ARG GH_CLI_VERSION=2.60.1
+RUN set -eux; \
+  curl -fsSL -o /tmp/gh.tar.gz \
+    "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"; \
+  tar -xzf /tmp/gh.tar.gz -C /tmp; \
+  mv "/tmp/gh_${GH_CLI_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh; \
+  rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_CLI_VERSION}_linux_amd64"; \
+  gh --version
+
+# ---------- Tool-dep install layer ------------------------------------------
+#
+# Global installs (kept minimal so the image stays single-purpose):
+#   - ts-node   — orchestrator-runner + runner profiles invocation path.
+#                 Uses tools/gates/tsconfig.json (CommonJS + transpileOnly).
+#   - jest      — invariants runner.
+#   - ts-jest   — TS transform used by invariants.
+#   - ts-morph  — tier-claim-lint AST parser.
+#   - ajv       — finding-registry schema validation.
+#
+# Versions pinned to match the repo's `devDependencies` where applicable;
+# a version drift between repo + image is a CI amber — the agent-tooling
+# image is authoritative for gate behaviour.
+
+ARG TS_NODE_VERSION=10.9.2
+ARG JEST_VERSION=30.0.5
+ARG TS_JEST_VERSION=29.4.6
+ARG TS_MORPH_VERSION=24.0.0
+ARG AJV_VERSION=8.17.1
+ARG TYPESCRIPT_VERSION=5.3.3
+
+RUN npm install -g --omit=dev \
+    "ts-node@${TS_NODE_VERSION}" \
+    "jest@${JEST_VERSION}" \
+    "ts-jest@${TS_JEST_VERSION}" \
+    "ts-morph@${TS_MORPH_VERSION}" \
+    "ajv@${AJV_VERSION}" \
+    "typescript@${TYPESCRIPT_VERSION}" \
+  && npm cache clean --force
+
+# ---------- Verification ----------------------------------------------------
+
+RUN node --version \
+  && npm --version \
+  && ts-node --version \
+  && jest --version \
+  && gh --version
+
+# ---------- Runtime ---------------------------------------------------------
+
+USER node
+
+# Entrypoint is intentionally left unset — this is a tooling base,
+# not an application image. Callers supply their own command:
+#
+#   docker run --rm -v "$PWD:/workspace" aquaculture-agent-tooling \
+#     ts-node --project tools/gates/tsconfig.json \
+#             tools/scripts/orchestrator-runner.ts --topic smoke --dry-run
+#
+#   docker run --rm -v "$PWD:/workspace" aquaculture-agent-tooling \
+#     jest --config tests/invariants/jest.config.ts --maxWorkers=3
+#
+#   docker run --rm -v "$PWD:/workspace" aquaculture-agent-tooling \
+#     ts-node --project tools/gates/tsconfig.json \
+#             tools/gates/finding-registry.ts list --state OPEN
+
+LABEL org.opencontainers.image.title="aquaculture-agent-tooling" \
+      org.opencontainers.image.description="Reproducible base for Phase 2 gates, invariant suite, and orchestrator-runner" \
+      org.opencontainers.image.source="https://github.com/Okan-wqm/aquaculture_platform" \
+      org.opencontainers.image.licenses="MIT"

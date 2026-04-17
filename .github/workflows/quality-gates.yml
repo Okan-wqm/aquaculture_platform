@@ -1,17 +1,25 @@
 name: Quality Gates
 
 # =============================================================================
-# Phase 2 of /root/.claude/plans/abstract-brewing-mochi.md.
+# Phase 2 of docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md.
 #
 # Runs the tools/gates/**.ts CLIs on every PR:
-#   - banned-phrase: scans diff + commit bodies for CLAUDE.md banned phrases
-#   - (Phase 2 future: tier-claim-lint, migration-sql-lint, commit-msg-validator)
+#   - banned-phrase        : scans diff + commit bodies for CLAUDE.md banned
+#                            phrases (live)
+#   - migration-sql-lint   : enforces data-expert's migration-delta safety
+#                            invariants on newly-added or modified migration
+#                            files — R1 destructive marker, R2 single-step
+#                            NOT NULL, R3 non-concurrent index on live table,
+#                            R4 session-scoped SET search_path, R5 overbroad
+#                            EXCEPTION catch (live)
+#   - (Phase 2 future: tier-claim-lint)
+#
+# commit-msg-validator lives in closes-footer-check.yml because its surface
+# is the commit trailer itself, not a diff walk.
 #
 # These gates are the Tier-3 automated enforcement backing CLAUDE.md's
 # "Architectural Approach" section (no patches, no workarounds, no deferrals
 # without owner + deadline + finding-ID, OR plan-phase reference).
-#
-# Reference: tools/gates/README.md (to be written as Phase 2 progresses).
 # =============================================================================
 
 on:
@@ -59,7 +67,18 @@ jobs:
           echo "Checking range: $BASE..$HEAD"
 
       - name: Run banned-phrase gate
+        id: banned-phrase
         run: |
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/banned-phrase.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      # `if: always()` so a banned-phrase failure does not hide a migration
+      # finding. Both gates independent; surfacing both failures in one run
+      # saves a retry cycle.
+      - name: Run migration-sql-lint gate
+        if: always()
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/migration-sql-lint.ts \
             --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"

@@ -26,7 +26,10 @@
  *                                                            with owner+deadline+finding-ID and quote
  *                                                            the banned-phrase list itself verbatim
  *   - CHANGELOG.md                                         — historical record
- *   - .claude/{agents.legacy,agents-enterprise-v2,knowledge}/** — agent prompts may reference banned phrases in rule definitions
+ *   - .claude/{agents.legacy,agents-enterprise-v2,knowledge,skills}/** — agent prompts, knowledge
+ *                                                            SSoT, and skills catalog may legitimately
+ *                                                            reference banned phrases in rule
+ *                                                            definitions and architectural-gate citations
  *   - CLAUDE.md                                            — canonical source of the banned list
  *   - tools/gates/banned-phrase.ts                         — this file itself
  *   - tests/invariants/**                                  — invariant specs may reference banned phrases by name
@@ -110,6 +113,7 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents-enterprise-v2\//,
   /^\.claude\/knowledge\//,
+  /^\.claude\/skills\//,
   /^\.claude\/test-agents\//,
   /^CLAUDE\.md$/,
   /^tools\/gates\/banned-phrase\.(ts|mjs)$/,

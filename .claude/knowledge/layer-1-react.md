@@ -33,15 +33,26 @@ Depends on: `layer-1-core.md` (TypeScript 5.3). React 19 Server Actions are NOT 
 ## Server state + tenant scoping
 
 - **React Query (`@tanstack/react-query`)** — canonical server-state manager. Per ADR-009 frontend data-fetch pattern.
-- **`createTenantQueryKey(tenantId, ...segments)`** — SSoT tenant-scoped key factory in `web/shared-ui/src/utils/tenant-query-keys.ts` (returns `['tenant', tenantId, ...segments] as const`). `tenantId` is the FIRST parameter followed by variadic segments — inverted order produces cross-tenant cache bleed. Adopted in 4 of ~30+ modules as of W1 (FE-CRITICAL-001). Farm-module alone has 265 non-conforming `queryKey` arrays. Tenant switch cannot purge previous-tenant cache — cross-tenant leak vector.
-- **W6 ESLint rule** `no-bare-tenant-query-key` (BLOCKER-20 family) detects bare arrays and demands `createTenantQueryKey`.
+- **`createTenantQueryKey(tenantId, ...segments)`** — SSoT tenant-scoped key factory in `web/shared-ui/src/utils/tenant-query-keys.ts` (returns `['tenant', tenantId, ...segments] as const`). `tenantId` is the FIRST parameter followed by variadic segments — inverted order produces cross-tenant cache bleed.
+- **Adoption count (as of 2026-04-17)** — 4 of ~30+ modules use the factory; **386 non-conforming `queryKey` arrays** across `web/` (FE-CRITICAL-001). Farm-module alone: 265 sites. Sensor-module: 64. Admin-panel: 32. Hr-module: 18. Hydroponics-module: 7. Tenant-admin: under 10 — already partial adopter. Tenant switch cannot purge previous-tenant cache from any of the 386 sites — cross-tenant leak vector until the mass migration (Phase 8.4) lands.
+- **Mass-migration codemod shape** — the AST transform recognises `{ queryKey: [<literal>, <vars>...] }` and rewrites to `{ queryKey: createTenantQueryKey(tenantId, <literal>, <vars>...) }`. The `tenantId` source is always `useCurrentTenant()` (shared-ui hook). Codemod must refuse to rewrite when a site's lexical scope does not expose `tenantId` — those sites need manual prop threading.
+- **W6 ESLint rule** `no-bare-tenant-query-key` (BLOCKER-20 family) — already authored as `tools/eslint-rules/rules/no-bare-graphql-query-string.ts`'s neighbour; detects bare arrays passed to `queryKey:` prop positions and demands `createTenantQueryKey`. Rule is inactive until the mass migration clears the existing 386 violations (otherwise CI is a permanent red).
 - **`staleTime` default** — 5 minutes for cross-service joins; 30s for high-churn streams. Customise per query; don't set globally.
+- **Cache purge on tenant switch** — `queryClient.removeQueries({ queryKey: ['tenant', prevTenantId] })`. Only works if ALL keys are produced by `createTenantQueryKey` — mixing bare arrays defeats the purge. This is why FE-CRITICAL-001 is CRITICAL, not HIGH: the leak is structurally present until every site conforms.
 
-## GraphQL codegen
+## GraphQL codegen — orphan resolution
 
-- **`codegen.ts`** defines the pipeline wired to 8 service schemas. Output path `web/shared-ui/src/generated/graphql-types.ts` **does not exist on disk** — codegen is orphaned. Every `any` / `as any` in `web/` GraphQL sites (114 + 89 respectively per W1 anti-pattern scan) is a consequence.
-- **`client-preset` + `typed-document-node`** — target migration state. One PR re-wires codegen + migrates all sites. W7 deliverable.
-- **Fragment masking** — enable via client-preset `presetConfig.fragmentMasking: true` so consumer components only see fields they explicitly fragment.
+- **`codegen.ts`** defines the pipeline wired to 8 service schemas (gateway-api + 7 subgraph schemas). Output path `web/shared-ui/src/generated/graphql-types.ts` **does not exist on disk** — codegen is orphaned. Every `any` / `as any` in `web/` GraphQL sites (114 `any` + 89 `as any` + 243 hand-written query strings in `web/` per W1 anti-pattern scan) is a downstream consequence.
+- **Why orphaned** — the pipeline was wired before the generated file was committed; subsequent developers saw no output file, assumed codegen was incomplete, and wrote hand-typed resolvers. No CI gate enforces `npm run codegen && git diff --exit-code` (Phase 14 gap).
+- **Rewire strategy (W7 deliverable, paired with Phase 8.4 mass migration)** —
+  1. Run `codegen.ts` against the live federated supergraph (not individual subgraph schemas) so the generated types include the federated composition.
+  2. Replace the `preset: 'typescript'` + `plugins: [...]` stanza with `preset: 'client'` (client-preset).
+  3. Configure `presetConfig: { fragmentMasking: true, persistedDocuments: false }` — fragment masking enforces that consumer components only see fields they explicitly fragment (prevents "I forgot to add this field to the fragment, but it still renders because we spread everything" bug class).
+  4. Land the first-time-generated output in the SAME PR that deletes the 243 hand-written query strings; partial migrations leave the codebase in an inconsistent state where some sites have typed `TypedDocumentNode<Data, Variables>` and others have untyped strings.
+  5. Add CI gate: `npm run codegen && git diff --exit-code web/shared-ui/src/generated/` — fails the PR if generated code is stale.
+- **`TypedDocumentNode<Data, Variables>`** — the target shape. `useQuery(QUERY_DOC)` becomes fully typed without explicit generic args. `no-bare-graphql-query-string` ESLint rule (authored W7) enforces — must be active after the mass migration clears the existing 243 violations.
+- **Fragment masking** — with `fragmentMasking: true`, a parent component reading a fragment sees ONLY the fields it declared; deep fields come via `useFragment(FRAGMENT, mask)`. This is NOT just cosmetic — it's what makes fragment boundaries load-bearing at the type level, which in turn lets the codegen produce minimal network requests (no over-fetching by accident).
+- **GraphQL Federation v2 awareness** — `@key`-bearing entities must have a corresponding fragment in shared-ui so consumer components can reference them cross-subgraph. See `layer-1-nestjs.md` → GraphQL Federation v2 for the subgraph side of this contract.
 
 ## Styling (ADR-010)
 

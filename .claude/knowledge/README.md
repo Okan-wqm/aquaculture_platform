@@ -27,8 +27,10 @@ Split across per-domain shards so `edge-expert` does not load NestJS, `frontend-
 | `layer-1-core.md` | Every agent — cross-cutting type-system discipline, TS 5.3, Nx 22.3 |
 | `layer-1-nestjs.md` | Backend-oriented agents — NestJS 11.1.17, @nestjs/cqrs, guards/pipes/interceptors |
 | `layer-1-typeorm.md` | data-expert, database-reviewer, domain experts — TypeORM 0.3.27 DataSource API, migrations |
+| `layer-1-timescaledb.md` | sensor-expert, data-expert, observability-expert — TimescaleDB 2.17.2-pg16 hypertables + continuous aggregates + retention |
 | `layer-1-react.md` | frontend-expert — React 18.2/18.3.1 mixed, Vite ^5, Module Federation |
 | `layer-1-rust.md` | edge-expert — Tokio 1.43, axum 0.8, rustls, thiserror |
+| `layer-1-ai.md` | ai-expert, ai-safety-expert, cost-attribution reviewers — Claude Agent SDK 0.2.37 prompt caching + tool use + streaming |
 
 ### Layer 2 — Architectural patterns
 

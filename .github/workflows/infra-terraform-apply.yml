@@ -138,7 +138,7 @@ jobs:
       - name: Notify Slack on success
         if: success()
         # SEC-CI-002: pinned to SHA (was @v3)
-        uses: 8398a7/action-slack@047b09b154480ed39076984b64f324fff010d703 # v3.9.3
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
         with:
           status: success
           channel: '#devops'
@@ -149,7 +149,7 @@ jobs:
       - name: Notify Slack on failure
         if: failure()
         # SEC-CI-002: pinned to SHA (was @v3)
-        uses: 8398a7/action-slack@047b09b154480ed39076984b64f324fff010d703 # v3.9.3
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
         with:
           status: failure
           channel: '#devops'
@@ -246,7 +246,7 @@ jobs:
       - name: Notify Slack on success
         if: success()
         # SEC-CI-002: pinned to SHA (was @v3)
-        uses: 8398a7/action-slack@047b09b154480ed39076984b64f324fff010d703 # v3.9.3
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
         with:
           status: success
           channel: '#devops'
@@ -257,7 +257,7 @@ jobs:
       - name: Notify Slack on failure
         if: failure()
         # SEC-CI-002: pinned to SHA (was @v3)
-        uses: 8398a7/action-slack@047b09b154480ed39076984b64f324fff010d703 # v3.9.3
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
         with:
           status: failure
           channel: '#devops'

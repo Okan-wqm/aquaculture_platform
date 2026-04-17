@@ -30,7 +30,7 @@ jobs:
       # Results are still uploaded to GitHub Security → Code Scanning for review.
       - name: Run Trivy filesystem scan
         # SEC-CI-002: pinned to SHA (was @master)
-        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -66,7 +66,7 @@ jobs:
       # SEC-CI-008: exit-code '1' ensures CVEs block the pipeline
       - name: Run Trivy on pre-built image
         # SEC-CI-002: pinned to SHA (was @master)
-        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: 'ghcr.io/${{ github.repository }}/gateway-api:latest'
           format: 'sarif'

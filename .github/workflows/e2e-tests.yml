@@ -44,7 +44,7 @@ jobs:
         # Pinned to commit SHA: mutable @v1 tag replaced with SHA for supply chain safety.
         # BEFORE: appleboy/ssh-action@v1 could silently update to a new version on each run.
         # The rest of the repo (checkout, setup-node) already pins to SHAs — this aligns.
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           PROJECT: ${{ github.event.inputs.project || 'all' }}
           # JWT_SECRET and DB_PASSWORD injected via env + envs, NOT grepped from .env.
